@@ -8,6 +8,7 @@ const scrypt = promisify(scryptCallback);
 const SESSION_COOKIE = "codelocal_session";
 const CSRF_COOKIE = "codelocal_csrf";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const DUMMY_LOGIN_SALT = "codelocal-login-timing-padding-v1";
 
 export type WebIdentity = {
   user: CloudUser;
@@ -113,19 +114,19 @@ export async function requireWebUser(req: Request, res: Response, next: NextFunc
   next();
 }
 
-function authForm(mode: "login" | "register", csrf: string, next: string, error?: string) {
-  const register = mode === "register";
+function authForm(mode: "login" | "signup", csrf: string, next: string, error?: string) {
+  const signup = mode === "signup";
   return authPage({
-    title: register ? "Create your CodeLocal account" : "Welcome back",
-    subtitle: register ? "One account connects ChatGPT to your development machines." : "Sign in to manage your devices, workspaces and MCP extensions.",
+    title: signup ? "Create your CodeLocal account" : "Welcome back",
+    subtitle: signup ? "One account connects ChatGPT to your development machines." : "Sign in to manage your devices, workspaces and MCP extensions.",
     body: `${error ? `<div class="alert">${escapeHtml(error)}</div><div style="height:14px"></div>` : ""}<form class="form" method="post" action="/${mode}">
       <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
       <input type="hidden" name="next" value="${escapeHtml(next)}">
       <div class="field"><label>Email</label><input class="input" type="email" name="email" autocomplete="email" maxlength="254" required autofocus></div>
-      <div class="field"><label>Password</label><input class="input" type="password" name="password" autocomplete="${register ? "new-password" : "current-password"}" minlength="10" maxlength="256" required></div>
-      ${register ? `<div class="hint">Use at least 10 characters. Passwords are scrypt-hashed; CodeLocal never stores the original password.</div>` : ""}
-      <button class="btn primary" type="submit">${register ? "Create account" : "Sign in"}</button>
-    </form><div class="auth-switch">${register ? `Already have an account? <a href="/login?next=${encodeURIComponent(next)}">Sign in</a>` : `New to CodeLocal? <a href="/register?next=${encodeURIComponent(next)}">Create an account</a>`}</div>`,
+      <div class="field"><label>Password</label><input class="input" type="password" name="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="10" maxlength="256" required></div>
+      ${signup ? `<div class="hint">Use at least 10 characters. Passwords are scrypt-hashed; CodeLocal never stores the original password.</div>` : ""}
+      <button class="btn primary" type="submit">${signup ? "Create account" : "Sign in"}</button>
+    </form><div class="auth-switch">${signup ? `Already have an account? <a href="/login?next=${encodeURIComponent(next)}">Sign in</a>` : `New to CodeLocal? <a href="/signup?next=${encodeURIComponent(next)}">Create an account</a>`}</div>`,
   });
 }
 
@@ -145,7 +146,9 @@ webAuthRouter.post("/login", async (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   const password = String(req.body?.password ?? "");
   const user = validEmail(email) ? await cloudStore.userByEmail(email) : null;
-  const valid = user ? await verifyPassword(password, user.passwordSalt, user.passwordHash).catch(() => false) : false;
+  let valid = false;
+  if (user) valid = await verifyPassword(password, user.passwordSalt, user.passwordHash).catch(() => false);
+  else if (password.length <= 256) await derivePassword(password, DUMMY_LOGIN_SALT).catch(() => undefined);
   if (!user || !valid) {
     await cloudStore.audit(user?.id, "auth.login_failed", { email });
     res.status(401).type("html").send(authForm("login", csrf, next, "Email or password is incorrect."));
@@ -157,19 +160,24 @@ webAuthRouter.post("/login", async (req, res) => {
   res.redirect(303, next);
 });
 
-webAuthRouter.get("/register", async (req, res) => {
-  if (await getWebIdentity(req)) { res.redirect(302, safeNext(req.query.next)); return; }
-  const csrf = ensureCsrf(req, res);
-  res.type("html").send(authForm("register", csrf, safeNext(req.query.next)));
+webAuthRouter.get("/register", (req, res) => {
+  const next = safeNext(req.query.next);
+  res.redirect(302, `/signup?next=${encodeURIComponent(next)}`);
 });
 
-webAuthRouter.post("/register", async (req, res) => {
+webAuthRouter.get("/signup", async (req, res) => {
+  if (await getWebIdentity(req)) { res.redirect(302, safeNext(req.query.next)); return; }
+  const csrf = ensureCsrf(req, res);
+  res.type("html").send(authForm("signup", csrf, safeNext(req.query.next)));
+});
+
+webAuthRouter.post("/signup", async (req, res) => {
   const csrf = ensureCsrf(req, res);
   const next = safeNext(req.body?.next);
-  if (!verifyCsrf(req)) { res.status(403).type("html").send(authForm("register", csrf, next, "Security token expired. Please try again.")); return; }
+  if (!verifyCsrf(req)) { res.status(403).type("html").send(authForm("signup", csrf, next, "Security token expired. Please try again.")); return; }
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   const password = String(req.body?.password ?? "");
-  if (!validEmail(email)) { res.status(400).type("html").send(authForm("register", csrf, next, "Enter a valid email address.")); return; }
+  if (!validEmail(email)) { res.status(400).type("html").send(authForm("signup", csrf, next, "Enter a valid email address.")); return; }
   try {
     const passwordData = await hashPassword(password);
     const user = await cloudStore.createUser(email, passwordData.hash, passwordData.salt);
@@ -179,7 +187,7 @@ webAuthRouter.post("/register", async (req, res) => {
     res.redirect(303, next);
   } catch (error) {
     const message = error instanceof Error && error.message === "EMAIL_ALREADY_REGISTERED" ? "An account with this email already exists." : (error instanceof Error ? error.message : "Unable to create account.");
-    res.status(400).type("html").send(authForm("register", csrf, next, message));
+    res.status(400).type("html").send(authForm("signup", csrf, next, message));
   }
 });
 
