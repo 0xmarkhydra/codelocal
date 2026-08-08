@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { oauthRouter, requireMcpAuth } from "./oauth.js";
 
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -33,7 +34,7 @@ async function callClient(tool: string, args: unknown) {
 }
 
 function createMcpServer() {
-  const server = new McpServer({ name: "codex-mcp-gateway", version: "0.3.0" });
+  const server = new McpServer({ name: "codex-mcp-gateway", version: "0.3.1" });
   const tool = (name: string, title: string, description: string, inputSchema: Record<string, any>) =>
     server.registerTool(name, { title, description, inputSchema }, async (args) => textResult(await callClient(name, args)));
 
@@ -56,8 +57,10 @@ function createMcpServer() {
 
 const app = express();
 app.use(express.json({ limit: "6mb" }));
-app.get("/", (_req, res) => res.json({ name: "codex-mcp", version: "0.3.0", status: "ok", mcp: "/mcp", websocket: "/client", clientOnline: !!clientSocket }));
-app.get("/health", (_req, res) => res.json({ ok: true, version: "0.3.0", clientOnline: !!clientSocket }));
+app.use(oauthRouter);
+app.get("/", (_req, res) => res.json({ name: "codex-mcp", version: "0.3.1", status: "ok", mcp: "/mcp", websocket: "/client", oauth: true, clientOnline: !!clientSocket }));
+app.get("/health", (_req, res) => res.json({ ok: true, version: "0.3.1", oauth: true, clientOnline: !!clientSocket }));
+app.use("/mcp", requireMcpAuth);
 
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 app.post("/mcp", async (req: Request, res: Response) => {
@@ -105,4 +108,4 @@ wss.on("connection", (ws) => {
   });
   ws.on("close", () => { if (clientSocket === ws) clientSocket = null; });
 });
-httpServer.listen(PORT, HOST, () => console.log(`codex-mcp 0.3.0 listening on ${HOST}:${PORT}`));
+httpServer.listen(PORT, HOST, () => console.log(`codex-mcp 0.3.1 listening on ${HOST}:${PORT}`));
