@@ -39,33 +39,42 @@ function escapeSbpl(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\"/g, "\\\"");
 }
 
-async function existingWritableDeveloperPaths() {
+function extraWritableDeveloperPaths() {
+  const raw = process.env.CODELOCAL_EXTRA_WRITABLE_PATHS?.trim();
+  if (!raw) return [];
+  return raw
+    .split(path.delimiter)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => path.resolve(value));
+}
+
+async function writableDeveloperPaths() {
   const home = os.homedir();
   const candidates = [
     "/tmp",
     "/private/tmp",
+    // Dart/Flutter state. Flutter writes telemetry/session state here before a
+    // build begins (for example dart-flutter-telemetry-session.json).
+    path.join(home, ".dart-tool"),
+    path.join(home, ".dartServer"),
+    path.join(home, ".flutter"),
     path.join(home, ".pub-cache"),
     path.join(home, "Library", "Caches"),
     path.join(home, "Library", "Developer", "Xcode", "DerivedData"),
     path.join(home, "Library", "Developer", "Xcode", "Archives"),
     path.join(home, "Library", "Developer", "CoreSimulator"),
+    path.join(home, "Library", "Logs", "CoreSimulator"),
     path.join(home, "Library", "CocoaPods"),
     path.join(home, "develop", "flutter", "bin", "cache"),
+    ...extraWritableDeveloperPaths(),
   ];
   const flutterRoot = process.env.FLUTTER_ROOT?.trim();
   if (flutterRoot) candidates.push(path.join(flutterRoot, "bin", "cache"));
 
-  const out: string[] = [];
-  for (const candidate of candidates) {
-    try {
-      await access(candidate);
-      out.push(candidate);
-    } catch {
-      // Some caches do not exist until first use. Their closest existing parent
-      // is already covered by Library/Caches or /tmp; do not broaden access here.
-    }
-  }
-  return [...new Set(out)];
+  // Sandbox rules may safely name paths that do not exist yet; that is needed
+  // for first-run caches. Keep the list narrow instead of granting all of $HOME.
+  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))];
 }
 
 export class SandboxManager {
@@ -79,7 +88,7 @@ export class SandboxManager {
       return { platform: process.platform, backend: "bubblewrap", mode: "native", available: true, networkMode: this.networkMode, notes: ["workspace is writable; host root is read-only; common credential directories are masked"] };
     }
     if (process.platform === "darwin" && await executableExists("sandbox-exec")) {
-      return { platform: process.platform, backend: "sandbox-exec", mode: "best-effort", available: true, networkMode: this.networkMode, notes: ["sandbox-exec is best-effort; workspace plus narrowly scoped developer caches are writable so Flutter/Xcode tooling can run"] };
+      return { platform: process.platform, backend: "sandbox-exec", mode: "best-effort", available: true, networkMode: this.networkMode, notes: ["sandbox-exec is best-effort; workspace plus narrowly scoped developer caches/state are writable so Flutter/Xcode tooling can run"] };
     }
     if (process.platform === "win32") {
       return { platform: process.platform, backend: "windows-policy", mode: "policy-only", available: false, networkMode: this.networkMode, notes: ["native Windows restricted-token helper is not bundled yet; workspace and command policy still apply"] };
@@ -125,7 +134,7 @@ export class SandboxManager {
         // such as \"Unable to find git in your PATH\".
         "(allow file-write* (literal \"/dev/null\"))",
       ];
-      for (const writable of await existingWritableDeveloperPaths()) {
+      for (const writable of await writableDeveloperPaths()) {
         rules.push(`(allow file-write* (subpath \"${escapeSbpl(writable)}\"))`);
       }
       if (this.networkMode !== "deny") rules.push("(allow network*)");
@@ -141,8 +150,10 @@ export class SandboxManager {
   async smokeTest() {
     const info = await this.info();
     if (!info.available) return { ...info, smokeTest: "not-run" as const };
-    // Verify both stdout and /dev/null because many toolchains depend on it.
-    const wrapped = await this.wrapShell("printf codelocal-sandbox-ok && printf probe >/dev/null", this.workspace);
+    // Verify stdout, /dev/null and Dart state because Flutter depends on all of
+    // them before the application build itself starts.
+    const dartState = path.join(os.homedir(), ".dart-tool", ".codelocal-sandbox-probe");
+    const wrapped = await this.wrapShell(`printf codelocal-sandbox-ok && printf probe >/dev/null && mkdir -p \"${dartState.replace(/\/\.codelocal-sandbox-probe$/, "")}\" && printf probe >\"${dartState}\" && rm -f \"${dartState}\"`, this.workspace);
     return await new Promise<Record<string, unknown>>((resolve) => {
       const child = spawn(wrapped.command, wrapped.args, { cwd: wrapped.cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env });
       let stdout = "";
