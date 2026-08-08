@@ -62,9 +62,9 @@ export class ProjectContextEngine {
   }
 
   async refresh(force = false) {
-    await this.intelligence.ensureFresh(force);
+    const summary = await this.intelligence.ensureFresh(force);
     if (force) this.cached = null;
-    return this.intelligence.summary();
+    return summary;
   }
 
   private async packageMetadata(manifests: string[]) {
@@ -93,12 +93,11 @@ export class ProjectContextEngine {
   }
 
   async map(force = false): Promise<ProjectMap> {
-    await this.intelligence.ensureFresh(force);
-    if (this.cached && !force) return this.cached;
+    const indexSummary = await this.intelligence.ensureFresh(force);
+    if (this.cached && !force && this.cached.intelligence.builtAt === indexSummary.builtAt && this.cached.intelligence.dirty === indexSummary.dirty) return this.cached;
 
     const records = this.intelligence.allFiles();
     const files = records.map((record) => record.path);
-    const fileSet = new Set(files);
     const manifests = records.filter((record) => record.kind === "manifest").map((record) => record.path);
     const lockfiles = files.filter((file) => /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|poetry\.lock|uv\.lock|Cargo\.lock|go\.sum|composer\.lock|pubspec\.lock|Gemfile\.lock|Podfile\.lock)$/i.test(file));
     const languages = unique(records.map((record) => normalizeLanguage(record.language)).filter((value): value is string => !!value));
@@ -178,7 +177,7 @@ export class ProjectContextEngine {
       instructionFiles,
       modules: [...moduleCandidates].slice(0, 300),
       packageManager,
-      intelligence: this.intelligence.summary(),
+      intelligence: indexSummary,
     };
     return this.cached;
   }
