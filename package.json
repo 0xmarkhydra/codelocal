@@ -1,9 +1,9 @@
 {
   "name": "codex-mcp",
-  "version": "1.1.0-dev.1",
+  "version": "1.2.0-dev.0",
   "private": true,
   "type": "module",
-  "description": "CodeLocal smart workspace development branch with incremental code intelligence, context ranking, sandboxed execution and auditable local actions.",
+  "description": "CodeLocal smart MCP development branch with native workspace events, incremental code intelligence, per-root LSP routing, context ranking, sandboxed execution and auditable local actions.",
   "bin": {
     "codelocal": "dist/cli.js"
   },
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.2",
+    "@parcel/watcher": "^2.6.0",
     "chokidar": "^4.0.3",
     "express": "^5.1.0",
     "ignore": "^7.0.5",
