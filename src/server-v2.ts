@@ -11,8 +11,9 @@ import { log, summarizeToolArgs } from "./log.js";
 import { PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, isSideEffectingTool, protocolCompatible } from "./protocol.js";
 import { DeviceStore } from "./device-store.js";
 import { audit } from "./audit.js";
+import { bridgeMcpToolResult } from "./mcp-bridge.js";
 
-const VERSION = "1.0.0-beta.1";
+const VERSION = "1.3.0-dev.0";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
@@ -24,7 +25,7 @@ const ALLOW_LEGACY_DEVICE_TOKEN = process.env.ALLOW_LEGACY_DEVICE_TOKEN !== "0" 
 const deviceStore = new DeviceStore();
 
 type ClientCapabilities = {
-  filesystem?: boolean; git?: boolean; shell?: boolean; pty?: boolean; sandbox?: string; semanticProviders?: string[]; idempotency?: boolean; cancellation?: boolean; approvals?: boolean;
+  filesystem?: boolean; git?: boolean; shell?: boolean; pty?: boolean; sandbox?: string; semanticProviders?: string[]; idempotency?: boolean; cancellation?: boolean; approvals?: boolean; mcpHub?: boolean;
 };
 
 type ClientRecord = {
@@ -76,6 +77,7 @@ function resolveClient(selectedKey?: string | null) {
 
 async function callClient(tool: string, args: unknown, selectedKey: string | null, options: { signal?: AbortSignal; sessionId?: string } = {}) {
   const client = resolveClient(selectedKey);
+  if (tool.startsWith("mcp_") && !client.capabilities.mcpHub) throw new Error("Selected CodeLocal client does not support MCP Hub. Upgrade the local CLI/runtime.");
   const requestId = randomUUID();
   const startedAt = Date.now();
   const idempotencyKey = isSideEffectingTool(tool) ? requestId : undefined;
@@ -153,6 +155,20 @@ function createMcpServer() {
   remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, sandbox and instructions. Call first.", {});
   remote("project_map", "Project map", "Return cached compact project structure, languages, frameworks, commands and roots.", { force: z.boolean().default(false) });
   remote("context_for_task", "Context for task", "Select likely relevant symbols/files for a task hint before broad repository scans.", { taskHint: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
+
+  remote("mcp_list", "List installed MCPs", "List MCP extensions installed locally for the selected workspace. This does not expose every extension tool to ChatGPT.", {});
+  remote("mcp_search_tools", "Search installed MCP tools", "Search the local cached MCP tool catalog by task intent. Use this instead of guessing extension tool names. Returns only the best matches, not the full tool universe.", { query: z.string().min(1), limit: z.number().int().min(1).max(50).default(8), server: z.string().optional(), refresh: z.boolean().default(false) });
+  remote("mcp_tool_info", "Inspect installed MCP tool", "Get the exact input schema and metadata for one installed MCP tool before calling it.", { server: z.string().min(1), tool: z.string().min(1) });
+  server.registerTool("mcp_call", {
+    title: "Call installed MCP tool",
+    description: "Call one tool from an MCP extension installed in CodeLocal. Prefer mcp_search_tools then mcp_tool_info first. External MCP execution is approval-gated locally and its individual tools are not exposed directly to ChatGPT.",
+    inputSchema: { server: z.string().min(1), tool: z.string().min(1), arguments: z.record(z.unknown()).default({}) },
+  }, async (args: any, extra: any) => {
+    const result = await callClient("mcp_call", args, selected(), { signal: extra?.signal, sessionId: extra?.sessionId });
+    const bridged = bridgeMcpToolResult(result);
+    return (bridged ?? textResult(result)) as any;
+  });
+
   remote("read_instructions", "Read instructions", "Read scoped AGENTS.md and supported coding instructions.", { path: z.string().default(".") });
   remote("list_files", "List files", "Gitignore-aware project listing. Sensitive paths remain blocked.", { path: z.string().default("."), maxDepth: z.number().int().min(0).max(20).default(4), includeIgnored: z.boolean().default(false) });
   remote("file_info", "File metadata", "Read metadata/hash without source content.", { path: z.string().min(1) });
@@ -259,7 +275,7 @@ app.post("/devices/revoke", async (req, res) => {
   res.json({ revoked: await deviceStore.revoke(String(req.body?.credentialId ?? "")) });
 });
 
-app.get("/", (_req, res) => res.json({ name: "codelocal", version: VERSION, protocolVersion: PROTOCOL_VERSION, minProtocolVersion: MIN_PROTOCOL_VERSION, status: "ok", mcp: "/mcp", websocket: "/client", oauth: true, pairing: true, onlineWorkspaces: availableClients().length, pendingToolCalls: pending.size, legacyDeviceTokenEnabled: ALLOW_LEGACY_DEVICE_TOKEN }));
+app.get("/", (_req, res) => res.json({ name: "codelocal", version: VERSION, protocolVersion: PROTOCOL_VERSION, minProtocolVersion: MIN_PROTOCOL_VERSION, status: "ok", mcp: "/mcp", websocket: "/client", oauth: true, pairing: true, mcpHub: true, onlineWorkspaces: availableClients().length, pendingToolCalls: pending.size, legacyDeviceTokenEnabled: ALLOW_LEGACY_DEVICE_TOKEN }));
 app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, protocolVersion: PROTOCOL_VERSION, onlineWorkspaces: availableClients().length, pendingToolCalls: pending.size }));
 app.use("/mcp", requireMcpAuth);
 
@@ -312,7 +328,7 @@ wss.on("connection", (ws) => {
       if (existing && existing.ws !== ws) existing.ws.close(4001, "replaced by newer connection");
       const record: ClientRecord = { key, deviceId, deviceName: String(msg.deviceName ?? identity.deviceName ?? deviceId), workspaceId, workspaceName: String(msg.workspaceName ?? workspaceId), projectRoot: typeof msg.projectRoot === "string" ? msg.projectRoot : undefined, credentialId: identity.credentialId, protocolVersion: version, capabilities: msg.capabilities ?? {}, ws, connectedAt: Date.now(), lastSeenAt: Date.now() };
       clients.set(key, record); socketKeys.set(ws, key); authenticated = true; clearTimeout(authTimer);
-      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true } }));
+      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true, mcpHub: true } }));
       log("info", "client.authenticated", { clientKey: key, protocolVersion: version, capabilities: record.capabilities });
       return;
     }

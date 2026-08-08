@@ -1,9 +1,9 @@
 {
   "name": "codex-mcp",
-  "version": "1.2.0-dev.0",
+  "version": "1.3.0-dev.0",
   "private": true,
   "type": "module",
-  "description": "CodeLocal smart MCP development branch with native workspace events, incremental code intelligence, per-root LSP routing, context ranking, sandboxed execution and auditable local actions.",
+  "description": "CodeLocal smart MCP runtime with code intelligence, local execution and an installable MCP Hub behind a stable ChatGPT-facing tool surface.",
   "bin": {
     "codelocal": "dist/cli.js"
   },

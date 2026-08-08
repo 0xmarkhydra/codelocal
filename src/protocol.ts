@@ -32,6 +32,7 @@ export type ClientCapabilities = {
   idempotency: boolean;
   cancellation: boolean;
   approvals: boolean;
+  mcpHub?: boolean;
 };
 
 export type RegisterMessage = {
@@ -123,5 +124,6 @@ export function isSideEffectingTool(tool: string) {
     "git_unstage",
     "git_commit",
     "git_push",
+    "mcp_call",
   ]).has(tool);
 }
