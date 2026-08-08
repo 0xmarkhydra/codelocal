@@ -1,9 +1,9 @@
 {
   "name": "codex-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Remote MCP coding gateway with a sandboxed local client for filesystem, search, patch, git, shell and process tools.",
+  "description": "Remote MCP coding gateway with OAuth, sandboxed local filesystem tools, code search, patching, git, shell policy and streamed process control.",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
