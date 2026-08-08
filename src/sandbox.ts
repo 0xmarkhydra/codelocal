@@ -35,6 +35,39 @@ function existingSecretDirs() {
   return [".ssh", ".aws", ".gnupg", ".gcloud", ".azure"].map((x) => path.join(home, x));
 }
 
+function escapeSbpl(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\"/g, "\\\"");
+}
+
+async function existingWritableDeveloperPaths() {
+  const home = os.homedir();
+  const candidates = [
+    "/tmp",
+    "/private/tmp",
+    path.join(home, ".pub-cache"),
+    path.join(home, "Library", "Caches"),
+    path.join(home, "Library", "Developer", "Xcode", "DerivedData"),
+    path.join(home, "Library", "Developer", "Xcode", "Archives"),
+    path.join(home, "Library", "Developer", "CoreSimulator"),
+    path.join(home, "Library", "CocoaPods"),
+    path.join(home, "develop", "flutter", "bin", "cache"),
+  ];
+  const flutterRoot = process.env.FLUTTER_ROOT?.trim();
+  if (flutterRoot) candidates.push(path.join(flutterRoot, "bin", "cache"));
+
+  const out: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      out.push(candidate);
+    } catch {
+      // Some caches do not exist until first use. Their closest existing parent
+      // is already covered by Library/Caches or /tmp; do not broaden access here.
+    }
+  }
+  return [...new Set(out)];
+}
+
 export class SandboxManager {
   constructor(private workspace: string, private networkMode: NetworkMode = "approval") {}
 
@@ -46,7 +79,7 @@ export class SandboxManager {
       return { platform: process.platform, backend: "bubblewrap", mode: "native", available: true, networkMode: this.networkMode, notes: ["workspace is writable; host root is read-only; common credential directories are masked"] };
     }
     if (process.platform === "darwin" && await executableExists("sandbox-exec")) {
-      return { platform: process.platform, backend: "sandbox-exec", mode: "best-effort", available: true, networkMode: this.networkMode, notes: ["sandbox-exec is used when present; availability and long-term support vary by macOS version"] };
+      return { platform: process.platform, backend: "sandbox-exec", mode: "best-effort", available: true, networkMode: this.networkMode, notes: ["sandbox-exec is best-effort; workspace plus narrowly scoped developer caches are writable so Flutter/Xcode tooling can run"] };
     }
     if (process.platform === "win32") {
       return { platform: process.platform, backend: "windows-policy", mode: "policy-only", available: false, networkMode: this.networkMode, notes: ["native Windows restricted-token helper is not bundled yet; workspace and command policy still apply"] };
@@ -79,16 +112,22 @@ export class SandboxManager {
     }
 
     if (info.backend === "sandbox-exec") {
-      const escapedWorkspace = this.workspace.replace(/\\/g, "\\\\").replace(/\"/g, "\\\"");
       const rules = [
         "(version 1)",
         "(deny default)",
         "(allow process*)",
+        "(allow signal)",
         "(allow sysctl-read)",
         "(allow file-read*)",
-        `(allow file-write* (subpath \"${escapedWorkspace}\"))`,
-        "(allow file-write* (subpath \"/tmp\"))",
+        `(allow file-write* (subpath \"${escapeSbpl(this.workspace)}\"))`,
+        // Shells and developer tools routinely redirect probes to /dev/null.
+        // Without this explicit rule Flutter reports misleading secondary errors
+        // such as \"Unable to find git in your PATH\".
+        "(allow file-write* (literal \"/dev/null\"))",
       ];
+      for (const writable of await existingWritableDeveloperPaths()) {
+        rules.push(`(allow file-write* (subpath \"${escapeSbpl(writable)}\"))`);
+      }
       if (this.networkMode !== "deny") rules.push("(allow network*)");
       const profile = rules.join(" ");
       return { command: "sandbox-exec", args: ["-p", profile, process.env.SHELL || "/bin/sh", "-lc", command], cwd, sandbox: info };
@@ -102,9 +141,10 @@ export class SandboxManager {
   async smokeTest() {
     const info = await this.info();
     if (!info.available) return { ...info, smokeTest: "not-run" as const };
-    const wrapped = await this.wrapShell("printf codelocal-sandbox-ok", this.workspace);
+    // Verify both stdout and /dev/null because many toolchains depend on it.
+    const wrapped = await this.wrapShell("printf codelocal-sandbox-ok && printf probe >/dev/null", this.workspace);
     return await new Promise<Record<string, unknown>>((resolve) => {
-      const child = spawn(wrapped.command, wrapped.args, { cwd: wrapped.cwd, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(wrapped.command, wrapped.args, { cwd: wrapped.cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env });
       let stdout = "";
       let stderr = "";
       child.stdout.on("data", (d) => { stdout += d.toString(); });
