@@ -9,7 +9,7 @@ import { z } from "zod";
 import { oauthRouter, requireMcpAuth } from "./oauth.js";
 import { log, summarizeToolArgs } from "./log.js";
 import { PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, isSideEffectingTool, protocolCompatible } from "./protocol.js";
-import { DeviceStore } from "./device-store.js";
+import { CloudDeviceStore } from "./cloud-device-store.js";
 import { audit } from "./audit.js";
 import { cloudStore } from "./cloud-store.js";
 import { webAuthRouter, getWebIdentity, requireWebUser, verifyCsrf } from "./saas-auth.js";
@@ -25,7 +25,7 @@ const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS ?? 180_000);
 const HEARTBEAT_MS = Number(process.env.CODELOCAL_HEARTBEAT_MS ?? 20_000);
 const STALE_MS = Number(process.env.CODELOCAL_STALE_MS ?? 70_000);
 const ALLOW_LEGACY_DEVICE_TOKEN = process.env.ALLOW_LEGACY_DEVICE_TOKEN === "1" && !!DEVICE_TOKEN;
-const deviceStore = new DeviceStore();
+const deviceStore = new CloudDeviceStore();
 
 await cloudStore.init();
 
@@ -125,7 +125,10 @@ function createMcpServer(userId: string) {
   const remote = (name: string, title: string, description: string, schema: Record<string, any>) => {
     server.registerTool(name, { title, description, inputSchema: schema }, async (args: any, extra: any) => {
       const result = await callClient(userId, name, args, selectedKey, { signal: extra?.signal, sessionId: extra?.sessionId });
-      if (name === "mcp_call") return bridgeMcpToolResult(result) ?? textResult(result);
+      if (name === "mcp_call") {
+        const bridged = bridgeMcpToolResult(result);
+        return (bridged ?? textResult(result)) as any;
+      }
       return textResult(result);
     });
   };
@@ -253,7 +256,7 @@ app.use((req, res, next) => {
 });
 app.use(webAuthRouter);
 app.use(oauthRouter);
-app.use(createDashboardRouter({ onDeviceRevoked: revokeAndDisconnect }));
+app.use(createDashboardRouter({ onDeviceRevoked: async (userId, credentialId) => { await revokeAndDisconnect(userId, credentialId); } }));
 
 app.get("/", async (req, res) => {
   if (await getWebIdentity(req)) { res.redirect(302, "/dashboard"); return; }
