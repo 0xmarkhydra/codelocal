@@ -17,6 +17,7 @@ const SPECS: LspServerSpec[] = [
   { id: "kotlin-language-server", command: "kotlin-language-server", args: [], languages: ["kotlin"], extensions: [".kt", ".kts"] },
   { id: "lua-language-server", command: "lua-language-server", args: [], languages: ["lua"], extensions: [".lua"] },
   { id: "sourcekit-lsp", command: "sourcekit-lsp", args: [], languages: ["swift"], extensions: [".swift"] },
+  { id: "dart-analyzer", command: "dart", args: ["language-server", "--protocol=lsp"], languages: ["dart"], extensions: [".dart"] },
   { id: "zls", command: "zls", args: [], languages: ["zig"], extensions: [".zig"] },
 ];
 
