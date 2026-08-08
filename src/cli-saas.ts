@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import os from "node:os";
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 import { defaultDeviceIdentity, loadLocalCredential, saveLocalCredential } from "./identity.js";
@@ -101,6 +102,12 @@ async function pair(baseArg = DEFAULT_CLOUD) {
   throw new Error("Pairing expired. Run `codelocal .` again to create a new pairing request.");
 }
 
+function defaultWorkspaceId(project: string) {
+  const slug = path.basename(project).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "workspace";
+  const digest = createHash("sha256").update(project).digest("hex").slice(0, 10);
+  return `${slug}-${digest}`;
+}
+
 async function start(projectArg: string, serverArg?: string) {
   const project = await fs.realpath(path.resolve(projectArg || "."));
   const anyCredential = await loadLocalCredential();
@@ -111,10 +118,13 @@ async function start(projectArg: string, serverArg?: string) {
 
   process.env.PROJECT_ROOT = project;
   process.env.SERVER_URL = server;
+  process.env.CODELOCAL_WORKSPACE_ID ??= defaultWorkspaceId(project);
+  process.env.CODELOCAL_WORKSPACE_NAME ??= path.basename(project);
   process.env.CODELOCAL_ALLOW_SHELL ??= "1";
   process.env.CODELOCAL_APPROVAL_MODE ??= "prompt";
 
   console.log(`CodeLocal workspace: ${project}`);
+  console.log(`Workspace ID: ${process.env.CODELOCAL_WORKSPACE_ID}`);
   console.log(`Cloud: ${wsToHttp(server)}`);
   await import("./client-entry-v2.js");
 }
