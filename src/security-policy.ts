@@ -59,6 +59,7 @@ export function classifyCommand(command: string, networkPolicy: NetworkPolicy = 
   hit(/\b(prisma|typeorm|sequelize|knex|alembic|rails)\b[^\n]*(migrate|migration|db:)/i, "database migration", "HIGH", { approve: true });
   hit(/\b(git\s+(commit|push|tag|merge|rebase))\b/i, "Git write action", "REVIEW", { approve: true });
   hit(/\b(npm|pnpm|yarn|bun|pip|pipx|poetry|uv|cargo|go)\s+(install|add|remove|uninstall|update|upgrade|get)\b/i, "dependency or toolchain change", "REVIEW", { approve: true });
+  hit(/(?:^|[;&|]\s*|\s)(?:fvm\s+flutter|flutter|dart|xcodebuild|xcrun|pod)(?:\s|$)/i, "macOS developer toolchain host execution", "REVIEW", { approve: true });
   const networkPattern = /\b(curl|wget|ssh|scp|sftp|ftp|nc|ncat|telnet)\b/i;
   if (networkPattern.test(normalized)) {
     if (networkPolicy === "deny") hit(networkPattern, "network access denied by policy", "BLOCKED", { block: true });
