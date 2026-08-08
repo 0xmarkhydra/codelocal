@@ -2,7 +2,7 @@ name: CodeLocal CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 jobs:
