@@ -3,7 +3,6 @@ import path from "node:path";
 import os from "node:os";
 import { promises as fs } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { spawn } from "node:child_process";
 import { defaultDeviceIdentity, deleteLocalCredential, loadLocalCredential, saveLocalCredential } from "./identity.js";
 
 function usage() {
@@ -86,7 +85,7 @@ async function start(projectArg: string, serverArg?: string) {
   process.env.SERVER_URL = server;
   process.env.CODELOCAL_ALLOW_SHELL ??= "1";
   process.env.CODELOCAL_APPROVAL_MODE ??= "prompt";
-  await import("./client-v2.js");
+  await import("./client-entry-v2.js");
 }
 
 async function promptSecret(label: string) {
