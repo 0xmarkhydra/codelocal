@@ -1,20 +1,21 @@
 {
   "name": "codex-mcp",
-  "version": "1.3.0-dev.0",
+  "version": "1.4.0-dev.0",
   "private": true,
   "type": "module",
-  "description": "CodeLocal smart MCP runtime with code intelligence, local execution and an installable MCP Hub behind a stable ChatGPT-facing tool surface.",
+  "description": "CodeLocal local development runtime and multi-tenant MCP gateway for ChatGPT with code intelligence, local execution and installable MCP extensions.",
   "bin": {
-    "codelocal": "dist/cli.js"
+    "codelocal": "dist/cli-saas.js"
   },
   "scripts": {
-    "dev": "tsx watch src/server-v2.ts",
+    "dev": "tsx watch src/server-saas.ts",
     "build": "tsc --outDir dist",
     "prepare": "npm run build",
     "prestart": "npm run build",
-    "start": "node dist/server-v2.js",
+    "start": "node dist/server-saas.js",
+    "start:legacy": "node dist/server-v2.js",
     "client": "npm run build --silent && node dist/client-entry-v2.js",
-    "doctor": "npm run build --silent && node dist/cli.js doctor",
+    "doctor": "npm run build --silent && node dist/cli-saas.js doctor",
     "typecheck": "tsc --noEmit",
     "test": "npm run build --silent && node scripts/run-tests.mjs",
     "ci": "npm run typecheck && npm test"
@@ -25,6 +26,8 @@
     "chokidar": "^4.0.3",
     "express": "^5.1.0",
     "ignore": "^7.0.5",
+    "pg": "^8.16.3",
+    "redis": "^5.8.2",
     "typescript": "^5.9.2",
     "ws": "^8.18.3",
     "zod": "^3.25.76"
@@ -35,6 +38,7 @@
   "devDependencies": {
     "@types/express": "^5.0.3",
     "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.5",
     "@types/ws": "^8.18.1",
     "tsx": "^4.20.5"
   },

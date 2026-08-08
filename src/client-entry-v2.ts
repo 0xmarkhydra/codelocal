@@ -27,4 +27,14 @@ console.log(JSON.stringify({
   fallbackDepth: watcher.fallbackDepth,
 }));
 
+try {
+  const { syncCloudMcpBeforeClient } = await import("./cloud-client-sync.js");
+  const sync = await syncCloudMcpBeforeClient();
+  console.log(JSON.stringify({ ts: new Date().toISOString(), level: "info", event: "mcp.cloud_sync", ...sync }));
+} catch (error) {
+  // Cloud config sync must never prevent the local coding runtime from starting.
+  // Existing local MCP config remains usable and the user can reconnect later.
+  console.warn(JSON.stringify({ ts: new Date().toISOString(), level: "warn", event: "mcp.cloud_sync_failed", error: error instanceof Error ? error.message : String(error) }));
+}
+
 await import("./client-v2.js");

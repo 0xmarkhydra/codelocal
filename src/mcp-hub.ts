@@ -5,6 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ApprovalEngine, type ApprovalMode } from "./approval.js";
+import { audit } from "./audit.js";
 
 type Scope = "global" | "workspace";
 type TransportKind = "stdio" | "http";
@@ -63,6 +65,8 @@ type ConnectedSession = {
   lastUsedAt: number;
   stderrTail: string;
 };
+
+export type McpConnectGuard = (config: Readonly<McpServerConfig>) => void | Promise<void>;
 
 const REGISTRY_VERSION = 1 as const;
 const CATALOG_VERSION = 1 as const;
@@ -227,11 +231,52 @@ function searchScore(tool: McpCatalogTool, query: string) {
   return score;
 }
 
+function safeConnectDetail(config: McpServerConfig) {
+  if (config.transport === "stdio") return `stdio ${config.command ?? config.name}`;
+  try {
+    const url = new URL(config.url ?? "");
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return `http ${url.toString()}`;
+  } catch {
+    return `http ${config.name}`;
+  }
+}
+
+function defaultRuntimeConnectGuard(workspaceRoot: string): McpConnectGuard | undefined {
+  if (!process.env.SERVER_URL || !process.env.PROJECT_ROOT || process.env.CODELOCAL_MCP_START_APPROVAL === "0") return undefined;
+  const requestedMode = (process.env.CODELOCAL_APPROVAL_MODE ?? "prompt") as ApprovalMode;
+  const mode: ApprovalMode = ["prompt", "deny", "auto-safe"].includes(requestedMode) ? requestedMode : "prompt";
+  const approval = new ApprovalEngine(`mcp-runtime:${workspaceRoot}`, mode);
+  return async (config) => {
+    const rule = `mcp-runtime:${config.name}`;
+    const decision = {
+      riskLevel: "REVIEW" as const,
+      matchedRules: [rule],
+      requiresApproval: true,
+      blocked: false,
+      redactedCommand: safeConnectDetail(config),
+      reason: "starting an installed MCP can execute a local process or establish an external network connection",
+    };
+    await audit({
+      event: "policy.mcp_runtime_start",
+      workspaceKey: workspaceRoot,
+      riskLevel: decision.riskLevel,
+      detail: { server: config.name, transport: config.transport, rule },
+    });
+    const ok = await approval.approve("Start installed MCP runtime", decision.redactedCommand, decision);
+    if (!ok) throw new Error(`MCP runtime start denied by local approval policy: ${config.name}`);
+  };
+}
+
 export class McpHub {
   private sessions = new Map<string, ConnectedSession>();
 
-  constructor(private workspaceRoot = process.cwd()) {
+  constructor(private workspaceRoot = process.cwd(), private beforeConnect?: McpConnectGuard) {
     this.workspaceRoot = normalizeRoot(workspaceRoot);
+    this.beforeConnect ??= defaultRuntimeConnectGuard(this.workspaceRoot);
   }
 
   private async registry(): Promise<RegistryFile> {
@@ -335,7 +380,7 @@ export class McpHub {
     if (options.server) {
       const config = await this.resolveServer(options.server);
       const key = configKey(config);
-      let existing = await this.catalogFile();
+      const existing = await this.catalogFile();
       if (!existing.tools.some((tool) => tool.serverKey === key)) await this.probe(options.server);
     }
     const catalog = await this.catalogFile();
@@ -358,7 +403,7 @@ export class McpHub {
       })),
       catalogToolCount: catalog.tools.filter((tool) => allowedKeys.has(tool.serverKey)).length,
       installedServerCount: effectiveByName.size,
-      recommendation: ranked.length ? "Call mcp_tool_info before mcp_call when you need the exact input schema." : "Run `codelocal mcp probe <name>` for newly installed servers, or narrow the search query.",
+      recommendation: ranked.length ? "Call mcp_tool_info before mcp_call when you need the exact input schema." : "Probe a newly installed MCP with explicit local approval, then search again.",
     };
   }
 
@@ -434,6 +479,7 @@ export class McpHub {
   private async getOrConnect(config: McpServerConfig) {
     const existing = this.sessions.get(config.name);
     if (existing) return existing.client;
+    await this.beforeConnect?.(config);
     const client = new Client({ name: "codelocal-mcp-hub", version: "1.0.0" });
     let transport: StdioClientTransport | StreamableHTTPClientTransport;
     if (config.transport === "stdio") {
