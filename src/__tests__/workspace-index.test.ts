@@ -9,7 +9,7 @@ test("workspace intelligence ranks matching symbols and graph neighbors", async 
   const root = await mkdtemp(path.join(os.tmpdir(), "codelocal-index-"));
   try {
     await mkdir(path.join(root, "src"), { recursive: true });
-    await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "demo", scripts: { test: "node --test" } }));
     await writeFile(path.join(root, "src", "settings.ts"), [
       'import { saveUser } from "./user";',
       "export function updateSettings() { return saveUser(); }",
@@ -42,6 +42,27 @@ test("workspace intelligence refreshes files changed outside CodeLocal", async (
     await writeFile(target, "class NewFeature {}\n");
     await index.ensureFresh(true);
     assert.ok(index.rank("NewFeature", 5).some((file) => file.path === "lib/feature.dart"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("workspace intelligence resolves local Flutter package imports", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "codelocal-index-dart-package-"));
+  try {
+    const app = path.join(root, "apps", "mobile");
+    await mkdir(path.join(app, "lib", "features"), { recursive: true });
+    await writeFile(path.join(app, "pubspec.yaml"), "name: biddi_mobile\n");
+    await writeFile(path.join(app, "lib", "settings.dart"), "import 'package:biddi_mobile/features/profile.dart';\nclass Settings {}\n");
+    await writeFile(path.join(app, "lib", "features", "profile.dart"), "class ProfileRepository {}\n");
+
+    const index = new WorkspaceIntelligenceIndex(root, 1000, 8, 128 * 1024, 1);
+    await index.ensureFresh(true);
+    const settings = "apps/mobile/lib/settings.dart";
+    const profile = "apps/mobile/lib/features/profile.dart";
+    assert.ok(index.neighbors([settings]).includes(profile));
+    assert.ok(index.graph().some((edge) => edge.from === settings && edge.to === profile));
+    assert.ok(index.summary().packages.some((item) => item.name === "biddi_mobile" && item.root === "apps/mobile"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
