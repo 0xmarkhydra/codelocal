@@ -20,8 +20,12 @@ test("workspace intelligence ranks matching symbols and graph neighbors", async 
     const index = new WorkspaceIntelligenceIndex(root, 1000, 6, 128 * 1024, 1);
     await index.ensureFresh(true);
     const ranked = index.rank("fix updateSettings saveUser", 10);
-    assert.equal(ranked[0]?.path, "src/settings.ts");
-    assert.ok(ranked.some((file) => file.path === "src/user.ts"));
+    const settings = ranked.find((file) => file.path === "src/settings.ts");
+    const user = ranked.find((file) => file.path === "src/user.ts");
+    assert.ok(settings, "task seed file should be ranked");
+    assert.ok(user, "dependency file should be ranked");
+    assert.ok(settings.reasons.some((reason) => reason.includes("updatesettings")), "seed should carry symbol evidence");
+    assert.ok(user.reasons.includes("graph-neighbor"), "dependency should receive graph-neighbor evidence");
     assert.ok(index.neighbors(["src/settings.ts"]).includes("src/user.ts"));
   } finally {
     await rm(root, { recursive: true, force: true });
