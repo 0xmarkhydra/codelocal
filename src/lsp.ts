@@ -9,6 +9,7 @@ export type LspServerSpec = {
   args: string[];
   languages: string[];
   extensions: string[];
+  rootMarkers?: string[];
   initializationOptions?: unknown;
 };
 
@@ -22,6 +23,7 @@ function languageId(file: string) {
   const ext = path.extname(file).toLowerCase();
   const map: Record<string, string> = {
     ".ts": "typescript", ".tsx": "typescriptreact", ".js": "javascript", ".jsx": "javascriptreact",
+    ".mts": "typescript", ".cts": "typescript", ".mjs": "javascript", ".cjs": "javascript",
     ".py": "python", ".rs": "rust", ".go": "go", ".c": "c", ".h": "c", ".cc": "cpp", ".cpp": "cpp", ".cxx": "cpp", ".hpp": "cpp",
     ".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".cs": "csharp", ".php": "php", ".rb": "ruby", ".lua": "lua",
     ".swift": "swift", ".dart": "dart", ".ex": "elixir", ".exs": "elixir", ".zig": "zig", ".sol": "solidity",
@@ -29,8 +31,16 @@ function languageId(file: string) {
   return map[ext] ?? (ext.replace(/^\./, "") || "plaintext");
 }
 
+function inside(root: string, candidate: string) {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 export async function commandExists(command: string) {
-  const pathEntries = (process.env.PATH ?? "").split(path.delimiter);
+  if (path.isAbsolute(command) || command.includes(path.sep)) {
+    try { await fs.access(command); return true; } catch { return false; }
+  }
+  const pathEntries = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
   const suffixes = process.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
   for (const dir of pathEntries) {
     for (const suffix of suffixes) {
@@ -43,6 +53,28 @@ export async function commandExists(command: string) {
   return false;
 }
 
+export async function resolveLspRoot(workspaceRoot: string, file: string, spec: LspServerSpec) {
+  const root = path.resolve(workspaceRoot);
+  const absolute = path.resolve(file);
+  let current = path.dirname(absolute);
+  const markers = spec.rootMarkers ?? [];
+  if (!markers.length) return root;
+
+  while (inside(root, current)) {
+    for (const marker of markers) {
+      try {
+        await fs.access(path.join(current, marker));
+        return current;
+      } catch {}
+    }
+    if (current === root) break;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return root;
+}
+
 export class LspClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private sequence = 1;
@@ -51,8 +83,9 @@ export class LspClient {
   private opened = new Map<string, number>();
   private publishedDiagnostics = new Map<string, any[]>();
   private initialized = false;
+  private startPromise: Promise<void> | null = null;
 
-  constructor(private root: string, public readonly spec: LspServerSpec) {}
+  constructor(public readonly root: string, public readonly spec: LspServerSpec) {}
 
   async available() {
     return commandExists(this.spec.command);
@@ -60,6 +93,12 @@ export class LspClient {
 
   async start() {
     if (this.initialized && this.child) return;
+    if (this.startPromise) return this.startPromise;
+    this.startPromise = this.startInternal().finally(() => { this.startPromise = null; });
+    return this.startPromise;
+  }
+
+  private async startInternal() {
     if (!(await this.available())) throw new Error(`${this.spec.id} is not installed.`);
     this.child = spawn(this.spec.command, this.spec.args, {
       cwd: this.root,
@@ -74,7 +113,7 @@ export class LspClient {
     const rootUri = uri(this.root);
     await this.request("initialize", {
       processId: process.pid,
-      clientInfo: { name: "CodeLocal", version: "1.0" },
+      clientInfo: { name: "CodeLocal", version: "1.2" },
       rootUri,
       workspaceFolders: [{ uri: rootUri, name: path.basename(this.root) }],
       capabilities: {
@@ -82,10 +121,11 @@ export class LspClient {
         textDocument: {
           synchronization: { didSave: true, dynamicRegistration: false },
           definition: {}, references: {}, implementation: {}, hover: {}, documentSymbol: {}, publishDiagnostics: {},
+          callHierarchy: {},
         },
       },
       initializationOptions: this.spec.initializationOptions,
-    }, 20_000);
+    }, 25_000);
     this.notify("initialized", {});
     this.initialized = true;
   }
@@ -163,9 +203,9 @@ export class LspClient {
     const text = await fs.readFile(absolute, "utf8");
     const version = (this.opened.get(absolute) ?? 0) + 1;
     this.opened.set(absolute, version);
-    const params = { textDocument: { uri: uri(absolute), languageId: languageId(absolute), version, text } };
-    if (version === 1) this.notify("textDocument/didOpen", params);
-    else this.notify("textDocument/didChange", { textDocument: { uri: uri(absolute), version }, contentChanges: [{ text }] });
+    const textDocument = { uri: uri(absolute), languageId: languageId(absolute), version, text };
+    if (version === 1) this.notify("textDocument/didOpen", { textDocument });
+    else this.notify("textDocument/didChange", { textDocument: { uri: textDocument.uri, version }, contentChanges: [{ text }] });
     return { absolute, version };
   }
 
@@ -194,6 +234,22 @@ export class LspClient {
     return this.publishedDiagnostics.get(uri(path.resolve(file))) ?? [];
   }
 
+  async callHierarchy(file: string, line: number, column: number, direction: "incoming" | "outgoing") {
+    await this.openDocument(file);
+    const textDocument = { uri: uri(path.resolve(file)) };
+    const position = { line: Math.max(0, line - 1), character: Math.max(0, column - 1) };
+    const items = await this.request("textDocument/prepareCallHierarchy", { textDocument, position }).catch(() => []);
+    const prepared = Array.isArray(items) ? items.slice(0, 4) : [];
+    if (!prepared.length) return [];
+    const method = direction === "incoming" ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls";
+    const results = await Promise.all(prepared.map((item) => this.request(method, { item }).catch(() => [])));
+    return results.flat().filter(Boolean);
+  }
+
+  status() {
+    return { id: this.spec.id, root: this.root, initialized: this.initialized, pid: this.child?.pid ?? null };
+  }
+
   async stop() {
     if (!this.child) return;
     try { await this.request("shutdown", null, 2000); } catch {}
@@ -201,5 +257,6 @@ export class LspClient {
     this.child.kill("SIGTERM");
     this.child = null;
     this.initialized = false;
+    this.opened.clear();
   }
 }
