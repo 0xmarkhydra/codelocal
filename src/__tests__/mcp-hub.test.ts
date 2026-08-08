@@ -59,6 +59,66 @@ test("MCP Hub installs, probes, searches and calls a stdio MCP without exposing 
   });
 });
 
+test("workspace MCP overrides isolate their catalog from the same global MCP name", async () => {
+  const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "codelocal-mcp-state-"));
+  const workspaceA = await fs.mkdtemp(path.join(os.tmpdir(), "codelocal-mcp-a-"));
+  const workspaceB = await fs.mkdtemp(path.join(os.tmpdir(), "codelocal-mcp-b-"));
+  const previous = process.env.CODELOCAL_STATE_DIR;
+  process.env.CODELOCAL_STATE_DIR = stateDir;
+  const fixture = path.resolve("scripts/test-mcp-server.mjs");
+  const hubA = new McpHub(workspaceA);
+  const hubB = new McpHub(workspaceB);
+  try {
+    await hubA.addServer({
+      name: "shared",
+      enabled: true,
+      scope: "global",
+      transport: "stdio",
+      command: process.execPath,
+      args: [fixture, "global"],
+    });
+    await hubA.probe("shared");
+
+    await hubA.addServer({
+      name: "shared",
+      enabled: true,
+      scope: "workspace",
+      workspaceRoot: workspaceA,
+      transport: "stdio",
+      command: process.execPath,
+      args: [fixture, "workspace"],
+    });
+    await hubA.probe("shared");
+
+    const inA = await hubA.serverInfo("shared");
+    assert.equal(inA.scope, "workspace");
+    assert.deepEqual(inA.tools.map((tool) => tool.name), ["workspace_echo"]);
+
+    const inB = await hubB.serverInfo("shared");
+    assert.equal(inB.scope, "global");
+    assert.deepEqual(inB.tools.map((tool) => tool.name), ["global_echo"]);
+
+    const searchA = await hubA.searchTools("echo", { server: "shared" });
+    assert.equal(searchA.results[0]?.tool, "workspace_echo");
+    assert.equal(searchA.results.some((tool) => tool.tool === "global_echo"), false);
+
+    const searchB = await hubB.searchTools("echo", { server: "shared" });
+    assert.equal(searchB.results[0]?.tool, "global_echo");
+    assert.equal(searchB.results.some((tool) => tool.tool === "workspace_echo"), false);
+
+    const listA = await hubA.listServers();
+    assert.equal(listA.filter((server) => server.name === "shared").length, 1);
+    assert.equal(listA[0]?.scope, "workspace");
+  } finally {
+    await Promise.allSettled([hubA.shutdown(), hubB.shutdown()]);
+    if (previous == null) delete process.env.CODELOCAL_STATE_DIR;
+    else process.env.CODELOCAL_STATE_DIR = previous;
+    await fs.rm(stateDir, { recursive: true, force: true });
+    await fs.rm(workspaceA, { recursive: true, force: true });
+    await fs.rm(workspaceB, { recursive: true, force: true });
+  }
+});
+
 test("MCP Hub stores environment references instead of secret values", async () => {
   await withHub(async (hub, workspace) => {
     process.env.CODELOCAL_TEST_SECRET = "do-not-persist-this-secret";
