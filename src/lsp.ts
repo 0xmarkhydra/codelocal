@@ -26,7 +26,7 @@ function languageId(file: string) {
     ".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".cs": "csharp", ".php": "php", ".rb": "ruby", ".lua": "lua",
     ".swift": "swift", ".dart": "dart", ".ex": "elixir", ".exs": "elixir", ".zig": "zig", ".sol": "solidity",
   };
-  return map[ext] ?? ext.replace(/^\./, "") || "plaintext";
+  return map[ext] ?? (ext.replace(/^\./, "") || "plaintext");
 }
 
 export async function commandExists(command: string) {
