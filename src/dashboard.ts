@@ -1,5 +1,5 @@
-import express from "node:express";
-import { cloudStore, type CloudMcpInstallation } from "./cloud-store.js";
+import express from "express";
+import { cloudStore } from "./cloud-store.js";
 import { requireWebUser, type WebIdentity, verifyCsrf } from "./saas-auth.js";
 import { dashboardPage, escapeHtml, formatTime } from "./web-ui.js";
 
@@ -149,7 +149,7 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
       const installed = await cloudStore.upsertMcpInstallation({ userId: me.user.id, name, enabled: true, scope, workspaceId, transport, config, requiredSecrets });
       await cloudStore.audit(me.user.id, "mcp.installed", { id: installed.id, name, scope, workspaceId, transport });
       await hooks.onMcpChanged?.(me.user.id, workspaceId);
-      res.redirect(303, `/dashboard/mcp?ok=${encodeURIComponent(`${name} installed. Online clients will sync the configuration.`)}`);
+      res.redirect(303, `/dashboard/mcp?ok=${encodeURIComponent(`${name} installed. Restart codelocal . to sync this extension safely.`)}`);
     } catch (error) {
       res.redirect(303, `/dashboard/mcp?error=${encodeURIComponent(error instanceof Error ? error.message : "Unable to install MCP.")}`);
     }
