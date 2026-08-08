@@ -1,38 +1,113 @@
-# codex-mcp
+# CodeLocal / codex-mcp
 
-Minimal filesystem MCP server for testing whether ChatGPT can access and modify files inside one explicitly allowed local project directory.
+Remote MCP coding bridge for ChatGPT/Codex.
 
-## Tools
+```text
+ChatGPT / Codex
+    | MCP over HTTPS + OAuth
+    v
+Railway gateway
+    | authenticated WebSocket
+    v
+CodeLocal client on your machine
+    | local workspace tools
+    v
+PROJECT_ROOT
+```
 
-- `project_info` — show the configured allowed root and limits
-- `list_files` — list the project tree
-- `read_file` — read a UTF-8 text file
-- `write_file` — create or overwrite a UTF-8 text file
-- `edit_file` — exact text replacement with ambiguity protection
+The model remains the reasoning layer. CodeLocal provides local filesystem access, selective retrieval, semantic code intelligence, Git, diagnostics/tests, guarded shell/process execution, approvals, routing and observability.
 
-No shell/terminal execution is included in this first test version.
+## Current version
 
-## Security model
+`1.0.0-preview.1`
 
-The server only accepts paths inside `PROJECT_ROOT`.
+This preview is intentionally conservative: sensitive paths remain blocked, risky shell operations require local approval, and OS-level sandboxing/production device-pairing are not claimed as complete yet.
 
-It rejects:
+## Major capabilities
 
-- absolute file paths supplied to tools
-- `../` traversal outside the project
-- existing symlinks that resolve outside the project
-- writes whose parent directory resolves outside the project
+### Workspace + retrieval
 
-`read_file`/`edit_file` are limited to 1 MiB per file and `list_files` is capped at 5,000 entries.
+- `.gitignore`-aware listing/search
+- targeted reads of ignored dependency/generated files when explicitly requested
+- sensitive-path policy independent from `.gitignore`
+- binary detection
+- file metadata, SHA-256 hash and mtime
+- line-range reads
+- conflict-safe write/edit with `expectedHash`
+- scoped `AGENTS.md`/repo instructions
 
-> Important: the MCP tools can write files. Do not expose this endpoint publicly without understanding the risk. For the initial test, keep the server bound to `127.0.0.1` and use a secure tunnel supported by your ChatGPT setup.
+### Dependencies
 
-## Requirements
+- inspect installed Node dependency metadata
+- targeted dependency file reads
+- dependency-only search
 
-- Node.js 20+
-- npm
+### Semantic code intelligence
 
-## Install
+TypeScript/JavaScript semantic index backed by the TypeScript compiler API:
+
+- symbols
+- definitions/declarations
+- references
+- callers/callees
+- import/export graph
+- TypeScript diagnostics
+
+Other languages continue to work through filesystem/search/shell/toolchain commands; dedicated semantic backends can be added progressively.
+
+### Tests + Git
+
+- detect likely test/lint/typecheck/build commands
+- find likely related tests
+- run affected test command
+- `git status`
+- `git diff`
+- `git log`
+- `git show`
+- `git blame`
+- per-file history
+
+### Runtime
+
+- guarded local shell
+- incremental process output cursors
+- real-time stdout/stderr mirrored to the local terminal
+- process list/stdin/kill
+- local approval prompts for package changes, Git writes, migrations, network commands and recursive deletes
+- hard blocks for obvious credential/system/disk escape commands unless explicitly unsafe mode is enabled
+
+### Multi-device / multi-workspace routing
+
+A client registers:
+
+```text
+deviceId + workspaceId + workspaceName
+```
+
+MCP sessions can use:
+
+```text
+list_devices
+list_workspaces
+select_workspace
+workspace_info
+```
+
+If exactly one workspace is online it is selected implicitly. If more than one is online the model must select one explicitly.
+
+## Server
+
+Production test server currently deployed on Railway:
+
+```text
+https://codex-mcp-production.up.railway.app/mcp
+```
+
+ChatGPT -> server authentication uses OAuth.
+
+Local client -> server authentication currently uses `DEVICE_TOKEN`. This is still preview-level device auth; production per-device pairing/rotation is a later hardening step.
+
+## Install client
 
 ```bash
 git clone https://github.com/0xmarkhydra/codex-mcp.git
@@ -40,100 +115,117 @@ cd codex-mcp
 npm install
 ```
 
-## Run against a test folder
-
-Create a harmless folder first:
+For an existing clone:
 
 ```bash
-mkdir -p ~/mcp-test-project
-printf 'hello from local project\n' > ~/mcp-test-project/hello.txt
+cd ~/Documents/codex-mcp
+git pull
+npm install
 ```
 
-Then run the MCP server:
+## Run client against a project
+
+Example:
 
 ```bash
-PROJECT_ROOT="$HOME/mcp-test-project" npm start
+PROJECT_ROOT="$HOME/Desktop/BIDDI" \
+SERVER_URL="wss://codex-mcp-production.up.railway.app/client" \
+DEVICE_TOKEN="YOUR_DEVICE_TOKEN" \
+CODELOCAL_ALLOW_SHELL=1 \
+CODELOCAL_DEVICE_ID="macbook-pro" \
+CODELOCAL_WORKSPACE_ID="biddi" \
+CODELOCAL_WORKSPACE_NAME="BIDDI" \
+npm run client
 ```
 
-Expected output:
+Useful optional variables:
 
 ```text
-codex-mcp listening on http://127.0.0.1:3333/mcp
-PROJECT_ROOT=/Users/you/mcp-test-project
+CODELOCAL_APPROVAL_MODE=prompt   # default: prompt; other supported preview values: deny, auto
+CODELOCAL_ALLOW_DANGEROUS=0      # default; do not enable casually
+CODELOCAL_MIRROR_PROCESS_OUTPUT=1
+CODELOCAL_LOG_LEVEL=info
 ```
 
-Health check:
-
-```bash
-curl http://127.0.0.1:3333/
-```
-
-## Expose it to ChatGPT
-
-ChatGPT does not directly connect to a localhost MCP endpoint. Use OpenAI Secure MCP Tunnel when available for your account/workspace, or another HTTPS tunnel for an isolated test environment.
-
-Your MCP URL should ultimately look like:
+Expected startup logs are JSON structured events such as:
 
 ```text
-https://YOUR-TUNNEL-HOST/mcp
+client.started
+client.connecting
+client.registered
 ```
 
-In ChatGPT Developer Mode, create a custom app/MCP connection, enter that MCP endpoint, and scan the tools.
+When ChatGPT runs a command, stdout/stderr also appears locally with a process prefix.
 
-The tool scan should discover:
+## ChatGPT setup
+
+Create/connect the developer MCP app with:
 
 ```text
-project_info
-list_files
-read_file
-write_file
-edit_file
+https://codex-mcp-production.up.railway.app/mcp
 ```
 
-## Suggested first ChatGPT test
+Authentication: OAuth.
 
-Ask ChatGPT:
+After a tool/schema update, reconnect/refresh the MCP app so ChatGPT discovers the latest tool list.
+
+## Recommended first prompt
 
 ```text
-Use codex-mcp.
-1. List the files in the allowed project.
-2. Read hello.txt.
-3. Create chatgpt-test.txt with the content: Hello from ChatGPT MCP
-4. Read chatgpt-test.txt back to me.
-5. Edit it so the content becomes: Edited successfully by ChatGPT MCP
-6. Read it again.
+Use CodeLocal.
+Inspect project_info and repo instructions first.
+Analyze the architecture before editing.
+Use semantic/reference tools and targeted reads rather than reading the entire repository.
+Run appropriate diagnostics/tests, then show git diff.
+Do not perform risky operations unless needed.
 ```
 
-Then verify locally:
+## Retrieval policy
 
-```bash
-cat ~/mcp-test-project/chatgpt-test.txt
-```
-
-Expected final content:
+`.gitignore` controls normal retrieval/indexing, not security.
 
 ```text
-Edited successfully by ChatGPT MCP
+Normal source
+  -> list/search normally
+
+Ignored dependency/build/cache
+  -> excluded from normal scans
+  -> targeted read/search allowed when needed
+
+Sensitive credentials/secrets
+  -> blocked independently of .gitignore
 ```
 
-## Point it at a real project later
+Typical blocked sensitive paths include `.env*` (except templates/examples), `.ssh`, `.aws`, `.gnupg`, private key files and obvious credential files.
 
-After the isolated test succeeds:
+## Safety notes
 
-```bash
-PROJECT_ROOT="/Users/yourname/Projects/your-project" npm start
+The current client enforces workspace path boundaries for filesystem tools and applies command-policy checks for shell commands. A shell process is still a local OS process, so this preview should not be described as a complete native OS sandbox.
+
+Do not expose device credentials publicly. Rotate the preview `DEVICE_TOKEN` before broader use.
+
+## What is still not claimed as production-complete
+
+- native OS sandbox parity across macOS/Linux/Windows
+- fully persistent per-device pairing/revocation database
+- true PTY resize/control parity for all interactive terminal applications
+- dedicated LSP daemon integrations for every language
+- durable server state across replicas/restarts
+
+These are intentionally separated from the already-working coding loop rather than faked behind tool names.
+
+## Coding loop target
+
+```text
+understand task
+-> project_info + instructions
+-> semantic symbols/references/import graph
+-> targeted file/range/dependency reads
+-> diagnostics/build/tests
+-> edit with hash/conflict protection
+-> re-run diagnostics/tests
+-> git diff/history
+-> explain result
 ```
 
-Only that directory is exposed through the MCP filesystem tools.
-
-## Environment variables
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `PROJECT_ROOT` | required | Absolute path to the only allowed project directory |
-| `HOST` | `127.0.0.1` | HTTP bind host |
-| `PORT` | `3333` | HTTP port |
-
-## Next step after the filesystem test
-
-Once ChatGPT can reliably list/read/write/edit files, a later version can add deliberately restricted tools such as code search, git diff/status, tests, lint/typecheck, and selected commands. Do not add unrestricted shell execution to an internet-exposed MCP server.
+See `ROADMAP.md` for design rationale and hardening work.
