@@ -1,6 +1,6 @@
 {
   "name": "codex-mcp",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "private": true,
   "type": "module",
   "description": "CodeLocal production-beta remote coding bridge with OAuth, pairing, polyglot semantics, sandboxed execution, transactional editing and auditability.",
