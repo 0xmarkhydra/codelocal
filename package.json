@@ -16,7 +16,7 @@
     "client": "npm run build --silent && node dist/client-entry-v2.js",
     "doctor": "npm run build --silent && node dist/cli.js doctor",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build --silent && node --test dist/__tests__/*.test.js",
+    "test": "npm run build --silent && node scripts/run-tests.mjs",
     "ci": "npm run typecheck && npm test"
   },
   "dependencies": {
