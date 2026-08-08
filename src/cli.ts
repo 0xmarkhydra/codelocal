@@ -4,9 +4,43 @@ import os from "node:os";
 import { promises as fs } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { defaultDeviceIdentity, deleteLocalCredential, loadLocalCredential, saveLocalCredential } from "./identity.js";
+import { McpHub, parseEnvReference, parseHeaderEnvReference, type McpHeaderReference } from "./mcp-hub.js";
 
 function usage() {
-  console.log(`CodeLocal CLI\n\nCommands:\n  codelocal doctor <project>\n  codelocal pair <https://gateway>\n  codelocal start <project> [wss://gateway/client]\n  codelocal status\n  codelocal rotate <https://gateway>\n  codelocal revoke <https://gateway>\n  codelocal login <https://gateway>\n`);
+  console.log(`CodeLocal CLI
+
+Usage:
+  codelocal .
+  codelocal <project-path>
+
+Core commands:
+  codelocal doctor <project>
+  codelocal pair <https://gateway>
+  codelocal start <project> [wss://gateway/client]
+  codelocal status
+  codelocal rotate <https://gateway>
+  codelocal revoke <https://gateway>
+  codelocal login <https://gateway>
+
+MCP Hub:
+  codelocal mcp add <name> -- <command> [args...]
+  codelocal mcp add <name> --stdio <command> [--arg <arg> ...]
+  codelocal mcp add <name> --url <https://server/mcp>
+  codelocal mcp list [--json]
+  codelocal mcp info <name>
+  codelocal mcp probe <name>
+  codelocal mcp search <query> [--server <name>]
+  codelocal mcp remove <name> [--global|--workspace]
+
+MCP add options:
+  --global                 Install for every workspace (default: current workspace)
+  --workspace              Install only for the current workspace
+  --cwd <path>             Working directory for stdio MCP
+  --env KEY[=SOURCE_ENV]   Pass an environment variable by reference; secret is not stored
+  --header-env H=ENV       HTTP header value from an environment variable
+  --bearer-env ENV         Authorization: Bearer <value from ENV>
+  --no-probe               Save config without connecting/listing tools
+`);
 }
 
 function httpToWs(base: string) {
@@ -133,6 +167,128 @@ async function login(serverArg: string) {
   console.log(`Gateway: ${base}\nMCP endpoint: ${base}/mcp\nOAuth authorization happens when you connect this MCP endpoint from ChatGPT.`);
 }
 
+function optionValues(args: string[], option: string) {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== option) continue;
+    const value = args[i + 1];
+    if (!value || value.startsWith("--")) throw new Error(`${option} requires a value.`);
+    values.push(value);
+    i++;
+  }
+  return values;
+}
+
+function optionValue(args: string[], option: string) {
+  const values = optionValues(args, option);
+  if (values.length > 1) throw new Error(`${option} may only be specified once.`);
+  return values[0];
+}
+
+async function mcpCommand(args: string[]) {
+  const [actionRaw, nameOrQuery, ...rest] = args;
+  const action = actionRaw === "install" ? "add" : actionRaw;
+  const hub = new McpHub(process.cwd());
+  if (!action || action === "help" || action === "--help" || action === "-h") {
+    usage();
+    return;
+  }
+  if (action === "list") {
+    const servers = await hub.listServers();
+    if (rest.includes("--json") || nameOrQuery === "--json") console.log(JSON.stringify({ servers }, null, 2));
+    else if (!servers.length) console.log("No MCP servers installed for this workspace.");
+    else {
+      console.log("\nCodeLocal MCP servers\n");
+      for (const server of servers) console.log(`${server.enabled ? "✓" : "·"} ${server.name}  ${server.transport}  ${server.scope}  tools:${server.toolsCached}${server.connected ? "  connected" : ""}`);
+      console.log("");
+    }
+    return;
+  }
+  if (action === "info") {
+    if (!nameOrQuery) throw new Error("Usage: codelocal mcp info <name>");
+    console.log(JSON.stringify(await hub.serverInfo(nameOrQuery), null, 2));
+    return;
+  }
+  if (action === "probe") {
+    if (!nameOrQuery) throw new Error("Usage: codelocal mcp probe <name>");
+    const result = await hub.probe(nameOrQuery);
+    console.log(`✓ ${nameOrQuery}: connected, ${result.toolCount} tools discovered.`);
+    for (const tool of result.tools.slice(0, 20)) console.log(`  - ${tool.name}${tool.description ? ` — ${tool.description.slice(0, 100)}` : ""}`);
+    if (result.truncated || result.toolCount > 20) console.log(`  … ${result.toolCount - Math.min(20, result.toolCount)} more`);
+    await hub.shutdown();
+    return;
+  }
+  if (action === "search") {
+    const queryParts = [nameOrQuery, ...rest.filter((value, index) => value !== "--server" && (index === 0 || rest[index - 1] !== "--server"))].filter((value): value is string => !!value && !value.startsWith("--"));
+    const server = optionValue(rest, "--server");
+    const query = queryParts.join(" ").trim();
+    if (!query) throw new Error("Usage: codelocal mcp search <query> [--server <name>]");
+    console.log(JSON.stringify(await hub.searchTools(query, { server }), null, 2));
+    await hub.shutdown();
+    return;
+  }
+  if (action === "remove" || action === "uninstall") {
+    if (!nameOrQuery) throw new Error("Usage: codelocal mcp remove <name> [--global|--workspace]");
+    if (rest.includes("--global") && rest.includes("--workspace")) throw new Error("Choose only one of --global or --workspace.");
+    const scope = rest.includes("--global") ? "global" as const : rest.includes("--workspace") ? "workspace" as const : undefined;
+    const result = await hub.removeServer(nameOrQuery, scope);
+    console.log(result.removed ? `✓ Removed ${nameOrQuery} (${result.removed} config${result.removed === 1 ? "" : "s"}).` : `No matching MCP config found for ${nameOrQuery}.`);
+    return;
+  }
+  if (action !== "add") throw new Error(`Unknown MCP action: ${action}`);
+  if (!nameOrQuery) throw new Error("Usage: codelocal mcp add <name> -- <command> [args...] OR --url <url>");
+
+  const separator = rest.indexOf("--");
+  const commandTail = separator >= 0 ? rest.slice(separator + 1) : [];
+  const options = separator >= 0 ? rest.slice(0, separator) : rest;
+  if (options.includes("--global") && options.includes("--workspace")) throw new Error("Choose only one of --global or --workspace.");
+  const scope = options.includes("--global") ? "global" as const : "workspace" as const;
+  const stdioOption = optionValue(options, "--stdio");
+  const remoteUrl = optionValue(options, "--url");
+  if (commandTail.length && stdioOption) throw new Error("Use either `-- <command>` or --stdio, not both.");
+  if (remoteUrl && (commandTail.length || stdioOption)) throw new Error("Use either a stdio command or --url, not both.");
+
+  const env = Object.fromEntries(optionValues(options, "--env").map(parseEnvReference));
+  const headers: Record<string, McpHeaderReference> = Object.fromEntries(optionValues(options, "--header-env").map(parseHeaderEnvReference));
+  const bearerEnv = optionValue(options, "--bearer-env");
+  if (bearerEnv) headers.Authorization = { source: bearerEnv, prefix: "Bearer " };
+  const cwd = optionValue(options, "--cwd");
+  const command = commandTail[0] ?? stdioOption;
+  const commandArgs = commandTail.length ? commandTail.slice(1) : optionValues(options, "--arg");
+
+  if (!command && !remoteUrl) throw new Error("MCP add requires `-- <command> [args...]`, --stdio <command>, or --url <url>.");
+  const server = await hub.addServer({
+    name: nameOrQuery,
+    enabled: true,
+    scope,
+    workspaceRoot: scope === "workspace" ? process.cwd() : undefined,
+    transport: remoteUrl ? "http" : "stdio",
+    command,
+    args: command ? commandArgs : undefined,
+    cwd,
+    env: Object.keys(env).length ? env : undefined,
+    url: remoteUrl,
+    headers: Object.keys(headers).length ? headers : undefined,
+  });
+  console.log(`✓ Installed MCP ${server.name} (${server.transport}, ${server.scope}).`);
+  if (!options.includes("--no-probe")) {
+    try {
+      const result = await hub.probe(server.name);
+      console.log(`✓ Probe passed: ${result.toolCount} tools cached for smart routing.`);
+    } catch (error) {
+      console.warn(`! Installed, but probe failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`  Fix the MCP configuration/environment, then run: codelocal mcp probe ${server.name}`);
+    }
+  }
+  await hub.shutdown();
+}
+
+async function looksLikeProjectPath(value: string) {
+  if (!value || value.startsWith("-")) return false;
+  if (value === "." || value === ".." || value.startsWith("./") || value.startsWith("../") || path.isAbsolute(value)) return true;
+  return fs.stat(path.resolve(value)).then((stat) => stat.isDirectory()).catch(() => false);
+}
+
 const [, , command, ...args] = process.argv;
 try {
   if (!command || command === "help" || command === "--help" || command === "-h") usage();
@@ -143,6 +299,8 @@ try {
   else if (command === "rotate") await rotate(args[0] ?? process.env.CODELOCAL_SERVER ?? "");
   else if (command === "revoke") await revoke(args[0] ?? process.env.CODELOCAL_SERVER ?? "");
   else if (command === "login") await login(args[0] ?? process.env.CODELOCAL_SERVER ?? "");
+  else if (command === "mcp") await mcpCommand(args);
+  else if (await looksLikeProjectPath(command)) await start(command, args[0]);
   else { usage(); process.exitCode = 1; }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
