@@ -9,5 +9,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/client.ts", "src/client-entry.ts", "src/doctor.ts", "src/index.ts"]
 }
