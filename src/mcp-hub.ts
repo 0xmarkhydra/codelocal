@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -35,6 +35,7 @@ export type McpServerConfig = {
 };
 
 export type McpCatalogTool = {
+  serverKey: string;
   server: string;
   name: string;
   title?: string;
@@ -126,7 +127,7 @@ function isLoopback(hostname: string) {
 
 function validateRemoteUrl(raw: string) {
   const url = new URL(raw);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error("Remote MCP URL must use http or https.");
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Remote MCP URL must use http or https.");
   if (url.protocol === "http:" && !isLoopback(url.hostname) && process.env.CODELOCAL_MCP_ALLOW_INSECURE_HTTP !== "1") {
     throw new Error("Remote MCP must use HTTPS unless it is localhost. Set CODELOCAL_MCP_ALLOW_INSECURE_HTTP=1 only for trusted development endpoints.");
   }
@@ -182,6 +183,23 @@ function normalizeConfig(input: Omit<McpServerConfig, "addedAt" | "updatedAt">, 
   };
 }
 
+function configKey(server: McpServerConfig) {
+  if (server.scope === "global") return `global:${server.name}`;
+  const rootHash = createHash("sha256").update(server.workspaceRoot ?? "").digest("hex").slice(0, 20);
+  return `workspace:${server.name}:${rootHash}`;
+}
+
+function effectiveServers(registry: RegistryFile, workspaceRoot: string) {
+  const byName = new Map<string, McpServerConfig>();
+  for (const server of registry.servers) {
+    if (server.scope === "global") byName.set(server.name, server);
+  }
+  for (const server of registry.servers) {
+    if (server.scope === "workspace" && server.workspaceRoot === workspaceRoot) byName.set(server.name, server);
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function tokens(value: string) {
   return value.toLowerCase().split(/[^a-z0-9_./:-]+/).filter(Boolean);
 }
@@ -225,7 +243,8 @@ export class McpHub {
   private async catalogFile(): Promise<CatalogFile> {
     const value = await readJson<CatalogFile>(mcpStatePaths().catalog, { version: CATALOG_VERSION, tools: [] });
     if (value.version !== CATALOG_VERSION || !Array.isArray(value.tools)) throw new Error("Unsupported CodeLocal MCP catalog format.");
-    return value;
+    const tools = value.tools.filter((tool) => typeof tool?.serverKey === "string" && typeof tool?.server === "string" && typeof tool?.name === "string");
+    return { version: CATALOG_VERSION, tools };
   }
 
   async addServer(input: Omit<McpServerConfig, "addedAt" | "updatedAt">) {
@@ -234,8 +253,12 @@ export class McpHub {
     const normalized = normalizeConfig({ ...input, workspaceRoot: input.scope === "workspace" ? (input.workspaceRoot ?? this.workspaceRoot) : undefined }, previous);
     registry.servers = registry.servers.filter((server) => !(server.name === normalized.name && server.scope === normalized.scope && (server.scope === "global" || server.workspaceRoot === normalized.workspaceRoot)));
     registry.servers.push(normalized);
-    registry.servers.sort((a, b) => `${a.scope}:${a.name}`.localeCompare(`${b.scope}:${b.name}`));
+    registry.servers.sort((a, b) => `${a.scope}:${a.name}:${a.workspaceRoot ?? ""}`.localeCompare(`${b.scope}:${b.name}:${b.workspaceRoot ?? ""}`));
     await writeJsonAtomic(mcpStatePaths().registry, registry);
+    const catalog = await this.catalogFile();
+    const key = configKey(normalized);
+    const filtered = catalog.tools.filter((tool) => tool.serverKey !== key);
+    if (filtered.length !== catalog.tools.length) await writeJsonAtomic(mcpStatePaths().catalog, { version: CATALOG_VERSION, tools: filtered });
     await this.disconnect(normalized.name);
     return this.publicServer(normalized);
   }
@@ -243,41 +266,49 @@ export class McpHub {
   async removeServer(name: string, scope?: Scope) {
     validateName(name);
     const registry = await this.registry();
-    const before = registry.servers.length;
-    registry.servers = registry.servers.filter((server) => {
-      if (server.name !== name) return true;
-      if (scope && server.scope !== scope) return true;
-      if (server.scope === "workspace" && server.workspaceRoot !== this.workspaceRoot) return true;
-      return false;
-    });
-    const removed = before - registry.servers.length;
-    if (removed) await writeJsonAtomic(mcpStatePaths().registry, registry);
-    const catalog = await this.catalogFile();
-    const activeServerNames = new Set(registry.servers.map((server) => server.name));
-    const filtered = catalog.tools.filter((tool) => tool.server !== name || activeServerNames.has(name));
-    if (filtered.length !== catalog.tools.length) await writeJsonAtomic(mcpStatePaths().catalog, { version: CATALOG_VERSION, tools: filtered });
+    const removedConfigs: McpServerConfig[] = [];
+    const kept: McpServerConfig[] = [];
+    for (const server of registry.servers) {
+      const matchesName = server.name === name;
+      const matchesScope = !scope || server.scope === scope;
+      const visibleWorkspaceConfig = server.scope !== "workspace" || server.workspaceRoot === this.workspaceRoot;
+      if (matchesName && matchesScope && visibleWorkspaceConfig) removedConfigs.push(server);
+      else kept.push(server);
+    }
+    registry.servers = kept;
+    if (removedConfigs.length) await writeJsonAtomic(mcpStatePaths().registry, registry);
+    if (removedConfigs.length) {
+      const removedKeys = new Set(removedConfigs.map(configKey));
+      const catalog = await this.catalogFile();
+      const filtered = catalog.tools.filter((tool) => !removedKeys.has(tool.serverKey));
+      if (filtered.length !== catalog.tools.length) await writeJsonAtomic(mcpStatePaths().catalog, { version: CATALOG_VERSION, tools: filtered });
+    }
     await this.disconnect(name);
-    return { removed };
+    return { removed: removedConfigs.length };
   }
 
   async listServers() {
     const registry = await this.registry();
-    const visible = registry.servers.filter((server) => server.scope === "global" || server.workspaceRoot === this.workspaceRoot);
+    const visible = effectiveServers(registry, this.workspaceRoot);
     const catalog = await this.catalogFile();
-    return visible.map((server) => ({
-      ...this.publicServer(server),
-      toolsCached: catalog.tools.filter((tool) => tool.server === server.name).length,
-      connected: this.sessions.has(server.name),
-    }));
+    return visible.map((server) => {
+      const key = configKey(server);
+      return {
+        ...this.publicServer(server),
+        toolsCached: catalog.tools.filter((tool) => tool.serverKey === key).length,
+        connected: this.sessions.has(server.name),
+      };
+    });
   }
 
   async serverInfo(name: string) {
     const config = await this.resolveServer(name);
+    const key = configKey(config);
     const catalog = await this.catalogFile();
     return {
       ...this.publicServer(config),
       connected: this.sessions.has(name),
-      tools: catalog.tools.filter((tool) => tool.server === name),
+      tools: catalog.tools.filter((tool) => tool.serverKey === key),
     };
   }
 
@@ -285,7 +316,7 @@ export class McpHub {
     const config = await this.resolveServer(name);
     const client = await this.getOrConnect(config);
     const tools = await this.fetchAllTools(client);
-    await this.replaceCatalogForServer(name, tools);
+    await this.replaceCatalogForServer(config, tools);
     return {
       server: this.publicServer(config),
       connected: true,
@@ -298,15 +329,19 @@ export class McpHub {
   async searchTools(query: string, options: { limit?: number; server?: string; refresh?: boolean } = {}) {
     const limit = Math.max(1, Math.min(options.limit ?? 8, 50));
     if (options.refresh && options.server) await this.probe(options.server);
-    let catalog = await this.catalogFile();
-    const servers = await this.listServers();
-    const visibleNames = new Set(servers.filter((server) => server.enabled).map((server) => server.name));
-    if (options.server && !catalog.tools.some((tool) => tool.server === options.server)) {
-      await this.probe(options.server);
-      catalog = await this.catalogFile();
+    const registry = await this.registry();
+    const effective = effectiveServers(registry, this.workspaceRoot).filter((server) => server.enabled);
+    const effectiveByName = new Map(effective.map((server) => [server.name, server]));
+    if (options.server) {
+      const config = await this.resolveServer(options.server);
+      const key = configKey(config);
+      let existing = await this.catalogFile();
+      if (!existing.tools.some((tool) => tool.serverKey === key)) await this.probe(options.server);
     }
+    const catalog = await this.catalogFile();
+    const allowedKeys = new Set(effective.map(configKey));
     const ranked = catalog.tools
-      .filter((tool) => visibleNames.has(tool.server) && (!options.server || tool.server === options.server))
+      .filter((tool) => allowedKeys.has(tool.serverKey) && (!options.server || tool.server === options.server))
       .map((tool) => ({ ...tool, score: searchScore(tool, query) }))
       .filter((tool) => !query.trim() || tool.score > 0)
       .sort((a, b) => b.score - a.score || `${a.server}.${a.name}`.localeCompare(`${b.server}.${b.name}`))
@@ -321,20 +356,21 @@ export class McpHub {
         score: tool.score,
         readOnlyHint: tool.annotations?.readOnlyHint === true,
       })),
-      catalogToolCount: catalog.tools.filter((tool) => visibleNames.has(tool.server)).length,
-      installedServerCount: visibleNames.size,
+      catalogToolCount: catalog.tools.filter((tool) => allowedKeys.has(tool.serverKey)).length,
+      installedServerCount: effectiveByName.size,
       recommendation: ranked.length ? "Call mcp_tool_info before mcp_call when you need the exact input schema." : "Run `codelocal mcp probe <name>` for newly installed servers, or narrow the search query.",
     };
   }
 
   async toolInfo(server: string, tool: string) {
-    await this.resolveServer(server);
+    const config = await this.resolveServer(server);
+    const key = configKey(config);
     let catalog = await this.catalogFile();
-    let found = catalog.tools.find((item) => item.server === server && item.name === tool);
+    let found = catalog.tools.find((item) => item.serverKey === key && item.name === tool);
     if (!found) {
       await this.probe(server);
       catalog = await this.catalogFile();
-      found = catalog.tools.find((item) => item.server === server && item.name === tool);
+      found = catalog.tools.find((item) => item.serverKey === key && item.name === tool);
     }
     if (!found) throw new Error(`MCP tool not found: ${server}.${tool}`);
     return found;
@@ -433,13 +469,12 @@ export class McpHub {
   }
 
   private async fetchAllTools(client: Client) {
-    const tools: McpCatalogTool[] = [];
+    const tools: Omit<McpCatalogTool, "serverKey" | "server">[] = [];
     let cursor: string | undefined;
     do {
       const result = await client.listTools(cursor ? { cursor } : undefined);
       for (const tool of result.tools) {
         tools.push({
-          server: "",
           name: tool.name,
           title: tool.title,
           description: tool.description,
@@ -455,12 +490,13 @@ export class McpHub {
     return tools;
   }
 
-  private async replaceCatalogForServer(server: string, tools: McpCatalogTool[]) {
+  private async replaceCatalogForServer(server: McpServerConfig, tools: Omit<McpCatalogTool, "serverKey" | "server">[]) {
     const catalog = await this.catalogFile();
-    const others = catalog.tools.filter((tool) => tool.server !== server);
-    const next = [...others, ...tools.map((tool) => ({ ...tool, server }))];
+    const key = configKey(server);
+    const others = catalog.tools.filter((tool) => tool.serverKey !== key);
+    const next: McpCatalogTool[] = [...others, ...tools.map((tool) => ({ ...tool, serverKey: key, server: server.name }))];
     if (next.length > MAX_CATALOG_TOOLS) throw new Error(`MCP catalog exceeds CODELOCAL_MCP_MAX_TOOLS=${MAX_CATALOG_TOOLS}.`);
-    next.sort((a, b) => `${a.server}.${a.name}`.localeCompare(`${b.server}.${b.name}`));
+    next.sort((a, b) => `${a.serverKey}.${a.name}`.localeCompare(`${b.serverKey}.${b.name}`));
     await writeJsonAtomic(mcpStatePaths().catalog, { version: CATALOG_VERSION, tools: next });
   }
 }
