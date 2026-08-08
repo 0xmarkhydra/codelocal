@@ -21,6 +21,11 @@ const COMMON_IGNORES = [
 
 type NativeSubscription = { unsubscribe(): Promise<void> | void };
 type FallbackWatcher = { close?: () => Promise<void> | void; on(event: string, listener: (...args: any[]) => void): any };
+type CompatibleWatcher = EventEmitter & {
+  close: () => Promise<void>;
+  add: (...args: any[]) => CompatibleWatcher;
+  unwatch: (...args: any[]) => Promise<void>;
+};
 
 type InstallOptions = {
   fallbackDepth?: number;
@@ -58,7 +63,7 @@ function mapEvent(type: string) {
  * Patch Chokidar's singleton `watch` entry point before client-v2 is imported.
  * CodeLocal keeps the existing watcher consumer API, while large workspaces use
  * @parcel/watcher native recursive backends (FSEvents/inotify/Windows) whenever
- * the optional dependency is available. A shallow Chokidar fallback remains.
+ * the dependency is available. A shallow Chokidar fallback remains.
  */
 export function installNativeWatcherAdapter(chokidar: any, options: InstallOptions = {}) {
   const originalWatch = chokidar.watch.bind(chokidar) as (targets: unknown, options?: Record<string, unknown>) => FallbackWatcher;
@@ -76,11 +81,7 @@ export function installNativeWatcherAdapter(chokidar: any, options: InstallOptio
     }
 
     const root = path.resolve(targets);
-    const emitter = new EventEmitter() as EventEmitter & {
-      close: () => Promise<void>;
-      add: () => typeof emitter;
-      unwatch: () => Promise<void>;
-    };
+    const emitter = new EventEmitter() as CompatibleWatcher;
     let subscription: NativeSubscription | null = null;
     let fallback: FallbackWatcher | null = null;
     let closed = false;
