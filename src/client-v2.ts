@@ -19,6 +19,7 @@ import { ProjectContextEngine } from "./context-engine.js";
 import { EditingEngine } from "./editing-engine.js";
 import { VerificationEngine } from "./verification.js";
 import { defaultDeviceIdentity, loadLocalCredential } from "./identity.js";
+import { McpHub } from "./mcp-hub.js";
 
 const SERVER_URL = process.env.SERVER_URL;
 const PROJECT_ROOT = process.env.PROJECT_ROOT;
@@ -54,8 +55,14 @@ const verification = new VerificationEngine(root, semantic, context);
 const sandbox = new SandboxManager(root, NETWORK_POLICY);
 const approval = new ApprovalEngine(WORKSPACE_KEY, ["prompt", "deny", "auto-safe"].includes(APPROVAL_MODE) ? APPROVAL_MODE : "prompt");
 const journal = new IdempotencyJournal();
+const mcpHub = new McpHub(root);
 const processManager = new ProcessManager(root, WORKSPACE_KEY, sandbox, (record, stream, text) => {
   if (MIRROR_PROCESS_OUTPUT) process.stdout.write(`[proc:${record.processId.slice(0, 8)}:${stream}] ${text}`);
+}, () => {
+  semantic.invalidate();
+  context.invalidate();
+  metadataEpoch++;
+  log("debug", "workspace.process_settled", { metadataEpoch });
 });
 
 let ignoreMatcher: Ignore = ignore();
@@ -288,6 +295,34 @@ async function gitWrite(operation: string, detail: string, args: string[], reque
   return { exitCode: result.exitCode, output: result.stdout + result.stderr };
 }
 
+async function callInstalledMcp(server: string, tool: string, args: Record<string, unknown>, requestId?: string) {
+  const info = await mcpHub.toolInfo(server, tool);
+  const readOnlyHint = info.annotations?.readOnlyHint === true;
+  const rule = `mcp:${server}:${tool}`;
+  const decision = {
+    riskLevel: "REVIEW" as const,
+    matchedRules: [rule],
+    requiresApproval: true,
+    blocked: false,
+    redactedCommand: `mcp ${server}.${tool}`,
+    reason: readOnlyHint
+      ? "external MCP call; server advertises readOnlyHint, but external annotations are advisory"
+      : "external MCP call may have side effects",
+  };
+  await audit({ event: "policy.mcp", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { server, tool, readOnlyHint, rule } });
+  const ok = await approval.approve("Call installed MCP tool", `${server}.${tool}`, decision, requestId);
+  if (!ok) throw new Error("MCP tool call denied by local approval policy.");
+  const startedAt = Date.now();
+  try {
+    const result = await mcpHub.callTool(server, tool, args);
+    await audit({ event: "mcp.call", requestId, workspaceKey: WORKSPACE_KEY, tool: `${server}.${tool}`, status: "ok", detail: { durationMs: Date.now() - startedAt } });
+    return result;
+  } catch (error) {
+    await audit({ event: "mcp.call", requestId, workspaceKey: WORKSPACE_KEY, tool: `${server}.${tool}`, status: "failed", detail: { durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) } });
+    throw error;
+  }
+}
+
 async function handleTool(tool: string, args: any, request: { requestId: string; sessionId?: string }) {
   if (tool === "project_info") {
     const project = await context.map();
@@ -307,9 +342,13 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
       approvalMode: APPROVAL_MODE,
       networkPolicy: NETWORK_POLICY,
       metadataEpoch,
-      capabilities: ["protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "diagnostic-regression", "process-manager-v2", "pty-when-installed", "cancellation", "sandbox", "idempotency", "git-write-approval", "audit"],
+      capabilities: ["protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "diagnostic-regression", "process-manager-v2", "pty-when-installed", "cancellation", "sandbox", "idempotency", "git-write-approval", "mcp-hub", "audit"],
     };
   }
+  if (tool === "mcp_list") return { servers: await mcpHub.listServers() };
+  if (tool === "mcp_search_tools") return mcpHub.searchTools(String(args.query ?? ""), { limit: args.limit ?? 8, server: args.server, refresh: !!args.refresh });
+  if (tool === "mcp_tool_info") return mcpHub.toolInfo(String(args.server), String(args.tool));
+  if (tool === "mcp_call") return callInstalledMcp(String(args.server), String(args.tool), (args.arguments ?? {}) as Record<string, unknown>, request.requestId);
   if (tool === "read_instructions") return readInstructions(args.path ?? ".");
   if (tool === "project_map") return context.map(!!args.force);
   if (tool === "context_for_task") return context.relevant(String(args.taskHint ?? ""), args.limit ?? 30);
@@ -453,6 +492,7 @@ async function clientCapabilities() {
     idempotency: true,
     cancellation: true,
     approvals: true,
+    mcpHub: true,
   };
 }
 
@@ -542,8 +582,13 @@ async function connect() {
   ws.on("error", (error) => log("error", "client.socket_error", { error }));
 }
 
-process.on("SIGINT", async () => { await semantic.shutdown(); activeSocket?.close(); process.exit(0); });
-process.on("SIGTERM", async () => { await semantic.shutdown(); activeSocket?.close(); process.exit(0); });
+async function shutdown() {
+  await Promise.allSettled([semantic.shutdown(), mcpHub.shutdown(), watcher.close()]);
+  activeSocket?.close();
+}
 
-log("info", "client.started", { version: "1.0.0-beta.1", protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
+process.on("SIGINT", async () => { await shutdown(); process.exit(0); });
+process.on("SIGTERM", async () => { await shutdown(); process.exit(0); });
+
+log("info", "client.started", { version: "1.3.0-dev.0", protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
 void connect();
