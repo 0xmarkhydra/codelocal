@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { DEFAULT_STATE_DIR, readJsonFile, writeJsonAtomic } from "./state.js";
 
@@ -29,6 +29,14 @@ type StoreShape = {
   pairings: PairingRecord[];
 };
 
+type SignedCredentialPayload = {
+  v: 1;
+  credentialId: string;
+  deviceId: string;
+  deviceName: string;
+  issuedAt: number;
+};
+
 function hashSecret(secret: string) {
   return createHash("sha256").update(secret).digest("hex");
 }
@@ -39,11 +47,23 @@ function safeEqualHex(a: string, b: string) {
   return aa.length === bb.length && timingSafeEqual(aa, bb);
 }
 
+function safeEqualText(a: string, b: string) {
+  const aa = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return aa.length === bb.length && timingSafeEqual(aa, bb);
+}
+
 export class DeviceStore {
   private loaded = false;
   private state: StoreShape = { devices: [], pairings: [] };
+  private signingSecret: string;
 
-  constructor(private file = process.env.CODELOCAL_SERVER_STATE_FILE ?? path.join(DEFAULT_STATE_DIR, "server-devices.json")) {}
+  constructor(
+    private file = process.env.CODELOCAL_SERVER_STATE_FILE ?? path.join(DEFAULT_STATE_DIR, "server-devices.json"),
+    signingSecret = process.env.CODELOCAL_DEVICE_AUTH_SECRET ?? process.env.MCP_AUTH_SECRET ?? "",
+  ) {
+    this.signingSecret = signingSecret;
+  }
 
   private async load() {
     if (this.loaded) return;
@@ -60,6 +80,33 @@ export class DeviceStore {
   private async save() {
     this.gcPairings();
     await writeJsonAtomic(this.file, this.state);
+  }
+
+  private signPayload(payload: SignedCredentialPayload) {
+    if (!this.signingSecret) return null;
+    const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    const signature = createHmac("sha256", this.signingSecret).update(encoded).digest("base64url");
+    return `v1.${encoded}.${signature}`;
+  }
+
+  private verifySignedCredential(credentialId: string, credentialSecret: string) {
+    if (!this.signingSecret || !credentialSecret.startsWith("v1.")) return null;
+    const parts = credentialSecret.split(".");
+    if (parts.length !== 3) return null;
+    const [, encoded, signature] = parts;
+    const expected = createHmac("sha256", this.signingSecret).update(encoded).digest("base64url");
+    if (!safeEqualText(signature, expected)) return null;
+    try {
+      const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as SignedCredentialPayload;
+      if (payload.v !== 1 || payload.credentialId !== credentialId || !payload.deviceId || !payload.deviceName) return null;
+      return payload;
+    } catch {
+      return null;
+    }
+  }
+
+  private issueCredential(credentialId: string, deviceId: string, deviceName: string, issuedAt = Date.now()) {
+    return this.signPayload({ v: 1, credentialId, deviceId, deviceName, issuedAt }) ?? randomBytes(32).toString("base64url");
   }
 
   async startPairing(deviceId: string, deviceName: string, ttlMs = 10 * 60_000) {
@@ -97,14 +144,15 @@ export class DeviceStore {
     if (!pairing || pairing.expiresAt <= Date.now() || pairing.code !== code || !pairing.approvedAt || pairing.claimedAt) return null;
     pairing.claimedAt = Date.now();
     const credentialId = `dev_${randomUUID()}`;
-    const credentialSecret = randomBytes(32).toString("base64url");
+    const createdAt = Date.now();
+    const credentialSecret = this.issueCredential(credentialId, pairing.deviceId, pairing.deviceName, createdAt);
     this.state.devices.push({
       credentialId,
       deviceId: pairing.deviceId,
       deviceName: pairing.deviceName,
       secretHash: hashSecret(credentialSecret),
-      createdAt: Date.now(),
-      lastSeenAt: Date.now(),
+      createdAt,
+      lastSeenAt: createdAt,
     });
     await this.save();
     return { credentialId, credentialSecret, deviceId: pairing.deviceId, deviceName: pairing.deviceName };
@@ -113,12 +161,24 @@ export class DeviceStore {
   async authenticate(credentialId: string, credentialSecret: string) {
     await this.load();
     const device = this.state.devices.find((d) => d.credentialId === credentialId && !d.revokedAt);
-    if (!device) return null;
-    const ok = safeEqualHex(device.secretHash, hashSecret(credentialSecret));
-    if (!ok) return null;
-    device.lastSeenAt = Date.now();
-    await this.save();
-    return { ...device, secretHash: "[REDACTED]" };
+    if (device && safeEqualHex(device.secretHash, hashSecret(credentialSecret))) {
+      device.lastSeenAt = Date.now();
+      await this.save();
+      return { ...device, secretHash: "[REDACTED]" };
+    }
+
+    const signed = this.verifySignedCredential(credentialId, credentialSecret);
+    if (!signed) return null;
+    const revoked = this.state.devices.find((d) => d.credentialId === credentialId)?.revokedAt;
+    if (revoked) return null;
+    return {
+      credentialId: signed.credentialId,
+      deviceId: signed.deviceId,
+      deviceName: signed.deviceName,
+      createdAt: signed.issuedAt,
+      lastSeenAt: Date.now(),
+      secretHash: "[STATELESS]",
+    };
   }
 
   async listDevices() {
@@ -139,7 +199,7 @@ export class DeviceStore {
     await this.load();
     const device = this.state.devices.find((d) => d.credentialId === credentialId && !d.revokedAt);
     if (!device) return null;
-    const credentialSecret = randomBytes(32).toString("base64url");
+    const credentialSecret = this.issueCredential(device.credentialId, device.deviceId, device.deviceName);
     device.secretHash = hashSecret(credentialSecret);
     await this.save();
     return { credentialId, credentialSecret };
