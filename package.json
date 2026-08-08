@@ -1,6 +1,6 @@
 {
   "name": "codex-mcp",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "private": true,
   "type": "module",
   "description": "CodeLocal production-beta remote coding bridge with OAuth, pairing, polyglot semantics, sandboxed execution, transactional editing and auditability.",
@@ -13,7 +13,7 @@
     "prepare": "npm run build",
     "prestart": "npm run build",
     "start": "node dist/server-v2.js",
-    "client": "npm run build --silent && node dist/client-v2.js",
+    "client": "npm run build --silent && node dist/client-entry-v2.js",
     "doctor": "npm run build --silent && node dist/cli.js doctor",
     "typecheck": "tsc --noEmit",
     "test": "npm run build --silent && node --test dist/__tests__/*.test.js",
