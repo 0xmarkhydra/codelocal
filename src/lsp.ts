@@ -100,34 +100,46 @@ export class LspClient {
 
   private async startInternal() {
     if (!(await this.available())) throw new Error(`${this.spec.id} is not installed.`);
-    this.child = spawn(this.spec.command, this.spec.args, {
+    const child = spawn(this.spec.command, this.spec.args, {
       cwd: this.root,
       env: { ...process.env },
       stdio: "pipe",
     }) as ChildProcessWithoutNullStreams;
-    this.child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
-    this.child.stderr.on("data", () => undefined);
-    this.child.on("error", (error) => this.failAll(error));
-    this.child.on("close", () => this.failAll(new Error(`${this.spec.id} exited.`)));
+    this.child = child;
+    this.buffer = Buffer.alloc(0);
+    this.opened.clear();
+    this.publishedDiagnostics.clear();
+    child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
+    child.stderr.on("data", () => undefined);
+    child.on("error", (error) => this.failAll(error));
+    child.on("close", () => this.failAll(new Error(`${this.spec.id} exited.`)));
 
     const rootUri = uri(this.root);
-    await this.request("initialize", {
-      processId: process.pid,
-      clientInfo: { name: "CodeLocal", version: "1.2" },
-      rootUri,
-      workspaceFolders: [{ uri: rootUri, name: path.basename(this.root) }],
-      capabilities: {
-        workspace: { symbol: {}, workspaceFolders: true },
-        textDocument: {
-          synchronization: { didSave: true, dynamicRegistration: false },
-          definition: {}, references: {}, implementation: {}, hover: {}, documentSymbol: {}, publishDiagnostics: {},
-          callHierarchy: {},
+    try {
+      await this.request("initialize", {
+        processId: process.pid,
+        clientInfo: { name: "CodeLocal", version: "1.2" },
+        rootUri,
+        workspaceFolders: [{ uri: rootUri, name: path.basename(this.root) }],
+        capabilities: {
+          workspace: { symbol: {}, workspaceFolders: true },
+          textDocument: {
+            synchronization: { didSave: true, dynamicRegistration: false },
+            definition: {}, references: {}, implementation: {}, hover: {}, documentSymbol: {}, publishDiagnostics: {},
+            callHierarchy: {},
+          },
         },
-      },
-      initializationOptions: this.spec.initializationOptions,
-    }, 25_000);
-    this.notify("initialized", {});
-    this.initialized = true;
+        initializationOptions: this.spec.initializationOptions,
+      }, 25_000);
+      this.notify("initialized", {});
+      this.initialized = true;
+    } catch (error) {
+      try { child.kill("SIGTERM"); } catch {}
+      if (this.child === child) this.child = null;
+      this.opened.clear();
+      this.publishedDiagnostics.clear();
+      throw error;
+    }
   }
 
   private failAll(error: Error) {
@@ -138,6 +150,9 @@ export class LspClient {
     }
     this.initialized = false;
     this.child = null;
+    this.opened.clear();
+    this.publishedDiagnostics.clear();
+    this.buffer = Buffer.alloc(0);
   }
 
   private send(payload: unknown) {
@@ -251,12 +266,15 @@ export class LspClient {
   }
 
   async stop() {
-    if (!this.child) return;
+    const child = this.child;
+    if (!child) return;
     try { await this.request("shutdown", null, 2000); } catch {}
     try { this.notify("exit", null); } catch {}
-    this.child.kill("SIGTERM");
-    this.child = null;
+    try { child.kill("SIGTERM"); } catch {}
+    if (this.child === child) this.child = null;
     this.initialized = false;
     this.opened.clear();
+    this.publishedDiagnostics.clear();
+    this.buffer = Buffer.alloc(0);
   }
 }
