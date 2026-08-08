@@ -90,6 +90,15 @@ async function readOne(requestedPath: string) {
   return { path: rel(file), content: await fs.readFile(file, "utf8"), bytes: stat.size };
 }
 
+async function optionalText(relativePath: string, maxBytes = 128 * 1024) {
+  try {
+    const file = await safeExistingPath(relativePath);
+    const stat = await fs.stat(file);
+    if (!stat.isFile() || stat.size > maxBytes) return null;
+    return await fs.readFile(file, "utf8");
+  } catch { return null; }
+}
+
 async function searchCode(query: string, requestedPath = ".", maxResults = 200, fixedStrings = false) {
   const cwd = await safeExistingPath(requestedPath);
   const rgArgs = ["--line-number", "--column", "--no-heading", "--color", "never", "--hidden", "--glob", "!.git/**", "--glob", "!node_modules/**"];
@@ -97,13 +106,13 @@ async function searchCode(query: string, requestedPath = ".", maxResults = 200, 
   rgArgs.push("--", query, ".");
   try {
     const result = await runProcess("rg", rgArgs, { cwd, timeoutMs: 20_000 });
-    const lines = result.stdout.split("\n").filter(Boolean).slice(0, maxResults);
-    return { engine: "ripgrep", matches: lines, truncated: result.stdout.split("\n").filter(Boolean).length > maxResults };
+    const all = result.stdout.split("\n").filter(Boolean);
+    return { engine: "ripgrep", matches: all.slice(0, maxResults), truncated: all.length > maxResults };
   } catch {
     const grepArgs = ["-RIn", "--exclude-dir=.git", "--exclude-dir=node_modules", "--", query, "."];
     const result = await runProcess("grep", grepArgs, { cwd, timeoutMs: 20_000 });
-    const lines = result.stdout.split("\n").filter(Boolean).slice(0, maxResults);
-    return { engine: "grep", matches: lines, truncated: result.stdout.split("\n").filter(Boolean).length > maxResults };
+    const all = result.stdout.split("\n").filter(Boolean);
+    return { engine: "grep", matches: all.slice(0, maxResults), truncated: all.length > maxResults };
   }
 }
 
@@ -143,9 +152,24 @@ async function startShell(command: string, cwdRelative = ".", yieldMs = 1000, ti
 
 async function handleTool(tool: string, args: any) {
   if (tool === "project_info") {
-    const packageJson = await fs.readFile(path.join(root, "package.json"), "utf8").then(JSON.parse).catch(() => null);
+    const packageJsonText = await optionalText("package.json");
+    const packageJson = packageJsonText ? JSON.parse(packageJsonText) : null;
     const git = await runProcess("git", ["rev-parse", "--show-toplevel"], { cwd: root, timeoutMs: 5000 }).catch(() => null);
-    return { projectRoot: root, projectName: packageJson?.name ?? path.basename(root), gitRepository: !!git && git.exitCode === 0, shellEnabled: ALLOW_SHELL, capabilities: ["filesystem", "batch-read", "search", "patch", "git", "shell", "processes"] };
+    const instructionFiles: Record<string, string> = {};
+    for (const candidate of ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"]) {
+      const text = await optionalText(candidate); if (text) instructionFiles[candidate] = text;
+    }
+    const lockfiles = (await Promise.all(["pnpm-lock.yaml", "yarn.lock", "package-lock.json", "bun.lockb", "uv.lock", "poetry.lock", "Cargo.lock", "go.sum"].map(async (f) => [f, !!(await optionalText(f, 1024 * 1024))] as const))).filter(([, ok]) => ok).map(([f]) => f);
+    return {
+      projectRoot: root,
+      projectName: packageJson?.name ?? path.basename(root),
+      packageScripts: packageJson?.scripts ?? null,
+      lockfiles,
+      gitRepository: !!git && git.exitCode === 0,
+      shellEnabled: ALLOW_SHELL,
+      instructions: instructionFiles,
+      capabilities: ["filesystem", "batch-read", "search", "patch", "git", "shell", "processes"],
+    };
   }
   if (tool === "list_files") return { files: await listFiles(args.path ?? ".", args.maxDepth ?? 4) };
   if (tool === "read_file") return readOne(args.path);
