@@ -1,7 +1,16 @@
 import ts from "typescript";
 import path from "node:path";
+import { readdirSync } from "node:fs";
 
 export type Location = { path: string; line: number; column: number; kind?: string; name?: string; text?: string };
+
+type TsProject = {
+  configPath: string;
+  program: ts.Program;
+  checker: ts.TypeChecker;
+};
+
+const SKIP_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", "target", ".venv", "venv", "coverage", ".cache", ".turbo", ".dart_tool", "Pods", "DerivedData"]);
 
 function rel(root: string, file: string) {
   return path.relative(root, file).split(path.sep).join("/") || ".";
@@ -21,18 +30,44 @@ function kindName(node: ts.Node) {
   return ts.SyntaxKind[node.kind] ?? "Unknown";
 }
 
+function discoverConfigs(root: string, maxDepth: number, maxProjects: number) {
+  const out: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    if (depth > maxDepth || out.length >= maxProjects) return;
+    let entries: ReturnType<typeof readdirSync>;
+    try { entries = readdirSync(dir, { withFileTypes: true }) as any; } catch { return; }
+    const names = new Set((entries as any[]).map((entry) => entry.name));
+    for (const candidate of ["tsconfig.json", "jsconfig.json"]) {
+      if (names.has(candidate)) {
+        out.push(path.join(dir, candidate));
+        if (out.length >= maxProjects) return;
+      }
+    }
+    for (const entry of entries as any[]) {
+      if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+      walk(path.join(dir, entry.name), depth + 1);
+      if (out.length >= maxProjects) return;
+    }
+  };
+  walk(root, 0);
+  return out.sort((a, b) => {
+    const da = rel(root, a).split("/").length;
+    const db = rel(root, b).split("/").length;
+    return da - db || a.localeCompare(b);
+  });
+}
+
 export class TypeScriptSemanticIndex {
-  private program: ts.Program | null = null;
-  private checker: ts.TypeChecker | null = null;
-  private configPath: string | null = null;
+  private projects: TsProject[] = [];
+  private configPaths: string[] = [];
   private builtAt = 0;
   private attempted = false;
+
   constructor(private root: string) {}
 
   invalidate() {
-    this.program = null;
-    this.checker = null;
-    this.configPath = null;
+    this.projects = [];
+    this.configPaths = [];
     this.builtAt = 0;
     this.attempted = false;
   }
@@ -41,48 +76,57 @@ export class TypeScriptSemanticIndex {
     if (this.attempted) return;
     this.attempted = true;
 
-    // Never synthesize a giant TypeScript Program for an arbitrary/generic root.
-    // In polyglot monorepos this can include generated JS, vendored sources and
-    // nested applications and easily consume multiple GB of heap. A configured
-    // TS/JS project gets full compiler semantics; generic roots use LSP/ripgrep
-    // fallback from SemanticRouter until a scoped project root is selected.
-    const config = ts.findConfigFile(this.root, ts.sys.fileExists, "tsconfig.json") || ts.findConfigFile(this.root, ts.sys.fileExists, "jsconfig.json");
-    if (!config) {
-      this.configPath = null;
-      this.builtAt = Date.now();
-      return;
+    const maxProjects = Math.max(1, Number(process.env.CODELOCAL_TS_MAX_PROJECTS ?? 20) || 20);
+    const maxDepth = Math.max(1, Number(process.env.CODELOCAL_TS_CONFIG_DEPTH ?? 6) || 6);
+    const maxFilesPerProject = Math.max(100, Number(process.env.CODELOCAL_TS_MAX_FILES_PER_PROJECT ?? 4_000) || 4_000);
+    const maxTotalFiles = Math.max(maxFilesPerProject, Number(process.env.CODELOCAL_TS_MAX_TOTAL_FILES ?? 12_000) || 12_000);
+    const configs = discoverConfigs(this.root, maxDepth, maxProjects);
+    let remaining = maxTotalFiles;
+
+    for (const config of configs) {
+      if (remaining <= 0) break;
+      const read = ts.readConfigFile(config, ts.sys.readFile);
+      if (read.error) continue;
+      const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, path.dirname(config));
+      const rootNames = parsed.fileNames.slice(0, Math.min(maxFilesPerProject, remaining));
+      if (!rootNames.length) continue;
+      remaining -= rootNames.length;
+      const options: ts.CompilerOptions = { ...parsed.options, noEmit: true, skipLibCheck: true };
+      try {
+        const program = ts.createProgram({ rootNames, options });
+        this.projects.push({ configPath: config, program, checker: program.getTypeChecker() });
+        this.configPaths.push(config);
+      } catch {}
     }
 
-    this.configPath = config;
-    const read = ts.readConfigFile(config, ts.sys.readFile);
-    if (read.error) {
-      this.builtAt = Date.now();
-      return;
-    }
-    const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, path.dirname(config));
-    const maxFiles = Math.max(100, Number(process.env.CODELOCAL_TS_MAX_FILES ?? 10_000) || 10_000);
-    const rootNames = parsed.fileNames.slice(0, maxFiles);
-    const options: ts.CompilerOptions = { ...parsed.options, noEmit: true, skipLibCheck: true };
-    this.program = ts.createProgram({ rootNames, options });
-    this.checker = this.program.getTypeChecker();
     this.builtAt = Date.now();
   }
 
   info() {
     this.build();
     return {
-      available: !!this.program,
-      configured: !!this.configPath,
-      mode: this.program ? "typescript-program" : "fallback",
-      configPath: this.configPath ? rel(this.root, this.configPath) : null,
-      sourceFiles: this.program ? this.projectSources().length : 0,
+      available: this.projects.length > 0,
+      configured: this.configPaths.length > 0,
+      mode: this.projects.length > 1 ? "typescript-multi-project" : this.projects.length === 1 ? "typescript-program" : "fallback",
+      configPath: this.configPaths[0] ? rel(this.root, this.configPaths[0]) : null,
+      configPaths: this.configPaths.map((config) => rel(this.root, config)),
+      projectCount: this.projects.length,
+      sourceFiles: this.projectSources().length,
       builtAt: this.builtAt,
     };
   }
 
   private projectSources() {
     this.build();
-    return (this.program?.getSourceFiles() ?? []).filter((f) => f.fileName.startsWith(this.root + path.sep) && !f.fileName.includes(`${path.sep}node_modules${path.sep}`));
+    const unique = new Map<string, ts.SourceFile>();
+    for (const project of this.projects) {
+      for (const source of project.program.getSourceFiles()) {
+        if (!source.fileName.startsWith(this.root + path.sep)) continue;
+        if (source.fileName.includes(`${path.sep}node_modules${path.sep}`)) continue;
+        unique.set(source.fileName, source);
+      }
+    }
+    return [...unique.values()];
   }
 
   workspaceSymbols(query = "", limit = 200): Location[] {
@@ -185,13 +229,23 @@ export class TypeScriptSemanticIndex {
 
   diagnostics(limit = 500) {
     this.build();
-    if (!this.program) return [];
-    const diags = ts.getPreEmitDiagnostics(this.program).slice(0, limit);
-    return diags.map((d) => {
-      const message = ts.flattenDiagnosticMessageText(d.messageText, "\n");
-      if (!d.file || d.start == null) return { message, code: d.code, category: ts.DiagnosticCategory[d.category] };
-      const p = d.file.getLineAndCharacterOfPosition(d.start);
-      return { path: rel(this.root, d.file.fileName), line: p.line + 1, column: p.character + 1, message, code: d.code, category: ts.DiagnosticCategory[d.category] };
-    });
+    const out: Array<{ path?: string; line?: number; column?: number; message: string; code: number; category: string }> = [];
+    const seen = new Set<string>();
+    for (const project of this.projects) {
+      for (const d of ts.getPreEmitDiagnostics(project.program)) {
+        const message = ts.flattenDiagnosticMessageText(d.messageText, "\n");
+        const file = d.file?.fileName;
+        const key = `${file ?? ""}:${d.start ?? -1}:${d.code}:${message}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (!d.file || d.start == null) out.push({ message, code: d.code, category: ts.DiagnosticCategory[d.category] });
+        else {
+          const p = d.file.getLineAndCharacterOfPosition(d.start);
+          out.push({ path: rel(this.root, d.file.fileName), line: p.line + 1, column: p.character + 1, message, code: d.code, category: ts.DiagnosticCategory[d.category] });
+        }
+        if (out.length >= limit) return out;
+      }
+    }
+    return out;
   }
 }
