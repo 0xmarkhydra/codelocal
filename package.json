@@ -1,9 +1,9 @@
 {
   "name": "codex-mcp",
-  "version": "1.0.0-beta.6",
+  "version": "1.1.0-dev.1",
   "private": true,
   "type": "module",
-  "description": "CodeLocal production-beta remote coding bridge with OAuth, pairing, polyglot semantics, sandboxed execution, transactional editing and auditability.",
+  "description": "CodeLocal smart workspace development branch with incremental code intelligence, context ranking, sandboxed execution and auditable local actions.",
   "bin": {
     "codelocal": "dist/cli.js"
   },
