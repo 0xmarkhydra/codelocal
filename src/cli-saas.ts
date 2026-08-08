@@ -4,7 +4,7 @@ import os from "node:os";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
-import { defaultDeviceIdentity, loadLocalCredential, saveLocalCredential } from "./identity.js";
+import { defaultDeviceIdentity, deleteLocalCredential, loadLocalCredential, saveLocalCredential, type LocalDeviceCredential } from "./identity.js";
 
 const DEFAULT_CLOUD = process.env.CODELOCAL_SERVER ?? "https://codelocal-mcp-dev-dev.up.railway.app";
 
@@ -108,17 +108,44 @@ function defaultWorkspaceId(project: string) {
   return `${slug}-${digest}`;
 }
 
+async function validateCredential(server: string, credential: LocalDeviceCredential, workspaceId: string) {
+  try {
+    const response = await fetch(`${wsToHttp(server)}/api/client/mcp-sync`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-codelocal-credential-id": credential.credentialId,
+        authorization: `Device ${credential.credentialSecret}`,
+      },
+      body: JSON.stringify({ workspaceId }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (response.status === 401 || response.status === 403) return false;
+    // 404 means an older, non-SaaS CodeLocal gateway. Other transient/server errors
+    // should not destroy a credential that may still be valid once the service recovers.
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 async function start(projectArg: string, serverArg?: string) {
   const project = await fs.realpath(path.resolve(projectArg || "."));
+  const workspaceId = process.env.CODELOCAL_WORKSPACE_ID ?? defaultWorkspaceId(project);
   const anyCredential = await loadLocalCredential();
   const configured = serverArg || process.env.SERVER_URL || anyCredential?.serverUrl || httpToWs(DEFAULT_CLOUD);
   const server = configured.startsWith("ws://") || configured.startsWith("wss://") ? configured : httpToWs(configured);
   let credential = await loadLocalCredential(server);
+  if (credential && !(await validateCredential(server, credential, workspaceId))) {
+    console.log("Stored CodeLocal credential is no longer valid. Pairing this machine again…");
+    await deleteLocalCredential();
+    credential = null;
+  }
   if (!credential) credential = await pair(wsToHttp(server));
 
   process.env.PROJECT_ROOT = project;
   process.env.SERVER_URL = server;
-  process.env.CODELOCAL_WORKSPACE_ID ??= defaultWorkspaceId(project);
+  process.env.CODELOCAL_WORKSPACE_ID ??= workspaceId;
   process.env.CODELOCAL_WORKSPACE_NAME ??= path.basename(project);
   process.env.CODELOCAL_ALLOW_SHELL ??= "1";
   process.env.CODELOCAL_APPROVAL_MODE ??= "prompt";
