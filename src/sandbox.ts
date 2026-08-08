@@ -49,11 +49,33 @@ function extraWritableDeveloperPaths() {
     .map((value) => path.resolve(value));
 }
 
+export function isMacDeveloperToolCommand(command: string) {
+  const segments = command
+    .replace(/\s+/g, " ")
+    .split(/&&|\|\||;|\|/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  return segments.some((segment) => {
+    const withoutEnv = segment.replace(/^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S+)\s+)*/i, "");
+    if (/^(?:fvm\s+flutter|bundle\s+exec\s+pod)(?:\s|$)/i.test(withoutEnv)) return true;
+    const first = withoutEnv.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/)?.slice(1).find(Boolean) ?? "";
+    const base = path.basename(first);
+    return /^(flutter|dart|xcodebuild|xcrun|pod)$/i.test(base);
+  });
+}
+
+function macDeveloperHostModeEnabled() {
+  return process.env.CODELOCAL_MACOS_DEVTOOLS_HOST !== "0";
+}
+
 async function writableDeveloperPaths() {
   const home = os.homedir();
   const candidates = [
     "/tmp",
     "/private/tmp",
+    os.tmpdir(),
+    process.env.TMPDIR ?? "",
     // Dart/Flutter state. Flutter writes telemetry/session state here before a
     // build begins (for example dart-flutter-telemetry-session.json).
     path.join(home, ".dart-tool"),
@@ -66,11 +88,14 @@ async function writableDeveloperPaths() {
     path.join(home, "Library", "Developer", "CoreSimulator"),
     path.join(home, "Library", "Logs", "CoreSimulator"),
     path.join(home, "Library", "CocoaPods"),
-    path.join(home, "develop", "flutter", "bin", "cache"),
+    // A source checkout of Flutter is partly self-updating: the tool may write
+    // version/cache/artifact state outside bin/cache. Keep this scoped to the
+    // Flutter SDK tree rather than opening the whole home directory.
+    path.join(home, "develop", "flutter"),
     ...extraWritableDeveloperPaths(),
-  ];
+  ].filter(Boolean);
   const flutterRoot = process.env.FLUTTER_ROOT?.trim();
-  if (flutterRoot) candidates.push(path.join(flutterRoot, "bin", "cache"));
+  if (flutterRoot) candidates.push(flutterRoot);
 
   // Sandbox rules may safely name paths that do not exist yet; that is needed
   // for first-run caches. Keep the list narrow instead of granting all of $HOME.
@@ -88,7 +113,17 @@ export class SandboxManager {
       return { platform: process.platform, backend: "bubblewrap", mode: "native", available: true, networkMode: this.networkMode, notes: ["workspace is writable; host root is read-only; common credential directories are masked"] };
     }
     if (process.platform === "darwin" && await executableExists("sandbox-exec")) {
-      return { platform: process.platform, backend: "sandbox-exec", mode: "best-effort", available: true, networkMode: this.networkMode, notes: ["sandbox-exec is best-effort; workspace plus narrowly scoped developer caches/state are writable so Flutter/Xcode tooling can run"] };
+      return {
+        platform: process.platform,
+        backend: "sandbox-exec",
+        mode: "best-effort",
+        available: true,
+        networkMode: this.networkMode,
+        notes: [
+          "normal commands use sandbox-exec with scoped writable developer paths",
+          "approved Flutter/Xcode/CocoaPods commands use macOS developer host mode because Simulator/Xcode require system IPC and user temp services that sandbox-exec cannot reliably proxy",
+        ],
+      };
     }
     if (process.platform === "win32") {
       return { platform: process.platform, backend: "windows-policy", mode: "policy-only", available: false, networkMode: this.networkMode, notes: ["native Windows restricted-token helper is not bundled yet; workspace and command policy still apply"] };
@@ -98,6 +133,37 @@ export class SandboxManager {
 
   async wrapShell(command: string, cwd: string) {
     const info = await this.info();
+
+    // Flutter/Xcode/Simulator on macOS require access to per-user temporary
+    // directories, CoreSimulator services, Xcode helpers and SDK state. Running
+    // them under sandbox-exec produces misleading EPERM errors even when the
+    // project and SDK permissions are correct. These commands are still gated
+    // by CodeLocal's command policy + local approval before ProcessManager gets
+    // here; only the OS sandbox is bypassed for the selected developer toolchain.
+    if (
+      process.platform === "darwin" &&
+      this.networkMode !== "deny" &&
+      macDeveloperHostModeEnabled() &&
+      isMacDeveloperToolCommand(command)
+    ) {
+      const shell = process.env.SHELL || "/bin/zsh";
+      return {
+        command: shell,
+        args: ["-lc", command],
+        cwd,
+        sandbox: {
+          ...info,
+          backend: "macos-developer-host",
+          mode: "policy-only" as const,
+          available: false,
+          notes: [
+            "OS sandbox intentionally bypassed for an approved macOS developer-toolchain command",
+            "CodeLocal command policy, approval, workspace cwd validation and audit remain active",
+          ],
+        },
+      };
+    }
+
     if (info.backend === "bubblewrap") {
       const args = [
         "--die-with-parent",
@@ -129,9 +195,6 @@ export class SandboxManager {
         "(allow sysctl-read)",
         "(allow file-read*)",
         `(allow file-write* (subpath \"${escapeSbpl(this.workspace)}\"))`,
-        // Shells and developer tools routinely redirect probes to /dev/null.
-        // Without this explicit rule Flutter reports misleading secondary errors
-        // such as \"Unable to find git in your PATH\".
         "(allow file-write* (literal \"/dev/null\"))",
       ];
       for (const writable of await writableDeveloperPaths()) {
@@ -150,10 +213,12 @@ export class SandboxManager {
   async smokeTest() {
     const info = await this.info();
     if (!info.available) return { ...info, smokeTest: "not-run" as const };
-    // Verify stdout, /dev/null and Dart state because Flutter depends on all of
-    // them before the application build itself starts.
     const dartState = path.join(os.homedir(), ".dart-tool", ".codelocal-sandbox-probe");
-    const wrapped = await this.wrapShell(`printf codelocal-sandbox-ok && printf probe >/dev/null && mkdir -p \"${dartState.replace(/\/\.codelocal-sandbox-probe$/, "")}\" && printf probe >\"${dartState}\" && rm -f \"${dartState}\"`, this.workspace);
+    const tempState = path.join(os.tmpdir(), `.codelocal-temp-probe-${process.pid}`);
+    const wrapped = await this.wrapShell(
+      `printf codelocal-sandbox-ok && printf probe >/dev/null && mkdir -p \"${path.dirname(dartState)}\" && printf probe >\"${dartState}\" && rm -f \"${dartState}\" && printf probe >\"${tempState}\" && rm -f \"${tempState}\"`,
+      this.workspace,
+    );
     return await new Promise<Record<string, unknown>>((resolve) => {
       const child = spawn(wrapped.command, wrapped.args, { cwd: wrapped.cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env });
       let stdout = "";
