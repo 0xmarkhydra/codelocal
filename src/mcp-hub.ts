@@ -64,6 +64,8 @@ type ConnectedSession = {
   stderrTail: string;
 };
 
+export type McpConnectGuard = (config: Readonly<McpServerConfig>) => void | Promise<void>;
+
 const REGISTRY_VERSION = 1 as const;
 const CATALOG_VERSION = 1 as const;
 const MAX_CATALOG_TOOLS = Number(process.env.CODELOCAL_MCP_MAX_TOOLS ?? 5000);
@@ -230,7 +232,7 @@ function searchScore(tool: McpCatalogTool, query: string) {
 export class McpHub {
   private sessions = new Map<string, ConnectedSession>();
 
-  constructor(private workspaceRoot = process.cwd()) {
+  constructor(private workspaceRoot = process.cwd(), private beforeConnect?: McpConnectGuard) {
     this.workspaceRoot = normalizeRoot(workspaceRoot);
   }
 
@@ -335,7 +337,7 @@ export class McpHub {
     if (options.server) {
       const config = await this.resolveServer(options.server);
       const key = configKey(config);
-      let existing = await this.catalogFile();
+      const existing = await this.catalogFile();
       if (!existing.tools.some((tool) => tool.serverKey === key)) await this.probe(options.server);
     }
     const catalog = await this.catalogFile();
@@ -358,7 +360,7 @@ export class McpHub {
       })),
       catalogToolCount: catalog.tools.filter((tool) => allowedKeys.has(tool.serverKey)).length,
       installedServerCount: effectiveByName.size,
-      recommendation: ranked.length ? "Call mcp_tool_info before mcp_call when you need the exact input schema." : "Run `codelocal mcp probe <name>` for newly installed servers, or narrow the search query.",
+      recommendation: ranked.length ? "Call mcp_tool_info before mcp_call when you need the exact input schema." : "Probe a newly installed MCP with explicit local approval, then search again.",
     };
   }
 
@@ -434,6 +436,7 @@ export class McpHub {
   private async getOrConnect(config: McpServerConfig) {
     const existing = this.sessions.get(config.name);
     if (existing) return existing.client;
+    await this.beforeConnect?.(config);
     const client = new Client({ name: "codelocal-mcp-hub", version: "1.0.0" });
     let transport: StdioClientTransport | StreamableHTTPClientTransport;
     if (config.transport === "stdio") {
