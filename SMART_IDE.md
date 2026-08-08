@@ -1,52 +1,94 @@
-# CodeLocal Smart IDE (dev branch)
+# CodeLocal Smart MCP Intelligence (dev branch)
 
-This branch experiments with IDE-grade workspace intelligence while keeping `main` stable.
+`dev` experiments with IDE-grade local code intelligence while `main` stays stable.
 
-## Goals
+## Non-negotiable architecture
 
-- Prefer targeted context over broad repository scans.
-- Keep code intelligence fresh after edits, IDE changes and generated code.
-- Support monorepos/polyglot workspaces without rebuilding one giant AST.
-- Use language servers when available, with bounded text/AST fallback.
-- Preserve CodeLocal safety, approval, audit and sandbox layers.
-
-## Current intelligence pipeline
+CodeLocal is **not an autonomous coding agent**. ChatGPT remains the planner/reasoning layer and decides which MCP tool to call next.
 
 ```text
-Task from ChatGPT
-  -> ProjectContextEngine
+User
+  -> ChatGPT (reason / plan / decide)
+       -> MCP read/intelligence call
+            -> CodeLocal may refresh index, query LSP, traverse graph and read bounded context
+            -> structured result back to ChatGPT
+       -> ChatGPT decides whether another read, edit, command, Git action or rollback is needed
+       -> explicit MCP side-effect call
+            -> policy / approval / audit
+            -> local execution
+            -> result back to ChatGPT
+```
+
+Read-only intelligence may perform internal deterministic work inside one MCP call. There are **no autonomous hidden side effects**.
+
+Every edit, delete, shell command, dependency install, Git write, developer-host command or rollback must originate from an explicit MCP request and retain its request ID through policy, approval, audit and execution.
+
+## v1.2 intelligence pipeline
+
+```text
+ChatGPT calls context_for_task(task)
+  -> native recursive workspace events
+       - macOS FSEvents
+       - Linux inotify
+       - Windows native watcher
+       - bounded Chokidar fallback
   -> persistent WorkspaceIntelligenceIndex
        - file metadata
        - lightweight symbols
        - imports
+       - local package identities
        - recent changes
-       - dependency neighbors
-       - nested manifests/workspace roots
+       - dependency / reverse-dependency neighbors
+       - nested manifests / workspace roots
   -> task ranking
   -> SemanticRouter
-       - TypeScript multi-project compiler index
-       - Dart Analyzer LSP
-       - Pyright / rust-analyzer / gopls / clangd / jdtls / Kotlin / Lua / SourceKit / ZLS when installed
+       - bounded TypeScript multi-project compiler index
+       - nearest-project-root LSP routing
+       - Dart Analyzer / Pyright / rust-analyzer / gopls / clangd / jdtls / Kotlin / Lua / SourceKit / ZLS when installed
+       - circuit breaker for broken server/root pairs
        - ripgrep fallback
-  -> targeted files/ranges
-  -> edit
-  -> invalidate lazily
-  -> verify / diagnostics / diff
+  -> diagnostics + graph edges
+  -> bounded source snippets around relevant symbols/errors
+  -> Context Packet returned to ChatGPT
 ```
+
+`context_for_task` is deliberately read-only. It does not edit files, run tests or start Flutter on its own.
+
+## Native workspace events
+
+`src/client-entry-v2.ts` installs `src/native-watcher.ts` before `client-v2` loads. Existing Chokidar consumers transparently use `@parcel/watcher` when available.
+
+The preferred native backends are:
+
+```text
+macOS   -> fs-events
+Linux   -> inotify
+Windows -> windows
+```
+
+The watcher is recursive and ignores generated/vendor directories. If the native watcher cannot start, CodeLocal falls back to a bounded Chokidar watch instead of recursively polling the whole repository.
+
+The persistent index remains a second freshness layer: the next task-context refresh compares file size/mtime and re-indexes changed files, including deep files missed by a fallback watcher.
 
 ## Workspace intelligence
 
-`src/workspace-index.ts` maintains a bounded index and persists only metadata-derived information under:
+`src/workspace-index.ts` persists metadata-derived information under:
 
 ```text
 ~/.codelocal/indexes/
 ```
 
-The cache contains file paths, sizes/mtimes, lightweight symbol names, import specifiers and ranking tokens. It does **not** persist source file contents.
+It stores paths, size/mtime, lightweight symbols, imports, package names and ranking tokens. It does **not** persist source file contents.
 
-On refresh, unchanged files reuse the cached parsed metadata. Changed files are re-read and re-indexed. Deleted/new files are detected by the bounded workspace scan.
+The index understands local Flutter package imports such as:
 
-Important environment knobs:
+```dart
+import 'package:biddi_mobile/features/profile.dart';
+```
+
+and maps them back to the package's local `pubspec.yaml -> lib/...` source when that package is inside the workspace.
+
+Important limits:
 
 ```text
 CODELOCAL_INDEX_MAX_FILES=12000
@@ -55,11 +97,33 @@ CODELOCAL_INDEX_MAX_FILE_BYTES=393216
 CODELOCAL_INDEX_FRESHNESS_MS=1500
 ```
 
+## Per-root language intelligence
+
+Language servers are selected by file and nearest project marker rather than forcing one LSP root for the whole repository.
+
+Examples:
+
+```text
+apps/mobile/lib/a.dart
+  -> nearest pubspec.yaml
+  -> Dart Analyzer rooted at apps/mobile
+
+services/api/main.py
+  -> nearest pyproject.toml
+  -> Pyright rooted at services/api
+
+crates/payments/src/lib.rs
+  -> nearest Cargo.toml
+  -> rust-analyzer rooted at crates/payments
+```
+
+Clients are reused by `(server, projectRoot)`. Failed pairs are temporarily circuit-broken instead of respawning in a loop. LSP document state is reset after a server restart so a new server never receives `didChange` before `didOpen`.
+
+Supported position intelligence includes definition, references, implementations, hover, diagnostics and LSP call hierarchy where the server supports it.
+
 ## TypeScript / JavaScript monorepos
 
-The dev branch no longer requires a `tsconfig.json` at `PROJECT_ROOT`. It searches nested projects and creates multiple bounded TypeScript Programs.
-
-Limits:
+The TypeScript index searches bounded nested `tsconfig.json` / `jsconfig.json` projects instead of building one enormous program from a generic root.
 
 ```text
 CODELOCAL_TS_MAX_PROJECTS=20
@@ -68,35 +132,44 @@ CODELOCAL_TS_MAX_FILES_PER_PROJECT=4000
 CODELOCAL_TS_MAX_TOTAL_FILES=12000
 ```
 
-This avoids the old failure mode where a generic workspace accidentally became one enormous TypeScript Program.
+## Context Packet
 
-## Flutter / Dart
+A single `context_for_task` call now returns a bounded packet containing, when available:
 
-When `dart` is available on `PATH`, `.dart` files route to:
+- project/workspace roots and commands;
+- ranked files with scores and reasons;
+- semantic symbols;
+- diagnostics;
+- relevant import/dependency graph edges;
+- recent-change information;
+- source snippets centered around the relevant symbol or diagnostic;
+- explicit context budget usage.
+
+Defaults:
 
 ```text
-dart language-server --protocol=lsp
+CODELOCAL_CONTEXT_MAX_CHARS=48000
+CODELOCAL_CONTEXT_SNIPPET_CHARS=7000
+CODELOCAL_CONTEXT_FILES=8
 ```
 
-This provides file-position definition/reference/implementation/hover/diagnostics through the same semantic tools already exposed by CodeLocal.
+ChatGPT should use this packet before broad scans, then request exact definitions/references/larger ranges only when the packet is insufficient.
 
-## Task context ranking
+## Side effects remain separate MCP calls
 
-The existing MCP tool `context_for_task` now returns ranked files rather than only plain symbol matches. Ranking considers:
+Recommended reasoning flow:
 
-- filename/path term matches;
-- lightweight declared symbols;
-- imported modules;
-- recent file changes;
-- entrypoints/manifests/tests;
-- import graph neighbors;
-- semantic provider results.
+```text
+context_for_task
+  -> optional semantic/read calls
+  -> ChatGPT decides change
+  -> snapshot_diagnostics
+  -> apply_edits / edit_file / apply_patch
+  -> verify_changes
+  -> ChatGPT decides done / further patch / explicit rollback when available
+```
 
-The gateway API does not need a new tool name, so a `dev` local client can still connect to the existing production gateway while this branch is tested.
-
-## Safety
-
-The smart index excludes sensitive paths using the existing CodeLocal sensitive-path policy. Existing shell policy, approvals, audit logs and macOS developer host-mode behavior remain in place.
+Long-running commands such as `flutter run` remain explicit process MCP calls. macOS Flutter/Xcode developer-host execution still goes through the existing policy and approval layer.
 
 ## Test locally
 
@@ -109,24 +182,25 @@ npm install
 npm run typecheck
 npm test
 
+node -p "require('./package.json').version"
 node dist/cli.js start "$HOME/Desktop/BIDDI"
 ```
 
-Then from ChatGPT, start with:
+Expected development version:
 
 ```text
-project_info
-context_for_task("<your task>")
+1.2.0-dev.0
 ```
 
-For Flutter/Dart, verify `semantic_info` reports `dart-analyzer` installed, then test `find_definition`, `find_references`, `get_hover` and `get_diagnostics` on a `.dart` file.
+Then ask ChatGPT to begin a coding task using `context_for_task` and inspect whether the returned packet contains the expected Flutter/Dart files, symbols, diagnostics and graph neighbors.
 
-## Still intentionally not claimed as complete
+## Next slices after v1.2 core validation
 
-- embedding/vector semantic search;
-- full checker-identity call graph for every language;
-- IDE UI/accessibility integration;
-- production persistence on the Railway side;
-- full Cursor-equivalent feature parity.
+- selective content-addressed workspace snapshots and restore;
+- per-file mutation locks / compare-and-swap transactions;
+- context epoch/delta for session workspace state;
+- richer permission rules by action + resource + workspace/session;
+- optional embedding retrieval as a supplement, never a replacement for LSP/graph/lexical evidence;
+- high-level MCP metadata/annotations once the experimental client behavior is validated against the production gateway.
 
-The dev branch is the place to iterate on these without destabilizing `main`.
+These remain MCP capabilities. ChatGPT continues to orchestrate them.
