@@ -94,9 +94,9 @@ async function pair(baseArg = DEFAULT_CLOUD) {
     }).catch(() => null);
     if (!claim?.ok) continue;
     const credential = await claim.json() as { credentialId: string; credentialSecret: string; deviceId: string; deviceName: string };
-    await saveLocalCredential({ ...credential, serverUrl: wsUrl });
+    const saved = await saveLocalCredential({ ...credential, serverUrl: wsUrl });
     console.log(`✓ ${credential.deviceName} paired with CodeLocal Cloud.\n`);
-    return { ...credential, serverUrl: wsUrl };
+    return saved;
   }
   throw new Error("Pairing expired. Run `codelocal .` again to create a new pairing request.");
 }
