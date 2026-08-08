@@ -5,6 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ApprovalEngine, type ApprovalMode } from "./approval.js";
+import { audit } from "./audit.js";
 
 type Scope = "global" | "workspace";
 type TransportKind = "stdio" | "http";
@@ -229,11 +231,52 @@ function searchScore(tool: McpCatalogTool, query: string) {
   return score;
 }
 
+function safeConnectDetail(config: McpServerConfig) {
+  if (config.transport === "stdio") return `stdio ${config.command ?? config.name}`;
+  try {
+    const url = new URL(config.url ?? "");
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return `http ${url.toString()}`;
+  } catch {
+    return `http ${config.name}`;
+  }
+}
+
+function defaultRuntimeConnectGuard(workspaceRoot: string): McpConnectGuard | undefined {
+  if (!process.env.SERVER_URL || !process.env.PROJECT_ROOT || process.env.CODELOCAL_MCP_START_APPROVAL === "0") return undefined;
+  const requestedMode = (process.env.CODELOCAL_APPROVAL_MODE ?? "prompt") as ApprovalMode;
+  const mode: ApprovalMode = ["prompt", "deny", "auto-safe"].includes(requestedMode) ? requestedMode : "prompt";
+  const approval = new ApprovalEngine(`mcp-runtime:${workspaceRoot}`, mode);
+  return async (config) => {
+    const rule = `mcp-runtime:${config.name}`;
+    const decision = {
+      riskLevel: "REVIEW" as const,
+      matchedRules: [rule],
+      requiresApproval: true,
+      blocked: false,
+      redactedCommand: safeConnectDetail(config),
+      reason: "starting an installed MCP can execute a local process or establish an external network connection",
+    };
+    await audit({
+      event: "policy.mcp_runtime_start",
+      workspaceKey: workspaceRoot,
+      riskLevel: decision.riskLevel,
+      detail: { server: config.name, transport: config.transport, rule },
+    });
+    const ok = await approval.approve("Start installed MCP runtime", decision.redactedCommand, decision);
+    if (!ok) throw new Error(`MCP runtime start denied by local approval policy: ${config.name}`);
+  };
+}
+
 export class McpHub {
   private sessions = new Map<string, ConnectedSession>();
 
   constructor(private workspaceRoot = process.cwd(), private beforeConnect?: McpConnectGuard) {
     this.workspaceRoot = normalizeRoot(workspaceRoot);
+    this.beforeConnect ??= defaultRuntimeConnectGuard(this.workspaceRoot);
   }
 
   private async registry(): Promise<RegistryFile> {
