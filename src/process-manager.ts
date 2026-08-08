@@ -100,12 +100,14 @@ function hostShell(command: string, cwd: string) {
 export class ProcessManager {
   private records = new Map<string, ProcessRecord>();
   private requestToProcess = new Map<string, string>();
+  private settledNotified = new Set<string>();
 
   constructor(
     private workspaceRoot: string,
     private workspaceKey: string,
     private sandbox: SandboxManager,
     private onOutput?: (record: ProcessRecord, stream: "stdout" | "stderr", text: string) => void,
+    private onSettled?: (record: ProcessRecord) => void | Promise<void>,
   ) {}
 
   private prune() {
@@ -113,6 +115,7 @@ export class ProcessManager {
     while (this.records.size >= MAX_PROCESSES && finished.length) {
       const victim = finished.shift()!;
       this.records.delete(victim.processId);
+      this.settledNotified.delete(victim.processId);
     }
     if (this.records.size >= MAX_PROCESSES) throw new Error(`Too many active CodeLocal processes (${MAX_PROCESSES}).`);
   }
@@ -142,6 +145,12 @@ export class ProcessManager {
     record.lastActivityAt = Date.now();
     append(stream === "stdout" ? record.stdout : record.stderr, text);
     this.onOutput?.(record, stream, text);
+  }
+
+  private notifySettled(record: ProcessRecord) {
+    if (this.settledNotified.has(record.processId)) return;
+    this.settledNotified.add(record.processId);
+    Promise.resolve(this.onSettled?.(record)).catch(() => undefined);
   }
 
   async start(command: string, options: { cwd: string; timeoutMs?: number; ownerSessionId?: string; requestId?: string; usePty?: boolean; cols?: number; rows?: number }) {
@@ -175,6 +184,7 @@ export class ProcessManager {
           record.exitCode = exitCode;
           record.signal = signal == null ? null : String(signal);
           record.lastActivityAt = Date.now();
+          this.notifySettled(record);
         });
         this.scheduleTimeout(record, options.timeoutMs);
         return this.snapshot(record.processId);
@@ -201,6 +211,7 @@ export class ProcessManager {
       record.exitCode = code;
       record.signal = signal ?? null;
       record.lastActivityAt = Date.now();
+      this.notifySettled(record);
     });
     this.scheduleTimeout(record, options.timeoutMs);
     return this.snapshot(record.processId);
