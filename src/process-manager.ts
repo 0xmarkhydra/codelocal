@@ -5,8 +5,10 @@ import { SandboxManager } from "./sandbox.js";
 
 const MAX_BUFFER_BYTES = Number(process.env.CODELOCAL_MAX_PROCESS_BUFFER_BYTES ?? 2 * 1024 * 1024);
 const MAX_PROCESSES = Number(process.env.CODELOCAL_MAX_PROCESSES ?? 64);
+const MAC_DEV_HOST_MODE = process.env.CODELOCAL_MAC_DEV_HOST_MODE !== "0";
 
 type Status = "running" | "exited" | "cancelled" | "failed";
+type ExecutionMode = "sandbox" | "host-developer";
 
 type StreamBuffer = { text: string; baseOffset: number; totalBytes: number };
 
@@ -35,6 +37,7 @@ export type ProcessRecord = {
   stderr: StreamBuffer;
   timeoutAt: number | null;
   pty: boolean;
+  executionMode: ExecutionMode;
   child?: ChildProcessWithoutNullStreams;
   terminal?: PtyLike;
 };
@@ -71,6 +74,29 @@ async function loadNodePty(): Promise<any | null> {
   }
 }
 
+function isMacDeveloperHostCommand(command: string) {
+  if (process.platform !== "darwin" || !MAC_DEV_HOST_MODE) return false;
+  const normalized = command.replace(/\s+/g, " ").trim();
+  return /(?:^|[;&|]\s*|\s)(?:fvm\s+flutter|flutter|dart|xcodebuild|xcrun|pod)(?:\s|$)/i.test(normalized);
+}
+
+function hostShell(command: string, cwd: string) {
+  const shell = process.env.SHELL || "/bin/zsh";
+  return {
+    command: shell,
+    args: ["-lc", command],
+    cwd,
+    sandbox: {
+      platform: process.platform,
+      backend: "host-developer",
+      mode: "none" as const,
+      available: true,
+      networkMode: "allow" as const,
+      notes: ["approved macOS developer toolchain command is running on the host instead of sandbox-exec"],
+    },
+  };
+}
+
 export class ProcessManager {
   private records = new Map<string, ProcessRecord>();
   private requestToProcess = new Map<string, string>();
@@ -91,7 +117,7 @@ export class ProcessManager {
     if (this.records.size >= MAX_PROCESSES) throw new Error(`Too many active CodeLocal processes (${MAX_PROCESSES}).`);
   }
 
-  private baseRecord(command: string, cwd: string, ownerSessionId?: string): ProcessRecord {
+  private baseRecord(command: string, cwd: string, executionMode: ExecutionMode, ownerSessionId?: string): ProcessRecord {
     return {
       processId: randomUUID(),
       workspaceKey: this.workspaceKey,
@@ -108,6 +134,7 @@ export class ProcessManager {
       stderr: { text: "", baseOffset: 0, totalBytes: 0 },
       timeoutAt: null,
       pty: false,
+      executionMode,
     };
   }
 
@@ -119,20 +146,25 @@ export class ProcessManager {
 
   async start(command: string, options: { cwd: string; timeoutMs?: number; ownerSessionId?: string; requestId?: string; usePty?: boolean; cols?: number; rows?: number }) {
     this.prune();
-    const record = this.baseRecord(command, options.cwd, options.ownerSessionId);
+    const executionMode: ExecutionMode = isMacDeveloperHostCommand(command) ? "host-developer" : "sandbox";
+    const record = this.baseRecord(command, options.cwd, executionMode, options.ownerSessionId);
     this.records.set(record.processId, record);
     if (options.requestId) this.requestToProcess.set(options.requestId, record.processId);
+
+    const wrap = async () => executionMode === "host-developer"
+      ? hostShell(command, options.cwd)
+      : this.sandbox.wrapShell(command, options.cwd);
 
     if (options.usePty) {
       const nodePty = await loadNodePty();
       if (nodePty) {
-        const wrapped = await this.sandbox.wrapShell(command, options.cwd);
+        const wrapped = await wrap();
         const terminal = nodePty.spawn(wrapped.command, wrapped.args, {
           name: process.env.TERM || "xterm-256color",
           cols: options.cols ?? 120,
           rows: options.rows ?? 36,
           cwd: wrapped.cwd,
-          env: { ...process.env, PAGER: "cat", GIT_PAGER: "cat" },
+          env: { ...process.env, PAGER: "cat", GIT_PAGER: "cat", CODELOCAL_EXECUTION_MODE: executionMode },
         }) as PtyLike;
         record.pty = true;
         record.terminal = terminal;
@@ -149,10 +181,10 @@ export class ProcessManager {
       }
     }
 
-    const wrapped = await this.sandbox.wrapShell(command, options.cwd);
+    const wrapped = await wrap();
     const child = spawn(wrapped.command, wrapped.args, {
       cwd: wrapped.cwd,
-      env: { ...process.env, PAGER: "cat", GIT_PAGER: "cat", CI: process.env.CI ?? "1" },
+      env: { ...process.env, PAGER: "cat", GIT_PAGER: "cat", CI: process.env.CI ?? "1", CODELOCAL_EXECUTION_MODE: executionMode },
       stdio: "pipe",
     }) as ChildProcessWithoutNullStreams;
     record.child = child;
@@ -201,6 +233,7 @@ export class ProcessManager {
       signal: record.signal,
       timeoutAt: record.timeoutAt,
       pty: record.pty,
+      executionMode: record.executionMode,
       stdout: readBuffer(record.stdout, cursors.stdout),
       stderr: readBuffer(record.stderr, cursors.stderr),
     };
@@ -218,6 +251,7 @@ export class ProcessManager {
       startedAt: record.startedAt,
       lastActivityAt: record.lastActivityAt,
       pty: record.pty,
+      executionMode: record.executionMode,
     }));
   }
 
