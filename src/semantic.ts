@@ -26,28 +26,43 @@ export class TypeScriptSemanticIndex {
   private checker: ts.TypeChecker | null = null;
   private configPath: string | null = null;
   private builtAt = 0;
+  private attempted = false;
   constructor(private root: string) {}
 
   invalidate() {
     this.program = null;
     this.checker = null;
+    this.configPath = null;
+    this.builtAt = 0;
+    this.attempted = false;
   }
 
   private build() {
-    if (this.program && this.checker) return;
+    if (this.attempted) return;
+    this.attempted = true;
+
+    // Never synthesize a giant TypeScript Program for an arbitrary/generic root.
+    // In polyglot monorepos this can include generated JS, vendored sources and
+    // nested applications and easily consume multiple GB of heap. A configured
+    // TS/JS project gets full compiler semantics; generic roots use LSP/ripgrep
+    // fallback from SemanticRouter until a scoped project root is selected.
     const config = ts.findConfigFile(this.root, ts.sys.fileExists, "tsconfig.json") || ts.findConfigFile(this.root, ts.sys.fileExists, "jsconfig.json");
-    let rootNames: string[] = [];
-    let options: ts.CompilerOptions = { allowJs: true, checkJs: false, skipLibCheck: true, noEmit: true };
-    if (config) {
-      this.configPath = config;
-      const read = ts.readConfigFile(config, ts.sys.readFile);
-      const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, path.dirname(config));
-      rootNames = parsed.fileNames;
-      options = { ...parsed.options, noEmit: true };
-    } else {
-      const files = ts.sys.readDirectory(this.root, [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"], ["node_modules", ".git", "dist", "build", ".next"], undefined, 20);
-      rootNames = files;
+    if (!config) {
+      this.configPath = null;
+      this.builtAt = Date.now();
+      return;
     }
+
+    this.configPath = config;
+    const read = ts.readConfigFile(config, ts.sys.readFile);
+    if (read.error) {
+      this.builtAt = Date.now();
+      return;
+    }
+    const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, path.dirname(config));
+    const maxFiles = Math.max(100, Number(process.env.CODELOCAL_TS_MAX_FILES ?? 10_000) || 10_000);
+    const rootNames = parsed.fileNames.slice(0, maxFiles);
+    const options: ts.CompilerOptions = { ...parsed.options, noEmit: true, skipLibCheck: true };
     this.program = ts.createProgram({ rootNames, options });
     this.checker = this.program.getTypeChecker();
     this.builtAt = Date.now();
@@ -55,7 +70,14 @@ export class TypeScriptSemanticIndex {
 
   info() {
     this.build();
-    return { available: !!this.program, configPath: this.configPath ? rel(this.root, this.configPath) : null, sourceFiles: this.projectSources().length, builtAt: this.builtAt };
+    return {
+      available: !!this.program,
+      configured: !!this.configPath,
+      mode: this.program ? "typescript-program" : "fallback",
+      configPath: this.configPath ? rel(this.root, this.configPath) : null,
+      sourceFiles: this.program ? this.projectSources().length : 0,
+      builtAt: this.builtAt,
+    };
   }
 
   private projectSources() {
@@ -113,7 +135,7 @@ export class TypeScriptSemanticIndex {
           const expression = node.expression;
           const called = ts.isIdentifier(expression) ? expression.text : ts.isPropertyAccessExpression(expression) ? expression.name.text : null;
           if (called === name) {
-            let owner: ts.Node | undefined = stack.slice(0, -1).reverse().find((n) => ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isArrowFunction(n) || ts.isFunctionExpression(n));
+            const owner: ts.Node | undefined = stack.slice(0, -1).reverse().find((n) => ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isArrowFunction(n) || ts.isFunctionExpression(n));
             const ownerName = owner ? nodeName(owner) : undefined;
             out.push({ path: rel(this.root, source.fileName), ...pos(source, node), kind: "CallExpression", name: ownerName && ts.isIdentifier(ownerName) ? ownerName.text : undefined });
           }
