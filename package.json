@@ -8,11 +8,12 @@
     "codelocal": "dist/cli.js"
   },
   "scripts": {
-    "dev": "tsx watch src/server-v2.ts",
+    "dev": "tsx watch src/server-saas.ts",
     "build": "tsc --outDir dist",
     "prepare": "npm run build",
     "prestart": "npm run build",
-    "start": "node dist/server-v2.js",
+    "start": "node dist/server-saas.js",
+    "start:legacy": "node dist/server-v2.js",
     "client": "npm run build --silent && node dist/client-entry-v2.js",
     "doctor": "npm run build --silent && node dist/cli.js doctor",
     "typecheck": "tsc --noEmit",
