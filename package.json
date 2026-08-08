@@ -5,7 +5,7 @@
   "type": "module",
   "description": "CodeLocal local development runtime and multi-tenant MCP gateway for ChatGPT with code intelligence, local execution and installable MCP extensions.",
   "bin": {
-    "codelocal": "dist/cli.js"
+    "codelocal": "dist/cli-saas.js"
   },
   "scripts": {
     "dev": "tsx watch src/server-saas.ts",
@@ -15,7 +15,7 @@
     "start": "node dist/server-saas.js",
     "start:legacy": "node dist/server-v2.js",
     "client": "npm run build --silent && node dist/client-entry-v2.js",
-    "doctor": "npm run build --silent && node dist/cli.js doctor",
+    "doctor": "npm run build --silent && node dist/cli-saas.js doctor",
     "typecheck": "tsc --noEmit",
     "test": "npm run build --silent && node scripts/run-tests.mjs",
     "ci": "npm run typecheck && npm test"
