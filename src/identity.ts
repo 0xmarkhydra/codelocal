@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { unlink } from "node:fs/promises";
 import { DEFAULT_STATE_DIR, readJsonFile, writeJsonAtomic } from "./state.js";
 
 export type LocalDeviceCredential = {
@@ -27,6 +28,10 @@ export async function saveLocalCredential(value: Omit<LocalDeviceCredential, "cr
   };
   await writeJsonAtomic(CREDENTIAL_FILE, credential);
   return credential;
+}
+
+export async function deleteLocalCredential() {
+  await unlink(CREDENTIAL_FILE).catch(() => undefined);
 }
 
 export function defaultDeviceIdentity() {
