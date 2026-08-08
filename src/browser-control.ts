@@ -147,7 +147,8 @@ export function isBrowserInternalUrl(url: string) {
 export function isLocalDevUrl(value: string) {
   try {
     const url = new URL(value);
-    return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(url.hostname);
+    const hostname = url.hostname.replace(/^\[/, "").replace(/\]$/, "");
+    return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(hostname);
   } catch {
     return false;
   }
@@ -155,7 +156,7 @@ export function isLocalDevUrl(value: string) {
 
 function validateNavigableUrl(value: string) {
   const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`Unsupported browser URL scheme: ${url.protocol}`);
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error(`Unsupported browser URL scheme: ${url.protocol}`);
   return url.toString();
 }
 
