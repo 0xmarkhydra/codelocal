@@ -18,6 +18,7 @@ export type CloudMcpSyncEntry = {
 type ManagedConfig = McpServerConfig & {
   managedBy?: "cloud";
   cloudInstallationId?: string;
+  cloudWorkspaceId?: string;
 };
 
 type Registry = { version: 1; servers: ManagedConfig[] };
@@ -57,6 +58,7 @@ function mapEntry(entry: CloudMcpSyncEntry, workspaceRoot: string): ManagedConfi
     updatedAt: entry.updatedAt || now,
     managedBy: "cloud" as const,
     cloudInstallationId: entry.id,
+    cloudWorkspaceId: entry.workspaceId,
   };
   if (entry.transport === "stdio") {
     const command = String(entry.config.command ?? "").trim();
@@ -77,16 +79,29 @@ function mapEntry(entry: CloudMcpSyncEntry, workspaceRoot: string): ManagedConfi
 export async function syncCloudMcpInstallations(workspaceRoot: string, entries: CloudMcpSyncEntry[]) {
   const paths = mcpStatePaths();
   const registry = await readRegistry(paths.registry);
-  const local = registry.servers.filter((server) => server.managedBy !== "cloud");
+  // Replace cloud-global config and this workspace's cloud config only. A different
+  // `codelocal .` process may be using the same machine-level registry for another
+  // workspace, so its workspace-scoped cloud entries must remain intact.
+  const preserved = registry.servers.filter((server) => {
+    if (server.managedBy !== "cloud") return true;
+    if (server.scope === "global") return false;
+    return server.workspaceRoot !== workspaceRoot;
+  });
   const cloud = entries.map((entry) => mapEntry(entry, workspaceRoot));
-  const merged = [...local, ...cloud].sort((a, b) => {
+  const merged = [...preserved, ...cloud].sort((a, b) => {
     const aManaged = a.managedBy === "cloud" ? 1 : 0;
     const bManaged = b.managedBy === "cloud" ? 1 : 0;
-    return `${a.scope}:${a.name}:${aManaged}`.localeCompare(`${b.scope}:${b.name}:${bManaged}`);
+    return `${a.scope}:${a.name}:${a.workspaceRoot ?? ""}:${aManaged}`.localeCompare(`${b.scope}:${b.name}:${b.workspaceRoot ?? ""}:${bManaged}`);
   });
   await writePrivate(paths.registry, { version: 1, servers: merged });
-  // Tool schemas are cheap to rediscover and may have changed with a cloud-managed configuration.
-  // Clearing the local catalog avoids ever routing a stale schema to a newly configured server.
+  // Tool schemas are cheap to rediscover and may have changed with cloud config.
+  // Clearing cached schemas is conservative: other running workspaces may need to
+  // re-probe, but no stale schema can be routed to a changed MCP definition.
   await writePrivate(paths.catalog, { version: 1, tools: [] });
-  return { cloudManaged: cloud.length, localManaged: local.length, total: merged.length };
+  return {
+    cloudManaged: cloud.length,
+    preservedOtherWorkspaceCloud: preserved.filter((server) => server.managedBy === "cloud").length,
+    localManaged: preserved.filter((server) => server.managedBy !== "cloud").length,
+    total: merged.length,
+  };
 }
