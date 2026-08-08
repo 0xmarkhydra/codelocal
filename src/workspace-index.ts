@@ -1,5 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { createHash, randomUUID } from "node:crypto";
 import { isSensitivePath } from "./security-policy.js";
 
 export type IndexedFile = {
@@ -121,14 +123,21 @@ export class WorkspaceIntelligenceIndex {
   private lastScanAt = 0;
   private dirty = true;
   private scanPromise: Promise<void> | null = null;
+  private cacheLoaded = false;
+  private readonly cacheDir: string;
+  private readonly cacheFile: string;
 
   constructor(
     private root: string,
     private maxEntries = Math.max(1000, Number(process.env.CODELOCAL_INDEX_MAX_FILES ?? 12000) || 12000),
     private maxDepth = Math.max(2, Number(process.env.CODELOCAL_INDEX_MAX_DEPTH ?? 8) || 8),
     private maxReadBytes = Math.max(16_384, Number(process.env.CODELOCAL_INDEX_MAX_FILE_BYTES ?? 384 * 1024) || 384 * 1024),
-    private freshnessMs = Math.max(500, Number(process.env.CODELOCAL_INDEX_FRESHNESS_MS ?? 2500) || 2500),
-  ) {}
+    private freshnessMs = Math.max(500, Number(process.env.CODELOCAL_INDEX_FRESHNESS_MS ?? 1500) || 1500),
+  ) {
+    this.cacheDir = path.join(os.homedir(), ".codelocal", "indexes");
+    const key = createHash("sha256").update(path.resolve(root)).digest("hex").slice(0, 24);
+    this.cacheFile = path.join(this.cacheDir, `${key}.json`);
+  }
 
   invalidate(paths?: string[]) {
     this.dirty = true;
@@ -140,6 +149,44 @@ export class WorkspaceIntelligenceIndex {
     if (!normalized || normalized === "." || normalized.startsWith("../")) return;
     this.recentChanges.set(normalized, Date.now());
     this.dirty = true;
+  }
+
+  private async loadCache() {
+    if (this.cacheLoaded) return;
+    this.cacheLoaded = true;
+    try {
+      const parsed = JSON.parse(await fs.readFile(this.cacheFile, "utf8"));
+      if (parsed?.root !== path.resolve(this.root) || !Array.isArray(parsed?.files)) return;
+      const restored = new Map<string, IndexedFile>();
+      for (const raw of parsed.files) {
+        if (!raw || typeof raw.path !== "string" || isSensitivePath(raw.path)) continue;
+        restored.set(raw.path, raw as IndexedFile);
+      }
+      this.files = restored;
+      this.builtAt = Number(parsed.builtAt ?? 0);
+      if (Array.isArray(parsed.recentChanges)) {
+        for (const item of parsed.recentChanges) {
+          if (item && typeof item.file === "string" && Number.isFinite(item.changedAt)) this.recentChanges.set(item.file, Number(item.changedAt));
+        }
+      }
+      this.rebuildReverseImports();
+    } catch {}
+  }
+
+  private async persistCache() {
+    try {
+      await fs.mkdir(this.cacheDir, { recursive: true, mode: 0o700 });
+      const payload = JSON.stringify({
+        version: 1,
+        root: path.resolve(this.root),
+        builtAt: this.builtAt,
+        files: [...this.files.values()],
+        recentChanges: [...this.recentChanges.entries()].map(([file, changedAt]) => ({ file, changedAt })),
+      });
+      const temp = `${this.cacheFile}.${process.pid}.${randomUUID()}.tmp`;
+      await fs.writeFile(temp, payload, { encoding: "utf8", mode: 0o600 });
+      await fs.rename(temp, this.cacheFile);
+    } catch {}
   }
 
   private async discover() {
@@ -172,9 +219,11 @@ export class WorkspaceIntelligenceIndex {
   private async indexOne(meta: { path: string; size: number; mtimeMs: number }, previous?: IndexedFile) {
     const language = languageFor(meta.path);
     const kind = kindFor(meta.path, language);
-    const changedAt = this.recentChanges.get(meta.path) ?? previous?.changedAt ?? null;
-    if (previous && previous.size === meta.size && previous.mtimeMs === meta.mtimeMs) return { ...previous, changedAt };
+    const unchanged = !!previous && previous.size === meta.size && previous.mtimeMs === meta.mtimeMs;
+    const changedAt = this.recentChanges.get(meta.path) ?? (!unchanged && previous ? Date.now() : previous?.changedAt ?? null);
+    if (unchanged && previous) return { ...previous, changedAt };
 
+    if (!unchanged && previous) this.recentChanges.set(meta.path, changedAt ?? Date.now());
     let text = "";
     if ((language || kind === "manifest" || kind === "config") && meta.size <= this.maxReadBytes) {
       try { text = await fs.readFile(path.join(this.root, meta.path), "utf8"); } catch {}
@@ -186,10 +235,14 @@ export class WorkspaceIntelligenceIndex {
   }
 
   private async scan() {
+    await this.loadCache();
     const discovered = await this.discover();
     const next = new Map<string, IndexedFile>();
     for (const meta of discovered) {
       next.set(meta.path, await this.indexOne(meta, this.files.get(meta.path)));
+    }
+    for (const oldPath of this.files.keys()) {
+      if (!next.has(oldPath)) this.recentChanges.set(oldPath, Date.now());
     }
     this.files = next;
     this.rebuildReverseImports();
@@ -198,6 +251,7 @@ export class WorkspaceIntelligenceIndex {
     this.dirty = false;
     const cutoff = Date.now() - 10 * 60_000;
     for (const [file, at] of this.recentChanges) if (at < cutoff) this.recentChanges.delete(file);
+    await this.persistCache();
   }
 
   private rebuildReverseImports() {
@@ -215,9 +269,10 @@ export class WorkspaceIntelligenceIndex {
   }
 
   async ensureFresh(force = false) {
+    await this.loadCache();
     const now = Date.now();
     if (!force && !this.dirty && now - this.lastScanAt < this.freshnessMs) return this.summary();
-    if (!force && this.dirty && now - this.lastScanAt < Math.min(this.freshnessMs, 1000)) return this.summary();
+    if (!force && this.dirty && this.lastScanAt > 0 && now - this.lastScanAt < Math.min(this.freshnessMs, 750)) return this.summary();
     if (!this.scanPromise) {
       this.scanPromise = this.scan().finally(() => { this.scanPromise = null; });
     }
@@ -239,6 +294,7 @@ export class WorkspaceIntelligenceIndex {
       manifests: files.filter((file) => file.kind === "manifest").length,
       languages: [...new Set(files.map((file) => file.language).filter(Boolean))],
       recentChanges: [...this.recentChanges.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([file, changedAt]) => ({ file, changedAt })),
+      persistentCache: this.cacheFile,
     };
   }
 
@@ -281,7 +337,7 @@ export class WorkspaceIntelligenceIndex {
         else if (lowerPath.includes(term)) { score += 10; reasons.push(`path:${term}`); }
         if (symbolLower.some((value) => value === term)) { score += 24; reasons.push(`symbol=${term}`); }
         else if (symbolLower.some((value) => value.includes(term))) { score += 14; reasons.push(`symbol:${term}`); }
-        if (importLower.some((value) => value.toLowerCase().includes(term))) { score += 7; reasons.push(`import:${term}`); }
+        if (importLower.some((value) => value.includes(term))) { score += 7; reasons.push(`import:${term}`); }
         if (file.tokens.includes(term)) score += 3;
       }
 
