@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { SemanticRouter } from "./semantic-router.js";
+import type { SemanticRouter, SemanticLocation } from "./semantic-router.js";
 import { WorkspaceIntelligenceIndex } from "./workspace-index.js";
 
 export type ProjectMap = {
@@ -24,7 +24,20 @@ export type ProjectMap = {
   intelligence: ReturnType<WorkspaceIntelligenceIndex["summary"]>;
 };
 
-function unique(values: string[]) {
+type ContextSnippet = {
+  path: string;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  content: string;
+  reason: string;
+};
+
+const MAX_CONTEXT_CHARS = Math.max(8_000, Number(process.env.CODELOCAL_CONTEXT_MAX_CHARS ?? 48_000) || 48_000);
+const MAX_SNIPPET_CHARS = Math.max(1_000, Number(process.env.CODELOCAL_CONTEXT_SNIPPET_CHARS ?? 7_000) || 7_000);
+const MAX_CONTEXT_FILES = Math.max(2, Number(process.env.CODELOCAL_CONTEXT_FILES ?? 8) || 8);
+
+function unique<T>(values: T[]) {
   return [...new Set(values)];
 }
 
@@ -33,6 +46,16 @@ function normalizeLanguage(language: string | null) {
   if (language === "typescript" || language === "javascript") return "typescript/javascript";
   if (language === "c" || language === "cpp") return "c/c++";
   return language;
+}
+
+function taskTerms(taskHint: string) {
+  return unique(taskHint.toLowerCase().split(/[^a-z0-9_$-]+/).filter((value) => value.length >= 2)).slice(0, 14);
+}
+
+function symbolMatches(symbol: SemanticLocation, terms: string[]) {
+  const name = (symbol.name ?? "").toLowerCase();
+  const file = symbol.path.toLowerCase();
+  return terms.some((term) => name.includes(term) || file.includes(term));
 }
 
 export class ProjectContextEngine {
@@ -182,28 +205,99 @@ export class ProjectContextEngine {
     return this.cached;
   }
 
+  private async lspSymbolsForFiles(paths: string[], terms: string[], limit: number) {
+    const symbols: SemanticLocation[] = [];
+    for (const relative of paths.slice(0, Math.min(10, paths.length))) {
+      const document = await this.semantic.documentSymbols(relative, 160).catch(() => [] as SemanticLocation[]);
+      const matches = terms.length ? document.filter((symbol) => symbolMatches(symbol, terms)) : document.slice(0, 12);
+      symbols.push(...(matches.length ? matches : document.slice(0, 5)));
+      if (symbols.length >= limit) break;
+    }
+    return symbols.slice(0, limit);
+  }
+
+  private async diagnosticsForFiles(paths: string[], limit = 40) {
+    const diagnostics: any[] = [];
+    for (const relative of paths.slice(0, 5)) {
+      const values = await this.semantic.diagnostics(relative, 20).catch(() => [] as any[]);
+      diagnostics.push(...values.map((item) => ({ ...item, path: item.path ?? relative })));
+      if (diagnostics.length >= limit) break;
+    }
+    return diagnostics.slice(0, limit);
+  }
+
+  private async snippet(relativePath: string, preferredLine: number | undefined, reason: string): Promise<ContextSnippet | null> {
+    try {
+      const absolute = path.resolve(this.root, relativePath);
+      const stat = await fs.stat(absolute);
+      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) return null;
+      const text = await fs.readFile(absolute, "utf8");
+      if (text.includes("\u0000")) return null;
+      const lines = text.split(/\r?\n/);
+      const center = Math.max(1, Math.min(lines.length, preferredLine ?? 1));
+      const radius = preferredLine ? 24 : 32;
+      let startLine = Math.max(1, center - radius);
+      let endLine = Math.min(lines.length, center + radius);
+      let content = lines.slice(startLine - 1, endLine).join("\n");
+      if (content.length > MAX_SNIPPET_CHARS) {
+        content = content.slice(0, MAX_SNIPPET_CHARS);
+        const keptLines = content.split(/\r?\n/).length;
+        endLine = Math.min(endLine, startLine + keptLines - 1);
+      }
+      return { path: relativePath, startLine, endLine, totalLines: lines.length, content, reason };
+    } catch {
+      return null;
+    }
+  }
+
   async relevant(taskHint: string, limit = 30) {
     const project = await this.map();
     await this.intelligence.ensureFresh();
-    const rankedFiles = this.intelligence.rank(taskHint, Math.max(limit * 2, 40));
-    const terms = unique(taskHint.toLowerCase().split(/[^a-z0-9_$-]+/).filter((value) => value.length >= 3)).slice(0, 10);
-    const symbols: any[] = [];
+    const terms = taskTerms(taskHint);
+    const rankedFiles = this.intelligence.rank(taskHint, Math.max(limit * 3, 60));
+    const rankedPaths = rankedFiles.map((file) => file.path);
 
-    for (const term of terms) {
-      const found = await this.semantic.workspaceSymbols(term, Math.max(6, Math.ceil(limit / Math.max(1, terms.length))));
-      symbols.push(...found);
-      if (symbols.length >= limit * 2) break;
+    const workspaceSymbols: SemanticLocation[] = [];
+    for (const term of terms.slice(0, 10)) {
+      const found = await this.semantic.workspaceSymbols(term, Math.max(8, Math.ceil(limit / Math.max(1, terms.length))));
+      workspaceSymbols.push(...found);
+      if (workspaceSymbols.length >= limit * 2) break;
     }
 
+    const lspSymbols = await this.lspSymbolsForFiles(rankedPaths, terms, limit * 2);
+    const symbols = [...workspaceSymbols, ...lspSymbols].filter((symbol, index, all) =>
+      all.findIndex((candidate) => candidate.path === symbol.path && candidate.line === symbol.line && candidate.name === symbol.name) === index,
+    );
     const symbolPaths = unique(symbols.map((symbol) => symbol.path).filter(Boolean));
-    const rankedPaths = rankedFiles.map((file) => file.path);
-    const graphNeighbors = this.intelligence.neighbors([...rankedPaths.slice(0, 12), ...symbolPaths.slice(0, 12)], limit * 2);
+    const graphNeighbors = this.intelligence.neighbors([...rankedPaths.slice(0, 12), ...symbolPaths.slice(0, 12)], limit * 3);
     const relevantPaths = unique([...rankedPaths, ...symbolPaths, ...graphNeighbors]).slice(0, limit);
     const rankingByPath = new Map(rankedFiles.map((file) => [file.path, file]));
+    const diagnostics = await this.diagnosticsForFiles(relevantPaths);
+
+    const relevantSet = new Set(relevantPaths);
+    const graphEdges = this.intelligence.graph(5000)
+      .filter((edge) => relevantSet.has(edge.from) || relevantSet.has(edge.to))
+      .slice(0, 120);
+
+    const snippets: ContextSnippet[] = [];
+    let usedChars = 0;
+    for (const relative of relevantPaths.slice(0, MAX_CONTEXT_FILES)) {
+      const symbol = symbols.find((item) => item.path === relative && symbolMatches(item, terms)) ?? symbols.find((item) => item.path === relative);
+      const diagnostic = diagnostics.find((item) => item.path === relative);
+      const ranked = rankingByPath.get(relative);
+      const preferredLine = symbol?.line ?? diagnostic?.line;
+      const reason = ranked?.reasons?.join(", ") || (symbol ? "semantic-symbol" : diagnostic ? "diagnostic" : "graph-neighbor");
+      const value = await this.snippet(relative, preferredLine, reason);
+      if (!value) continue;
+      if (usedChars + value.content.length > MAX_CONTEXT_CHARS) break;
+      snippets.push(value);
+      usedChars += value.content.length;
+    }
 
     return {
       taskHint,
-      strategy: "incremental-index + lexical-symbol-ranking + dependency-neighbors + semantic-provider",
+      strategy: "persistent-incremental-index + per-root-LSP + semantic-symbols + dependency-neighbors + recent-change-ranking + bounded-source-snippets",
+      epoch: this.epoch,
       index: this.intelligence.summary(),
       project: {
         languages: project.languages,
@@ -216,12 +310,18 @@ export class ProjectContextEngine {
       },
       rankedFiles: relevantPaths.map((file) => {
         const ranked = rankingByPath.get(file);
-        return ranked ? { path: file, score: ranked.score, reasons: ranked.reasons, language: ranked.language, symbols: ranked.symbols.slice(0, 20), imports: ranked.imports.slice(0, 20), changedAt: ranked.changedAt } : { path: file, score: null, reasons: [symbolPaths.includes(file) ? "semantic-symbol" : "graph-neighbor"] };
+        return ranked
+          ? { path: file, score: ranked.score, reasons: ranked.reasons, language: ranked.language, symbols: ranked.symbols.slice(0, 20), imports: ranked.imports.slice(0, 20), changedAt: ranked.changedAt }
+          : { path: file, score: null, reasons: [symbolPaths.includes(file) ? "semantic-symbol" : "graph-neighbor"] };
       }),
       symbols: symbols.slice(0, limit * 2),
+      diagnostics,
+      graphEdges,
+      snippets,
       relevantPaths,
+      contextBudget: { maxChars: MAX_CONTEXT_CHARS, usedChars, maxFiles: MAX_CONTEXT_FILES },
       recommendation: relevantPaths.length
-        ? "Read ranked files/symbol ranges first, then expand through graph neighbors only when needed."
+        ? "Use this packet first. Ask for exact definitions/references or read a larger range only when the packet is insufficient; all side effects remain separate MCP calls."
         : "Narrow the task hint or use semantic/text search before any broad scan.",
     };
   }
