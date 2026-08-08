@@ -13,6 +13,7 @@ export type IndexedFile = {
   imports: string[];
   symbols: string[];
   tokens: string[];
+  packageName: string | null;
   changedAt: number | null;
 };
 
@@ -104,6 +105,19 @@ function parseSymbols(text: string, language: string | null) {
   return [...out];
 }
 
+function parsePackageName(file: string, text: string) {
+  if (file.endsWith("pubspec.yaml")) {
+    return /^\s*name\s*:\s*["']?([A-Za-z0-9_-]+)["']?\s*$/m.exec(text)?.[1] ?? null;
+  }
+  if (file.endsWith("package.json")) {
+    try {
+      const value = JSON.parse(text)?.name;
+      return typeof value === "string" && value.trim() ? value.trim() : null;
+    } catch {}
+  }
+  return null;
+}
+
 function resolveRelativeImport(from: string, specifier: string, known: Set<string>) {
   if (!specifier.startsWith(".")) return null;
   const base = normalizeRelative(path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier)));
@@ -118,6 +132,7 @@ function resolveRelativeImport(from: string, specifier: string, known: Set<strin
 export class WorkspaceIntelligenceIndex {
   private files = new Map<string, IndexedFile>();
   private reverseImports = new Map<string, Set<string>>();
+  private packageRoots = new Map<string, string>();
   private recentChanges = new Map<string, number>();
   private builtAt = 0;
   private lastScanAt = 0;
@@ -156,11 +171,11 @@ export class WorkspaceIntelligenceIndex {
     this.cacheLoaded = true;
     try {
       const parsed = JSON.parse(await fs.readFile(this.cacheFile, "utf8"));
-      if (parsed?.root !== path.resolve(this.root) || !Array.isArray(parsed?.files)) return;
+      if (parsed?.version !== 2 || parsed?.root !== path.resolve(this.root) || !Array.isArray(parsed?.files)) return;
       const restored = new Map<string, IndexedFile>();
       for (const raw of parsed.files) {
         if (!raw || typeof raw.path !== "string" || isSensitivePath(raw.path)) continue;
-        restored.set(raw.path, raw as IndexedFile);
+        restored.set(raw.path, { ...raw, packageName: typeof raw.packageName === "string" ? raw.packageName : null } as IndexedFile);
       }
       this.files = restored;
       this.builtAt = Number(parsed.builtAt ?? 0);
@@ -169,7 +184,7 @@ export class WorkspaceIntelligenceIndex {
           if (item && typeof item.file === "string" && Number.isFinite(item.changedAt)) this.recentChanges.set(item.file, Number(item.changedAt));
         }
       }
-      this.rebuildReverseImports();
+      this.rebuildGraphMetadata();
     } catch {}
   }
 
@@ -177,7 +192,7 @@ export class WorkspaceIntelligenceIndex {
     try {
       await fs.mkdir(this.cacheDir, { recursive: true, mode: 0o700 });
       const payload = JSON.stringify({
-        version: 1,
+        version: 2,
         root: path.resolve(this.root),
         builtAt: this.builtAt,
         files: [...this.files.values()],
@@ -230,8 +245,9 @@ export class WorkspaceIntelligenceIndex {
     }
     const symbols = text ? parseSymbols(text, language) : [];
     const imports = text ? parseImports(text, language) : [];
-    const tokens = [...new Set([...tokenize(meta.path), ...symbols.flatMap(tokenize), ...imports.flatMap(tokenize)])].slice(0, 800);
-    return { ...meta, language, kind, imports, symbols, tokens, changedAt } satisfies IndexedFile;
+    const packageName = text && kind === "manifest" ? parsePackageName(meta.path, text) : null;
+    const tokens = [...new Set([...tokenize(meta.path), ...symbols.flatMap(tokenize), ...imports.flatMap(tokenize), ...(packageName ? tokenize(packageName) : [])])].slice(0, 800);
+    return { ...meta, language, kind, imports, symbols, tokens, packageName, changedAt } satisfies IndexedFile;
   }
 
   private async scan() {
@@ -245,7 +261,7 @@ export class WorkspaceIntelligenceIndex {
       if (!next.has(oldPath)) this.recentChanges.set(oldPath, Date.now());
     }
     this.files = next;
-    this.rebuildReverseImports();
+    this.rebuildGraphMetadata();
     this.builtAt = Date.now();
     this.lastScanAt = this.builtAt;
     this.dirty = false;
@@ -254,18 +270,40 @@ export class WorkspaceIntelligenceIndex {
     await this.persistCache();
   }
 
-  private rebuildReverseImports() {
+  private rebuildGraphMetadata() {
     this.reverseImports.clear();
+    this.packageRoots.clear();
+    for (const record of this.files.values()) {
+      if (!record.packageName) continue;
+      if (record.path.endsWith("pubspec.yaml") || record.path.endsWith("package.json")) {
+        this.packageRoots.set(record.packageName, path.posix.dirname(record.path) === "." ? "" : path.posix.dirname(record.path));
+      }
+    }
     const known = new Set(this.files.keys());
     for (const record of this.files.values()) {
       for (const specifier of record.imports) {
-        const resolved = resolveRelativeImport(record.path, specifier, known);
+        const resolved = this.resolveImport(record.path, specifier, known);
         if (!resolved) continue;
         const set = this.reverseImports.get(resolved) ?? new Set<string>();
         set.add(record.path);
         this.reverseImports.set(resolved, set);
       }
     }
+  }
+
+  private resolveImport(from: string, specifier: string, known = new Set(this.files.keys())) {
+    const relative = resolveRelativeImport(from, specifier, known);
+    if (relative) return relative;
+
+    const dartPackage = /^package:([^/]+)\/(.+)$/.exec(specifier);
+    if (dartPackage) {
+      const packageRoot = this.packageRoots.get(dartPackage[1]);
+      if (packageRoot !== undefined) {
+        const candidate = normalizeRelative(path.posix.join(packageRoot, "lib", dartPackage[2]));
+        if (known.has(candidate)) return candidate;
+      }
+    }
+    return null;
   }
 
   async ensureFresh(force = false) {
@@ -292,6 +330,7 @@ export class WorkspaceIntelligenceIndex {
       files: files.length,
       sourceFiles: files.filter((file) => file.kind === "source" || file.kind === "test").length,
       manifests: files.filter((file) => file.kind === "manifest").length,
+      packages: [...this.packageRoots.entries()].slice(0, 100).map(([name, root]) => ({ name, root: root || "." })),
       languages: [...new Set(files.map((file) => file.language).filter(Boolean))],
       recentChanges: [...this.recentChanges.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([file, changedAt]) => ({ file, changedAt })),
       persistentCache: this.cacheFile,
@@ -305,7 +344,7 @@ export class WorkspaceIntelligenceIndex {
       const record = this.files.get(input);
       if (record) {
         for (const specifier of record.imports) {
-          const resolved = resolveRelativeImport(record.path, specifier, known);
+          const resolved = this.resolveImport(record.path, specifier, known);
           if (resolved) out.add(resolved);
           if (out.size >= limit) return [...out];
         }
@@ -338,6 +377,7 @@ export class WorkspaceIntelligenceIndex {
         if (symbolLower.some((value) => value === term)) { score += 24; reasons.push(`symbol=${term}`); }
         else if (symbolLower.some((value) => value.includes(term))) { score += 14; reasons.push(`symbol:${term}`); }
         if (importLower.some((value) => value.includes(term))) { score += 7; reasons.push(`import:${term}`); }
+        if (file.packageName?.toLowerCase().includes(term)) { score += 8; reasons.push(`package:${term}`); }
         if (file.tokens.includes(term)) score += 3;
       }
 
@@ -371,7 +411,7 @@ export class WorkspaceIntelligenceIndex {
     const edges: Array<{ from: string; to: string; specifier: string }> = [];
     for (const record of this.files.values()) {
       for (const specifier of record.imports) {
-        const resolved = resolveRelativeImport(record.path, specifier, known);
+        const resolved = this.resolveImport(record.path, specifier, known);
         if (resolved) edges.push({ from: record.path, to: resolved, specifier });
         if (edges.length >= limit) return edges;
       }
