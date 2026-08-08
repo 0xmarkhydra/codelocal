@@ -13,7 +13,17 @@ type TsProject = {
 const SKIP_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", "target", ".venv", "venv", "coverage", ".cache", ".turbo", ".dart_tool", "Pods", "DerivedData"]);
 
 function rel(root: string, file: string) {
-  return path.relative(root, file).split(path.sep).join("/") || ".";
+  return path.relative(path.resolve(root), path.resolve(file)).split(path.sep).join("/") || ".";
+}
+
+function inside(root: string, file: string) {
+  const relative = path.relative(path.resolve(root), path.resolve(file));
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+function isNodeModules(root: string, file: string) {
+  const relative = rel(root, file);
+  return relative === "node_modules" || relative.startsWith("node_modules/") || relative.includes("/node_modules/");
 }
 
 function pos(source: ts.SourceFile, node: ts.Node) {
@@ -121,9 +131,9 @@ export class TypeScriptSemanticIndex {
     const unique = new Map<string, ts.SourceFile>();
     for (const project of this.projects) {
       for (const source of project.program.getSourceFiles()) {
-        if (!source.fileName.startsWith(this.root + path.sep)) continue;
-        if (source.fileName.includes(`${path.sep}node_modules${path.sep}`)) continue;
-        unique.set(source.fileName, source);
+        if (!inside(this.root, source.fileName)) continue;
+        if (isNodeModules(this.root, source.fileName)) continue;
+        unique.set(path.resolve(source.fileName), source);
       }
     }
     return [...unique.values()];
@@ -196,10 +206,10 @@ export class TypeScriptSemanticIndex {
   callees(name: string, limit = 300): Location[] {
     const out: Location[] = [];
     for (const source of this.projectSources()) {
-      const visit = (node: ts.Node, inside = false) => {
+      const visit = (node: ts.Node, insideOwner = false) => {
         const n = nodeName(node);
         const matchesOwner = !!n && ts.isIdentifier(n) && n.text === name && (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isFunctionExpression(node));
-        const nextInside = inside || matchesOwner;
+        const nextInside = insideOwner || matchesOwner;
         if (nextInside && ts.isCallExpression(node)) {
           const expression = node.expression;
           const called = ts.isIdentifier(expression) ? expression.text : ts.isPropertyAccessExpression(expression) ? expression.name.text : null;
