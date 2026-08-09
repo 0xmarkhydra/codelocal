@@ -48,7 +48,7 @@ for (const filename of runtimeFiles) {
 
 const manifest = {
   name: "codelocal",
-  version: "1.5.0-dev.1",
+  version: "1.5.0-beta.1",
   description: "CodeLocal local code intelligence and execution runtime for ChatGPT.",
   license: "UNLICENSED",
   type: "module",

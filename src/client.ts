@@ -381,5 +381,5 @@ function connect() {
   ws.on("close", () => { log("warn", "client.disconnected", { reconnectInMs: reconnectDelay }); setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000); });
   ws.on("error", (error) => log("error", "client.socket_error", { error }));
 }
-log("info", "client.started", { version: "1.0.0-preview.1", deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE });
+log("info", "client.started", { version: "1.5.0-beta.1", deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE });
 connect();

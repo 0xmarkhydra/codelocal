@@ -18,7 +18,7 @@ import { createDashboardRouter } from "./dashboard.js";
 import { authPage, escapeHtml } from "./web-ui.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
 
-const VERSION = "1.5.0-dev.0";
+const VERSION = "1.5.0-beta.1";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";

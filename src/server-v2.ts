@@ -13,7 +13,7 @@ import { DeviceStore } from "./device-store.js";
 import { audit } from "./audit.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
 
-const VERSION = "1.3.0-dev.0";
+const VERSION = "1.5.0-beta.1";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
