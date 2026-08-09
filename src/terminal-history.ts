@@ -1,5 +1,6 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { appendPrivateJsonl, DEFAULT_STATE_DIR } from "./state.js";
 import { redactCommand } from "./security-policy.js";
 import type { ProcessRecord } from "./process-manager.js";
@@ -92,7 +93,7 @@ export class TerminalHistory {
   }
 
   private async tail(maxBytes = 4 * 1024 * 1024) {
-    let handle: fs.FileHandle | null = null;
+    let handle: FileHandle | null = null;
     try {
       handle = await fs.open(this.file, "r");
       const stat = await handle.stat();
