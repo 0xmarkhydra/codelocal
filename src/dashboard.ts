@@ -1,9 +1,11 @@
 import express from "express";
+import { fileURLToPath } from "node:url";
 import { cloudStore, type CloudWorkspace } from "./cloud-store.js";
 import { requireWebUser, type WebIdentity, verifyCsrf } from "./saas-auth.js";
 import { dashboardPage, escapeHtml, formatTime } from "./web-ui.js";
 
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+const brandAsset = (name: string) => fileURLToPath(new URL(`../assets/${name}`, import.meta.url));
 
 type DashboardHooks = {
   onDeviceRevoked?: (userId: string, credentialId: string) => void | Promise<void>;
@@ -60,6 +62,18 @@ async function onlineDeviceMap(userId: string, deviceIds: string[], hooks: Dashb
 
 export function createDashboardRouter(hooks: DashboardHooks = {}) {
   const router = express.Router();
+  router.get("/assets/codelocal-icon.png", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+    res.sendFile(brandAsset("codelocal-icon.png"));
+  });
+  router.get("/assets/apple-touch-icon.png", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+    res.sendFile(brandAsset("apple-touch-icon.png"));
+  });
+  router.get("/favicon.ico", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+    res.sendFile(brandAsset("favicon.ico"));
+  });
   router.use(express.urlencoded({ extended: false, limit: "128kb" }));
   router.use("/dashboard", requireWebUser);
 

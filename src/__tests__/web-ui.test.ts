@@ -60,6 +60,22 @@ test("dashboard nav exposes only implemented product areas", () => {
   for (const hidden of ["MCP Extensions", "Billing", "Permissions", "Browser", "Simulator"]) assert.doesNotMatch(html, new RegExp(`>${hidden}<`));
 });
 
+test("dashboard ships the CodeLocal icon set and accessible vector navigation", () => {
+  const html = dashboardPage({
+    title: "Brand smoke",
+    active: "overview",
+    email: "dev@example.com",
+    csrf: "csrf",
+    body: "",
+  });
+
+  assert.match(html, /href="\/favicon\.ico"/);
+  assert.match(html, /href="\/assets\/apple-touch-icon\.png"/);
+  assert.match(html, /src="\/assets\/codelocal-icon\.png"/);
+  assert.match(html, /class="nav-icon"><svg/);
+  assert.match(html, /prefers-color-scheme:dark/);
+});
+
 test("auth page keeps responsive overflow protection", () => {
   const html = authPage({
     title: "Create account",
