@@ -73,12 +73,14 @@ export class RuntimeActivationStore {
 
   async request(userId: string, deviceId: string, activation: WorkspaceActivation, ttlSeconds = 60) {
     await this.init();
-    await this.redis!.set(this.activationKey(userId, deviceId), JSON.stringify(activation), { EX: ttlSeconds });
+    const key = this.activationKey(userId, deviceId);
+    await this.redis!.rPush(key, JSON.stringify(activation));
+    await this.redis!.expire(key, ttlSeconds);
   }
 
   async consume(userId: string, deviceId: string): Promise<WorkspaceActivation | null> {
     await this.init();
-    const raw = await this.redis!.getDel(this.activationKey(userId, deviceId));
+    const raw = await this.redis!.lPop(this.activationKey(userId, deviceId));
     if (!raw) return null;
     try {
       const value = JSON.parse(raw) as WorkspaceActivation;
@@ -91,7 +93,11 @@ export class RuntimeActivationStore {
 
   async clearPresence(userId: string, deviceId: string) {
     await this.init();
-    await this.redis!.del([this.presenceKey(userId, deviceId), this.authorizedKey(userId, deviceId)]);
+    await this.redis!.del([
+      this.presenceKey(userId, deviceId),
+      this.authorizedKey(userId, deviceId),
+      this.activationKey(userId, deviceId),
+    ]);
   }
 
   async close() {
