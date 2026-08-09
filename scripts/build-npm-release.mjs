@@ -27,6 +27,7 @@ const runtimeFiles = [
   "native-watcher.js",
   "process-manager.js",
   "protocol.js",
+  "runtime-control.js",
   "runtime-daemon.js",
   "security-policy.js",
   "semantic-router.js",

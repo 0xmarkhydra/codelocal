@@ -10,7 +10,6 @@ export type RuntimeDaemonOptions = {
   baseUrl: string;
   serverUrl: string;
   credential: LocalDeviceCredential;
-  initialWorkspaceId?: string;
   pollMs?: number;
 };
 
@@ -136,11 +135,6 @@ export class RuntimeDaemon {
     if (!workspaces.length) terminalStatus("warn", "Workspace", "None granted · run codelocal grant /path/to/project");
     terminalStatus("muted", "Status", "Waiting for ChatGPT…");
 
-    if (this.options.initialWorkspaceId) {
-      const activated = await this.activate(this.options.initialWorkspaceId);
-      terminalStatus("accent", "Workspace", `${activated.workspaceName} active`);
-    }
-
     while (!this.stopped) {
       try {
         await this.syncRegistry();
@@ -160,6 +154,17 @@ export class RuntimeDaemon {
       }
       if (!this.stopped) await sleep(this.options.pollMs ?? 2500);
     }
+  }
+
+  status() {
+    return {
+      running: !this.stopped,
+      pid: process.pid,
+      authorizedWorkspaces: this.workspaces.map(({ workspaceId, workspaceName }) => ({ workspaceId, workspaceName })),
+      activeWorkspaces: [...this.children.entries()]
+        .filter(([, child]) => child.exitCode == null && !child.killed)
+        .map(([workspaceId]) => workspaceId),
+    };
   }
 
   async stop() {
