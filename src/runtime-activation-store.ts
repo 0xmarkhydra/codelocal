@@ -40,9 +40,9 @@ export class RuntimeActivationStore {
     return `codelocal:runtime:authorized:${safePart(userId)}:${safePart(deviceId)}`;
   }
 
-  async heartbeat(userId: string, deviceId: string, workspaceIds: string[] = [], ttlSeconds = 20) {
+  async heartbeat(userId: string, deviceId: string, workspaceIds: readonly unknown[] = [], ttlSeconds = 20) {
     await this.init();
-    const ids = [...new Set(workspaceIds.map(String).filter(Boolean))].slice(0, 500);
+    const ids = [...new Set(workspaceIds.map((value) => String(value)).filter(Boolean))].slice(0, 500);
     await Promise.all([
       this.redis!.set(this.presenceKey(userId, deviceId), String(Date.now()), { EX: ttlSeconds }),
       this.redis!.set(this.authorizedKey(userId, deviceId), JSON.stringify(ids), { EX: ttlSeconds }),
