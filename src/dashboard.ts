@@ -2,7 +2,7 @@ import express from "express";
 import { fileURLToPath } from "node:url";
 import { cloudStore, type CloudWorkspace } from "./cloud-store.js";
 import { requireWebUser, type WebIdentity, verifyCsrf } from "./saas-auth.js";
-import { dashboardPage, escapeHtml, formatTime } from "./web-ui.js";
+import { dashboardPage, escapeHtml, formatTime, uiIcons } from "./web-ui.js";
 
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 const brandAsset = (name: string) => fileURLToPath(new URL(`../assets/${name}`, import.meta.url));
@@ -102,8 +102,8 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
         <div class="card metric-card span4"><div class="metric-label">Sleeping workspaces</div><div class="metric">${sleepingWorkspaces}</div><div class="metric-sub">Authorized, zero heavy runtime</div></div>
         <div class="card span8"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">${workspaces.slice(0, 5).map((workspace) => {
           const state = workspaceState(workspace, deviceOnline.get(workspace.deviceId) === true);
-          return `<div class="row"><div class="entity"><div class="entity-icon">◇</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta">${escapeHtml(workspace.deviceId)} · ${formatTime(workspace.lastSeenAt)}</div></div></div><span class="badge ${state.badge}">${state.label}</span></div>`;
-        }).join("") || `<div class="empty"><div class="empty-icon">◇</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`}</div></div>
+          return `<div class="row"><div class="entity"><div class="entity-icon">${uiIcons.folder}</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta">${escapeHtml(workspace.deviceId)} · ${formatTime(workspace.lastSeenAt)}</div></div></div><span class="badge ${state.badge}">${state.label}</span></div>`;
+        }).join("") || `<div class="empty"><div class="empty-icon">${uiIcons.folder}</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`}</div></div>
         <div class="card span4"><div class="section-head"><div><div class="title">Recent activity</div><div class="label">Cloud security metadata only.</div></div><a class="btn small" href="/dashboard/security">View all</a></div><div class="divider"></div>${audit.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event))}</div><div class="activity-meta">${formatTime(item.createdAt)}</div></div></div>`).join("") || `<div class="empty">No activity yet.</div>`}</div>
       </div>`,
     });
@@ -146,8 +146,8 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
         const removeButton = runtimeOnline
           ? `<form method="post" action="/dashboard/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}"><button class="btn danger small" type="submit" data-confirm data-confirm-tone="danger" data-confirm-title="Remove ${escapeHtml(workspace.workspaceName)}?" data-confirm-message="CodeLocal will revoke this folder from the local machine. The project and every file inside it stay untouched. You can authorize it again later with codelocal ." data-confirm-label="Remove workspace">Remove</button></form>`
           : `<button class="btn danger small" type="button" disabled title="Start codelocal on this device to remove local authorization">Remove</button>`;
-        return `<div class="row"><div class="entity"><div class="entity-icon">◇</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta mono">${escapeHtml(workspace.workspaceId)}</div><div class="row-meta">Device ${escapeHtml(workspace.deviceId)} · last seen ${formatTime(workspace.lastSeenAt)}</div></div></div><div class="actions"><span class="badge ${state.badge}">${state.label}</span>${removeButton}</div></div>`;
-      }).join("") || `<div class="empty"><div class="empty-icon">◇</div>No authorized workspace has synced yet.<br><span class="muted">Open a project on your machine and run <code>codelocal .</code> once.</span></div>`}</div></div>`,
+        return `<div class="row"><div class="entity"><div class="entity-icon">${uiIcons.folder}</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta mono">${escapeHtml(workspace.workspaceId)}</div><div class="row-meta">Device ${escapeHtml(workspace.deviceId)} · last seen ${formatTime(workspace.lastSeenAt)}</div></div></div><div class="actions"><span class="badge ${state.badge}">${state.label}</span>${removeButton}</div></div>`;
+      }).join("") || `<div class="empty"><div class="empty-icon">${uiIcons.folder}</div>No authorized workspace has synced yet.<br><span class="muted">Open a project on your machine and run <code>codelocal .</code> once.</span></div>`}</div></div>`,
     });
   });
 
