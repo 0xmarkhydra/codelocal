@@ -33,7 +33,13 @@ export class ChatApprovalBroker {
   constructor(private ttlMs = Number(process.env.CODELOCAL_CHAT_APPROVAL_TTL_MS ?? 5 * 60_000)) {}
 
   private fingerprint(command: string, cwd: string, decision: PolicyDecision) {
-    return hash(JSON.stringify({ command: decision.redactedCommand, cwd, rules: [...decision.matchedRules].sort(), risk: decision.riskLevel }));
+    return hash(JSON.stringify({
+      rawCommandHash: hash(command),
+      redactedCommand: decision.redactedCommand,
+      cwd,
+      rules: [...decision.matchedRules].sort(),
+      risk: decision.riskLevel,
+    }));
   }
 
   private prune() {
