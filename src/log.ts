@@ -66,6 +66,20 @@ function compact(value: unknown, max = 76) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+export function formatToolTraceContext(fields: Record<string, unknown>) {
+  const rawSessionId = String(fields.mcpSessionId ?? fields.sessionId ?? "").trim();
+  const sessionId = rawSessionId ? rawSessionId.slice(0, 8) : "legacy";
+  const workspaceName = String(fields.workspaceName ?? "").trim();
+  const workspaceId = String(fields.workspaceId ?? "").trim();
+  const workspace = compact(
+    workspaceName && workspaceId && workspaceName !== workspaceId
+      ? `${workspaceName} · ${workspaceId}`
+      : workspaceName || workspaceId || fields.workspaceKey || "workspace",
+    48,
+  );
+  return `MCP ${sessionId} › ${workspace}`;
+}
+
 function toolDetail(args: unknown) {
   if (!args || typeof args !== "object") return "";
   const value = args as Record<string, unknown>;
@@ -166,16 +180,19 @@ function prettyLog(level: LogLevel, event: string, fields: Record<string, unknow
   }
   if (event === "tool.received") {
     const detail = toolDetail(fields.args);
-    console.log(`  ${paint(ansi.magenta, "◆")} ${paint(ansi.cyan, bold(tool || "tool"))}${detail ? `  ${dim(detail)}` : ""}`);
+    const context = formatToolTraceContext(fields);
+    console.log(`  ${paint(ansi.magenta, "◆")} ${dim(context)} ${dim("›")} ${paint(ansi.cyan, bold(tool || "tool"))}${detail ? `  ${dim(detail)}` : ""}`);
     return;
   }
   if (event === "tool.completed") {
-    console.log(`  ${paint(ansi.green, "✓")} ${bold(tool || "tool")}  ${dim(elapsed || "done")}`);
+    const context = formatToolTraceContext(fields);
+    console.log(`  ${paint(ansi.green, "✓")} ${dim(context)} ${dim("›")} ${bold(tool || "tool")}  ${dim(elapsed || "done")}`);
     return;
   }
   if (event === "tool.failed") {
     const error = fields.error as Record<string, unknown> | undefined;
-    console.error(`  ${paint(ansi.red, "✕")} ${bold(tool || "tool")}  ${dim(elapsed)}${error?.message ? `  ${paint(ansi.red, compact(error.message, 72))}` : ""}`);
+    const context = formatToolTraceContext(fields);
+    console.error(`  ${paint(ansi.red, "✕")} ${dim(context)} ${dim("›")} ${bold(tool || "tool")}  ${dim(elapsed)}${error?.message ? `  ${paint(ansi.red, compact(error.message, 72))}` : ""}`);
     return;
   }
 

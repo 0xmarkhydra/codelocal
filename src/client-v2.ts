@@ -693,18 +693,24 @@ async function connect() {
     if (message.type !== "tool_call") return;
     const requestId = String(message.requestId ?? message.id ?? "");
     const startedAt = Date.now();
-    log("info", "tool.received", { requestId, tool: message.tool, args: summarizeToolArgs(message.tool, message.args) });
-    await audit({ event: "tool.received", requestId, workspaceKey: WORKSPACE_KEY, tool: message.tool });
+    const trace = {
+      mcpSessionId: typeof message.sessionId === "string" ? message.sessionId : undefined,
+      workspaceKey: WORKSPACE_KEY,
+      workspaceId: WORKSPACE_ID,
+      workspaceName: WORKSPACE_NAME,
+    };
+    log("info", "tool.received", { requestId, ...trace, tool: message.tool, args: summarizeToolArgs(message.tool, message.args) });
+    await audit({ event: "tool.received", requestId, mcpSessionId: trace.mcpSessionId, workspaceKey: WORKSPACE_KEY, tool: message.tool });
     try {
       const result = await executeRequest(message);
       ws.send(JSON.stringify({ type: "tool_result", protocolVersion: PROTOCOL_VERSION, requestId, id: requestId, ok: true, result, metadata: { durationMs: Date.now() - startedAt } }));
-      log("info", "tool.completed", { requestId, tool: message.tool, durationMs: Date.now() - startedAt });
-      await audit({ event: "tool.completed", requestId, workspaceKey: WORKSPACE_KEY, tool: message.tool, status: "ok" });
+      log("info", "tool.completed", { requestId, ...trace, tool: message.tool, durationMs: Date.now() - startedAt });
+      await audit({ event: "tool.completed", requestId, mcpSessionId: trace.mcpSessionId, workspaceKey: WORKSPACE_KEY, tool: message.tool, status: "ok" });
     } catch (error) {
       const normalized = normalizeError(error);
       ws.send(JSON.stringify({ type: "tool_result", protocolVersion: PROTOCOL_VERSION, requestId, id: requestId, ok: false, ...normalized, error: normalized.errorMessage, metadata: { durationMs: Date.now() - startedAt } }));
-      log("error", "tool.failed", { requestId, tool: message.tool, durationMs: Date.now() - startedAt, error });
-      await audit({ event: "tool.failed", requestId, workspaceKey: WORKSPACE_KEY, tool: message.tool, status: normalized.errorCode, detail: normalized.errorMessage });
+      log("error", "tool.failed", { requestId, ...trace, tool: message.tool, durationMs: Date.now() - startedAt, error });
+      await audit({ event: "tool.failed", requestId, mcpSessionId: trace.mcpSessionId, workspaceKey: WORKSPACE_KEY, tool: message.tool, status: normalized.errorCode, detail: normalized.errorMessage });
     }
   });
   ws.on("close", (code, reason) => {

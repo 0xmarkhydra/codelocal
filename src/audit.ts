@@ -6,6 +6,7 @@ export type AuditEvent = {
   ts?: string;
   event: string;
   requestId?: string;
+  mcpSessionId?: string;
   workspaceKey?: string;
   tool?: string;
   processId?: string;
