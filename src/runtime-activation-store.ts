@@ -36,14 +36,39 @@ export class RuntimeActivationStore {
     return `codelocal:runtime:presence:${safePart(userId)}:${safePart(deviceId)}`;
   }
 
-  async heartbeat(userId: string, deviceId: string, ttlSeconds = 20) {
+  private authorizedKey(userId: string, deviceId: string) {
+    return `codelocal:runtime:authorized:${safePart(userId)}:${safePart(deviceId)}`;
+  }
+
+  async heartbeat(userId: string, deviceId: string, workspaceIds: string[] = [], ttlSeconds = 20) {
     await this.init();
-    await this.redis!.set(this.presenceKey(userId, deviceId), String(Date.now()), { EX: ttlSeconds });
+    const ids = [...new Set(workspaceIds.map(String).filter(Boolean))].slice(0, 500);
+    await Promise.all([
+      this.redis!.set(this.presenceKey(userId, deviceId), String(Date.now()), { EX: ttlSeconds }),
+      this.redis!.set(this.authorizedKey(userId, deviceId), JSON.stringify(ids), { EX: ttlSeconds }),
+    ]);
   }
 
   async isOnline(userId: string, deviceId: string) {
     await this.init();
     return !!(await this.redis!.exists(this.presenceKey(userId, deviceId)));
+  }
+
+  async authorizedIds(userId: string, deviceId: string) {
+    await this.init();
+    const raw = await this.redis!.get(this.authorizedKey(userId, deviceId));
+    if (!raw) return null;
+    try {
+      const value = JSON.parse(raw);
+      return Array.isArray(value) ? value.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async isAuthorized(userId: string, deviceId: string, workspaceId: string) {
+    const ids = await this.authorizedIds(userId, deviceId);
+    return ids == null ? false : ids.includes(workspaceId);
   }
 
   async request(userId: string, deviceId: string, activation: WorkspaceActivation, ttlSeconds = 60) {
@@ -66,7 +91,7 @@ export class RuntimeActivationStore {
 
   async clearPresence(userId: string, deviceId: string) {
     await this.init();
-    await this.redis!.del(this.presenceKey(userId, deviceId));
+    await this.redis!.del([this.presenceKey(userId, deviceId), this.authorizedKey(userId, deviceId)]);
   }
 
   async close() {
