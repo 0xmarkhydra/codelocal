@@ -17,6 +17,7 @@ import { webAuthRouter, getWebIdentity, requireWebUser, verifyCsrf } from "./saa
 import { createDashboardRouter } from "./dashboard.js";
 import { authPage, escapeHtml, landingPage } from "./web-ui.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
+import { createWorkspaceRoutingState, selectWorkspaceForSession, workspaceKeyForSession, type WorkspaceRoutingState } from "./mcp-session-routing.js";
 
 const VERSION = "1.5.0-beta.1";
 const PORT = Number(process.env.PORT ?? 3333);
@@ -62,7 +63,7 @@ type Pending = {
   abortCleanup?: () => void;
 };
 
-type TransportRecord = { transport: StreamableHTTPServerTransport; userId: string };
+type TransportRecord = { transport: StreamableHTTPServerTransport; userId: string; routing: WorkspaceRoutingState };
 
 const clients = new Map<string, ClientRecord>();
 const socketKeys = new Map<WebSocket, string>();
@@ -151,7 +152,7 @@ async function callClient(userId: string, tool: string, args: unknown, selectedK
   const requestId = randomUUID();
   const startedAt = Date.now();
   const idempotencyKey = isSideEffectingTool(tool) ? requestId : undefined;
-  log("info", "tool.dispatch", { requestId, tool, userId, clientKey: client.key, args: summarizeToolArgs(tool, args), pending: pending.size });
+  log("info", "tool.dispatch", { requestId, tool, userId, mcpSessionId: options.sessionId ?? null, selectedWorkspaceKey: selectedKey, clientKey: client.key, args: summarizeToolArgs(tool, args), pending: pending.size });
   await audit({ event: "gateway.tool.dispatch", requestId, workspaceKey: client.key, tool });
   await cloudStore.audit(userId, "gateway.tool.dispatch", { requestId, tool }, client.deviceId, client.workspaceId).catch(() => undefined);
 
@@ -178,18 +179,18 @@ async function callClient(userId: string, tool: string, args: unknown, selectedK
   return result;
 }
 
-function createMcpServer(userId: string) {
+function createMcpServer(userId: string, routing: WorkspaceRoutingState) {
   const server = new McpServer({ name: "codelocal", version: VERSION });
-  let selectedKey: string | null = null;
   const workspaceRoutingSchema = z.string().min(1).optional().describe("Exact workspace key returned by select_workspace. Pass it to keep routing explicit across multiple active projects, ChatGPT threads or fresh MCP sessions.");
-  const localTool = (name: string, title: string, description: string, inputSchema: Record<string, any>, handler: (args: any) => unknown | Promise<unknown>) => {
-    server.registerTool(name, { title, description, inputSchema }, async (args: any) => textResult(await handler(args)));
+  const localTool = (name: string, title: string, description: string, inputSchema: Record<string, any>, handler: (args: any, extra: any) => unknown | Promise<unknown>) => {
+    server.registerTool(name, { title, description, inputSchema }, async (args: any, extra: any) => textResult(await handler(args, extra)));
   };
   const remote = (name: string, title: string, description: string, schema: Record<string, any>) => {
     const inputSchema = Object.prototype.hasOwnProperty.call(schema, "workspaceKey") ? schema : { ...schema, workspaceKey: workspaceRoutingSchema };
     server.registerTool(name, { title, description: `${description} When multiple workspaces are active, pass workspaceKey returned by select_workspace so this call stays bound to the intended project even across separate ChatGPT threads or MCP sessions.`, inputSchema }, async (args: any, extra: any) => {
       const { workspaceKey, forwardedArgs } = splitWorkspaceRoutingArgs(args);
-      const result = await callClient(userId, name, forwardedArgs, workspaceKey ?? selectedKey, { signal: extra?.signal, sessionId: extra?.sessionId });
+      const selectedWorkspaceKey = workspaceKeyForSession(routing, workspaceKey);
+      const result = await callClient(userId, name, forwardedArgs, selectedWorkspaceKey, { signal: extra?.signal, sessionId: extra?.sessionId });
       if (name === "mcp_call") {
         const bridged = bridgeMcpToolResult(result);
         return (bridged ?? textResult(result)) as any;
@@ -210,15 +211,16 @@ function createMcpServer(userId: string) {
   localTool("list_device_identities", "List paired devices", "List this account's paired device identities without secrets.", {}, () => deviceStore.listDevices(userId));
   localTool("revoke_device", "Revoke device", "Revoke one of this account's paired device credentials.", { credentialId: z.string().min(1) }, async (args) => ({ revoked: await revokeAndDisconnect(userId, args.credentialId) }));
   localTool("rename_device", "Rename device", "Rename one of this account's durable paired device identities.", { credentialId: z.string().min(1), deviceName: z.string().min(1).max(120) }, async (args) => ({ renamed: await deviceStore.rename(userId, args.credentialId, args.deviceName) }));
-  localTool("list_workspaces", "List authorized workspaces", "List workspaces previously granted on CodeLocal devices. Sleeping workspaces can be activated without the user changing terminal directories. Each returned key can be used as workspaceKey for explicit thread-safe routing.", {}, async () => ({ selectedWorkspace: selectedKey, workspaces: await workspaceCatalog(userId) }));
-  localTool("select_workspace", "Select and activate workspace", "Select a workspace for this ChatGPT MCP session. Returns workspaceKey; pass it to subsequent project, Git, terminal and MCP calls when multiple projects are active or when the client starts a fresh MCP session.", { key: z.string().min(1) }, async (args) => {
+  localTool("list_workspaces", "List authorized workspaces", "List workspaces previously granted on CodeLocal devices. Sleeping workspaces can be activated without the user changing terminal directories. Each returned key can be used as workspaceKey for explicit thread-safe routing.", {}, async () => ({ selectedWorkspace: routing.selectedWorkspaceKey, workspaces: await workspaceCatalog(userId) }));
+  localTool("select_workspace", "Select and activate workspace", "Select a workspace for this ChatGPT MCP session. Returns workspaceKey; pass it to subsequent project, Git, terminal and MCP calls when multiple projects are active or when the client starts a fresh MCP session.", { key: z.string().min(1) }, async (args, extra) => {
     const client = await activateWorkspace(userId, String(args.key));
-    selectedKey = client.key;
+    selectWorkspaceForSession(routing, client.key);
+    log("info", "mcp.workspace_selected", { mcpSessionId: extra?.sessionId ?? null, userId, workspaceKey: client.key });
     return { selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, workspaceId: client.workspaceId, workspaceName: client.workspaceName, status: "active" };
   });
   localTool("workspace_info", "Workspace info", "Show a selected CodeLocal workspace. Pass workspaceKey for explicit routing if the current MCP session does not retain selection.", { workspaceKey: workspaceRoutingSchema }, async (args) => {
     const explicitKey = typeof args.workspaceKey === "string" && args.workspaceKey.trim() ? args.workspaceKey.trim() : null;
-    const targetKey = explicitKey ?? selectedKey;
+    const targetKey = workspaceKeyForSession(routing, explicitKey);
     const client = targetKey ? await activateWorkspace(userId, targetKey) : resolveClient(userId, null);
     return { selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, capabilities: client.capabilities, lastSeenAt: client.lastSeenAt };
   });
@@ -462,13 +464,15 @@ app.post("/mcp", async (req: Request, res: Response) => {
       const record = transports[sessionId];
       if (record.userId !== userId) { res.status(403).json({ error: "session_user_mismatch" }); return; }
       transport = record.transport;
+      log("debug", "mcp.session_request", { mcpSessionId: sessionId, userId, selectedWorkspaceKey: record.routing.selectedWorkspaceKey, method: req.body?.method ?? null });
     } else if (!sessionId && isInitializeRequest(req.body)) {
+      const routing = createWorkspaceRoutingState();
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(), enableJsonResponse: true,
-        onsessioninitialized: (id) => { transports[id] = { transport, userId }; log("info", "mcp.session_open", { mcpSessionId: id, userId }); },
+        onsessioninitialized: (id) => { transports[id] = { transport, userId, routing }; log("info", "mcp.session_open", { mcpSessionId: id, userId, selectedWorkspaceKey: routing.selectedWorkspaceKey }); },
       });
-      transport.onclose = () => { if (transport.sessionId) { delete transports[transport.sessionId]; log("info", "mcp.session_close", { mcpSessionId: transport.sessionId, userId }); } };
-      await createMcpServer(userId).connect(transport);
+      transport.onclose = () => { if (transport.sessionId) { const record = transports[transport.sessionId]; delete transports[transport.sessionId]; log("info", "mcp.session_close", { mcpSessionId: transport.sessionId, userId, selectedWorkspaceKey: record?.routing.selectedWorkspaceKey ?? null }); } };
+      await createMcpServer(userId, routing).connect(transport);
     } else { res.status(400).json({ jsonrpc: "2.0", error: { code: -32000, message: "Invalid or missing MCP session." }, id: null }); return; }
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
