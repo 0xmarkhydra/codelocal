@@ -731,5 +731,5 @@ async function shutdown() {
 process.on("SIGINT", async () => { await shutdown(); process.exit(0); });
 process.on("SIGTERM", async () => { await shutdown(); process.exit(0); });
 
-log("info", "client.started", { version: "1.5.0-beta.1", protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, terminalApproval: "chat-mediated", networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
+log("info", "client.started", { version: "1.5.0-beta.2", protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, terminalApproval: "chat-mediated", networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
 void connect();

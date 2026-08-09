@@ -19,7 +19,7 @@ The model remains the reasoning layer. CodeLocal provides local filesystem acces
 
 ## Current version
 
-`1.5.0-beta.1`
+`1.5.0-beta.2`
 
 This preview is intentionally conservative: sensitive paths remain blocked, risky shell operations require local approval, and OS-level sandboxing/production device-pairing are not claimed as complete yet.
 

@@ -19,7 +19,7 @@ import { authPage, escapeHtml, landingPage } from "./web-ui.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
 import { createWorkspaceRoutingState, selectWorkspaceForSession, workspaceKeyForSession, type WorkspaceRoutingState } from "./mcp-session-routing.js";
 
-const VERSION = "1.5.0-beta.1";
+const VERSION = "1.5.0-beta.2";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
