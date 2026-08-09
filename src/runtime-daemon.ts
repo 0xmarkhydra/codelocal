@@ -37,8 +37,19 @@ export class RuntimeDaemon {
 
   constructor(private options: RuntimeDaemonOptions) {}
 
+  private stopUnauthorizedChildren(workspaces: AuthorizedWorkspace[]) {
+    const allowed = new Set(workspaces.map((workspace) => workspace.workspaceId));
+    for (const [workspaceId, child] of this.children) {
+      if (allowed.has(workspaceId)) continue;
+      if (child.exitCode == null && !child.killed) child.kill("SIGTERM");
+      this.children.delete(workspaceId);
+      console.log(`✓ Deactivated ${workspaceId} because local workspace authorization was removed.`);
+    }
+  }
+
   async syncRegistry(force = false) {
     const workspaces = await this.registry.list();
+    this.stopUnauthorizedChildren(workspaces);
     const signature = registrySignature(workspaces);
     this.workspaces = workspaces;
     if (!force && signature === this.syncedSignature) return workspaces;
@@ -90,6 +101,7 @@ export class RuntimeDaemon {
 
   private async pollOnce() {
     this.workspaces = await this.registry.list();
+    this.stopUnauthorizedChildren(this.workspaces);
     const response = await fetch(`${this.options.baseUrl}/api/client/runtime/poll`, {
       method: "POST",
       headers: deviceHeaders(this.options.credential),
