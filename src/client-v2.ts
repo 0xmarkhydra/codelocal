@@ -309,7 +309,7 @@ async function rememberedDecision(decision: PolicyDecision) {
 async function repositoryScopedDecision(decision: PolicyDecision): Promise<PolicyDecision> {
   if (decision.approvalPolicy !== "rememberable" || !decision.approvalKey?.startsWith("git.push:")) return decision;
   const parts = decision.approvalKey.split(":");
-  const remote = parts[2];
+  const remote = parts[1];
   if (!remote) return { ...decision, approvalPolicy: "always", approvalKey: undefined };
   const resolved = await git(["remote", "get-url", "--push", remote], 10_000).catch(() => null);
   const url = resolved?.exitCode === 0 ? resolved.stdout.trim() : "";
