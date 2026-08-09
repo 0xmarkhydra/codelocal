@@ -74,10 +74,15 @@ async function loadNodePty(): Promise<any | null> {
   }
 }
 
-function isMacDeveloperHostCommand(command: string) {
+export function isMacDeveloperHostCommand(command: string) {
   if (process.platform !== "darwin" || !MAC_DEV_HOST_MODE) return false;
   const normalized = command.replace(/\s+/g, " ").trim();
-  return /(?:^|[;&|]\s*|\s)(?:fvm\s+flutter|flutter|dart|xcodebuild|xcrun|pod)(?:\s|$)/i.test(normalized);
+  // Host developer mode is deliberately limited to one simple toolchain command.
+  // Anything that composes shell commands, redirects IO, expands a subshell, or
+  // contains newlines falls back to the sandbox/policy path instead of inheriting
+  // host execution just because one fragment mentions `flutter`/`dart`/Xcode.
+  if (/[;&|<>`\r\n]/.test(command) || /\$\s*\(/.test(command)) return false;
+  return /^(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*(?:fvm\s+flutter|flutter|dart|xcodebuild|xcrun|pod)(?:\s|$)/i.test(normalized);
 }
 
 function hostShell(command: string, cwd: string) {
