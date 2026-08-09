@@ -8,7 +8,7 @@ import { WorkspaceRegistry } from "./workspace-registry.js";
 import { ApprovalMemory } from "./approval-memory.js";
 import { RuntimeDaemon } from "./runtime-daemon.js";
 
-const DEFAULT_CLOUD = process.env.CODELOCAL_SERVER ?? "https://codelocal-mcp-dev-dev.up.railway.app";
+const DEFAULT_CLOUD = process.env.CODELOCAL_SERVER ?? "https://codelocal.cloud";
 
 function usage() {
   console.log(`CodeLocal CLI · machine runtime
@@ -41,7 +41,7 @@ Commands:
   codelocal doctor <project>      Run local environment checks
   codelocal mcp ...               Manage local MCP extensions
 
-Default dev cloud:
+Default cloud:
   ${DEFAULT_CLOUD}
 `);
 }

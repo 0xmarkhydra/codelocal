@@ -6,7 +6,7 @@ Remote MCP coding bridge for ChatGPT/Codex.
 ChatGPT / Codex
     | MCP over HTTPS + OAuth
     v
-Railway gateway
+CodeLocal Cloud gateway
     | authenticated WebSocket
     v
 CodeLocal client on your machine
@@ -97,10 +97,10 @@ If exactly one workspace is online it is selected implicitly. If more than one i
 
 ## Server
 
-Production test server currently deployed on Railway:
+Production gateway:
 
 ```text
-https://codex-mcp-production.up.railway.app/mcp
+https://codelocal.cloud/mcp
 ```
 
 ChatGPT -> server authentication uses OAuth.
@@ -129,7 +129,7 @@ Example:
 
 ```bash
 PROJECT_ROOT="$HOME/Desktop/BIDDI" \
-SERVER_URL="wss://codex-mcp-production.up.railway.app/client" \
+SERVER_URL="wss://codelocal.cloud/client" \
 DEVICE_TOKEN="YOUR_DEVICE_TOKEN" \
 CODELOCAL_ALLOW_SHELL=1 \
 CODELOCAL_DEVICE_ID="macbook-pro" \
@@ -162,7 +162,7 @@ When ChatGPT runs a command, stdout/stderr also appears locally with a process p
 Create/connect the developer MCP app with:
 
 ```text
-https://codex-mcp-production.up.railway.app/mcp
+https://codelocal.cloud/mcp
 ```
 
 Authentication: OAuth.
