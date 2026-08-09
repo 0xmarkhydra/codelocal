@@ -59,6 +59,27 @@ test("MCP Hub installs, probes, searches and calls a stdio MCP without exposing 
   });
 });
 
+test("concurrent MCP probes share one connection attempt", async () => {
+  await withHub(async (hub, workspace) => {
+    const fixture = path.resolve("scripts/test-mcp-server.mjs");
+    await hub.addServer({
+      name: "echo",
+      enabled: true,
+      scope: "workspace",
+      workspaceRoot: workspace,
+      transport: "stdio",
+      command: process.execPath,
+      args: [fixture],
+    });
+
+    const [first, second] = await Promise.all([hub.probe("echo"), hub.probe("echo")]);
+    assert.equal(first.toolCount, 1);
+    assert.equal(second.toolCount, 1);
+    const listed = await hub.listServers();
+    assert.equal(listed[0]?.connected, true);
+  });
+});
+
 test("workspace MCP overrides isolate their catalog from the same global MCP name", async () => {
   const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "codelocal-mcp-state-"));
   const workspaceA = await fs.mkdtemp(path.join(os.tmpdir(), "codelocal-mcp-a-"));

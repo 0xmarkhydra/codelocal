@@ -44,8 +44,14 @@ test("workspace intelligence refreshes files changed outside CodeLocal", async (
 
     await new Promise((resolve) => setTimeout(resolve, 5));
     await writeFile(target, "class NewFeature {}\n");
-    await index.ensureFresh(true);
+    index.noteChange("lib/feature.dart");
+    await index.ensureFresh();
     assert.ok(index.rank("NewFeature", 5).some((file) => file.path === "lib/feature.dart"));
+
+    await rm(path.join(root, "lib"), { recursive: true, force: true });
+    index.noteChange("lib");
+    await index.ensureFresh();
+    assert.equal(index.rank("NewFeature", 5).some((file) => file.path === "lib/feature.dart"), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

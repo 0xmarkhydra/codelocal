@@ -1,4 +1,5 @@
-import { promises as fs } from "node:fs";
+import { createReadStream, promises as fs } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
@@ -21,6 +22,7 @@ import { EditingEngine } from "./editing-engine.js";
 import { VerificationEngine } from "./verification.js";
 import { defaultDeviceIdentity, loadLocalCredential } from "./identity.js";
 import { McpHub } from "./mcp-hub.js";
+import { VERSION } from "./version.js";
 
 type ApprovalMode = "prompt" | "deny" | "auto-safe";
 
@@ -35,6 +37,8 @@ const MAX_READ_BYTES = Number(process.env.CODELOCAL_MAX_READ_BYTES ?? 2 * 1024 *
 const MAX_BATCH_BYTES = Number(process.env.CODELOCAL_MAX_BATCH_BYTES ?? 8 * 1024 * 1024);
 const MAX_LIST_ENTRIES = Number(process.env.CODELOCAL_MAX_LIST_ENTRIES ?? 10000);
 const MAX_OUTPUT_BYTES = Number(process.env.CODELOCAL_MAX_OUTPUT_BYTES ?? 2 * 1024 * 1024);
+const WORKSPACE_IDLE_MS = Math.max(60_000, Number(process.env.CODELOCAL_WORKSPACE_IDLE_MS ?? 20 * 60_000) || 20 * 60_000);
+const DAEMON_CHILD = process.env.CODELOCAL_DAEMON_CHILD === "1";
 
 if (!SERVER_URL || !PROJECT_ROOT) {
   console.error("Required: SERVER_URL and PROJECT_ROOT. Pairing credential or DEVICE_TOKEN is also required for registration.");
@@ -59,9 +63,8 @@ const approvalMemory = new ApprovalMemory();
 const chatApproval = new ChatApprovalBroker();
 const terminalHistory = new TerminalHistory();
 const journal = new IdempotencyJournal();
-let mcpConnectAuthorized = false;
 const mcpHub = new McpHub(root, async () => {
-  if (!mcpConnectAuthorized) throw new Error("Starting an installed MCP runtime requires approval in ChatGPT. Call mcp_call and approve it there.");
+  throw new Error("Starting an installed MCP runtime requires approval in ChatGPT. Call mcp_call and approve it there.");
 });
 const processManager = new ProcessManager(root, WORKSPACE_KEY, (_record, stream, text) => {
   if (MIRROR_PROCESS_OUTPUT) mirrorProcessOutput(stream, text);
@@ -77,6 +80,9 @@ let ignoreMatcher: Ignore = ignore();
 let metadataEpoch = 0;
 let reconnectDelay = 1000;
 let activeSocket: WebSocket | null = null;
+let lastToolActivityAt = Date.now();
+let shuttingDown = false;
+let idleTimer: NodeJS.Timeout | null = null;
 
 function isInsideRoot(candidate: string) {
   return candidate === root || candidate.startsWith(rootPrefix);
@@ -136,22 +142,73 @@ function hashBuffer(buf: Buffer) {
   return createHash("sha256").update(buf).digest("hex");
 }
 
+function bufferLooksBinary(buf: Buffer) {
+  const limit = Math.min(buf.length, 8192);
+  for (let i = 0; i < limit; i++) if (buf[i] === 0) return true;
+  return false;
+}
+
 async function isBinary(file: string) {
   const handle = await fs.open(file, "r");
   try {
     const buf = Buffer.alloc(8192);
     const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
-    for (let i = 0; i < bytesRead; i++) if (buf[i] === 0) return true;
-    return false;
+    return bufferLooksBinary(buf.subarray(0, bytesRead));
   } finally { await handle.close(); }
 }
 
-async function fileMeta(file: string) {
-  const stat = await fs.stat(file);
+type FileMetaOptions = {
+  stat?: Awaited<ReturnType<typeof fs.stat>>;
+  buffer?: Buffer;
+  hash?: string | null;
+};
+
+async function fileMeta(file: string, options: FileMetaOptions = {}) {
+  const stat = options.stat ?? await fs.stat(file);
   const relative = rel(file);
   if (isSensitivePath(relative)) throw new Error(`Access blocked by sensitive-path policy: ${relative}`);
-  const hash = stat.isFile() && stat.size <= MAX_READ_BYTES * 4 ? hashBuffer(await fs.readFile(file)) : null;
+  const hash = options.hash !== undefined
+    ? options.hash
+    : stat.isFile() && stat.size <= MAX_READ_BYTES * 4
+      ? hashBuffer(options.buffer ?? await fs.readFile(file))
+      : null;
   return { path: relative, size: stat.size, mtimeMs: stat.mtimeMs, hash, ignored: isIgnored(relative), isFile: stat.isFile(), isDirectory: stat.isDirectory() };
+}
+
+async function streamTextRange(file: string, stat: Awaited<ReturnType<typeof fs.stat>>, startLine: number, endLine?: number) {
+  const from = Math.max(1, startLine);
+  const requestedTo = endLine == null ? Number.POSITIVE_INFINITY : Math.max(0, endLine);
+  const selected: string[] = [];
+  const decoder = new StringDecoder("utf8");
+  const digest = stat.size <= MAX_READ_BYTES * 4 ? createHash("sha256") : null;
+  let carry = "";
+  let line = 0;
+
+  const consume = (text: string) => {
+    const parts = `${carry}${text}`.split(/\r?\n/);
+    carry = parts.pop() ?? "";
+    for (const value of parts) {
+      line++;
+      if (line >= from && line <= requestedTo) selected.push(value);
+    }
+  };
+
+  const stream = createReadStream(file);
+  for await (const raw of stream) {
+    const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    digest?.update(chunk);
+    consume(decoder.write(chunk));
+  }
+  const tail = `${carry}${decoder.end()}`;
+  carry = "";
+  const finalParts = tail.split(/\r?\n/);
+  for (const value of finalParts) {
+    line++;
+    if (line >= from && line <= requestedTo) selected.push(value);
+  }
+
+  const to = Math.min(line, Number.isFinite(requestedTo) ? requestedTo : line);
+  return { from, to, totalLines: line, content: selected.join("\n"), hash: digest?.digest("hex") ?? null };
 }
 
 async function readOne(requestedPath: string, startLine?: number, endLine?: number) {
@@ -159,12 +216,20 @@ async function readOne(requestedPath: string, startLine?: number, endLine?: numb
   const stat = await fs.stat(file);
   if (!stat.isFile()) throw new Error(`${requestedPath}: not a file.`);
   if (stat.size > MAX_READ_BYTES && startLine == null) throw new Error(`${requestedPath}: exceeds read limit; use read_file_range.`);
-  if (await isBinary(file)) return { ...(await fileMeta(file)), binary: true, content: null };
-  const text = await fs.readFile(file, "utf8");
-  const lines = text.split(/\r?\n/);
-  const from = Math.max(1, startLine ?? 1);
-  const to = Math.min(lines.length, endLine ?? lines.length);
-  return { ...(await fileMeta(file)), binary: false, startLine: from, endLine: to, totalLines: lines.length, content: lines.slice(from - 1, to).join("\n") };
+
+  if (stat.size <= MAX_READ_BYTES) {
+    const buffer = await fs.readFile(file);
+    if (bufferLooksBinary(buffer)) return { ...(await fileMeta(file, { stat, buffer })), binary: true, content: null };
+    const text = buffer.toString("utf8");
+    const lines = text.split(/\r?\n/);
+    const from = Math.max(1, startLine ?? 1);
+    const to = Math.min(lines.length, endLine ?? lines.length);
+    return { ...(await fileMeta(file, { stat, buffer })), binary: false, startLine: from, endLine: to, totalLines: lines.length, content: lines.slice(from - 1, to).join("\n") };
+  }
+
+  if (await isBinary(file)) return { ...(await fileMeta(file, { stat, hash: null })), binary: true, content: null };
+  const ranged = await streamTextRange(file, stat, Math.max(1, startLine ?? 1), endLine);
+  return { ...(await fileMeta(file, { stat, hash: ranged.hash })), binary: false, startLine: ranged.from, endLine: ranged.to, totalLines: ranged.totalLines, content: ranged.content };
 }
 
 async function listFiles(startRelative = ".", maxDepth = 4, includeIgnored = false) {
@@ -405,8 +470,8 @@ async function gitWrite(operation: string, detail: string, args: string[], reque
 }
 
 async function callInstalledMcp(server: string, tool: string, args: Record<string, unknown>, requestId?: string, approvalToken?: string) {
-  const info = await mcpHub.toolInfo(server, tool);
-  const readOnlyHint = info.annotations?.readOnlyHint === true;
+  const cachedInfo = await mcpHub.cachedToolInfo(server, tool);
+  const readOnlyHint = cachedInfo?.annotations?.readOnlyHint === true;
   const rule = `mcp:${server}:${tool}`;
   const decision = {
     riskLevel: "REVIEW" as const,
@@ -429,16 +494,13 @@ async function callInstalledMcp(server: string, tool: string, args: Record<strin
   }
   await audit({ event: "mcp.chat_approved", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { server, tool, rule } });
   const startedAt = Date.now();
-  mcpConnectAuthorized = true;
   try {
-    const result = await mcpHub.callTool(server, tool, args);
+    const result = await mcpHub.callTool(server, tool, args, { authorizeConnect: true });
     await audit({ event: "mcp.call", requestId, workspaceKey: WORKSPACE_KEY, tool: `${server}.${tool}`, status: "ok", detail: { durationMs: Date.now() - startedAt } });
     return result;
   } catch (error) {
     await audit({ event: "mcp.call", requestId, workspaceKey: WORKSPACE_KEY, tool: `${server}.${tool}`, status: "failed", detail: { durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) } });
     throw error;
-  } finally {
-    mcpConnectAuthorized = false;
   }
 }
 
@@ -604,10 +666,21 @@ const watcher = chokidar.watch(root, {
 });
 watcher.on("all", (event, changed) => {
   const relative = rel(changed);
-  semantic.invalidate(); context.invalidate(); metadataEpoch++;
+  semantic.invalidate(); context.noteChange(relative); metadataEpoch++;
   if (relative === ".gitignore") void reloadIgnore();
   log("debug", "workspace.changed", { event, path: relative, metadataEpoch });
 });
+
+if (DAEMON_CHILD) {
+  const sweepMs = Math.min(60_000, Math.max(10_000, Math.floor(WORKSPACE_IDLE_MS / 4)));
+  idleTimer = setInterval(() => {
+    if (shuttingDown || Date.now() - lastToolActivityAt < WORKSPACE_IDLE_MS) return;
+    if (processManager.list().some((record) => record.status === "running")) return;
+    log("info", "workspace.idle_sleep", { workspaceId: WORKSPACE_ID, idleMs: Date.now() - lastToolActivityAt });
+    void shutdown().finally(() => process.exit(0));
+  }, sweepMs);
+  idleTimer.unref?.();
+}
 
 async function clientCapabilities() {
   const semanticInfo = await semantic.info();
@@ -691,6 +764,7 @@ async function connect() {
       return;
     }
     if (message.type !== "tool_call") return;
+    lastToolActivityAt = Date.now();
     const requestId = String(message.requestId ?? message.id ?? "");
     const startedAt = Date.now();
     const trace = {
@@ -714,16 +788,21 @@ async function connect() {
     }
   });
   ws.on("close", (code, reason) => {
-    log("warn", "client.disconnected", { code, reason: reason.toString(), reconnectInMs: reconnectDelay });
+    log("warn", "client.disconnected", { code, reason: reason.toString(), reconnectInMs: shuttingDown ? null : reconnectDelay });
     if (activeSocket === ws) activeSocket = null;
+    if (shuttingDown) return;
     const jitter = Math.floor(Math.random() * Math.min(1000, reconnectDelay / 2));
-    setTimeout(() => void connect(), reconnectDelay + jitter);
+    setTimeout(() => { if (!shuttingDown) void connect(); }, reconnectDelay + jitter);
     reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
   });
   ws.on("error", (error) => log("error", "client.socket_error", { error }));
 }
 
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+  processManager.stopAll();
   await Promise.allSettled([semantic.shutdown(), mcpHub.shutdown(), watcher.close()]);
   activeSocket?.close();
 }
@@ -731,5 +810,5 @@ async function shutdown() {
 process.on("SIGINT", async () => { await shutdown(); process.exit(0); });
 process.on("SIGTERM", async () => { await shutdown(); process.exit(0); });
 
-log("info", "client.started", { version: "1.5.0-beta.2", protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, terminalApproval: "chat-mediated", networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
+log("info", "client.started", { version: VERSION, protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, terminalApproval: "chat-mediated", networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
 void connect();

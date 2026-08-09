@@ -9,6 +9,7 @@ import ignore, { type Ignore } from "ignore";
 import chokidar from "chokidar";
 import { log, summarizeToolArgs } from "./log.js";
 import { TypeScriptSemanticIndex } from "./semantic.js";
+import { VERSION } from "./version.js";
 
 const SERVER_URL = process.env.SERVER_URL;
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN;
@@ -381,5 +382,5 @@ function connect() {
   ws.on("close", () => { log("warn", "client.disconnected", { reconnectInMs: reconnectDelay }); setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000); });
   ws.on("error", (error) => log("error", "client.socket_error", { error }));
 }
-log("info", "client.started", { version: "1.5.0-beta.2", deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE });
+log("info", "client.started", { version: VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE });
 connect();

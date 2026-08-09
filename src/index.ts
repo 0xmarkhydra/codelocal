@@ -8,8 +8,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { oauthRouter, requireMcpAuth } from "./oauth.js";
 import { log, summarizeToolArgs } from "./log.js";
-
-const VERSION = "1.5.0-beta.2";
+import { VERSION } from "./version.js";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN;

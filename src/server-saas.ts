@@ -18,8 +18,7 @@ import { createDashboardRouter } from "./dashboard.js";
 import { authPage, escapeHtml, landingPage } from "./web-ui.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
 import { createWorkspaceRoutingState, selectWorkspaceForSession, workspaceKeyForSession, type WorkspaceRoutingState } from "./mcp-session-routing.js";
-
-const VERSION = "1.5.0-beta.2";
+import { VERSION } from "./version.js";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
@@ -86,22 +85,28 @@ function splitWorkspaceRoutingArgs(args: unknown) {
 }
 
 async function workspaceCatalog(userId: string) {
-  const workspaces = await cloudStore.listWorkspaces(userId);
+  const workspaces = await cloudStore.listWorkspaceRecords(userId);
+  const deviceIds = [...new Set(workspaces.map((workspace) => workspace.deviceId))];
+  const runtimeStates = new Map(await Promise.all(deviceIds.map(async (deviceId) => {
+    const runtimeOnline = await runtimeActivationStore.isOnline(userId, deviceId).catch(() => false);
+    const authorizedIds = runtimeOnline ? await runtimeActivationStore.authorizedIds(userId, deviceId).catch(() => null) : null;
+    return [deviceId, { runtimeOnline, authorizedIds: new Set(authorizedIds ?? []) }] as const;
+  })));
   const output = [] as Array<Record<string, unknown>>;
   for (const workspace of workspaces) {
     const key = clientKey(userId, workspace.deviceId, workspace.workspaceId);
     const active = clients.get(key);
-    const runtimeOnline = await runtimeActivationStore.isOnline(userId, workspace.deviceId).catch(() => false);
-    const authorizedNow = runtimeOnline ? await runtimeActivationStore.isAuthorized(userId, workspace.deviceId, workspace.workspaceId).catch(() => false) : null;
-    if (!active && runtimeOnline && authorizedNow === false) continue;
+    const runtimeState = runtimeStates.get(workspace.deviceId) ?? { runtimeOnline: false, authorizedIds: new Set<string>() };
+    const authorizedNow = runtimeState.runtimeOnline ? runtimeState.authorizedIds.has(workspace.workspaceId) : null;
+    if (!active && runtimeState.runtimeOnline && authorizedNow === false) continue;
     output.push({
       key,
       deviceId: workspace.deviceId,
       deviceName: active?.deviceName ?? workspace.deviceId,
       workspaceId: workspace.workspaceId,
       workspaceName: workspace.workspaceName,
-      status: active ? "active" : runtimeOnline ? "sleeping" : "device_offline",
-      runtimeOnline,
+      status: active ? "active" : runtimeState.runtimeOnline ? "sleeping" : "device_offline",
+      runtimeOnline: runtimeState.runtimeOnline,
       authorized: active ? true : authorizedNow,
       projectRoot: active?.projectRoot ?? null,
       capabilities: active?.capabilities ?? workspace.capabilities ?? {},
@@ -325,7 +330,7 @@ async function requestWorkspaceRevocation(userId: string, deviceId: string, work
   await runtimeActivationStore.requestRevocation(userId, deviceId, { workspaceId, requestId, requestedAt: Date.now() });
   const deadline = Date.now() + 7_000;
   while (Date.now() < deadline) {
-    const workspaces = await cloudStore.listWorkspaces(userId);
+    const workspaces = await cloudStore.listWorkspaceRecords(userId);
     if (!workspaces.some((workspace) => workspace.deviceId === deviceId && workspace.workspaceId === workspaceId)) {
       await cloudStore.audit(userId, "workspace.revoked", { requestId }, deviceId, workspaceId).catch(() => undefined);
       return;

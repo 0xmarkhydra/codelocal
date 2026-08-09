@@ -2,17 +2,30 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyCommand } from "../security-policy.js";
 
-test("routine Flutter and Xcode commands do not require chat approval", () => {
+test("non-executing Flutter and simulator inspection commands stay automatic", () => {
   for (const command of [
-    "flutter run --flavor dev",
     "flutter analyze",
-    "flutter test",
-    "xcodebuild -workspace Runner.xcworkspace",
     "xcrun simctl list devices",
   ]) {
     const decision = classifyCommand(command, "approval");
     assert.equal(decision.blocked, false, command);
     assert.equal(decision.requiresApproval, false, command);
+    assert.equal(decision.approvalPolicy, "none", command);
+  }
+});
+
+test("workspace code execution is reviewed once and rememberable", () => {
+  for (const command of [
+    "flutter run --flavor dev",
+    "flutter test",
+    "xcodebuild -workspace Runner.xcworkspace",
+  ]) {
+    const decision = classifyCommand(command, "approval");
+    assert.equal(decision.blocked, false, command);
+    assert.equal(decision.requiresApproval, true, command);
+    assert.equal(decision.riskLevel, "REVIEW", command);
+    assert.equal(decision.approvalPolicy, "rememberable", command);
+    assert.match(decision.approvalKey ?? "", /^workspace-exec:/, command);
   }
 });
 

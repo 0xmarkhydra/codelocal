@@ -5,7 +5,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { audit } from "./audit.js";
 
 type Scope = "global" | "workspace";
 type TransportKind = "stdio" | "http";
@@ -71,6 +70,7 @@ const REGISTRY_VERSION = 1 as const;
 const CATALOG_VERSION = 1 as const;
 const MAX_CATALOG_TOOLS = Number(process.env.CODELOCAL_MCP_MAX_TOOLS ?? 5000);
 const MAX_STDERR_TAIL = 16 * 1024;
+const MCP_SESSION_IDLE_MS = Math.max(60_000, Number(process.env.CODELOCAL_MCP_SESSION_IDLE_MS ?? 10 * 60_000) || 10 * 60_000);
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
 function normalizeRoot(value: string) {
@@ -244,26 +244,22 @@ function safeConnectDetail(config: McpServerConfig) {
   }
 }
 
-function defaultRuntimeConnectGuard(workspaceRoot: string): McpConnectGuard | undefined {
-  if (!process.env.SERVER_URL || !process.env.PROJECT_ROOT || process.env.CODELOCAL_MCP_START_APPROVAL === "0") return undefined;
-  return async (config) => {
-    await audit({
-      event: "policy.mcp_runtime_start_blocked",
-      workspaceKey: workspaceRoot,
-      riskLevel: "REVIEW",
-      status: "blocked",
-      detail: { server: config.name, transport: config.transport, rule: `mcp-runtime:${config.name}` },
-    });
-    throw new Error(`Starting installed MCP runtime requires chat-mediated approval. Use mcp_call from ChatGPT: ${config.name}`);
-  };
-}
-
 export class McpHub {
   private sessions = new Map<string, ConnectedSession>();
+  private connecting = new Map<string, Promise<Client>>();
+  private idleTimer: NodeJS.Timeout;
 
   constructor(private workspaceRoot = process.cwd(), private beforeConnect?: McpConnectGuard) {
     this.workspaceRoot = normalizeRoot(workspaceRoot);
-    this.beforeConnect ??= defaultRuntimeConnectGuard(this.workspaceRoot);
+    const sweepMs = Math.min(60_000, Math.max(10_000, Math.floor(MCP_SESSION_IDLE_MS / 4)));
+    this.idleTimer = setInterval(() => { void this.pruneIdleSessions(); }, sweepMs);
+    this.idleTimer.unref?.();
+  }
+
+  private async pruneIdleSessions() {
+    const cutoff = Date.now() - MCP_SESSION_IDLE_MS;
+    const stale = [...this.sessions.entries()].filter(([, session]) => session.lastUsedAt < cutoff).map(([name]) => name);
+    await Promise.allSettled(stale.map((name) => this.disconnect(name)));
   }
 
   private async registry(): Promise<RegistryFile> {
@@ -344,9 +340,9 @@ export class McpHub {
     };
   }
 
-  async probe(name: string) {
+  async probe(name: string, authorizeConnect = false) {
     const config = await this.resolveServer(name);
-    const client = await this.getOrConnect(config);
+    const client = await this.getOrConnect(config, authorizeConnect);
     const tools = await this.fetchAllTools(client);
     await this.replaceCatalogForServer(config, tools);
     return {
@@ -394,24 +390,27 @@ export class McpHub {
     };
   }
 
-  async toolInfo(server: string, tool: string) {
+  async cachedToolInfo(server: string, tool: string) {
     const config = await this.resolveServer(server);
     const key = configKey(config);
-    let catalog = await this.catalogFile();
-    let found = catalog.tools.find((item) => item.serverKey === key && item.name === tool);
+    const catalog = await this.catalogFile();
+    return catalog.tools.find((item) => item.serverKey === key && item.name === tool) ?? null;
+  }
+
+  async toolInfo(server: string, tool: string, authorizeConnect = false) {
+    let found = await this.cachedToolInfo(server, tool);
     if (!found) {
-      await this.probe(server);
-      catalog = await this.catalogFile();
-      found = catalog.tools.find((item) => item.serverKey === key && item.name === tool);
+      await this.probe(server, authorizeConnect);
+      found = await this.cachedToolInfo(server, tool);
     }
     if (!found) throw new Error(`MCP tool not found: ${server}.${tool}`);
     return found;
   }
 
-  async callTool(server: string, tool: string, args: Record<string, unknown> = {}) {
+  async callTool(server: string, tool: string, args: Record<string, unknown> = {}, options: { authorizeConnect?: boolean } = {}) {
     const config = await this.resolveServer(server);
-    const info = await this.toolInfo(server, tool);
-    const client = await this.getOrConnect(config);
+    const info = await this.toolInfo(server, tool, options.authorizeConnect === true);
+    const client = await this.getOrConnect(config, options.authorizeConnect === true);
     const session = this.sessions.get(server);
     if (session) session.lastUsedAt = Date.now();
     const result = await client.callTool({ name: info.name, arguments: args });
@@ -431,6 +430,8 @@ export class McpHub {
   }
 
   async shutdown() {
+    clearInterval(this.idleTimer);
+    await Promise.allSettled([...this.connecting.values()]);
     await Promise.all([...this.sessions.keys()].map((name) => this.disconnect(name)));
   }
 
@@ -463,12 +464,28 @@ export class McpHub {
     return config;
   }
 
-  private async getOrConnect(config: McpServerConfig) {
+  private async getOrConnect(config: McpServerConfig, authorizeConnect = false) {
     const existing = this.sessions.get(config.name);
-    if (existing) return existing.client;
-    await this.beforeConnect?.(config);
+    if (existing) {
+      existing.lastUsedAt = Date.now();
+      return existing.client;
+    }
+    if (!authorizeConnect) await this.beforeConnect?.(config);
+
+    const inFlight = this.connecting.get(config.name);
+    if (inFlight) return inFlight;
+
+    const connecting = this.connectNew(config).finally(() => {
+      if (this.connecting.get(config.name) === connecting) this.connecting.delete(config.name);
+    });
+    this.connecting.set(config.name, connecting);
+    return connecting;
+  }
+
+  private async connectNew(config: McpServerConfig) {
     const client = new Client({ name: "codelocal-mcp-hub", version: "1.0.0" });
     let transport: StdioClientTransport | StreamableHTTPClientTransport;
+    let session: ConnectedSession;
     if (config.transport === "stdio") {
       const cwd = config.cwd ? (path.isAbsolute(config.cwd) ? config.cwd : path.resolve(config.scope === "workspace" ? this.workspaceRoot : process.cwd(), config.cwd)) : (config.scope === "workspace" ? this.workspaceRoot : undefined);
       const stdio = new StdioClientTransport({
@@ -479,24 +496,22 @@ export class McpHub {
         stderr: "pipe",
       });
       transport = stdio;
-      const session: ConnectedSession = { client, transport, connectedAt: Date.now(), lastUsedAt: Date.now(), stderrTail: "" };
+      session = { client, transport, connectedAt: Date.now(), lastUsedAt: Date.now(), stderrTail: "" };
       stdio.stderr?.on("data", (chunk) => {
         session.stderrTail = (session.stderrTail + String(chunk)).slice(-MAX_STDERR_TAIL);
       });
-      this.sessions.set(config.name, session);
     } else {
       const headers = materializeHeaders(config.headers);
       transport = new StreamableHTTPClientTransport(new URL(config.url!), headers ? { requestInit: { headers } } : undefined);
-      this.sessions.set(config.name, { client, transport, connectedAt: Date.now(), lastUsedAt: Date.now(), stderrTail: "" });
+      session = { client, transport, connectedAt: Date.now(), lastUsedAt: Date.now(), stderrTail: "" };
     }
     try {
       await client.connect(transport);
+      this.sessions.set(config.name, session);
       return client;
     } catch (error) {
-      const session = this.sessions.get(config.name);
-      this.sessions.delete(config.name);
       await client.close().catch(() => undefined);
-      const stderr = session?.stderrTail.trim();
+      const stderr = session.stderrTail.trim();
       throw new Error(`Failed to connect MCP ${config.name}: ${error instanceof Error ? error.message : String(error)}${stderr ? `\nMCP stderr:\n${stderr}` : ""}`);
     }
   }
