@@ -33,6 +33,15 @@ export function isSensitivePath(relativePath: string) {
   return false;
 }
 
+function hasShellComposition(command: string) {
+  return /[;&|<>`\r\n]/.test(command) || /\$\s*\(/.test(command);
+}
+
+function isRoutineDeveloperCommand(normalized: string) {
+  if (hasShellComposition(normalized)) return false;
+  return /^(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*(?:(?:fvm\s+)?flutter\s+(?:analyze|test|run|doctor|devices|emulators|clean|build)\b|dart\s+(?:analyze|test|format|fix|compile)\b|xcodebuild\b|xcrun\s+(?:simctl|xctrace)\b|pod\s+(?:repo\s+list|env)\b)/i.test(normalized);
+}
+
 export function classifyCommand(command: string, networkPolicy: NetworkPolicy = "approval"): PolicyDecision {
   const normalized = command.replace(/\s+/g, " ").trim();
   const rules: string[] = [];
@@ -59,13 +68,24 @@ export function classifyCommand(command: string, networkPolicy: NetworkPolicy = 
   hit(/\b(prisma|typeorm|sequelize|knex|alembic|rails)\b[^\n]*(migrate|migration|db:)/i, "database migration", "HIGH", { approve: true });
   hit(/\b(git\s+(commit|push|tag|merge|rebase))\b/i, "Git write action", "REVIEW", { approve: true });
   hit(/\b(npm|pnpm|yarn|bun|pip|pipx|poetry|uv|cargo|go)\s+(install|add|remove|uninstall|update|upgrade|get)\b/i, "dependency or toolchain change", "REVIEW", { approve: true });
-  hit(/(?:^|[;&|]\s*|\s)(?:fvm\s+flutter|flutter|dart|xcodebuild|xcrun|pod)(?:\s|$)/i, "macOS developer toolchain host execution", "REVIEW", { approve: true });
+  hit(/\b(?:flutter|dart)\s+pub\s+(?:add|remove|upgrade|downgrade|publish|get)\b/i, "Flutter/Dart dependency or publish action", "REVIEW", { approve: true });
+  hit(/\bpod\s+(?:install|update|repo\s+update|trunk\s+push)\b/i, "CocoaPods dependency or publish action", "REVIEW", { approve: true });
+  hit(/\b(?:npm|pnpm|yarn|bun)\s+(?:publish|login|logout|whoami)\b/i, "package registry or account action", "HIGH", { approve: true });
+  hit(/\bdart\s+pub\s+publish\b/i, "package publish action", "HIGH", { approve: true });
+
   const networkPattern = /\b(curl|wget|ssh|scp|sftp|ftp|nc|ncat|telnet)\b/i;
   if (networkPattern.test(normalized)) {
     if (networkPolicy === "deny") hit(networkPattern, "network access denied by policy", "BLOCKED", { block: true });
     else if (networkPolicy === "approval") hit(networkPattern, "network or remote command", "REVIEW", { approve: true });
   }
   hit(/\b(chmod\s+[0-7]*[67][0-7][0-7]|chown|launchctl|systemctl|service)\b/i, "permission or service modification", "HIGH", { approve: true });
+
+  if (!blocked && !approval && isRoutineDeveloperCommand(normalized)) rules.push("routine developer command");
+  if (!blocked && !approval && hasShellComposition(command)) {
+    rules.push("composed shell command requires review");
+    risk = rank.REVIEW > rank[risk] ? "REVIEW" : risk;
+    approval = true;
+  }
 
   if (blocked) risk = "BLOCKED";
   const reason = rules.length ? rules.join("; ") : "no risky policy rule matched";

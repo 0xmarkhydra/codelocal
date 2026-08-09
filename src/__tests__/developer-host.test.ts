@@ -2,19 +2,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyCommand } from "../security-policy.js";
 
-test("flutter and Xcode toolchains require review approval", () => {
+test("routine Flutter and Xcode commands do not require chat approval", () => {
   for (const command of [
     "flutter run --flavor dev",
-    "cd app-dev && flutter run --flavor dev",
-    "dart pub get",
+    "flutter analyze",
+    "flutter test",
     "xcodebuild -workspace Runner.xcworkspace",
     "xcrun simctl list devices",
+  ]) {
+    const decision = classifyCommand(command, "approval");
+    assert.equal(decision.blocked, false, command);
+    assert.equal(decision.requiresApproval, false, command);
+  }
+});
+
+test("developer dependency mutations and shell composition still require review", () => {
+  for (const command of [
+    "cd app-dev && flutter run --flavor dev",
+    "dart pub get",
     "pod install",
   ]) {
     const decision = classifyCommand(command, "approval");
     assert.equal(decision.blocked, false, command);
     assert.equal(decision.requiresApproval, true, command);
-    assert.ok(decision.matchedRules.includes("macOS developer toolchain host execution"), command);
   }
 });
 
