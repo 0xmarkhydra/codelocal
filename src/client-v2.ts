@@ -12,7 +12,7 @@ import { classifyCommand, classifyGitWrite, isSensitivePath, type NetworkPolicy 
 import { SandboxManager } from "./sandbox.js";
 import { ProcessManager } from "./process-manager.js";
 import { IdempotencyJournal } from "./state.js";
-import { ApprovalEngine, type ApprovalMode } from "./approval.js";
+import { type ApprovalMode } from "./approval.js";
 import { ChatApprovalBroker } from "./chat-approval.js";
 import { TerminalHistory } from "./terminal-history.js";
 import { audit } from "./audit.js";
@@ -55,11 +55,13 @@ const context = new ProjectContextEngine(root, semantic);
 const editing = new EditingEngine(root);
 const verification = new VerificationEngine(root, semantic, context);
 const sandbox = new SandboxManager(root, NETWORK_POLICY);
-const approval = new ApprovalEngine(WORKSPACE_KEY, ["prompt", "deny", "auto-safe"].includes(APPROVAL_MODE) ? APPROVAL_MODE : "prompt");
 const chatApproval = new ChatApprovalBroker();
 const terminalHistory = new TerminalHistory();
 const journal = new IdempotencyJournal();
-const mcpHub = new McpHub(root);
+let mcpConnectAuthorized = false;
+const mcpHub = new McpHub(root, async () => {
+  if (!mcpConnectAuthorized) throw new Error("Starting an installed MCP runtime requires approval in ChatGPT. Call mcp_call and approve it there.");
+});
 const processManager = new ProcessManager(root, WORKSPACE_KEY, sandbox, (_record, stream, text) => {
   if (MIRROR_PROCESS_OUTPUT) mirrorProcessOutput(stream, text);
 }, async (record) => {
@@ -328,17 +330,26 @@ async function runGuardedCommand(command: string, options: { cwd?: string; timeo
   return started;
 }
 
-async function gitWrite(operation: string, detail: string, args: string[], requestId?: string) {
+async function gitWrite(operation: string, detail: string, args: string[], requestId?: string, approvalToken?: string) {
   const decision = classifyGitWrite(operation, detail);
   if (decision.blocked) throw new Error(`Git operation blocked by policy: ${decision.reason}`);
-  if (decision.requiresApproval && !(await approval.approve(`Git ${operation}`, decision.redactedCommand, decision, requestId))) throw new Error("Git operation denied by local approval policy.");
+  const approvalCommand = `git ${operation} ${detail}`.trim();
+  if (decision.requiresApproval) {
+    const approved = chatApproval.consume(approvalToken, approvalCommand, ".", decision);
+    if (!approved) {
+      const pending = chatApproval.preflight(approvalCommand, ".", decision);
+      await audit({ event: "git.approval_required", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { operation, command: decision.redactedCommand, rules: decision.matchedRules, expiresAt: pending.expiresAt } });
+      return pending;
+    }
+    await audit({ event: "git.chat_approved", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { operation, command: decision.redactedCommand, rules: decision.matchedRules } });
+  }
   const result = await git(args, 120_000);
   if (result.exitCode !== 0) throw new Error(result.stderr || result.stdout || `git ${operation} failed`);
   await audit({ event: "git.write", requestId, workspaceKey: WORKSPACE_KEY, status: "completed", detail: { operation, outputBytes: Buffer.byteLength(result.stdout + result.stderr, "utf8") } });
   return { exitCode: result.exitCode, output: result.stdout + result.stderr };
 }
 
-async function callInstalledMcp(server: string, tool: string, args: Record<string, unknown>, requestId?: string) {
+async function callInstalledMcp(server: string, tool: string, args: Record<string, unknown>, requestId?: string, approvalToken?: string) {
   const info = await mcpHub.toolInfo(server, tool);
   const readOnlyHint = info.annotations?.readOnlyHint === true;
   const rule = `mcp:${server}:${tool}`;
@@ -353,9 +364,16 @@ async function callInstalledMcp(server: string, tool: string, args: Record<strin
       : "external MCP call may have side effects",
   };
   await audit({ event: "policy.mcp", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { server, tool, readOnlyHint, rule } });
-  const ok = await approval.approve("Call installed MCP tool", `${server}.${tool}`, decision, requestId);
-  if (!ok) throw new Error("MCP tool call denied by local approval policy.");
+  const approvalCommand = `mcp ${server}.${tool}`;
+  const approved = chatApproval.consume(approvalToken, approvalCommand, ".", decision);
+  if (!approved) {
+    const pending = chatApproval.preflight(approvalCommand, ".", decision);
+    await audit({ event: "mcp.approval_required", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { server, tool, rule, expiresAt: pending.expiresAt } });
+    return pending;
+  }
+  await audit({ event: "mcp.chat_approved", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { server, tool, rule } });
   const startedAt = Date.now();
+  mcpConnectAuthorized = true;
   try {
     const result = await mcpHub.callTool(server, tool, args);
     await audit({ event: "mcp.call", requestId, workspaceKey: WORKSPACE_KEY, tool: `${server}.${tool}`, status: "ok", detail: { durationMs: Date.now() - startedAt } });
@@ -363,6 +381,8 @@ async function callInstalledMcp(server: string, tool: string, args: Record<strin
   } catch (error) {
     await audit({ event: "mcp.call", requestId, workspaceKey: WORKSPACE_KEY, tool: `${server}.${tool}`, status: "failed", detail: { durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) } });
     throw error;
+  } finally {
+    mcpConnectAuthorized = false;
   }
 }
 
@@ -392,7 +412,7 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
   if (tool === "mcp_list") return { servers: await mcpHub.listServers() };
   if (tool === "mcp_search_tools") return mcpHub.searchTools(String(args.query ?? ""), { limit: args.limit ?? 8, server: args.server, refresh: !!args.refresh });
   if (tool === "mcp_tool_info") return mcpHub.toolInfo(String(args.server), String(args.tool));
-  if (tool === "mcp_call") return callInstalledMcp(String(args.server), String(args.tool), (args.arguments ?? {}) as Record<string, unknown>, request.requestId);
+  if (tool === "mcp_call") return callInstalledMcp(String(args.server), String(args.tool), (args.arguments ?? {}) as Record<string, unknown>, request.requestId, args.approvalToken);
   if (tool === "read_instructions") return readInstructions(args.path ?? ".");
   if (tool === "project_map") return context.map(!!args.force);
   if (tool === "context_for_task") return context.relevant(String(args.taskHint ?? ""), args.limit ?? 30);
@@ -472,18 +492,18 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
   if (tool === "git_show") { const r = await git(["show", "--stat", "--oneline", "--decorate", String(args.ref ?? "HEAD")]); return { output: r.stdout + r.stderr }; }
   if (tool === "git_blame") { const p = String(args.path); if (isSensitivePath(p)) throw new Error(`Access blocked by sensitive-path policy: ${p}`); const r = await git(["blame", "--line-porcelain", ...(args.startLine && args.endLine ? ["-L", `${args.startLine},${args.endLine}`] : []), "--", p]); return { output: r.stdout }; }
   if (tool === "git_file_history") { const p = String(args.path); if (isSensitivePath(p)) throw new Error(`Access blocked by sensitive-path policy: ${p}`); const r = await git(["log", "--follow", `-${Math.min(args.limit ?? 30, 100)}`, "--date=iso", "--pretty=format:%h%x09%ad%x09%an%x09%s", "--", p]); return { output: r.stdout }; }
-  if (tool === "git_stage") { const paths = (args.paths ?? []).map(String); return gitWrite("add", paths.join(" "), ["add", "--", ...paths], request.requestId); }
-  if (tool === "git_unstage") { const paths = (args.paths ?? []).map(String); return gitWrite("restore --staged", paths.join(" "), ["restore", "--staged", "--", ...paths], request.requestId); }
+  if (tool === "git_stage") { const paths = (args.paths ?? []).map(String); return gitWrite("add", paths.join(" "), ["add", "--", ...paths], request.requestId, args.approvalToken); }
+  if (tool === "git_unstage") { const paths = (args.paths ?? []).map(String); return gitWrite("restore --staged", paths.join(" "), ["restore", "--staged", "--", ...paths], request.requestId, args.approvalToken); }
   if (tool === "git_commit") {
     const staged = await git(["diff", "--cached", "--name-only"]); const stagedPaths = staged.stdout.split("\n").filter(Boolean);
     if (!stagedPaths.length) throw new Error("No staged changes to commit.");
     if (Array.isArray(args.expectedPaths) && stagedPaths.some((p) => !args.expectedPaths.includes(p))) throw new Error(`Unexpected staged changes: ${stagedPaths.filter((p) => !args.expectedPaths.includes(p)).join(", ")}`);
-    return gitWrite("commit", String(args.message), ["commit", "-m", String(args.message)], request.requestId);
+    return gitWrite("commit", String(args.message), ["commit", "-m", String(args.message)], request.requestId, args.approvalToken);
   }
   if (tool === "git_push") {
     if (args.force) throw new Error("Force push is blocked by default.");
     const argv = ["push"]; if (args.remote) argv.push(String(args.remote)); if (args.branch) argv.push(String(args.branch));
-    return gitWrite("push", argv.slice(1).join(" "), argv, request.requestId);
+    return gitWrite("push", argv.slice(1).join(" "), argv, request.requestId, args.approvalToken);
   }
 
   if (tool === "sandbox_info") return sandbox.info();

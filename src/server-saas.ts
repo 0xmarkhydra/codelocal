@@ -251,10 +251,10 @@ function createMcpServer(userId: string) {
   remote("git_show", "Git show", "Read a commit/ref summary.", { ref: z.string().default("HEAD") });
   remote("git_blame", "Git blame", "Read blame for a file/range.", { path: z.string().min(1), startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional() });
   remote("git_file_history", "Git file history", "Read follow-renames file history.", { path: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
-  remote("git_stage", "Stage files", "Approval-gated Git stage operation.", { paths: z.array(z.string().min(1)).min(1).max(200) });
-  remote("git_unstage", "Unstage files", "Approval-gated Git unstage operation.", { paths: z.array(z.string().min(1)).min(1).max(200) });
-  remote("git_commit", "Commit staged changes", "Approval-gated commit. Optionally assert the exact staged path set.", { message: z.string().min(1).max(5000), expectedPaths: z.array(z.string()).optional() });
-  remote("git_push", "Push commits", "Approval-gated non-force push.", { remote: z.string().optional(), branch: z.string().optional(), force: z.boolean().default(false) });
+  remote("git_stage", "Stage files", "Git stage operation. If approval_required is returned, ask the user in ChatGPT and retry with approvalToken.", { paths: z.array(z.string().min(1)).min(1).max(200), approvalToken: z.string().optional() });
+  remote("git_unstage", "Unstage files", "Git unstage operation. If approval_required is returned, ask the user in ChatGPT and retry with approvalToken.", { paths: z.array(z.string().min(1)).min(1).max(200), approvalToken: z.string().optional() });
+  remote("git_commit", "Commit staged changes", "Commit staged changes. Reviewed writes are approved in ChatGPT, never in the local terminal; retry with approvalToken after confirmation.", { message: z.string().min(1).max(5000), expectedPaths: z.array(z.string()).optional(), approvalToken: z.string().optional() });
+  remote("git_push", "Push commits", "Non-force push. Reviewed writes are approved in ChatGPT, never in the local terminal; retry with approvalToken after confirmation.", { remote: z.string().optional(), branch: z.string().optional(), force: z.boolean().default(false), approvalToken: z.string().optional() });
 
   remote("sandbox_info", "Sandbox info", "Show active native/best-effort/policy-only sandbox backend.", {});
   remote("sandbox_smoke_test", "Sandbox smoke test", "Run a local sandbox smoke test.", {});
@@ -281,7 +281,7 @@ function createMcpServer(userId: string) {
   remote("mcp_list", "List installed MCPs", "List MCP extensions installed in the selected local CodeLocal workspace without exposing every extension tool to ChatGPT.", {});
   remote("mcp_search_tools", "Search installed MCP tools", "Search the local MCP extension catalog and return only the most relevant tools.", { query: z.string().default(""), limit: z.number().int().min(1).max(50).default(8), server: z.string().optional(), refresh: z.boolean().default(false) });
   remote("mcp_tool_info", "Inspect MCP tool", "Get one installed MCP tool's exact schema before calling it.", { server: z.string().min(1), tool: z.string().min(1) });
-  remote("mcp_call", "Call installed MCP tool", "Call one tool from an installed MCP extension. The local runtime approval policy remains authoritative.", { server: z.string().min(1), tool: z.string().min(1), arguments: z.record(z.unknown()).default({}) });
+  remote("mcp_call", "Call installed MCP tool", "Call one tool from an installed MCP extension. Local policy is authoritative; approval happens in ChatGPT and never in the local terminal. Retry with approvalToken after confirmation.", { server: z.string().min(1), tool: z.string().min(1), arguments: z.record(z.unknown()).default({}), approvalToken: z.string().optional() });
   return server;
 }
 
