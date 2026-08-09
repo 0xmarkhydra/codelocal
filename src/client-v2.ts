@@ -13,6 +13,8 @@ import { SandboxManager } from "./sandbox.js";
 import { ProcessManager } from "./process-manager.js";
 import { IdempotencyJournal } from "./state.js";
 import { ApprovalEngine, type ApprovalMode } from "./approval.js";
+import { ChatApprovalBroker } from "./chat-approval.js";
+import { TerminalHistory } from "./terminal-history.js";
 import { audit } from "./audit.js";
 import { SemanticRouter } from "./semantic-router.js";
 import { ProjectContextEngine } from "./context-engine.js";
@@ -54,11 +56,14 @@ const editing = new EditingEngine(root);
 const verification = new VerificationEngine(root, semantic, context);
 const sandbox = new SandboxManager(root, NETWORK_POLICY);
 const approval = new ApprovalEngine(WORKSPACE_KEY, ["prompt", "deny", "auto-safe"].includes(APPROVAL_MODE) ? APPROVAL_MODE : "prompt");
+const chatApproval = new ChatApprovalBroker();
+const terminalHistory = new TerminalHistory();
 const journal = new IdempotencyJournal();
 const mcpHub = new McpHub(root);
 const processManager = new ProcessManager(root, WORKSPACE_KEY, sandbox, (record, stream, text) => {
   if (MIRROR_PROCESS_OUTPUT) process.stdout.write(`[proc:${record.processId.slice(0, 8)}:${stream}] ${text}`);
-}, () => {
+}, async (record) => {
+  await terminalHistory.finished(record);
   semantic.invalidate();
   context.invalidate();
   metadataEpoch++;
@@ -271,18 +276,56 @@ function validatePatchPaths(patchText: string) {
   }
 }
 
-async function runGuardedCommand(command: string, options: { cwd?: string; timeoutMs?: number; usePty?: boolean; requestId?: string; ownerSessionId?: string } = {}) {
-  if (!ALLOW_SHELL) throw new Error("Shell execution is disabled. Restart client with CODELOCAL_ALLOW_SHELL=1.");
-  const decision = classifyCommand(command, NETWORK_POLICY);
-  await audit({ event: "policy.command", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { command: decision.redactedCommand, rules: decision.matchedRules, blocked: decision.blocked } });
-  if (decision.blocked) throw new Error(`Command blocked by policy: ${decision.reason}`);
-  if (decision.requiresApproval) {
-    const ok = await approval.approve("Run command", decision.redactedCommand, decision, options.requestId);
-    if (!ok) throw new Error("Command denied by local approval policy.");
-  }
-  const cwd = await safeExistingPath(options.cwd ?? ".");
+async function commandCwd(requested = ".") {
+  const cwd = await safeExistingPath(requested);
   if (!(await fs.stat(cwd)).isDirectory()) throw new Error("Command cwd is not a directory.");
-  return processManager.start(command, { cwd, timeoutMs: options.timeoutMs, usePty: options.usePty, requestId: options.requestId, ownerSessionId: options.ownerSessionId });
+  return cwd;
+}
+
+async function terminalPreflight(command: string, requestedCwd = ".", requestId?: string) {
+  if (!ALLOW_SHELL) return { status: "blocked", riskLevel: "BLOCKED", reason: "Shell execution is disabled for this workspace.", matchedRules: ["shell-disabled"], command: String(command) };
+  const cwd = await commandCwd(requestedCwd);
+  const decision = classifyCommand(command, NETWORK_POLICY);
+  const result = chatApproval.preflight(command, rel(cwd), decision);
+  await audit({ event: "terminal.preflight", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: rel(cwd), command: decision.redactedCommand, rules: decision.matchedRules, status: result.status } });
+  return { ...result, cwd: rel(cwd) };
+}
+
+async function runGuardedCommand(command: string, options: { cwd?: string; timeoutMs?: number; usePty?: boolean; requestId?: string; ownerSessionId?: string; approvalToken?: string } = {}) {
+  if (!ALLOW_SHELL) throw new Error("Shell execution is disabled. Restart client with CODELOCAL_ALLOW_SHELL=1.");
+  const cwd = await commandCwd(options.cwd ?? ".");
+  const relativeCwd = rel(cwd);
+  const decision = classifyCommand(command, NETWORK_POLICY);
+  await audit({ event: "policy.command", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, blocked: decision.blocked } });
+  if (decision.blocked) throw new Error(`Command blocked by policy: ${decision.reason}`);
+
+  let approvalMode: "automatic" | "chat" = "automatic";
+  if (decision.requiresApproval) {
+    const approved = chatApproval.consume(options.approvalToken, command, relativeCwd, decision);
+    if (!approved) {
+      const pending = chatApproval.preflight(command, relativeCwd, decision);
+      await audit({ event: "terminal.approval_required", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, expiresAt: pending.expiresAt } });
+      return { ...pending, cwd: relativeCwd };
+    }
+    approvalMode = "chat";
+    await audit({ event: "terminal.chat_approved", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules } });
+  }
+
+  const started = await processManager.start(command, { cwd, timeoutMs: options.timeoutMs, usePty: options.usePty, requestId: options.requestId, ownerSessionId: options.ownerSessionId });
+  await terminalHistory.started({
+    workspaceKey: WORKSPACE_KEY,
+    processId: started.processId,
+    requestId: options.requestId,
+    sessionId: options.ownerSessionId,
+    cwd: relativeCwd,
+    command,
+    riskLevel: decision.riskLevel,
+    matchedRules: decision.matchedRules,
+    approval: approvalMode,
+    startedAt: started.startedAt,
+    executionMode: started.executionMode,
+  });
+  return started;
 }
 
 async function gitWrite(operation: string, detail: string, args: string[], requestId?: string) {
@@ -340,9 +383,10 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
       sandbox: await sandbox.info(),
       shellEnabled: ALLOW_SHELL,
       approvalMode: APPROVAL_MODE,
+      terminalApproval: "chat-mediated",
       networkPolicy: NETWORK_POLICY,
       metadataEpoch,
-      capabilities: ["protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "diagnostic-regression", "process-manager-v2", "pty-when-installed", "cancellation", "sandbox", "idempotency", "git-write-approval", "mcp-hub", "audit"],
+      capabilities: ["protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "diagnostic-regression", "process-manager-v2", "pty-when-installed", "cancellation", "sandbox", "idempotency", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "audit"],
     };
   }
   if (tool === "mcp_list") return { servers: await mcpHub.listServers() };
@@ -444,13 +488,16 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
 
   if (tool === "sandbox_info") return sandbox.info();
   if (tool === "sandbox_smoke_test") return sandbox.smokeTest();
+  if (tool === "terminal_preflight") return terminalPreflight(String(args.command ?? ""), String(args.cwd ?? "."), request.requestId);
+  if (tool === "terminal_history") return terminalHistory.query({ workspaceKey: WORKSPACE_KEY, query: String(args.query ?? ""), limit: args.limit ?? 50, event: args.event ?? "started" });
   if (tool === "run_command") {
-    const started = await runGuardedCommand(String(args.command), { cwd: args.cwd ?? ".", timeoutMs: args.timeoutMs ?? 0, requestId: request.requestId, ownerSessionId: request.sessionId });
+    const started = await runGuardedCommand(String(args.command), { cwd: args.cwd ?? ".", timeoutMs: args.timeoutMs ?? 0, requestId: request.requestId, ownerSessionId: request.sessionId, approvalToken: args.approvalToken });
+    if (!("processId" in started)) return started;
     await new Promise((resolve) => setTimeout(resolve, Math.min(Math.max(args.yieldMs ?? 1000, 0), 10_000)));
     return processManager.snapshot(started.processId);
   }
-  if (tool === "exec_start") return runGuardedCommand(String(args.command), { cwd: args.cwd ?? ".", timeoutMs: args.timeoutMs ?? 0, requestId: request.requestId, ownerSessionId: request.sessionId, usePty: false });
-  if (tool === "pty_start") return runGuardedCommand(String(args.command), { cwd: args.cwd ?? ".", timeoutMs: args.timeoutMs ?? 0, requestId: request.requestId, ownerSessionId: request.sessionId, usePty: true });
+  if (tool === "exec_start") return runGuardedCommand(String(args.command), { cwd: args.cwd ?? ".", timeoutMs: args.timeoutMs ?? 0, requestId: request.requestId, ownerSessionId: request.sessionId, usePty: false, approvalToken: args.approvalToken });
+  if (tool === "pty_start") return runGuardedCommand(String(args.command), { cwd: args.cwd ?? ".", timeoutMs: args.timeoutMs ?? 0, requestId: request.requestId, ownerSessionId: request.sessionId, usePty: true, approvalToken: args.approvalToken });
   if (tool === "exec_poll" || tool === "pty_poll") return processManager.snapshot(String(args.processId), { stdout: args.stdoutCursor, stderr: args.stderrCursor });
   if (tool === "process_poll") return processManager.snapshot(String(args.processId), { stdout: args.cursor, stderr: args.cursor });
   if (tool === "exec_write" || tool === "pty_write" || tool === "process_write") return processManager.write(String(args.processId), String(args.input ?? ""));
@@ -492,6 +539,8 @@ async function clientCapabilities() {
     idempotency: true,
     cancellation: true,
     approvals: true,
+    terminalChatApproval: true,
+    terminalHistory: true,
     mcpHub: true,
   };
 }
@@ -590,5 +639,5 @@ async function shutdown() {
 process.on("SIGINT", async () => { await shutdown(); process.exit(0); });
 process.on("SIGTERM", async () => { await shutdown(); process.exit(0); });
 
-log("info", "client.started", { version: "1.3.0-dev.0", protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
+log("info", "client.started", { version: "1.5.0-dev.0", protocolVersion: PROTOCOL_VERSION, deviceId: DEVICE_ID, workspaceId: WORKSPACE_ID, projectRoot: root, shell: ALLOW_SHELL, approvalMode: APPROVAL_MODE, terminalApproval: "chat-mediated", networkPolicy: NETWORK_POLICY, hostname: os.hostname() });
 void connect();
