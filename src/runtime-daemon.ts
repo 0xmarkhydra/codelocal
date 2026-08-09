@@ -100,8 +100,6 @@ export class RuntimeDaemon {
   }
 
   private async pollOnce() {
-    this.workspaces = await this.registry.list();
-    this.stopUnauthorizedChildren(this.workspaces);
     const response = await fetch(`${this.options.baseUrl}/api/client/runtime/poll`, {
       method: "POST",
       headers: deviceHeaders(this.options.credential),
@@ -125,11 +123,9 @@ export class RuntimeDaemon {
       console.log(`✓ Activated ${activated.workspaceName}`);
     }
 
-    let polls = 0;
     while (!this.stopped) {
       try {
-        if (polls % 12 === 0) await this.syncRegistry();
-        polls++;
+        await this.syncRegistry();
         const message = await this.pollOnce();
         if (message.activation?.workspaceId) {
           const workspace = await this.activate(message.activation.workspaceId);
