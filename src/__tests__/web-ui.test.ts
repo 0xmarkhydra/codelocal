@@ -104,4 +104,15 @@ test("public landing page contains the complete ChatGPT setup flow", () => {
   assert.match(html, /256 × 256 px/);
   assert.match(html, /Under 10 KB/);
   assert.match(html, /I understand and want to continue/);
+  assert.match(html, /<title>CodeLocal — Let ChatGPT Code on Your Machine<\/title>/);
+  assert.match(html, /property="og:title" content="CodeLocal — Let ChatGPT Code on Your Machine"/);
+  assert.match(html, /property="og:description" content="Use ChatGPT as the AI brain for your local code\./);
+  assert.match(html, /property="og:image" content="https:\/\/codelocal\.cloud\/assets\/codelocal-icon\.png"/);
+  assert.match(html, /name="twitter:card" content="summary"/);
+  assert.match(html, /rel="canonical" href="https:\/\/codelocal\.cloud\/"/);
+  assert.match(html, /You already have ChatGPT\. Now let it code on your machine\./);
+  assert.match(html, /ChatGPT does the thinking\. CodeLocal gives it hands\./);
+  assert.match(html, /No separate OpenAI API key\. No per-token billing from CodeLocal\./);
+  assert.match(html, /No separate MCP call quota from CodeLocal\./);
+  assert.match(html, /normal usage limits of your ChatGPT plan, model and workspace/);
 });
