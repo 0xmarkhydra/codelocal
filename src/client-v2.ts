@@ -734,6 +734,7 @@ async function connect() {
     ws.send(JSON.stringify({
       type: "register",
       protocolVersion: PROTOCOL_VERSION,
+      clientVersion: VERSION,
       token: localCredential ? undefined : LEGACY_DEVICE_TOKEN,
       credentialId: localCredential?.credentialId,
       credentialSecret: localCredential?.credentialSecret,

@@ -4,6 +4,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { LocalDeviceCredential } from "./identity.js";
 import { terminalHeader, terminalStatus } from "./log.js";
 import { WorkspaceRegistry, type AuthorizedWorkspace } from "./workspace-registry.js";
+import { VERSION } from "./version.js";
 
 export type RuntimeDaemonOptions = {
   baseUrl: string;
@@ -58,7 +59,7 @@ export class RuntimeDaemon {
     const response = await fetch(`${this.options.baseUrl}/api/client/workspaces/sync`, {
       method: "POST",
       headers: deviceHeaders(this.options.credential),
-      body: JSON.stringify({ workspaces: workspaces.map(({ workspaceId, workspaceName, grantedAt, lastActivatedAt }) => ({ workspaceId, workspaceName, grantedAt, lastActivatedAt })) }),
+      body: JSON.stringify({ clientVersion: VERSION, workspaces: workspaces.map(({ workspaceId, workspaceName, grantedAt, lastActivatedAt }) => ({ workspaceId, workspaceName, grantedAt, lastActivatedAt })) }),
       signal: AbortSignal.timeout(10_000),
     });
     if (response.status === 401 || response.status === 403) throw new Error("Stored CodeLocal device credential is no longer valid.");

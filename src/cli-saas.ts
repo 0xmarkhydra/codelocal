@@ -7,6 +7,7 @@ import { defaultDeviceIdentity, deleteLocalCredential, loadLocalCredential, save
 import { WorkspaceRegistry } from "./workspace-registry.js";
 import { ApprovalMemory } from "./approval-memory.js";
 import { RuntimeDaemon } from "./runtime-daemon.js";
+import { VERSION } from "./version.js";
 
 const DEFAULT_CLOUD = process.env.CODELOCAL_SERVER ?? "https://codelocal.cloud";
 
@@ -26,6 +27,7 @@ ChatGPT can list your previously granted workspaces and activate the one you cho
 
 Commands:
   codelocal                       Start the machine runtime; no project cwd required
+  codelocal --version             Show the installed CodeLocal version
   codelocal grant <project>       Authorize a project folder locally
   codelocal ungrant <id|project>  Remove a project's local authorization
   codelocal workspaces            List authorized local workspaces
@@ -256,6 +258,7 @@ async function delegateLegacyCli() {
 const [, , command, ...args] = process.argv;
 try {
   if (!command) await runRuntime();
+  else if (command === "--version" || command === "-v" || command === "version") console.log(VERSION);
   else if (command === "help" || command === "--help" || command === "-h") usage();
   else if (command === "login") await login(args[0] ?? DEFAULT_CLOUD, false);
   else if (command === "dashboard") await login(args[0] ?? DEFAULT_CLOUD, true);

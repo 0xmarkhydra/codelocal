@@ -6,6 +6,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const staging = path.join(root, ".release", "npm");
 const stagingDist = path.join(staging, "dist");
+const rootManifest = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
 
 const runtimeFiles = [
   "approval-memory.js",
@@ -33,6 +34,7 @@ const runtimeFiles = [
   "state.js",
   "terminal-history.js",
   "verification.js",
+  "version.js",
   "workspace-index.js",
   "workspace-registry.js",
 ];
@@ -48,7 +50,7 @@ for (const filename of runtimeFiles) {
 
 const manifest = {
   name: "codelocal",
-  version: "1.5.0-beta.2",
+  version: String(rootManifest.version),
   description: "CodeLocal local code intelligence and execution runtime for ChatGPT.",
   license: "UNLICENSED",
   type: "module",
