@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { LocalDeviceCredential } from "./identity.js";
+import { terminalHeader, terminalStatus } from "./log.js";
 import { WorkspaceRegistry, type AuthorizedWorkspace } from "./workspace-registry.js";
 
 export type RuntimeDaemonOptions = {
@@ -43,7 +44,7 @@ export class RuntimeDaemon {
       if (allowed.has(workspaceId)) continue;
       if (child.exitCode == null && !child.killed) child.kill("SIGTERM");
       this.children.delete(workspaceId);
-      console.log(`✓ Deactivated ${workspaceId} because local workspace authorization was removed.`);
+      terminalStatus("warn", "Workspace", `${workspaceId} deactivated · authorization removed`);
     }
   }
 
@@ -79,6 +80,7 @@ export class RuntimeDaemon {
         CODELOCAL_WORKSPACE_NAME: workspace.workspaceName,
         CODELOCAL_ALLOW_SHELL: process.env.CODELOCAL_ALLOW_SHELL ?? "1",
         CODELOCAL_APPROVAL_MODE: process.env.CODELOCAL_APPROVAL_MODE ?? "prompt",
+        CODELOCAL_LOG_FORMAT: process.env.CODELOCAL_LOG_FORMAT ?? "pretty",
         CODELOCAL_DAEMON_CHILD: "1",
       },
       stdio: "inherit",
@@ -113,14 +115,16 @@ export class RuntimeDaemon {
 
   async run() {
     const workspaces = await this.syncRegistry(true);
-    console.log(`✓ CodeLocal machine runtime online`);
-    console.log(`✓ ${workspaces.length} authorized workspace${workspaces.length === 1 ? "" : "s"}`);
-    if (!workspaces.length) console.log("No workspace granted yet. In another terminal run: codelocal grant /path/to/project");
-    console.log("Waiting for ChatGPT to select a workspace…");
+    terminalHeader();
+    terminalStatus("success", "Runtime", "Online");
+    terminalStatus("success", "Cloud", "Connected");
+    terminalStatus("info", "Workspaces", `${workspaces.length} authorized`);
+    if (!workspaces.length) terminalStatus("warn", "Workspace", "None granted · run codelocal grant /path/to/project");
+    terminalStatus("muted", "Status", "Waiting for ChatGPT…");
 
     if (this.options.initialWorkspaceId) {
       const activated = await this.activate(this.options.initialWorkspaceId);
-      console.log(`✓ Activated ${activated.workspaceName}`);
+      terminalStatus("accent", "Workspace", `${activated.workspaceName} active`);
     }
 
     while (!this.stopped) {
@@ -129,11 +133,11 @@ export class RuntimeDaemon {
         const message = await this.pollOnce();
         if (message.activation?.workspaceId) {
           const workspace = await this.activate(message.activation.workspaceId);
-          console.log(`✓ ChatGPT activated ${workspace.workspaceName}`);
+          terminalStatus("accent", "ChatGPT", `Activated ${workspace.workspaceName}`);
         }
       } catch (error) {
         if (this.stopped) break;
-        console.error(`[CodeLocal runtime] ${error instanceof Error ? error.message : String(error)}`);
+        terminalStatus("error", "Runtime", error instanceof Error ? error.message : String(error));
         await sleep(Math.max(1500, this.options.pollMs ?? 2500));
       }
       if (!this.stopped) await sleep(this.options.pollMs ?? 2500);

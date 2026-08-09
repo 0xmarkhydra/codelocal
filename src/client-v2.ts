@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import WebSocket from "ws";
 import ignore, { type Ignore } from "ignore";
 import chokidar from "chokidar";
-import { log, summarizeToolArgs } from "./log.js";
+import { log, mirrorProcessOutput, summarizeToolArgs } from "./log.js";
 import { PROTOCOL_VERSION, isSideEffectingTool, normalizeError, type ToolCallMessage } from "./protocol.js";
 import { classifyCommand, classifyGitWrite, isSensitivePath, type NetworkPolicy } from "./security-policy.js";
 import { SandboxManager } from "./sandbox.js";
@@ -60,8 +60,8 @@ const chatApproval = new ChatApprovalBroker();
 const terminalHistory = new TerminalHistory();
 const journal = new IdempotencyJournal();
 const mcpHub = new McpHub(root);
-const processManager = new ProcessManager(root, WORKSPACE_KEY, sandbox, (record, stream, text) => {
-  if (MIRROR_PROCESS_OUTPUT) process.stdout.write(`[proc:${record.processId.slice(0, 8)}:${stream}] ${text}`);
+const processManager = new ProcessManager(root, WORKSPACE_KEY, sandbox, (_record, stream, text) => {
+  if (MIRROR_PROCESS_OUTPUT) mirrorProcessOutput(stream, text);
 }, async (record) => {
   await terminalHistory.finished(record);
   semantic.invalidate();
