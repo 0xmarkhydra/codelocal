@@ -74,6 +74,15 @@ function textResult(value: unknown) { return { content: [{ type: "text" as const
 function availableClients(userId: string) { return [...clients.values()].filter((client) => client.userId === userId && client.ws.readyState === client.ws.OPEN); }
 function equalSecret(a: string, b: string) { const aa = Buffer.from(a); const bb = Buffer.from(b); return aa.length === bb.length && timingSafeEqual(aa, bb); }
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function splitWorkspaceRoutingArgs(args: unknown) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return { workspaceKey: null as string | null, forwardedArgs: args };
+  const record = args as Record<string, unknown>;
+  const rawWorkspaceKey = record.workspaceKey;
+  const workspaceKey = typeof rawWorkspaceKey === "string" && rawWorkspaceKey.trim() ? rawWorkspaceKey.trim() : null;
+  if (!Object.prototype.hasOwnProperty.call(record, "workspaceKey")) return { workspaceKey, forwardedArgs: args };
+  const { workspaceKey: _workspaceKey, ...forwardedArgs } = record;
+  return { workspaceKey, forwardedArgs };
+}
 
 async function workspaceCatalog(userId: string) {
   const workspaces = await cloudStore.listWorkspaces(userId);
@@ -110,7 +119,7 @@ function resolveClient(userId: string, selectedKey?: string | null) {
   const online = availableClients(userId);
   if (online.length === 1) return online[0];
   if (!online.length) throw new Error("No active workspace. Call list_workspaces and select_workspace; the CodeLocal machine runtime can activate a sleeping workspace.");
-  throw new Error("Multiple workspaces are active. Call list_workspaces then select_workspace first.");
+  throw new Error("Multiple workspaces are active. Call list_workspaces then select_workspace. Pass the returned workspaceKey on subsequent project, Git, terminal and MCP calls for explicit thread-safe routing.");
 }
 
 async function activateWorkspace(userId: string, key: string) {
@@ -138,7 +147,7 @@ async function activateWorkspace(userId: string, key: string) {
 }
 
 async function callClient(userId: string, tool: string, args: unknown, selectedKey: string | null, options: { signal?: AbortSignal; sessionId?: string } = {}) {
-  const client = resolveClient(userId, selectedKey);
+  const client = selectedKey ? await activateWorkspace(userId, selectedKey) : resolveClient(userId, selectedKey);
   const requestId = randomUUID();
   const startedAt = Date.now();
   const idempotencyKey = isSideEffectingTool(tool) ? requestId : undefined;
@@ -172,12 +181,15 @@ async function callClient(userId: string, tool: string, args: unknown, selectedK
 function createMcpServer(userId: string) {
   const server = new McpServer({ name: "codelocal", version: VERSION });
   let selectedKey: string | null = null;
+  const workspaceRoutingSchema = z.string().min(1).optional().describe("Exact workspace key returned by select_workspace. Pass it to keep routing explicit across multiple active projects, ChatGPT threads or fresh MCP sessions.");
   const localTool = (name: string, title: string, description: string, inputSchema: Record<string, any>, handler: (args: any) => unknown | Promise<unknown>) => {
     server.registerTool(name, { title, description, inputSchema }, async (args: any) => textResult(await handler(args)));
   };
   const remote = (name: string, title: string, description: string, schema: Record<string, any>) => {
-    server.registerTool(name, { title, description, inputSchema: schema }, async (args: any, extra: any) => {
-      const result = await callClient(userId, name, args, selectedKey, { signal: extra?.signal, sessionId: extra?.sessionId });
+    const inputSchema = Object.prototype.hasOwnProperty.call(schema, "workspaceKey") ? schema : { ...schema, workspaceKey: workspaceRoutingSchema };
+    server.registerTool(name, { title, description: `${description} When multiple workspaces are active, pass workspaceKey returned by select_workspace so this call stays bound to the intended project even across separate ChatGPT threads or MCP sessions.`, inputSchema }, async (args: any, extra: any) => {
+      const { workspaceKey, forwardedArgs } = splitWorkspaceRoutingArgs(args);
+      const result = await callClient(userId, name, forwardedArgs, workspaceKey ?? selectedKey, { signal: extra?.signal, sessionId: extra?.sessionId });
       if (name === "mcp_call") {
         const bridged = bridgeMcpToolResult(result);
         return (bridged ?? textResult(result)) as any;
@@ -198,15 +210,17 @@ function createMcpServer(userId: string) {
   localTool("list_device_identities", "List paired devices", "List this account's paired device identities without secrets.", {}, () => deviceStore.listDevices(userId));
   localTool("revoke_device", "Revoke device", "Revoke one of this account's paired device credentials.", { credentialId: z.string().min(1) }, async (args) => ({ revoked: await revokeAndDisconnect(userId, args.credentialId) }));
   localTool("rename_device", "Rename device", "Rename one of this account's durable paired device identities.", { credentialId: z.string().min(1), deviceName: z.string().min(1).max(120) }, async (args) => ({ renamed: await deviceStore.rename(userId, args.credentialId, args.deviceName) }));
-  localTool("list_workspaces", "List authorized workspaces", "List workspaces previously granted on CodeLocal devices. Sleeping workspaces can be activated without the user changing terminal directories.", {}, async () => ({ selectedWorkspace: selectedKey, workspaces: await workspaceCatalog(userId) }));
-  localTool("select_workspace", "Select and activate workspace", "Select a workspace for this ChatGPT MCP session. If its machine runtime is online but the workspace is sleeping, CodeLocal activates it lazily.", { key: z.string().min(1) }, async (args) => {
+  localTool("list_workspaces", "List authorized workspaces", "List workspaces previously granted on CodeLocal devices. Sleeping workspaces can be activated without the user changing terminal directories. Each returned key can be used as workspaceKey for explicit thread-safe routing.", {}, async () => ({ selectedWorkspace: selectedKey, workspaces: await workspaceCatalog(userId) }));
+  localTool("select_workspace", "Select and activate workspace", "Select a workspace for this ChatGPT MCP session. Returns workspaceKey; pass it to subsequent project, Git, terminal and MCP calls when multiple projects are active or when the client starts a fresh MCP session.", { key: z.string().min(1) }, async (args) => {
     const client = await activateWorkspace(userId, String(args.key));
     selectedKey = client.key;
-    return { selected: client.key, deviceId: client.deviceId, workspaceId: client.workspaceId, workspaceName: client.workspaceName, status: "active" };
+    return { selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, workspaceId: client.workspaceId, workspaceName: client.workspaceName, status: "active" };
   });
-  localTool("workspace_info", "Workspace info", "Show the currently selected CodeLocal workspace.", {}, async () => {
-    const client = resolveClient(userId, selectedKey);
-    return { selected: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, capabilities: client.capabilities, lastSeenAt: client.lastSeenAt };
+  localTool("workspace_info", "Workspace info", "Show a selected CodeLocal workspace. Pass workspaceKey for explicit routing if the current MCP session does not retain selection.", { workspaceKey: workspaceRoutingSchema }, async (args) => {
+    const explicitKey = typeof args.workspaceKey === "string" && args.workspaceKey.trim() ? args.workspaceKey.trim() : null;
+    const targetKey = explicitKey ?? selectedKey;
+    const client = targetKey ? await activateWorkspace(userId, targetKey) : resolveClient(userId, null);
+    return { selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, capabilities: client.capabilities, lastSeenAt: client.lastSeenAt };
   });
 
   remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, host execution policy, approval memory and instructions. Call first after selecting a workspace.", {});
