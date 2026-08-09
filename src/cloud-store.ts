@@ -45,20 +45,6 @@ export type CloudWorkspace = {
   lastSeenAt: number;
 };
 
-export type CloudMcpInstallation = {
-  id: string;
-  userId: string;
-  name: string;
-  enabled: boolean;
-  scope: "global" | "workspace";
-  workspaceId?: string;
-  transport: "stdio" | "http";
-  config: Record<string, unknown>;
-  requiredSecrets: string[];
-  createdAt: number;
-  updatedAt: number;
-};
-
 export type OAuthClientRecord = {
   clientId: string;
   redirectUris: string[];
@@ -210,21 +196,6 @@ export class CloudStore {
         expires_at BIGINT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS codelocal_mcp_installations (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
-        name TEXT NOT NULL,
-        enabled BOOLEAN NOT NULL DEFAULT TRUE,
-        scope TEXT NOT NULL CHECK (scope IN ('global', 'workspace')),
-        workspace_id TEXT,
-        transport TEXT NOT NULL CHECK (transport IN ('stdio', 'http')),
-        config JSONB NOT NULL DEFAULT '{}'::jsonb,
-        required_secrets JSONB NOT NULL DEFAULT '[]'::jsonb,
-        created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL,
-        UNIQUE(user_id, name, scope, workspace_id)
-      );
-
       CREATE TABLE IF NOT EXISTS codelocal_permissions (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
@@ -247,9 +218,10 @@ export class CloudStore {
 
       CREATE INDEX IF NOT EXISTS idx_codelocal_devices_user ON codelocal_devices(user_id);
       CREATE INDEX IF NOT EXISTS idx_codelocal_workspaces_user ON codelocal_workspaces(user_id, last_seen_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_codelocal_mcp_user ON codelocal_mcp_installations(user_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_codelocal_audit_user ON codelocal_audit_logs(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_codelocal_pairings_expires ON codelocal_pairings(expires_at);
+
+      UPDATE codelocal_workspaces SET project_root=NULL WHERE project_root IS NOT NULL;
     `);
   }
 
@@ -457,6 +429,38 @@ export class CloudStore {
     }));
   }
 
+  async reconcileWorkspacesForDevice(userId: string, deviceId: string, authorizedWorkspaceIds: readonly string[]) {
+    const ids = [...new Set(authorizedWorkspaceIds.map(String).filter(Boolean))].slice(0, 500);
+    const client = await this.db().connect();
+    try {
+      await client.query("BEGIN");
+      const stale = ids.length
+        ? await client.query(
+            "SELECT workspace_id FROM codelocal_workspaces WHERE user_id=$1 AND device_id=$2 AND NOT (workspace_id = ANY($3::text[]))",
+            [userId, deviceId, ids],
+          )
+        : await client.query(
+            "SELECT workspace_id FROM codelocal_workspaces WHERE user_id=$1 AND device_id=$2",
+            [userId, deviceId],
+          );
+      const removedIds = stale.rows.map((row) => String(row.workspace_id));
+      if (removedIds.length) {
+        await client.query(
+          "DELETE FROM codelocal_workspaces WHERE user_id=$1 AND device_id=$2 AND workspace_id = ANY($3::text[])",
+          [userId, deviceId, removedIds],
+        );
+      }
+      await client.query("COMMIT");
+      await Promise.all(removedIds.map((workspaceId) => this.clearPresence(userId, deviceId, workspaceId).catch(() => undefined)));
+      return removedIds;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async createOAuthClient(client: Omit<OAuthClientRecord, "createdAt">) {
     const createdAt = Date.now();
     await this.db().query(
@@ -505,45 +509,6 @@ export class CloudStore {
     }
   }
 
-  async listMcpInstallations(userId: string, workspaceId?: string): Promise<CloudMcpInstallation[]> {
-    const result = await this.db().query(
-      `SELECT * FROM codelocal_mcp_installations
-       WHERE user_id=$1 AND (scope='global' OR (scope='workspace' AND workspace_id=$2))
-       ORDER BY updated_at DESC`,
-      [userId, workspaceId ?? ""],
-    );
-    return result.rows.map((row) => this.mapMcp(row));
-  }
-
-  async allMcpInstallations(userId: string) {
-    const result = await this.db().query("SELECT * FROM codelocal_mcp_installations WHERE user_id=$1 ORDER BY updated_at DESC", [userId]);
-    return result.rows.map((row) => this.mapMcp(row));
-  }
-
-  async upsertMcpInstallation(input: Omit<CloudMcpInstallation, "id" | "createdAt" | "updatedAt">) {
-    const existing = await this.db().query(
-      `SELECT id,created_at FROM codelocal_mcp_installations
-       WHERE user_id=$1 AND name=$2 AND scope=$3 AND workspace_id IS NOT DISTINCT FROM $4`,
-      [input.userId, input.name, input.scope, input.workspaceId ?? null],
-    );
-    const id = existing.rows[0]?.id ?? randomUUID();
-    const createdAt = existing.rows[0] ? Number(existing.rows[0].created_at) : Date.now();
-    const updatedAt = Date.now();
-    await this.db().query(
-      `INSERT INTO codelocal_mcp_installations(id,user_id,name,enabled,scope,workspace_id,transport,config,required_secrets,created_at,updated_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       ON CONFLICT(id) DO UPDATE SET enabled=EXCLUDED.enabled, transport=EXCLUDED.transport, config=EXCLUDED.config,
-         required_secrets=EXCLUDED.required_secrets, updated_at=EXCLUDED.updated_at`,
-      [id, input.userId, input.name, input.enabled, input.scope, input.workspaceId ?? null, input.transport, JSON.stringify(input.config), JSON.stringify(input.requiredSecrets), createdAt, updatedAt],
-    );
-    return { id, ...input, createdAt, updatedAt };
-  }
-
-  async removeMcpInstallation(userId: string, id: string) {
-    const result = await this.db().query("DELETE FROM codelocal_mcp_installations WHERE user_id=$1 AND id=$2", [userId, id]);
-    return result.rowCount === 1;
-  }
-
   async audit(userId: string | undefined, event: string, detail: Record<string, unknown> = {}, deviceId?: string, workspaceId?: string) {
     await this.db().query(
       "INSERT INTO codelocal_audit_logs(id,user_id,event,device_id,workspace_id,detail,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
@@ -588,21 +553,6 @@ export class CloudStore {
     };
   }
 
-  private mapMcp(row: any): CloudMcpInstallation {
-    return {
-      id: row.id,
-      userId: row.user_id,
-      name: row.name,
-      enabled: !!row.enabled,
-      scope: row.scope,
-      workspaceId: row.workspace_id ?? undefined,
-      transport: row.transport,
-      config: row.config ?? {},
-      requiredSecrets: Array.isArray(row.required_secrets) ? row.required_secrets : [],
-      createdAt: Number(row.created_at),
-      updatedAt: Number(row.updated_at),
-    };
-  }
 }
 
 export const cloudStore = new CloudStore();

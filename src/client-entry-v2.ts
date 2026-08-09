@@ -22,14 +22,4 @@ log("info", "workspace.watcher_configured", {
   fallbackDepth: watcher.fallbackDepth,
 });
 
-try {
-  const { syncCloudMcpBeforeClient } = await import("./cloud-client-sync.js");
-  const sync = await syncCloudMcpBeforeClient();
-  log("info", "mcp.cloud_sync", sync as Record<string, unknown>);
-} catch (error) {
-  // Cloud config sync must never prevent the local coding runtime from starting.
-  // Existing local MCP config remains usable and the user can reconnect later.
-  log("warn", "mcp.cloud_sync_failed", { error: error instanceof Error ? error.message : String(error) });
-}
-
 await import("./client-v2.js");

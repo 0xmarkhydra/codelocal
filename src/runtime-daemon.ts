@@ -15,6 +15,7 @@ export type RuntimeDaemonOptions = {
 
 type ActivationResponse = {
   activation?: { workspaceId: string; requestId: string; requestedAt: number } | null;
+  revocation?: { workspaceId: string; requestId: string; requestedAt: number } | null;
 };
 
 function deviceHeaders(credential: LocalDeviceCredential) {
@@ -101,6 +102,18 @@ export class RuntimeDaemon {
     return workspace;
   }
 
+  private async revokeWorkspace(workspaceId: string) {
+    const workspace = await this.registry.get(workspaceId);
+    const removed = await this.registry.revoke(workspaceId);
+    if (!removed) return false;
+    const child = this.children.get(workspaceId);
+    if (child && child.exitCode == null && !child.killed) child.kill("SIGTERM");
+    this.children.delete(workspaceId);
+    await this.syncRegistry(true);
+    terminalStatus("warn", "Workspace", `${workspace?.workspaceName ?? workspaceId} removed`);
+    return true;
+  }
+
   private async pollOnce() {
     const response = await fetch(`${this.options.baseUrl}/api/client/runtime/poll`, {
       method: "POST",
@@ -131,6 +144,10 @@ export class RuntimeDaemon {
       try {
         await this.syncRegistry();
         const message = await this.pollOnce();
+        if (message.revocation?.workspaceId) {
+          await this.revokeWorkspace(message.revocation.workspaceId);
+          continue;
+        }
         if (message.activation?.workspaceId) {
           const workspace = await this.activate(message.activation.workspaceId);
           terminalStatus("accent", "ChatGPT", `Activated ${workspace.workspaceName}`);

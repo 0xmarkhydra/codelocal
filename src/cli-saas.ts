@@ -116,14 +116,14 @@ async function pair(baseArg = DEFAULT_CLOUD) {
 
 async function validateCredential(server: string, credential: LocalDeviceCredential) {
   try {
-    const response = await fetch(`${wsToHttp(server)}/api/client/mcp-sync`, {
+    const response = await fetch(`${wsToHttp(server)}/api/client/auth/check`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-codelocal-credential-id": credential.credentialId,
         authorization: `Device ${credential.credentialSecret}`,
       },
-      body: JSON.stringify({ workspaceId: "" }),
+      body: "{}",
       signal: AbortSignal.timeout(8_000),
     });
     if (response.status === 401 || response.status === 403 || response.status === 404) return false;

@@ -6,6 +6,12 @@ export type WorkspaceActivation = {
   requestId: string;
 };
 
+export type WorkspaceRevocation = {
+  workspaceId: string;
+  requestedAt: number;
+  requestId: string;
+};
+
 function safePart(value: string) {
   return encodeURIComponent(value).replaceAll("%", "_");
 }
@@ -30,6 +36,10 @@ export class RuntimeActivationStore {
 
   private activationKey(userId: string, deviceId: string) {
     return `codelocal:runtime:activation:${safePart(userId)}:${safePart(deviceId)}`;
+  }
+
+  private revocationKey(userId: string, deviceId: string) {
+    return `codelocal:runtime:revocation:${safePart(userId)}:${safePart(deviceId)}`;
   }
 
   private presenceKey(userId: string, deviceId: string) {
@@ -91,12 +101,33 @@ export class RuntimeActivationStore {
     }
   }
 
+  async requestRevocation(userId: string, deviceId: string, revocation: WorkspaceRevocation, ttlSeconds = 120) {
+    await this.init();
+    const key = this.revocationKey(userId, deviceId);
+    await this.redis!.rPush(key, JSON.stringify(revocation));
+    await this.redis!.expire(key, ttlSeconds);
+  }
+
+  async consumeRevocation(userId: string, deviceId: string): Promise<WorkspaceRevocation | null> {
+    await this.init();
+    const raw = await this.redis!.lPop(this.revocationKey(userId, deviceId));
+    if (!raw) return null;
+    try {
+      const value = JSON.parse(raw) as WorkspaceRevocation;
+      if (!value.workspaceId || !value.requestId) return null;
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
   async clearPresence(userId: string, deviceId: string) {
     await this.init();
     await this.redis!.del([
       this.presenceKey(userId, deviceId),
       this.authorizedKey(userId, deviceId),
       this.activationKey(userId, deviceId),
+      this.revocationKey(userId, deviceId),
     ]);
   }
 

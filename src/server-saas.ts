@@ -291,9 +291,27 @@ async function revokeAndDisconnect(userId: string, credentialId: string) {
   const revoked = await deviceStore.revoke(userId, credentialId);
   if (!revoked) return false;
   for (const client of clients.values()) if (client.userId === userId && client.credentialId === credentialId) client.ws.close(4403, "device revoked");
-  if (identity) await runtimeActivationStore.clearPresence(userId, identity.deviceId).catch(() => undefined);
+  if (identity) {
+    await runtimeActivationStore.clearPresence(userId, identity.deviceId).catch(() => undefined);
+    await cloudStore.reconcileWorkspacesForDevice(userId, identity.deviceId, []).catch(() => undefined);
+  }
   await cloudStore.audit(userId, "device.revoked", { credentialId });
   return true;
+}
+
+async function requestWorkspaceRevocation(userId: string, deviceId: string, workspaceId: string) {
+  if (!(await runtimeActivationStore.isOnline(userId, deviceId))) throw new Error("That CodeLocal machine runtime is offline.");
+  const requestId = randomUUID();
+  await runtimeActivationStore.requestRevocation(userId, deviceId, { workspaceId, requestId, requestedAt: Date.now() });
+  const deadline = Date.now() + 7_000;
+  while (Date.now() < deadline) {
+    const workspaces = await cloudStore.listWorkspaces(userId);
+    if (!workspaces.some((workspace) => workspace.deviceId === deviceId && workspace.workspaceId === workspaceId)) {
+      await cloudStore.audit(userId, "workspace.revoked", { requestId }, deviceId, workspaceId).catch(() => undefined);
+      return;
+    }
+    await sleep(180);
+  }
 }
 
 function deviceAuthFromRequest(req: Request) {
@@ -313,14 +331,18 @@ app.use((req, res, next) => {
 });
 app.use(webAuthRouter);
 app.use(oauthRouter);
-app.use(createDashboardRouter({ onDeviceRevoked: async (userId, credentialId) => { await revokeAndDisconnect(userId, credentialId); } }));
+app.use(createDashboardRouter({
+  onDeviceRevoked: async (userId, credentialId) => { await revokeAndDisconnect(userId, credentialId); },
+  onWorkspaceRemoveRequested: async (userId, deviceId, workspaceId) => { await requestWorkspaceRevocation(userId, deviceId, workspaceId); },
+  isDeviceOnline: async (userId, deviceId) => runtimeActivationStore.isOnline(userId, deviceId),
+}));
 
 app.get("/", async (req, res) => {
   if (await getWebIdentity(req)) { res.redirect(302, "/dashboard"); return; }
   res.type("html").send(authPage({
     title: "Your local development runtime for ChatGPT",
     subtitle: "Pair a machine once, grant project folders once, then keep `codelocal` running anywhere. ChatGPT can ask you which authorized workspace to activate.",
-    body: `<div class="actions"><a class="btn primary" href="/register">Create account</a><a class="btn" href="/login">Sign in</a></div><div class="divider"></div><div class="label">One CodeLocal machine runtime can lazily activate code intelligence, terminal, browser/simulator tools and installed MCP extensions without scanning your machine or starting every project.</div>`,
+    body: `<div class="actions"><a class="btn primary" href="/register">Create account</a><a class="btn" href="/login">Sign in</a></div><div class="divider"></div><div class="label">One lightweight CodeLocal runtime can lazily activate code intelligence, Git, guarded terminal tools and installed MCP extensions without scanning your machine or starting every project.</div>`,
   }));
 });
 
@@ -360,13 +382,11 @@ app.post("/pair/claim", async (req, res) => {
   res.json(publicCredential);
 });
 
-app.post("/api/client/mcp-sync", async (req, res) => {
+app.post("/api/client/auth/check", async (req, res) => {
   const { credentialId, secret } = deviceAuthFromRequest(req);
   const device = credentialId && secret ? await deviceStore.authenticate(credentialId, secret) : null;
   if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
-  const workspaceId = String(req.body?.workspaceId ?? "").trim();
-  const installations = await cloudStore.listMcpInstallations(device.userId, workspaceId);
-  res.json({ installations: installations.map(({ userId: _userId, ...item }) => item), syncedAt: Date.now() });
+  res.json({ ok: true, deviceId: device.deviceId, now: Date.now() });
 });
 
 app.post("/api/client/workspaces/sync", async (req, res) => {
@@ -375,10 +395,12 @@ app.post("/api/client/workspaces/sync", async (req, res) => {
   if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
   const source = Array.isArray(req.body?.workspaces) ? req.body.workspaces.slice(0, 500) : [];
   let synced = 0;
+  const authorizedWorkspaceIds: string[] = [];
   for (const item of source) {
     const workspaceId = String(item?.workspaceId ?? "").trim();
     const workspaceName = String(item?.workspaceName ?? workspaceId).trim().slice(0, 120);
     if (!/^[A-Za-z0-9._-]{1,80}$/.test(workspaceId) || !workspaceName) continue;
+    authorizedWorkspaceIds.push(workspaceId);
     const key = clientKey(device.userId, device.deviceId, workspaceId);
     const active = clients.get(key);
     if (!active) {
@@ -387,8 +409,9 @@ app.post("/api/client/workspaces/sync", async (req, res) => {
     }
     synced++;
   }
-  await cloudStore.audit(device.userId, "runtime.workspaces_synced", { count: synced }, device.deviceId).catch(() => undefined);
-  res.json({ synced, syncedAt: Date.now() });
+  const removed = await cloudStore.reconcileWorkspacesForDevice(device.userId, device.deviceId, authorizedWorkspaceIds);
+  await cloudStore.audit(device.userId, "runtime.workspaces_synced", { count: synced, removed: removed.length }, device.deviceId).catch(() => undefined);
+  res.json({ synced, removed: removed.length, syncedAt: Date.now() });
 });
 
 app.post("/api/client/runtime/poll", async (req, res) => {
@@ -397,13 +420,14 @@ app.post("/api/client/runtime/poll", async (req, res) => {
   if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
   const workspaceIds = Array.isArray(req.body?.workspaceIds) ? [...new Set(req.body.workspaceIds.map(String).filter((value: string) => /^[A-Za-z0-9._-]{1,80}$/.test(value)))].slice(0, 500) : [];
   await runtimeActivationStore.heartbeat(device.userId, device.deviceId, workspaceIds);
-  const activation = await runtimeActivationStore.consume(device.userId, device.deviceId);
+  const revocation = await runtimeActivationStore.consumeRevocation(device.userId, device.deviceId);
+  const activation = revocation ? null : await runtimeActivationStore.consume(device.userId, device.deviceId);
   if (activation && !workspaceIds.includes(activation.workspaceId)) {
     await cloudStore.audit(device.userId, "workspace.activation_rejected", { requestId: activation.requestId, reason: "not-authorized" }, device.deviceId, activation.workspaceId).catch(() => undefined);
-    res.json({ activation: null, now: Date.now() });
+    res.json({ activation: null, revocation: null, now: Date.now() });
     return;
   }
-  res.json({ activation: activation ?? null, now: Date.now() });
+  res.json({ activation: activation ?? null, revocation: revocation ?? null, now: Date.now() });
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, protocolVersion: PROTOCOL_VERSION, cloud: true, onlineWorkspaces: clients.size, pendingToolCalls: pending.size }));
@@ -483,8 +507,8 @@ wss.on("connection", (ws) => {
         credentialId: device.credentialId, protocolVersion: version, capabilities: msg.capabilities ?? {}, ws, connectedAt: Date.now(), lastSeenAt: Date.now(),
       };
       clients.set(key, record); socketKeys.set(ws, key); authenticated = true; clearTimeout(authTimer);
-      await cloudStore.upsertWorkspace({ userId: record.userId, deviceId: record.deviceId, workspaceId: record.workspaceId, workspaceName: record.workspaceName, projectRoot: record.projectRoot, protocolVersion: record.protocolVersion, capabilities: record.capabilities });
-      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true, lazyWorkspaceActivation: true, multiTenant: true, cloudMcpRegistry: true, terminalChatApproval: true } }));
+      await cloudStore.upsertWorkspace({ userId: record.userId, deviceId: record.deviceId, workspaceId: record.workspaceId, workspaceName: record.workspaceName, protocolVersion: record.protocolVersion, capabilities: record.capabilities });
+      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true, lazyWorkspaceActivation: true, multiTenant: true, terminalChatApproval: true } }));
       log("info", "client.authenticated", { clientKey: key, userId: record.userId, protocolVersion: version, capabilities: record.capabilities });
       await cloudStore.audit(record.userId, "client.connected", { protocolVersion: version }, record.deviceId, record.workspaceId).catch(() => undefined);
       return;

@@ -1,5 +1,5 @@
 import express from "express";
-import { cloudStore } from "./cloud-store.js";
+import { cloudStore, type CloudWorkspace } from "./cloud-store.js";
 import { requireWebUser, type WebIdentity, verifyCsrf } from "./saas-auth.js";
 import { dashboardPage, escapeHtml, formatTime } from "./web-ui.js";
 
@@ -7,7 +7,8 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 
 type DashboardHooks = {
   onDeviceRevoked?: (userId: string, credentialId: string) => void | Promise<void>;
-  onMcpChanged?: (userId: string, workspaceId?: string) => void | Promise<void>;
+  onWorkspaceRemoveRequested?: (userId: string, deviceId: string, workspaceId: string) => void | Promise<void>;
+  isDeviceOnline?: (userId: string, deviceId: string) => boolean | Promise<boolean>;
 };
 
 function identity(res: express.Response) {
@@ -18,30 +19,43 @@ function shell(res: express.Response, options: Parameters<typeof dashboardPage>[
   res.type("html").send(dashboardPage(options));
 }
 
-function parseArgs(value: string) {
-  if (!value.trim()) return [];
-  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-}
-
-function parseSecrets(value: string) {
-  return [...new Set(value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean))].filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)).slice(0, 30);
-}
-
-function validMcpName(value: string) {
-  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value);
-}
-
-function validateRemoteUrl(value: string) {
-  const url = new URL(value);
-  const host = url.hostname.replace(/^\[/, "").replace(/\]$/, "");
-  const local = ["localhost", "127.0.0.1", "::1"].includes(host);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) throw new Error("Remote MCP URLs must use HTTPS (HTTP is allowed only for localhost)." );
-  return url.toString();
-}
-
 function csrfGuard(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (!verifyCsrf(req)) { res.status(403).send("Invalid security token. Reload the page and try again."); return; }
   next();
+}
+
+function flash(req: express.Request) {
+  const ok = typeof req.query.ok === "string" ? `<div class="alert success">${escapeHtml(req.query.ok)}</div>` : "";
+  const error = typeof req.query.error === "string" ? `<div class="alert">${escapeHtml(req.query.error)}</div>` : "";
+  return `${ok}${error}`;
+}
+
+function eventLabel(event: string) {
+  const labels: Record<string, string> = {
+    "device.paired": "Device paired",
+    "device.pairing_approved": "Device pairing approved",
+    "device.revoked": "Device access revoked",
+    "workspace.activation_requested": "Workspace activation requested",
+    "workspace.activated": "Workspace activated",
+    "workspace.activation_rejected": "Workspace activation rejected",
+    "workspace.revocation_requested": "Workspace removal requested",
+    "workspace.revoked": "Workspace authorization removed",
+    "runtime.workspaces_synced": "Workspace permissions synced",
+    "gateway.tool.dispatch": "ChatGPT used a CodeLocal tool",
+  };
+  return labels[event] ?? event.split(/[._-]/).filter(Boolean).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
+}
+
+function workspaceState(workspace: CloudWorkspace & { online: boolean }, runtimeOnline: boolean) {
+  if (workspace.online) return { label: "Active", badge: "green" };
+  if (runtimeOnline) return { label: "Sleeping", badge: "blue" };
+  return { label: "Device offline", badge: "muted" };
+}
+
+async function onlineDeviceMap(userId: string, deviceIds: string[], hooks: DashboardHooks) {
+  const unique = [...new Set(deviceIds)];
+  const values = await Promise.all(unique.map(async (deviceId) => [deviceId, await hooks.isDeviceOnline?.(userId, deviceId) === true] as const));
+  return new Map(values);
 }
 
 export function createDashboardRouter(hooks: DashboardHooks = {}) {
@@ -51,119 +65,89 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
 
   router.get("/dashboard", async (_req, res) => {
     const me = identity(res);
-    const [devices, workspaces, mcps, audit] = await Promise.all([
+    const [devices, workspaces, audit] = await Promise.all([
       cloudStore.listDevices(me.user.id),
       cloudStore.listWorkspaces(me.user.id),
-      cloudStore.allMcpInstallations(me.user.id),
-      cloudStore.recentAudit(me.user.id, 8),
+      cloudStore.recentAudit(me.user.id, 7),
     ]);
-    const online = workspaces.filter((workspace) => workspace.online).length;
+    const deviceOnline = await onlineDeviceMap(me.user.id, devices.filter((device) => !device.revokedAt).map((device) => device.deviceId), hooks);
+    const activeWorkspaces = workspaces.filter((workspace) => workspace.online).length;
+    const sleepingWorkspaces = workspaces.filter((workspace) => !workspace.online && deviceOnline.get(workspace.deviceId)).length;
+    const onlineDevices = [...deviceOnline.values()].filter(Boolean).length;
     shell(res, {
       title: "Overview", active: "overview", email: me.user.email, csrf: me.csrf,
-      subtitle: "Your CodeLocal account connects ChatGPT only to machines and project folders you explicitly authorize.",
-      actions: `<a class="btn primary" href="/dashboard/connect">Connect ChatGPT</a>`,
+      subtitle: "A private control plane for the local machines and project folders you explicitly authorize.",
+      actions: `<a class="btn primary" href="/dashboard/connect"><span class="btn-icon">↗</span>Connect ChatGPT</a>`,
       body: `<div class="grid">
-        <div class="card span3"><div class="label">Devices</div><div class="metric">${devices.filter((d) => !d.revokedAt).length}</div></div>
-        <div class="card span3"><div class="label">Active workspaces</div><div class="metric">${online}</div></div>
-        <div class="card span3"><div class="label">MCP extensions</div><div class="metric">${mcps.filter((m) => m.enabled).length}</div></div>
-        <div class="card span3"><div class="label">Account</div><div class="metric" style="font-size:17px;margin-top:15px">Development</div></div>
-        <div class="card span8"><div class="title">Recent workspaces</div><div class="label">Grant a project once locally. CodeLocal does not scan your machine for projects.</div><div class="divider"></div>${workspaces.slice(0, 5).map((w) => `<div class="row"><div class="row-main"><div class="row-title">${escapeHtml(w.workspaceName)}</div><div class="row-meta">${escapeHtml(w.deviceId)} · ${escapeHtml(w.projectRoot ?? "Local workspace")} · ${formatTime(w.lastSeenAt)}</div></div><span class="badge ${w.online ? "green" : ""}">${w.online ? "Active" : "Sleeping / offline"}</span></div>`).join("") || `<div class="empty">Grant a project once with <code>codelocal grant ~/your-project</code>, then keep <code>codelocal</code> running anywhere.</div>`}</div>
-        <div class="card span4"><div class="title">Recent security activity</div><div class="divider"></div>${audit.map((item) => `<div class="row"><div class="row-main"><div class="row-title">${escapeHtml(item.event)}</div><div class="row-meta">${formatTime(item.createdAt)}</div></div></div>`).join("") || `<div class="empty">No activity yet.</div>`}</div>
+        <div class="card metric-card span4"><div class="metric-label">Machine runtimes</div><div class="metric">${onlineDevices}</div><div class="metric-sub">${devices.filter((d) => !d.revokedAt).length} paired device${devices.filter((d) => !d.revokedAt).length === 1 ? "" : "s"}</div></div>
+        <div class="card metric-card span4"><div class="metric-label">Active workspaces</div><div class="metric">${activeWorkspaces}</div><div class="metric-sub">Loaded for a ChatGPT session</div></div>
+        <div class="card metric-card span4"><div class="metric-label">Sleeping workspaces</div><div class="metric">${sleepingWorkspaces}</div><div class="metric-sub">Authorized, zero heavy runtime</div></div>
+        <div class="card span8"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">${workspaces.slice(0, 5).map((workspace) => {
+          const state = workspaceState(workspace, deviceOnline.get(workspace.deviceId) === true);
+          return `<div class="row"><div class="entity"><div class="entity-icon">◇</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta">${escapeHtml(workspace.deviceId)} · ${formatTime(workspace.lastSeenAt)}</div></div></div><span class="badge ${state.badge}">${state.label}</span></div>`;
+        }).join("") || `<div class="empty"><div class="empty-icon">◇</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`}</div></div>
+        <div class="card span4"><div class="section-head"><div><div class="title">Recent activity</div><div class="label">Cloud security metadata only.</div></div><a class="btn small" href="/dashboard/security">View all</a></div><div class="divider"></div>${audit.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event))}</div><div class="activity-meta">${formatTime(item.createdAt)}</div></div></div>`).join("") || `<div class="empty">No activity yet.</div>`}</div>
       </div>`,
     });
   });
 
-  router.get("/dashboard/devices", async (_req, res) => {
+  router.get("/dashboard/devices", async (req, res) => {
     const me = identity(res);
     const devices = await cloudStore.listDevices(me.user.id);
+    const deviceOnline = await onlineDeviceMap(me.user.id, devices.filter((device) => !device.revokedAt).map((device) => device.deviceId), hooks);
     shell(res, {
       title: "Devices", active: "devices", email: me.user.email, csrf: me.csrf,
-      subtitle: "A device credential authorizes one local CodeLocal machine runtime. Revoke anything you no longer recognize.",
-      body: `<div class="card">${devices.map((d) => `<div class="row"><div class="row-main"><div class="row-title">${escapeHtml(d.deviceName)}</div><div class="row-meta mono">${escapeHtml(d.deviceId)} · paired ${formatTime(d.createdAt)} · last seen ${formatTime(d.lastSeenAt)}</div></div><div class="actions"><span class="badge ${d.revokedAt ? "red" : "green"}">${d.revokedAt ? "Revoked" : "Active"}</span>${d.revokedAt ? "" : `<form method="post" action="/dashboard/devices/${encodeURIComponent(d.credentialId)}/revoke"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}"><button class="btn danger small" type="submit">Revoke</button></form>`}</div></div>`).join("") || `<div class="empty">No paired devices yet.</div>`}</div>`,
+      subtitle: "A paired device credential lets one CodeLocal machine runtime connect to your account. Revoke anything you no longer trust.",
+      body: `${flash(req)}<div class="card"><div class="section-head"><div><div class="title">Paired machines</div><div class="label">Online means the lightweight <code>codelocal</code> runtime is reachable now.</div></div></div><div class="divider"></div><div class="list">${devices.map((device) => {
+        const runtimeOnline = !device.revokedAt && deviceOnline.get(device.deviceId) === true;
+        const badge = device.revokedAt ? "red" : runtimeOnline ? "green" : "muted";
+        const status = device.revokedAt ? "Revoked" : runtimeOnline ? "Online" : "Offline";
+        return `<div class="row"><div class="entity"><div class="entity-icon">◉</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(device.deviceName)}</span></div><div class="row-meta mono">${escapeHtml(device.deviceId)}</div><div class="row-meta">Paired ${formatTime(device.createdAt)} · last seen ${formatTime(device.lastSeenAt)}</div></div></div><div class="actions"><span class="badge ${badge}">${status}</span>${device.revokedAt ? "" : `<form method="post" action="/dashboard/devices/${encodeURIComponent(device.credentialId)}/revoke"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}"><button class="btn danger small" type="submit" data-confirm data-confirm-tone="danger" data-confirm-title="Revoke this device?" data-confirm-message="This immediately disconnects the machine and prevents its credential from accessing CodeLocal Cloud. Local project files are not deleted." data-confirm-label="Revoke device">Revoke</button></form>`}</div></div>`;
+      }).join("") || `<div class="empty"><div class="empty-icon">◉</div>No paired devices yet.</div>`}</div></div>`,
     });
   });
 
   router.post("/dashboard/devices/:credentialId/revoke", csrfGuard, async (req, res) => {
     const me = identity(res);
     const credentialId = String(req.params.credentialId ?? "");
-    if (await cloudStore.revokeDevice(me.user.id, credentialId)) {
-      await cloudStore.audit(me.user.id, "device.revoked", { credentialId });
-      await hooks.onDeviceRevoked?.(me.user.id, credentialId);
-    }
-    res.redirect(303, "/dashboard/devices");
+    if (hooks.onDeviceRevoked) await hooks.onDeviceRevoked(me.user.id, credentialId);
+    else if (await cloudStore.revokeDevice(me.user.id, credentialId)) await cloudStore.audit(me.user.id, "device.revoked", { credentialId });
+    res.redirect(303, "/dashboard/devices?ok=Device%20access%20revoked.");
   });
 
-  router.get("/dashboard/workspaces", async (_req, res) => {
+  router.get("/dashboard/workspaces", async (req, res) => {
     const me = identity(res);
     const workspaces = await cloudStore.listWorkspaces(me.user.id);
+    const deviceOnline = await onlineDeviceMap(me.user.id, workspaces.map((workspace) => workspace.deviceId), hooks);
     shell(res, {
       title: "Workspaces", active: "workspaces", email: me.user.email, csrf: me.csrf,
-      subtitle: "Project folders are granted locally once. While `codelocal` is running, ChatGPT can select an authorized workspace and CodeLocal activates its heavier tooling lazily.",
-      body: `<div class="card">${workspaces.map((w) => `<div class="row"><div class="row-main"><div class="row-title">${escapeHtml(w.workspaceName)}</div><div class="row-meta"><span class="mono">${escapeHtml(w.workspaceId)}</span> · ${escapeHtml(w.projectRoot ?? "Local path hidden")}</div><div class="row-meta">Device ${escapeHtml(w.deviceId)} · last seen ${formatTime(w.lastSeenAt)}</div></div><span class="badge ${w.online ? "green" : ""}">${w.online ? "Active" : "Sleeping / offline"}</span></div>`).join("") || `<div class="empty">No authorized workspace has synced yet. Run <code>codelocal grant ~/your-project</code> once on your development machine.</div>`}</div>`,
+      subtitle: "A workspace is a local project folder you granted once. Sleeping workspaces consume no heavy project runtime until ChatGPT selects them.",
+      body: `${flash(req)}<div class="card"><div class="section-head"><div><div class="title">Authorized folders</div><div class="label">Remove access without deleting or modifying the project folder itself.</div></div><div class="badge blue">${workspaces.length} authorized</div></div><div class="divider"></div><div class="list">${workspaces.map((workspace) => {
+        const runtimeOnline = deviceOnline.get(workspace.deviceId) === true;
+        const state = workspaceState(workspace, runtimeOnline);
+        const removeButton = runtimeOnline
+          ? `<form method="post" action="/dashboard/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}"><button class="btn danger small" type="submit" data-confirm data-confirm-tone="danger" data-confirm-title="Remove ${escapeHtml(workspace.workspaceName)}?" data-confirm-message="CodeLocal will revoke this folder from the local machine. The project and every file inside it stay untouched. You can authorize it again later with codelocal ." data-confirm-label="Remove workspace">Remove</button></form>`
+          : `<button class="btn danger small" type="button" disabled title="Start codelocal on this device to remove local authorization">Remove</button>`;
+        return `<div class="row"><div class="entity"><div class="entity-icon">◇</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta mono">${escapeHtml(workspace.workspaceId)}</div><div class="row-meta">Device ${escapeHtml(workspace.deviceId)} · last seen ${formatTime(workspace.lastSeenAt)}</div></div></div><div class="actions"><span class="badge ${state.badge}">${state.label}</span>${removeButton}</div></div>`;
+      }).join("") || `<div class="empty"><div class="empty-icon">◇</div>No authorized workspace has synced yet.<br><span class="muted">Open a project on your machine and run <code>codelocal .</code> once.</span></div>`}</div></div>`,
     });
   });
 
-  router.get("/dashboard/mcp", async (req, res) => {
+  router.post("/dashboard/workspaces/:deviceId/:workspaceId/remove", csrfGuard, async (req, res) => {
     const me = identity(res);
-    const [installations, workspaces] = await Promise.all([cloudStore.allMcpInstallations(me.user.id), cloudStore.listWorkspaces(me.user.id)]);
-    const notice = typeof req.query.ok === "string" ? `<div class="alert success">${escapeHtml(req.query.ok)}</div><div style="height:16px"></div>` : "";
-    const error = typeof req.query.error === "string" ? `<div class="alert">${escapeHtml(req.query.error)}</div><div style="height:16px"></div>` : "";
-    shell(res, {
-      title: "MCP Extensions", active: "mcp", email: me.user.email, csrf: me.csrf,
-      subtitle: "Install capabilities once in CodeLocal. ChatGPT still sees only the stable MCP Hub router tools instead of every extension tool.",
-      body: `${notice}${error}<div class="grid"><div class="card span7"><div class="title">Installed</div><div class="label">Secrets are never entered here. The cloud stores only required environment-variable names.</div><div class="divider"></div>${installations.map((m) => `<div class="row"><div class="row-main"><div class="row-title">${escapeHtml(m.name)}</div><div class="row-meta">${escapeHtml(m.transport)} · ${escapeHtml(m.scope)}${m.workspaceId ? ` · ${escapeHtml(m.workspaceId)}` : ""} · secrets: ${escapeHtml(m.requiredSecrets.join(", ") || "none")}</div></div><div class="actions"><span class="badge blue">${m.enabled ? "Enabled" : "Disabled"}</span><form method="post" action="/dashboard/mcp/${encodeURIComponent(m.id)}/remove"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}"><button class="btn danger small" type="submit">Remove</button></form></div></div>`).join("") || `<div class="empty">No MCP extensions installed yet.</div>`}</div>
-      <div class="card span5"><div class="title">Install MCP</div><div class="label">MVP supports stdio and Streamable HTTP. Commands are spawned locally with <span class="mono">shell:false</span>.</div><div class="divider"></div><form class="form" method="post" action="/dashboard/mcp/install"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}">
-        <div class="field"><label>Name</label><input class="input" name="name" placeholder="github" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}" required></div>
-        <div class="field"><label>Transport</label><select class="select" name="transport"><option value="stdio">stdio (local process)</option><option value="http">Streamable HTTP</option></select></div>
-        <div class="field"><label>Scope</label><select class="select" name="scope"><option value="global">All my workspaces</option><option value="workspace">One workspace</option></select></div>
-        <div class="field"><label>Workspace for workspace scope</label><select class="select" name="workspaceId"><option value="">Select later</option>${workspaces.map((w) => `<option value="${escapeHtml(w.workspaceId)}">${escapeHtml(w.workspaceName)} · ${escapeHtml(w.workspaceId)}</option>`).join("")}</select></div>
-        <div class="field"><label>Command (stdio)</label><input class="input mono" name="command" placeholder="npx"></div>
-        <div class="field"><label>Arguments — one per line (stdio)</label><textarea class="textarea mono" name="args" placeholder="-y&#10;@modelcontextprotocol/server-example"></textarea></div>
-        <div class="field"><label>URL (HTTP)</label><input class="input mono" name="url" placeholder="https://example.com/mcp"></div>
-        <div class="field"><label>Required local secrets</label><input class="input mono" name="requiredSecrets" placeholder="GITHUB_TOKEN, DATABASE_URL"><div class="hint">Only these variable names are stored in Cloud. Values stay on the user's machine.</div></div>
-        <button class="btn primary" type="submit">Install extension</button></form></div></div>`,
-    });
-  });
-
-  router.post("/dashboard/mcp/install", csrfGuard, async (req, res) => {
-    const me = identity(res);
+    const deviceId = String(req.params.deviceId ?? "");
+    const workspaceId = String(req.params.workspaceId ?? "");
     try {
-      const name = String(req.body?.name ?? "").trim();
-      const transport = String(req.body?.transport ?? "stdio") as "stdio" | "http";
-      const scope = String(req.body?.scope ?? "global") as "global" | "workspace";
-      const workspaceId = String(req.body?.workspaceId ?? "").trim() || undefined;
-      if (!validMcpName(name)) throw new Error("Invalid MCP name.");
-      if (!(["stdio", "http"] as string[]).includes(transport)) throw new Error("Invalid transport.");
-      if (!(["global", "workspace"] as string[]).includes(scope)) throw new Error("Invalid scope.");
-      if (scope === "workspace" && !workspaceId) throw new Error("Choose a workspace for workspace-scoped MCPs.");
-      const requiredSecrets = parseSecrets(String(req.body?.requiredSecrets ?? ""));
-      let config: Record<string, unknown>;
-      if (transport === "stdio") {
-        const command = String(req.body?.command ?? "").trim();
-        if (!command || /[\r\n\0]/.test(command)) throw new Error("stdio MCP requires one executable command.");
-        config = { command, args: parseArgs(String(req.body?.args ?? "")) };
-      } else {
-        const url = validateRemoteUrl(String(req.body?.url ?? "").trim());
-        config = { url };
-      }
-      const installed = await cloudStore.upsertMcpInstallation({ userId: me.user.id, name, enabled: true, scope, workspaceId, transport, config, requiredSecrets });
-      await cloudStore.audit(me.user.id, "mcp.installed", { id: installed.id, name, scope, workspaceId, transport });
-      await hooks.onMcpChanged?.(me.user.id, workspaceId);
-      res.redirect(303, `/dashboard/mcp?ok=${encodeURIComponent(`${name} installed. It will sync when the matching workspace starts its local runtime.`)}`);
+      const workspaces = await cloudStore.listWorkspaces(me.user.id);
+      const workspace = workspaces.find((item) => item.deviceId === deviceId && item.workspaceId === workspaceId);
+      if (!workspace) throw new Error("Workspace not found.");
+      if (await hooks.isDeviceOnline?.(me.user.id, deviceId) !== true) throw new Error("That device is offline. Start codelocal on it before removing local authorization.");
+      await hooks.onWorkspaceRemoveRequested?.(me.user.id, deviceId, workspaceId);
+      await cloudStore.audit(me.user.id, "workspace.revocation_requested", { workspaceName: workspace.workspaceName }, deviceId, workspaceId);
+      res.redirect(303, `/dashboard/workspaces?ok=${encodeURIComponent(`${workspace.workspaceName} removal requested. The local runtime will revoke it now.`)}`);
     } catch (error) {
-      res.redirect(303, `/dashboard/mcp?error=${encodeURIComponent(error instanceof Error ? error.message : "Unable to install MCP.")}`);
+      res.redirect(303, `/dashboard/workspaces?error=${encodeURIComponent(error instanceof Error ? error.message : "Unable to remove workspace.")}`);
     }
-  });
-
-  router.post("/dashboard/mcp/:id/remove", csrfGuard, async (req, res) => {
-    const me = identity(res);
-    const id = String(req.params.id ?? "");
-    const current = (await cloudStore.allMcpInstallations(me.user.id)).find((item) => item.id === id);
-    if (await cloudStore.removeMcpInstallation(me.user.id, id)) {
-      await cloudStore.audit(me.user.id, "mcp.removed", { id, name: current?.name });
-      await hooks.onMcpChanged?.(me.user.id, current?.workspaceId);
-    }
-    res.redirect(303, "/dashboard/mcp");
   });
 
   router.get("/dashboard/connect", async (_req, res) => {
@@ -171,14 +155,8 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
     const endpoint = `${PUBLIC_BASE_URL}/mcp`;
     shell(res, {
       title: "Connect ChatGPT", active: "connect", email: me.user.email, csrf: me.csrf,
-      subtitle: "Connect CodeLocal once. Then ChatGPT can ask which previously authorized project you want to work with in each conversation.",
-      body: `<div class="grid"><div class="card span7"><div class="title">ChatGPT MCP endpoint</div><div class="divider"></div><div class="code-block">${escapeHtml(endpoint)}</div><div style="height:14px"></div><div class="label">When ChatGPT opens OAuth, sign in with this CodeLocal account and approve access. Workspace selection stays scoped to that MCP conversation/session.</div></div><div class="card span5"><div class="title">Machine setup</div><div class="divider"></div><div class="code-block">npm install -g codelocal
-
-# one time per project
-codelocal grant ~/your-project
-
-# from then on, run anywhere
-codelocal</div><div style="height:14px"></div><div class="label">Keep one lightweight CodeLocal machine runtime online. It does not scan your machine and does not start every project. ChatGPT lists only folders you granted and activates the selected workspace lazily.</div></div></div>`,
+      subtitle: "Connect the CodeLocal Cloud MCP once. Workspace choice remains scoped to each ChatGPT MCP session.",
+      body: `<div class="grid"><div class="card span7 glow"><div class="section-head"><div><div class="title">ChatGPT MCP endpoint</div><div class="label">Use this remote MCP URL when adding CodeLocal to ChatGPT.</div></div></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">${escapeHtml(endpoint)}</div><button class="btn" type="button" data-copy-target="#mcp-endpoint">Copy</button></div><div class="divider"></div><div class="label">OAuth will open in your browser. Sign in with this CodeLocal account and approve the connection.</div></div><div class="card span5"><div class="title">Machine setup</div><div class="label" style="margin-top:4px">One lightweight runtime per machine.</div><div class="divider"></div><div class="code-block">npm i -g codelocal\n\n# authorize this project once\ncodelocal .\n\n# later, run from anywhere\ncodelocal</div><div style="height:12px"></div><div class="label">CodeLocal lists only folders you explicitly granted. Sleeping projects are activated lazily when ChatGPT selects them.</div></div></div>`,
     });
   });
 
@@ -187,8 +165,8 @@ codelocal</div><div style="height:14px"></div><div class="label">Keep one lightw
     const audit = await cloudStore.recentAudit(me.user.id, 100);
     shell(res, {
       title: "Security", active: "security", email: me.user.email, csrf: me.csrf,
-      subtitle: "Account-scoped cloud audit metadata. Source code, command output, terminal command history and MCP secret values remain outside these cloud records.",
-      body: `<div class="card"><div class="title">Activity</div><div class="divider"></div>${audit.map((item) => `<div class="row"><div class="row-main"><div class="row-title">${escapeHtml(item.event)}</div><div class="row-meta">${formatTime(item.createdAt)}${item.deviceId ? ` · device ${escapeHtml(item.deviceId)}` : ""}${item.workspaceId ? ` · workspace ${escapeHtml(item.workspaceId)}` : ""}</div></div></div>`).join("") || `<div class="empty">No audit events yet.</div>`}</div>`,
+      subtitle: "Cloud audit metadata for account, device and workspace changes. Source code, terminal output and local secrets are not stored here.",
+      body: `<div class="card"><div class="section-head"><div><div class="title">Activity</div><div class="label">Newest events first.</div></div><span class="badge blue">Metadata only</span></div><div class="divider"></div>${audit.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event))}</div><div class="activity-meta">${formatTime(item.createdAt)}${item.deviceId ? ` · ${escapeHtml(item.deviceId)}` : ""}${item.workspaceId ? ` · ${escapeHtml(item.workspaceId)}` : ""}</div></div></div>`).join("") || `<div class="empty">No audit events yet.</div>`}</div>`,
     });
   });
 
