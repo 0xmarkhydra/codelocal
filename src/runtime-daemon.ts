@@ -24,15 +24,24 @@ function deviceHeaders(credential: LocalDeviceCredential) {
   };
 }
 
+function registrySignature(workspaces: AuthorizedWorkspace[]) {
+  return JSON.stringify(workspaces.map((workspace) => [workspace.workspaceId, workspace.workspaceName]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+}
+
 export class RuntimeDaemon {
   private registry = new WorkspaceRegistry();
   private children = new Map<string, ChildProcess>();
   private stopped = false;
+  private workspaces: AuthorizedWorkspace[] = [];
+  private syncedSignature = "";
 
   constructor(private options: RuntimeDaemonOptions) {}
 
-  async syncRegistry() {
+  async syncRegistry(force = false) {
     const workspaces = await this.registry.list();
+    const signature = registrySignature(workspaces);
+    this.workspaces = workspaces;
+    if (!force && signature === this.syncedSignature) return workspaces;
     const response = await fetch(`${this.options.baseUrl}/api/client/workspaces/sync`, {
       method: "POST",
       headers: deviceHeaders(this.options.credential),
@@ -41,6 +50,7 @@ export class RuntimeDaemon {
     });
     if (response.status === 401 || response.status === 403) throw new Error("Stored CodeLocal device credential is no longer valid.");
     if (!response.ok) throw new Error(`Unable to sync authorized workspaces (${response.status}).`);
+    this.syncedSignature = signature;
     return workspaces;
   }
 
@@ -79,10 +89,11 @@ export class RuntimeDaemon {
   }
 
   private async pollOnce() {
+    this.workspaces = await this.registry.list();
     const response = await fetch(`${this.options.baseUrl}/api/client/runtime/poll`, {
       method: "POST",
       headers: deviceHeaders(this.options.credential),
-      body: JSON.stringify({}),
+      body: JSON.stringify({ workspaceIds: this.workspaces.map((workspace) => workspace.workspaceId) }),
       signal: AbortSignal.timeout(10_000),
     });
     if (response.status === 401 || response.status === 403) throw new Error("CodeLocal runtime device authorization was revoked.");
@@ -91,7 +102,7 @@ export class RuntimeDaemon {
   }
 
   async run() {
-    const workspaces = await this.syncRegistry();
+    const workspaces = await this.syncRegistry(true);
     console.log(`✓ CodeLocal machine runtime online`);
     console.log(`✓ ${workspaces.length} authorized workspace${workspaces.length === 1 ? "" : "s"}`);
     if (!workspaces.length) console.log("No workspace granted yet. In another terminal run: codelocal grant /path/to/project");
@@ -102,8 +113,11 @@ export class RuntimeDaemon {
       console.log(`✓ Activated ${activated.workspaceName}`);
     }
 
+    let polls = 0;
     while (!this.stopped) {
       try {
+        if (polls % 12 === 0) await this.syncRegistry();
+        polls++;
         const message = await this.pollOnce();
         if (message.activation?.workspaceId) {
           const workspace = await this.activate(message.activation.workspaceId);
