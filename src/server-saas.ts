@@ -12,25 +12,27 @@ import { PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, isSideEffectingTool, protocolCo
 import { CloudDeviceStore } from "./cloud-device-store.js";
 import { audit } from "./audit.js";
 import { cloudStore } from "./cloud-store.js";
+import { runtimeActivationStore } from "./runtime-activation-store.js";
 import { webAuthRouter, getWebIdentity, requireWebUser, verifyCsrf } from "./saas-auth.js";
 import { createDashboardRouter } from "./dashboard.js";
 import { authPage, escapeHtml } from "./web-ui.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
 
-const VERSION = "1.4.0-dev.0";
+const VERSION = "1.5.0-dev.0";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS ?? 180_000);
 const HEARTBEAT_MS = Number(process.env.CODELOCAL_HEARTBEAT_MS ?? 20_000);
 const STALE_MS = Number(process.env.CODELOCAL_STALE_MS ?? 70_000);
+const WORKSPACE_ACTIVATION_TIMEOUT_MS = Number(process.env.CODELOCAL_WORKSPACE_ACTIVATION_TIMEOUT_MS ?? 30_000);
 const ALLOW_LEGACY_DEVICE_TOKEN = process.env.ALLOW_LEGACY_DEVICE_TOKEN === "1" && !!DEVICE_TOKEN;
 const deviceStore = new CloudDeviceStore();
 
 await cloudStore.init();
 
 type ClientCapabilities = {
-  filesystem?: boolean; git?: boolean; shell?: boolean; pty?: boolean; sandbox?: string; semanticProviders?: string[]; idempotency?: boolean; cancellation?: boolean; approvals?: boolean; mcpHub?: boolean;
+  filesystem?: boolean; git?: boolean; shell?: boolean; pty?: boolean; sandbox?: string; semanticProviders?: string[]; idempotency?: boolean; cancellation?: boolean; approvals?: boolean; terminalChatApproval?: boolean; terminalHistory?: boolean; mcpHub?: boolean;
 };
 
 type ClientRecord = {
@@ -71,6 +73,33 @@ function clientKey(userId: string, deviceId: string, workspaceId: string) { retu
 function textResult(value: unknown) { return { content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] }; }
 function availableClients(userId: string) { return [...clients.values()].filter((client) => client.userId === userId && client.ws.readyState === client.ws.OPEN); }
 function equalSecret(a: string, b: string) { const aa = Buffer.from(a); const bb = Buffer.from(b); return aa.length === bb.length && timingSafeEqual(aa, bb); }
+function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+async function workspaceCatalog(userId: string) {
+  const workspaces = await cloudStore.listWorkspaces(userId);
+  const output = [] as Array<Record<string, unknown>>;
+  for (const workspace of workspaces) {
+    const key = clientKey(userId, workspace.deviceId, workspace.workspaceId);
+    const active = clients.get(key);
+    const runtimeOnline = await runtimeActivationStore.isOnline(userId, workspace.deviceId).catch(() => false);
+    const authorizedNow = runtimeOnline ? await runtimeActivationStore.isAuthorized(userId, workspace.deviceId, workspace.workspaceId).catch(() => false) : null;
+    if (!active && runtimeOnline && authorizedNow === false) continue;
+    output.push({
+      key,
+      deviceId: workspace.deviceId,
+      deviceName: active?.deviceName ?? workspace.deviceId,
+      workspaceId: workspace.workspaceId,
+      workspaceName: workspace.workspaceName,
+      status: active ? "active" : runtimeOnline ? "sleeping" : "device_offline",
+      runtimeOnline,
+      authorized: active ? true : authorizedNow,
+      projectRoot: active?.projectRoot ?? null,
+      capabilities: active?.capabilities ?? workspace.capabilities ?? {},
+      lastSeenAt: active?.lastSeenAt ?? workspace.lastSeenAt,
+    });
+  }
+  return output;
+}
 
 function resolveClient(userId: string, selectedKey?: string | null) {
   if (selectedKey) {
@@ -80,8 +109,32 @@ function resolveClient(userId: string, selectedKey?: string | null) {
   }
   const online = availableClients(userId);
   if (online.length === 1) return online[0];
-  if (!online.length) throw new Error("No local CodeLocal client is online for this account.");
-  throw new Error("Multiple workspaces are online. Call list_workspaces then select_workspace first.");
+  if (!online.length) throw new Error("No active workspace. Call list_workspaces and select_workspace; the CodeLocal machine runtime can activate a sleeping workspace.");
+  throw new Error("Multiple workspaces are active. Call list_workspaces then select_workspace first.");
+}
+
+async function activateWorkspace(userId: string, key: string) {
+  const already = clients.get(key);
+  if (already && already.userId === userId && already.ws.readyState === already.ws.OPEN) return already;
+  const catalog = await workspaceCatalog(userId);
+  const workspace = catalog.find((item) => item.key === key) as any;
+  if (!workspace) throw new Error(`Workspace is not available or no longer authorized: ${key}`);
+  if (!workspace.runtimeOnline) throw new Error(`The device for ${workspace.workspaceName} is offline. Run \`codelocal\` on that device; no project directory is required.`);
+  if (workspace.authorized !== true) throw new Error(`Workspace is not authorized by the local CodeLocal runtime: ${workspace.workspaceName}`);
+
+  const requestId = randomUUID();
+  await runtimeActivationStore.request(userId, String(workspace.deviceId), { workspaceId: String(workspace.workspaceId), requestId, requestedAt: Date.now() });
+  await cloudStore.audit(userId, "workspace.activation_requested", { requestId }, String(workspace.deviceId), String(workspace.workspaceId)).catch(() => undefined);
+  const deadline = Date.now() + WORKSPACE_ACTIVATION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const client = clients.get(key);
+    if (client && client.userId === userId && client.ws.readyState === client.ws.OPEN) {
+      await cloudStore.audit(userId, "workspace.activated", { requestId }, client.deviceId, client.workspaceId).catch(() => undefined);
+      return client;
+    }
+    await sleep(200);
+  }
+  throw new Error(`Workspace activation timed out after ${WORKSPACE_ACTIVATION_TIMEOUT_MS}ms. Keep \`codelocal\` running on ${workspace.deviceId} and try again.`);
 }
 
 async function callClient(userId: string, tool: string, args: unknown, selectedKey: string | null, options: { signal?: AbortSignal; sessionId?: string } = {}) {
@@ -133,7 +186,7 @@ function createMcpServer(userId: string) {
     });
   };
 
-  localTool("list_devices", "List online devices", "List online CodeLocal devices and workspaces belonging to this account.", {}, async () => {
+  localTool("list_devices", "List active devices", "List active CodeLocal workspace clients belonging to this account.", {}, async () => {
     const grouped = new Map<string, any[]>();
     for (const client of availableClients(userId)) {
       const list = grouped.get(client.deviceId) ?? [];
@@ -145,19 +198,18 @@ function createMcpServer(userId: string) {
   localTool("list_device_identities", "List paired devices", "List this account's paired device identities without secrets.", {}, () => deviceStore.listDevices(userId));
   localTool("revoke_device", "Revoke device", "Revoke one of this account's paired device credentials.", { credentialId: z.string().min(1) }, async (args) => ({ revoked: await revokeAndDisconnect(userId, args.credentialId) }));
   localTool("rename_device", "Rename device", "Rename one of this account's durable paired device identities.", { credentialId: z.string().min(1), deviceName: z.string().min(1).max(120) }, async (args) => ({ renamed: await deviceStore.rename(userId, args.credentialId, args.deviceName) }));
-  localTool("list_workspaces", "List workspaces", "List online workspaces for this account and current selection.", {}, async () => ({ selectedWorkspace: selectedKey, workspaces: availableClients(userId).map((client) => ({ key: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, capabilities: client.capabilities })) }));
-  localTool("select_workspace", "Select workspace", "Select the workspace used by subsequent coding tools in this MCP session.", { key: z.string().min(1) }, async (args) => {
-    const client = clients.get(args.key);
-    if (!client || client.userId !== userId || client.ws.readyState !== client.ws.OPEN) throw new Error(`Workspace unavailable: ${args.key}`);
+  localTool("list_workspaces", "List authorized workspaces", "List workspaces previously granted on CodeLocal devices. Sleeping workspaces can be activated without the user changing terminal directories.", {}, async () => ({ selectedWorkspace: selectedKey, workspaces: await workspaceCatalog(userId) }));
+  localTool("select_workspace", "Select and activate workspace", "Select a workspace for this ChatGPT MCP session. If its machine runtime is online but the workspace is sleeping, CodeLocal activates it lazily.", { key: z.string().min(1) }, async (args) => {
+    const client = await activateWorkspace(userId, String(args.key));
     selectedKey = client.key;
-    return { selected: client.key, deviceId: client.deviceId, workspaceId: client.workspaceId, workspaceName: client.workspaceName };
+    return { selected: client.key, deviceId: client.deviceId, workspaceId: client.workspaceId, workspaceName: client.workspaceName, status: "active" };
   });
   localTool("workspace_info", "Workspace info", "Show the currently selected CodeLocal workspace.", {}, async () => {
     const client = resolveClient(userId, selectedKey);
     return { selected: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, capabilities: client.capabilities, lastSeenAt: client.lastSeenAt };
   });
 
-  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, sandbox and instructions. Call first.", {});
+  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, sandbox and instructions. Call first after selecting a workspace.", {});
   remote("project_map", "Project map", "Return cached compact project structure, languages, frameworks, commands and roots.", { force: z.boolean().default(false) });
   remote("context_for_task", "Context for task", "Select likely relevant symbols/files for a task hint before broad repository scans.", { taskHint: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
   remote("read_instructions", "Read instructions", "Read scoped AGENTS.md and supported coding instructions.", { path: z.string().default(".") });
@@ -206,14 +258,16 @@ function createMcpServer(userId: string) {
 
   remote("sandbox_info", "Sandbox info", "Show active native/best-effort/policy-only sandbox backend.", {});
   remote("sandbox_smoke_test", "Sandbox smoke test", "Run a local sandbox smoke test.", {});
-  remote("run_command", "Run command", "Compatibility guarded command wrapper. Prefer exec_start/pty_start for long-lived processes.", { command: z.string().min(1), cwd: z.string().default("."), yieldMs: z.number().int().min(0).max(10000).default(1000), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
-  remote("exec_start", "Start process", "Start guarded non-PTY process with independent stdout/stderr cursors.", { command: z.string().min(1), cwd: z.string().default("."), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
+  remote("terminal_preflight", "Check terminal command risk", "Call this before running a terminal command. It performs deterministic local risk checks. If status is approval_required, ask the user in ChatGPT and retry the command tool with the returned approvalToken; do not ask in the local terminal.", { command: z.string().min(1), cwd: z.string().default(".") });
+  remote("terminal_history", "Terminal history", "Query the local redacted audit history of terminal commands CodeLocal actually executed in this workspace.", { query: z.string().default(""), limit: z.number().int().min(1).max(500).default(50), event: z.enum(["started", "finished", "all"]).default("started") });
+  remote("run_command", "Run command", "Run a guarded command after terminal_preflight. Safe commands run immediately. For reviewed commands, retry only after explicit user confirmation in ChatGPT using the one-time approvalToken.", { command: z.string().min(1), cwd: z.string().default("."), approvalToken: z.string().optional(), yieldMs: z.number().int().min(0).max(10000).default(1000), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
+  remote("exec_start", "Start process", "Start a guarded non-PTY process. Call terminal_preflight first; reviewed commands require the one-time approvalToken after explicit confirmation in ChatGPT.", { command: z.string().min(1), cwd: z.string().default("."), approvalToken: z.string().optional(), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
   remote("exec_poll", "Poll process", "Read incremental stdout/stderr.", { processId: z.string().min(1), stdoutCursor: z.number().int().min(0).optional(), stderrCursor: z.number().int().min(0).optional() });
   remote("exec_write", "Write process stdin", "Write to a running process stdin.", { processId: z.string().min(1), input: z.string() });
   remote("exec_signal", "Signal process", "Send a supported signal to a process.", { processId: z.string().min(1), signal: z.enum(["SIGTERM", "SIGINT", "SIGKILL"]).default("SIGTERM") });
   remote("exec_cancel", "Cancel process", "Cancel a running process.", { processId: z.string().min(1), reason: z.string().optional() });
   remote("exec_kill", "Kill process", "Terminate a process.", { processId: z.string().min(1), signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM") });
-  remote("pty_start", "Start PTY", "Start a guarded true PTY when node-pty is installed; otherwise safely falls back to a normal process.", { command: z.string().min(1), cwd: z.string().default("."), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
+  remote("pty_start", "Start PTY", "Start a guarded PTY. Call terminal_preflight first; reviewed commands require the one-time approvalToken after explicit confirmation in ChatGPT.", { command: z.string().min(1), cwd: z.string().default("."), approvalToken: z.string().optional(), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
   remote("pty_poll", "Poll PTY", "Read incremental PTY output.", { processId: z.string().min(1), stdoutCursor: z.number().int().min(0).optional(), stderrCursor: z.number().int().min(0).optional() });
   remote("pty_write", "Write PTY", "Write input to PTY/process.", { processId: z.string().min(1), input: z.string() });
   remote("pty_resize", "Resize PTY", "Resize a true PTY.", { processId: z.string().min(1), cols: z.number().int().min(10).max(500), rows: z.number().int().min(5).max(300) });
@@ -232,9 +286,12 @@ function createMcpServer(userId: string) {
 }
 
 async function revokeAndDisconnect(userId: string, credentialId: string) {
+  const identities = await deviceStore.listDevices(userId);
+  const identity = identities.find((item) => item.credentialId === credentialId);
   const revoked = await deviceStore.revoke(userId, credentialId);
   if (!revoked) return false;
   for (const client of clients.values()) if (client.userId === userId && client.credentialId === credentialId) client.ws.close(4403, "device revoked");
+  if (identity) await runtimeActivationStore.clearPresence(userId, identity.deviceId).catch(() => undefined);
   await cloudStore.audit(userId, "device.revoked", { credentialId });
   return true;
 }
@@ -262,8 +319,8 @@ app.get("/", async (req, res) => {
   if (await getWebIdentity(req)) { res.redirect(302, "/dashboard"); return; }
   res.type("html").send(authPage({
     title: "Your local development runtime for ChatGPT",
-    subtitle: "Pair a machine, open a project with codelocal ., and let ChatGPT work through explicit MCP tools while your source code and secrets remain local.",
-    body: `<div class="actions"><a class="btn primary" href="/register">Create account</a><a class="btn" href="/login">Sign in</a></div><div class="divider"></div><div class="label">One CodeLocal connection can route code intelligence, terminal, browser/simulator tools and installed MCP extensions without exposing hundreds of extension schemas at once.</div>`,
+    subtitle: "Pair a machine once, grant project folders once, then keep `codelocal` running anywhere. ChatGPT can ask you which authorized workspace to activate.",
+    body: `<div class="actions"><a class="btn primary" href="/register">Create account</a><a class="btn" href="/login">Sign in</a></div><div class="divider"></div><div class="label">One CodeLocal machine runtime can lazily activate code intelligence, terminal, browser/simulator tools and installed MCP extensions without scanning your machine or starting every project.</div>`,
   }));
 });
 
@@ -310,6 +367,43 @@ app.post("/api/client/mcp-sync", async (req, res) => {
   const workspaceId = String(req.body?.workspaceId ?? "").trim();
   const installations = await cloudStore.listMcpInstallations(device.userId, workspaceId);
   res.json({ installations: installations.map(({ userId: _userId, ...item }) => item), syncedAt: Date.now() });
+});
+
+app.post("/api/client/workspaces/sync", async (req, res) => {
+  const { credentialId, secret } = deviceAuthFromRequest(req);
+  const device = credentialId && secret ? await deviceStore.authenticate(credentialId, secret) : null;
+  if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
+  const source = Array.isArray(req.body?.workspaces) ? req.body.workspaces.slice(0, 500) : [];
+  let synced = 0;
+  for (const item of source) {
+    const workspaceId = String(item?.workspaceId ?? "").trim();
+    const workspaceName = String(item?.workspaceName ?? workspaceId).trim().slice(0, 120);
+    if (!/^[A-Za-z0-9._-]{1,80}$/.test(workspaceId) || !workspaceName) continue;
+    const key = clientKey(device.userId, device.deviceId, workspaceId);
+    const active = clients.get(key);
+    if (!active) {
+      await cloudStore.upsertWorkspace({ userId: device.userId, deviceId: device.deviceId, workspaceId, workspaceName, protocolVersion: PROTOCOL_VERSION, capabilities: { authorized: true, sleeping: true } });
+      await cloudStore.clearPresence(device.userId, device.deviceId, workspaceId);
+    }
+    synced++;
+  }
+  await cloudStore.audit(device.userId, "runtime.workspaces_synced", { count: synced }, device.deviceId).catch(() => undefined);
+  res.json({ synced, syncedAt: Date.now() });
+});
+
+app.post("/api/client/runtime/poll", async (req, res) => {
+  const { credentialId, secret } = deviceAuthFromRequest(req);
+  const device = credentialId && secret ? await deviceStore.authenticate(credentialId, secret) : null;
+  if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
+  const workspaceIds = Array.isArray(req.body?.workspaceIds) ? [...new Set(req.body.workspaceIds.map(String).filter((value: string) => /^[A-Za-z0-9._-]{1,80}$/.test(value)))].slice(0, 500) : [];
+  await runtimeActivationStore.heartbeat(device.userId, device.deviceId, workspaceIds);
+  const activation = await runtimeActivationStore.consume(device.userId, device.deviceId);
+  if (activation && !workspaceIds.includes(activation.workspaceId)) {
+    await cloudStore.audit(device.userId, "workspace.activation_rejected", { requestId: activation.requestId, reason: "not-authorized" }, device.deviceId, activation.workspaceId).catch(() => undefined);
+    res.json({ activation: null, now: Date.now() });
+    return;
+  }
+  res.json({ activation: activation ?? null, now: Date.now() });
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, protocolVersion: PROTOCOL_VERSION, cloud: true, onlineWorkspaces: clients.size, pendingToolCalls: pending.size }));
@@ -390,7 +484,7 @@ wss.on("connection", (ws) => {
       };
       clients.set(key, record); socketKeys.set(ws, key); authenticated = true; clearTimeout(authTimer);
       await cloudStore.upsertWorkspace({ userId: record.userId, deviceId: record.deviceId, workspaceId: record.workspaceId, workspaceName: record.workspaceName, projectRoot: record.projectRoot, protocolVersion: record.protocolVersion, capabilities: record.capabilities });
-      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true, multiTenant: true, cloudMcpRegistry: true } }));
+      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true, lazyWorkspaceActivation: true, multiTenant: true, cloudMcpRegistry: true, terminalChatApproval: true } }));
       log("info", "client.authenticated", { clientKey: key, userId: record.userId, protocolVersion: version, capabilities: record.capabilities });
       await cloudStore.audit(record.userId, "client.connected", { protocolVersion: version }, record.deviceId, record.workspaceId).catch(() => undefined);
       return;
@@ -441,9 +535,9 @@ heartbeat.unref?.();
 const shutdown = async () => {
   clearInterval(heartbeat);
   for (const client of clients.values()) client.ws.close(1001, "server shutdown");
-  await cloudStore.close();
+  await Promise.allSettled([runtimeActivationStore.close(), cloudStore.close()]);
 };
 process.once("SIGTERM", () => { void shutdown().finally(() => process.exit(0)); });
 process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });
 
-httpServer.listen(PORT, HOST, () => log("info", "server.started", { host: HOST, port: PORT, version: VERSION, protocolVersion: PROTOCOL_VERSION, cloud: true, legacyDeviceTokenEnabled: ALLOW_LEGACY_DEVICE_TOKEN }));
+httpServer.listen(PORT, HOST, () => log("info", "server.started", { host: HOST, port: PORT, version: VERSION, protocolVersion: PROTOCOL_VERSION, cloud: true, lazyWorkspaceActivation: true, legacyDeviceTokenEnabled: ALLOW_LEGACY_DEVICE_TOKEN }));
