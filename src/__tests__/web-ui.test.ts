@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { authPage, dashboardPage } from "../web-ui.js";
+import { authPage, dashboardPage, landingPage } from "../web-ui.js";
 
 test("dashboard CSS defines responsive grid spans", () => {
   const html = dashboardPage({
@@ -86,4 +86,22 @@ test("auth page keeps responsive overflow protection", () => {
   assert.match(html, /html,body\{max-width:100%;overflow-x:hidden\}/);
   assert.match(html, /\.input,\.select,\.textarea\{width:100%;min-width:0;max-width:100%/);
   assert.match(html, /\.auth\{width:min\(430px,100%\)\}/);
+});
+
+test("public landing page contains the complete ChatGPT setup flow", () => {
+  const html = landingPage({ endpoint: "https://codelocal.cloud/mcp", signedIn: false });
+
+  for (const step of [
+    "Connect CodeLocal with ChatGPT",
+    "Install CodeLocal on your computer",
+    "Pair this computer",
+    "Authorize a project folder",
+    "Start working from ChatGPT",
+  ]) assert.match(html, new RegExp(step));
+  assert.match(html, /https:\/\/codelocal\.cloud\/mcp/);
+  assert.match(html, /Authentication<\/div><div class="plugin-spec-value">OAuth/);
+  assert.match(html, /href="\/assets\/chatgpt-plugin-icon\.png"/);
+  assert.match(html, /256 × 256 px/);
+  assert.match(html, /Under 10 KB/);
+  assert.match(html, /I understand and want to continue/);
 });

@@ -15,7 +15,7 @@ import { cloudStore } from "./cloud-store.js";
 import { runtimeActivationStore } from "./runtime-activation-store.js";
 import { webAuthRouter, getWebIdentity, requireWebUser, verifyCsrf } from "./saas-auth.js";
 import { createDashboardRouter } from "./dashboard.js";
-import { authPage, escapeHtml } from "./web-ui.js";
+import { authPage, escapeHtml, landingPage } from "./web-ui.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
 
 const VERSION = "1.5.0-beta.1";
@@ -342,12 +342,8 @@ app.use(createDashboardRouter({
 }));
 
 app.get("/", async (req, res) => {
-  if (await getWebIdentity(req)) { res.redirect(302, "/dashboard"); return; }
-  res.type("html").send(authPage({
-    title: "Your local development runtime for ChatGPT",
-    subtitle: "Pair a machine once, grant project folders once, then keep `codelocal` running anywhere. ChatGPT can ask you which authorized workspace to activate.",
-    body: `<div class="actions"><a class="btn primary" href="/register">Create account</a><a class="btn" href="/login">Sign in</a></div><div class="divider"></div><div class="label">One lightweight CodeLocal runtime can lazily activate code intelligence, Git, guarded terminal tools and installed MCP extensions without scanning your machine or starting every project.</div>`,
-  }));
+  const base = (process.env.PUBLIC_BASE_URL ?? `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  res.type("html").send(landingPage({ endpoint: `${base}/mcp`, signedIn: Boolean(await getWebIdentity(req)) }));
 });
 
 app.post("/pair/start", async (req, res) => {

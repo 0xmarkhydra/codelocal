@@ -66,6 +66,10 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
     res.setHeader("Cache-Control", "public, max-age=604800, immutable");
     res.sendFile(brandAsset("codelocal-icon.png"));
   });
+  router.get("/assets/chatgpt-plugin-icon.png", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+    res.sendFile(brandAsset("chatgpt-plugin-icon.png"));
+  });
   router.get("/assets/apple-touch-icon.png", (_req, res) => {
     res.setHeader("Cache-Control", "public, max-age=604800, immutable");
     res.sendFile(brandAsset("apple-touch-icon.png"));
@@ -170,7 +174,8 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
     shell(res, {
       title: "Connect ChatGPT", active: "connect", email: me.user.email, csrf: me.csrf,
       subtitle: "Connect the CodeLocal Cloud MCP once. Workspace choice remains scoped to each ChatGPT MCP session.",
-      body: `<div class="grid"><div class="card span7 glow"><div class="section-head"><div><div class="title">ChatGPT MCP endpoint</div><div class="label">Use this remote MCP URL when adding CodeLocal to ChatGPT.</div></div></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">${escapeHtml(endpoint)}</div><button class="btn" type="button" data-copy-target="#mcp-endpoint">Copy</button></div><div class="divider"></div><div class="label">OAuth will open in your browser. Sign in with this CodeLocal account and approve the connection.</div></div><div class="card span5"><div class="title">Machine setup</div><div class="label" style="margin-top:4px">One lightweight runtime per machine.</div><div class="divider"></div><div class="code-block">npm i -g codelocal\n\n# authorize this project once\ncodelocal .\n\n# later, run from anywhere\ncodelocal</div><div style="height:12px"></div><div class="label">CodeLocal lists only folders you explicitly granted. Sleeping projects are activated lazily when ChatGPT selects them.</div></div></div>`,
+      actions: `<a class="btn" href="/#setup">View full setup guide</a>`,
+      body: `<div class="grid"><div class="card span7 glow"><div class="section-head"><div><div class="title">ChatGPT MCP endpoint</div><div class="label">Use this remote MCP URL when adding CodeLocal to ChatGPT.</div></div></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">${escapeHtml(endpoint)}</div><button class="btn" type="button" data-copy-target="#mcp-endpoint">Copy</button></div><div class="divider"></div><div class="label">Authentication: <strong>OAuth</strong>. Sign in with this CodeLocal account and approve the connection when ChatGPT opens the browser.</div></div><div class="card span5"><div class="section-head"><div><div class="title">ChatGPT plugin icon</div><div class="label">256 × 256 PNG · under 10 KB.</div></div><img src="/assets/chatgpt-plugin-icon.png" alt="" style="width:56px;height:56px;border-radius:16px"></div><div class="divider"></div><a class="btn primary" href="/assets/chatgpt-plugin-icon.png" download="codelocal-chatgpt-plugin-icon.png">Download icon</a><div style="height:12px"></div><div class="label">The public setup guide includes every field to enter in ChatGPT and the complete machine pairing flow.</div></div></div>`,
     });
   });
 
