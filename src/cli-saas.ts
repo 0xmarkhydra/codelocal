@@ -126,7 +126,7 @@ async function validateCredential(server: string, credential: LocalDeviceCredent
       body: JSON.stringify({ workspaceId: "" }),
       signal: AbortSignal.timeout(8_000),
     });
-    if (response.status === 401 || response.status === 403) return false;
+    if (response.status === 401 || response.status === 403 || response.status === 404) return false;
     return true;
   } catch {
     return true;
@@ -134,12 +134,13 @@ async function validateCredential(server: string, credential: LocalDeviceCredent
 }
 
 async function resolvedRuntime(serverArg?: string) {
-  const anyCredential = await loadLocalCredential();
-  const configured = serverArg || process.env.SERVER_URL || anyCredential?.serverUrl || httpToWs(DEFAULT_CLOUD);
+  // The selected gateway must come from an explicit override or this build's default.
+  // Never let a credential saved for an older gateway silently retarget CodeLocal.
+  const configured = serverArg || process.env.SERVER_URL || httpToWs(DEFAULT_CLOUD);
   const server = configured.startsWith("ws://") || configured.startsWith("wss://") ? configured : httpToWs(configured);
   let credential = await loadLocalCredential(server);
   if (credential && !(await validateCredential(server, credential))) {
-    console.log("Stored CodeLocal credential is no longer valid. Pairing this machine again…");
+    console.log("Stored CodeLocal credential is no longer valid or the gateway is incompatible. Pairing this machine again…");
     await deleteLocalCredential();
     credential = null;
   }
