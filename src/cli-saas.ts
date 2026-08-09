@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 import { defaultDeviceIdentity, deleteLocalCredential, loadLocalCredential, saveLocalCredential, type LocalDeviceCredential } from "./identity.js";
 import { WorkspaceRegistry } from "./workspace-registry.js";
+import { ApprovalMemory } from "./approval-memory.js";
 import { RuntimeDaemon } from "./runtime-daemon.js";
 
 const DEFAULT_CLOUD = process.env.CODELOCAL_SERVER ?? "https://codelocal-mcp-dev-dev.up.railway.app";
@@ -34,6 +35,9 @@ Commands:
   codelocal dashboard             Open CodeLocal dashboard
   codelocal pair [gateway]        Pair this machine manually
   codelocal status                Show pairing + workspace status
+  codelocal approvals             List remembered local approvals
+  codelocal approvals revoke <id> Revoke one remembered approval
+  codelocal approvals reset       Forget all remembered approvals
   codelocal doctor <project>      Run local environment checks
   codelocal mcp ...               Manage local MCP extensions
 
@@ -187,6 +191,32 @@ async function listWorkspaces() {
   }
 }
 
+async function approvalsCommand(args: string[]) {
+  const memory = new ApprovalMemory();
+  const action = args[0] ?? "list";
+  if (action === "list") {
+    const approvals = await memory.list();
+    if (!approvals.length) { console.log("No remembered approvals."); return; }
+    for (const approval of approvals) {
+      console.log(`${approval.label}\n  ID: ${approval.id}\n  Workspace: ${approval.workspaceKey}\n  Key: ${approval.actionKey}\n  Used: ${approval.useCount} · last ${new Date(approval.lastUsedAt).toLocaleString()}\n`);
+    }
+    return;
+  }
+  if (action === "revoke") {
+    const id = args[1];
+    if (!id) throw new Error("Usage: codelocal approvals revoke <id|action-key>");
+    const removed = await memory.revoke(id);
+    console.log(removed ? `✓ Removed ${removed} remembered approval${removed === 1 ? "" : "s"}.` : "Approval not found.");
+    return;
+  }
+  if (action === "reset") {
+    const removed = await memory.reset();
+    console.log(`✓ Forgot ${removed} remembered approval${removed === 1 ? "" : "s"}.`);
+    return;
+  }
+  throw new Error("Usage: codelocal approvals [list|revoke <id|action-key>|reset]");
+}
+
 async function status() {
   const credential = await loadLocalCredential();
   const workspaces = await new WorkspaceRegistry().list();
@@ -231,6 +261,7 @@ try {
   else if (command === "dashboard") await login(args[0] ?? DEFAULT_CLOUD, true);
   else if (command === "pair") { await pair(args[0] ?? DEFAULT_CLOUD); }
   else if (command === "status") await status();
+  else if (command === "approvals") await approvalsCommand(args);
   else if (command === "workspaces") await listWorkspaces();
   else if (command === "grant") await grant(args[0]);
   else if (command === "ungrant") await ungrant(args[0]);

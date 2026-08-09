@@ -16,7 +16,7 @@ export type TerminalHistoryRecord = {
   command: string;
   riskLevel: string;
   matchedRules: string[];
-  approval: "automatic" | "chat";
+  approval: "automatic" | "chat" | "remembered";
   startedAt: number;
   finishedAt?: number;
   durationMs?: number;
@@ -34,7 +34,7 @@ type StartInput = {
   command: string;
   riskLevel: string;
   matchedRules: string[];
-  approval: "automatic" | "chat";
+  approval: "automatic" | "chat" | "remembered";
   startedAt: number;
   executionMode?: string;
 };

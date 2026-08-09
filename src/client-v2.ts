@@ -8,11 +8,10 @@ import ignore, { type Ignore } from "ignore";
 import chokidar from "chokidar";
 import { log, mirrorProcessOutput, summarizeToolArgs } from "./log.js";
 import { PROTOCOL_VERSION, isSideEffectingTool, normalizeError, type ToolCallMessage } from "./protocol.js";
-import { classifyCommand, classifyGitWrite, isSensitivePath, type NetworkPolicy } from "./security-policy.js";
-import { SandboxManager } from "./sandbox.js";
+import { classifyCommand, classifyGitWrite, isSensitivePath, type NetworkPolicy, type PolicyDecision } from "./security-policy.js";
 import { ProcessManager } from "./process-manager.js";
 import { IdempotencyJournal } from "./state.js";
-import { type ApprovalMode } from "./approval.js";
+import { ApprovalMemory } from "./approval-memory.js";
 import { ChatApprovalBroker } from "./chat-approval.js";
 import { TerminalHistory } from "./terminal-history.js";
 import { audit } from "./audit.js";
@@ -22,6 +21,8 @@ import { EditingEngine } from "./editing-engine.js";
 import { VerificationEngine } from "./verification.js";
 import { defaultDeviceIdentity, loadLocalCredential } from "./identity.js";
 import { McpHub } from "./mcp-hub.js";
+
+type ApprovalMode = "prompt" | "deny" | "auto-safe";
 
 const SERVER_URL = process.env.SERVER_URL;
 const PROJECT_ROOT = process.env.PROJECT_ROOT;
@@ -54,7 +55,7 @@ const semantic = new SemanticRouter(root);
 const context = new ProjectContextEngine(root, semantic);
 const editing = new EditingEngine(root);
 const verification = new VerificationEngine(root, semantic, context);
-const sandbox = new SandboxManager(root, NETWORK_POLICY);
+const approvalMemory = new ApprovalMemory();
 const chatApproval = new ChatApprovalBroker();
 const terminalHistory = new TerminalHistory();
 const journal = new IdempotencyJournal();
@@ -62,7 +63,7 @@ let mcpConnectAuthorized = false;
 const mcpHub = new McpHub(root, async () => {
   if (!mcpConnectAuthorized) throw new Error("Starting an installed MCP runtime requires approval in ChatGPT. Call mcp_call and approve it there.");
 });
-const processManager = new ProcessManager(root, WORKSPACE_KEY, sandbox, (_record, stream, text) => {
+const processManager = new ProcessManager(root, WORKSPACE_KEY, (_record, stream, text) => {
   if (MIRROR_PROCESS_OUTPUT) mirrorProcessOutput(stream, text);
 }, async (record) => {
   await terminalHistory.finished(record);
@@ -284,33 +285,80 @@ async function commandCwd(requested = ".") {
   return cwd;
 }
 
+function hostPolicyInfo() {
+  return {
+    platform: process.platform,
+    backend: "host-policy",
+    mode: "policy-only" as const,
+    available: true,
+    networkMode: NETWORK_POLICY,
+    notes: [
+      "commands execute on the host after deterministic local policy checks",
+      "rememberable approvals are stored only on this machine and scoped to the workspace",
+      "critical actions always require fresh confirmation in ChatGPT",
+      "explicit paths outside the authorized workspace and credential-retrieval commands are blocked",
+    ],
+  };
+}
+
+async function rememberedDecision(decision: PolicyDecision) {
+  if (decision.approvalPolicy !== "rememberable" || !decision.approvalKey) return null;
+  return approvalMemory.find(WORKSPACE_KEY, decision.approvalKey);
+}
+
+async function repositoryScopedDecision(decision: PolicyDecision): Promise<PolicyDecision> {
+  if (decision.approvalPolicy !== "rememberable" || !decision.approvalKey?.startsWith("git.push:")) return decision;
+  const parts = decision.approvalKey.split(":");
+  const remote = parts[2];
+  if (!remote) return { ...decision, approvalPolicy: "always", approvalKey: undefined };
+  const resolved = await git(["remote", "get-url", "--push", remote], 10_000).catch(() => null);
+  const url = resolved?.exitCode === 0 ? resolved.stdout.trim() : "";
+  if (!url) return { ...decision, approvalPolicy: "always", approvalKey: undefined };
+  return { ...decision, approvalKey: `${decision.approvalKey}:remote-${hashBuffer(Buffer.from(url)).slice(0, 16)}` };
+}
+
 async function terminalPreflight(command: string, requestedCwd = ".", requestId?: string) {
-  if (!ALLOW_SHELL) return { status: "blocked", riskLevel: "BLOCKED", reason: "Shell execution is disabled for this workspace.", matchedRules: ["shell-disabled"], command: String(command) };
+  if (!ALLOW_SHELL) return { status: "blocked", riskLevel: "BLOCKED", reason: "Shell execution is disabled for this workspace.", matchedRules: ["shell-disabled"], command: String(command), approvalPolicy: "blocked" as const };
   const cwd = await commandCwd(requestedCwd);
-  const decision = classifyCommand(command, NETWORK_POLICY);
-  const result = chatApproval.preflight(command, rel(cwd), decision);
-  await audit({ event: "terminal.preflight", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: rel(cwd), command: decision.redactedCommand, rules: decision.matchedRules, status: result.status } });
-  return { ...result, cwd: rel(cwd) };
+  const relativeCwd = rel(cwd);
+  const decision = await repositoryScopedDecision(classifyCommand(command, NETWORK_POLICY, { workspaceRoot: root, cwd }));
+  const remembered = await rememberedDecision(decision);
+  if (remembered) {
+    const result = { status: "safe" as const, riskLevel: decision.riskLevel, reason: decision.reason, matchedRules: decision.matchedRules, command: decision.redactedCommand, approvalPolicy: decision.approvalPolicy, approvalKey: decision.approvalKey, approvalLabel: decision.approvalLabel, remembered: true };
+    await audit({ event: "terminal.approval_memory_hit", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, actionKey: decision.approvalKey, command: decision.redactedCommand } });
+    return { ...result, cwd: relativeCwd };
+  }
+  const result = chatApproval.preflight(command, relativeCwd, decision);
+  await audit({ event: "terminal.preflight", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, status: result.status, approvalPolicy: decision.approvalPolicy, approvalKey: decision.approvalKey } });
+  return { ...result, cwd: relativeCwd };
 }
 
 async function runGuardedCommand(command: string, options: { cwd?: string; timeoutMs?: number; usePty?: boolean; requestId?: string; ownerSessionId?: string; approvalToken?: string } = {}) {
   if (!ALLOW_SHELL) throw new Error("Shell execution is disabled. Restart client with CODELOCAL_ALLOW_SHELL=1.");
   const cwd = await commandCwd(options.cwd ?? ".");
   const relativeCwd = rel(cwd);
-  const decision = classifyCommand(command, NETWORK_POLICY);
-  await audit({ event: "policy.command", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, blocked: decision.blocked } });
+  const decision = await repositoryScopedDecision(classifyCommand(command, NETWORK_POLICY, { workspaceRoot: root, cwd }));
+  await audit({ event: "policy.command", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, blocked: decision.blocked, approvalPolicy: decision.approvalPolicy, approvalKey: decision.approvalKey } });
   if (decision.blocked) throw new Error(`Command blocked by policy: ${decision.reason}`);
 
-  let approvalMode: "automatic" | "chat" = "automatic";
+  let approvalMode: "automatic" | "chat" | "remembered" = "automatic";
   if (decision.requiresApproval) {
-    const approved = chatApproval.consume(options.approvalToken, command, relativeCwd, decision);
-    if (!approved) {
-      const pending = chatApproval.preflight(command, relativeCwd, decision);
-      await audit({ event: "terminal.approval_required", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, expiresAt: pending.expiresAt } });
-      return { ...pending, cwd: relativeCwd };
+    const remembered = await rememberedDecision(decision);
+    if (remembered && decision.approvalKey) {
+      approvalMode = "remembered";
+      await approvalMemory.touch(WORKSPACE_KEY, decision.approvalKey);
+      await audit({ event: "terminal.approval_memory_used", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { cwd: relativeCwd, actionKey: decision.approvalKey, command: decision.redactedCommand } });
+    } else {
+      const approved = chatApproval.consume(options.approvalToken, command, relativeCwd, decision);
+      if (!approved) {
+        const pending = chatApproval.preflight(command, relativeCwd, decision);
+        await audit({ event: "terminal.approval_required", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, expiresAt: pending.expiresAt, approvalPolicy: decision.approvalPolicy, approvalKey: decision.approvalKey } });
+        return { ...pending, cwd: relativeCwd };
+      }
+      approvalMode = "chat";
+      const learned = await approvalMemory.remember(WORKSPACE_KEY, decision);
+      await audit({ event: learned ? "terminal.approval_remembered" : "terminal.chat_approved", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules, actionKey: learned?.actionKey } });
     }
-    approvalMode = "chat";
-    await audit({ event: "terminal.chat_approved", requestId: options.requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { cwd: relativeCwd, command: decision.redactedCommand, rules: decision.matchedRules } });
   }
 
   const started = await processManager.start(command, { cwd, timeoutMs: options.timeoutMs, usePty: options.usePty, requestId: options.requestId, ownerSessionId: options.ownerSessionId });
@@ -331,17 +379,24 @@ async function runGuardedCommand(command: string, options: { cwd?: string; timeo
 }
 
 async function gitWrite(operation: string, detail: string, args: string[], requestId?: string, approvalToken?: string) {
-  const decision = classifyGitWrite(operation, detail);
+  const decision = await repositoryScopedDecision(classifyGitWrite(operation, detail));
   if (decision.blocked) throw new Error(`Git operation blocked by policy: ${decision.reason}`);
   const approvalCommand = `git ${operation} ${detail}`.trim();
   if (decision.requiresApproval) {
-    const approved = chatApproval.consume(approvalToken, approvalCommand, ".", decision);
-    if (!approved) {
-      const pending = chatApproval.preflight(approvalCommand, ".", decision);
-      await audit({ event: "git.approval_required", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { operation, command: decision.redactedCommand, rules: decision.matchedRules, expiresAt: pending.expiresAt } });
-      return pending;
+    const remembered = await rememberedDecision(decision);
+    if (remembered && decision.approvalKey) {
+      await approvalMemory.touch(WORKSPACE_KEY, decision.approvalKey);
+      await audit({ event: "git.approval_memory_used", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { operation, actionKey: decision.approvalKey, command: decision.redactedCommand } });
+    } else {
+      const approved = chatApproval.consume(approvalToken, approvalCommand, ".", decision);
+      if (!approved) {
+        const pending = chatApproval.preflight(approvalCommand, ".", decision);
+        await audit({ event: "git.approval_required", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { operation, command: decision.redactedCommand, rules: decision.matchedRules, expiresAt: pending.expiresAt, approvalPolicy: decision.approvalPolicy, approvalKey: decision.approvalKey } });
+        return pending;
+      }
+      const learned = await approvalMemory.remember(WORKSPACE_KEY, decision);
+      await audit({ event: learned ? "git.approval_remembered" : "git.chat_approved", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { operation, command: decision.redactedCommand, rules: decision.matchedRules, actionKey: learned?.actionKey } });
     }
-    await audit({ event: "git.chat_approved", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, status: "approved", detail: { operation, command: decision.redactedCommand, rules: decision.matchedRules } });
   }
   const result = await git(args, 120_000);
   if (result.exitCode !== 0) throw new Error(result.stderr || result.stdout || `git ${operation} failed`);
@@ -362,6 +417,7 @@ async function callInstalledMcp(server: string, tool: string, args: Record<strin
     reason: readOnlyHint
       ? "external MCP call; server advertises readOnlyHint, but external annotations are advisory"
       : "external MCP call may have side effects",
+    approvalPolicy: "always" as const,
   };
   await audit({ event: "policy.mcp", requestId, workspaceKey: WORKSPACE_KEY, riskLevel: decision.riskLevel, detail: { server, tool, readOnlyHint, rule } });
   const approvalCommand = `mcp ${server}.${tool}`;
@@ -400,15 +456,24 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
       project,
       instructions: (await readInstructions(".")).instructionFiles,
       semantic: await semantic.info(),
-      sandbox: await sandbox.info(),
+      executionSecurity: hostPolicyInfo(),
+      sandbox: hostPolicyInfo(),
       shellEnabled: ALLOW_SHELL,
       approvalMode: APPROVAL_MODE,
       terminalApproval: "chat-mediated",
+      approvalMemory: "local-workspace-scoped",
       networkPolicy: NETWORK_POLICY,
       metadataEpoch,
-      capabilities: ["protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "diagnostic-regression", "process-manager-v2", "pty-when-installed", "cancellation", "sandbox", "idempotency", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "audit"],
+      capabilities: ["protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "diagnostic-regression", "process-manager-v2", "pty-when-installed", "cancellation", "host-policy-execution", "structured-command-policy", "approval-memory", "idempotency", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "audit"],
     };
   }
+  if (tool === "approval_list") return { approvals: await approvalMemory.list(WORKSPACE_KEY) };
+  if (tool === "approval_revoke") {
+    const identifier = String(args.id ?? args.actionKey ?? "").trim();
+    if (!identifier) throw new Error("approval_revoke requires an approval id or actionKey.");
+    return { removed: await approvalMemory.revoke(identifier, WORKSPACE_KEY) };
+  }
+  if (tool === "approval_reset") return { removed: await approvalMemory.reset(WORKSPACE_KEY) };
   if (tool === "mcp_list") return { servers: await mcpHub.listServers() };
   if (tool === "mcp_search_tools") return mcpHub.searchTools(String(args.query ?? ""), { limit: args.limit ?? 8, server: args.server, refresh: !!args.refresh });
   if (tool === "mcp_tool_info") return mcpHub.toolInfo(String(args.server), String(args.tool));
@@ -506,8 +571,8 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
     return gitWrite("push", argv.slice(1).join(" "), argv, request.requestId, args.approvalToken);
   }
 
-  if (tool === "sandbox_info") return sandbox.info();
-  if (tool === "sandbox_smoke_test") return sandbox.smokeTest();
+  if (tool === "sandbox_info") return hostPolicyInfo();
+  if (tool === "sandbox_smoke_test") return { ok: true, executionMode: "host-policy", sandbox: false, note: "OS sandboxing is disabled; deterministic policy + ChatGPT approvals are authoritative." };
   if (tool === "terminal_preflight") return terminalPreflight(String(args.command ?? ""), String(args.cwd ?? "."), request.requestId);
   if (tool === "terminal_history") return terminalHistory.query({ workspaceKey: WORKSPACE_KEY, query: String(args.query ?? ""), limit: args.limit ?? 50, event: args.event ?? "started" });
   if (tool === "run_command") {
@@ -546,7 +611,6 @@ watcher.on("all", (event, changed) => {
 
 async function clientCapabilities() {
   const semanticInfo = await semantic.info();
-  const sandboxInfo = await sandbox.info();
   let pty = false;
   try { const dynamicImport = new Function("m", "return import(m)") as (m: string) => Promise<any>; await dynamicImport("node-pty"); pty = true; } catch {}
   return {
@@ -554,13 +618,15 @@ async function clientCapabilities() {
     git: true,
     shell: ALLOW_SHELL,
     pty,
-    sandbox: sandboxInfo.mode,
+    sandbox: "policy-only" as const,
     semanticProviders: ["typescript", ...semanticInfo.providers.filter((p) => p.installed).map((p) => p.id)],
     idempotency: true,
     cancellation: true,
     approvals: true,
     terminalChatApproval: true,
     terminalHistory: true,
+    approvalMemory: true,
+    hostPolicyExecution: true,
     mcpHub: true,
   };
 }

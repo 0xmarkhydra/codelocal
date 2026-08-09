@@ -209,7 +209,7 @@ function createMcpServer(userId: string) {
     return { selected: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, capabilities: client.capabilities, lastSeenAt: client.lastSeenAt };
   });
 
-  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, sandbox and instructions. Call first after selecting a workspace.", {});
+  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, host execution policy, approval memory and instructions. Call first after selecting a workspace.", {});
   remote("project_map", "Project map", "Return cached compact project structure, languages, frameworks, commands and roots.", { force: z.boolean().default(false) });
   remote("context_for_task", "Context for task", "Select likely relevant symbols/files for a task hint before broad repository scans.", { taskHint: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
   remote("read_instructions", "Read instructions", "Read scoped AGENTS.md and supported coding instructions.", { path: z.string().default(".") });
@@ -253,14 +253,14 @@ function createMcpServer(userId: string) {
   remote("git_file_history", "Git file history", "Read follow-renames file history.", { path: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
   remote("git_stage", "Stage files", "Git stage operation. If approval_required is returned, ask the user in ChatGPT and retry with approvalToken.", { paths: z.array(z.string().min(1)).min(1).max(200), approvalToken: z.string().optional() });
   remote("git_unstage", "Unstage files", "Git unstage operation. If approval_required is returned, ask the user in ChatGPT and retry with approvalToken.", { paths: z.array(z.string().min(1)).min(1).max(200), approvalToken: z.string().optional() });
-  remote("git_commit", "Commit staged changes", "Commit staged changes. Reviewed writes are approved in ChatGPT, never in the local terminal; retry with approvalToken after confirmation.", { message: z.string().min(1).max(5000), expectedPaths: z.array(z.string()).optional(), approvalToken: z.string().optional() });
-  remote("git_push", "Push commits", "Non-force push. Reviewed writes are approved in ChatGPT, never in the local terminal; retry with approvalToken after confirmation.", { remote: z.string().optional(), branch: z.string().optional(), force: z.boolean().default(false), approvalToken: z.string().optional() });
+  remote("git_commit", "Commit staged changes", "Commit staged changes on the host. The first reviewed approval is confirmed in ChatGPT and then remembered locally for this workspace; critical Git actions are never remembered.", { message: z.string().min(1).max(5000), expectedPaths: z.array(z.string()).optional(), approvalToken: z.string().optional() });
+  remote("git_push", "Push commits", "Non-force push on the host. Explicit remote+branch approvals can be remembered locally and are bound to the current remote URL; force push remains blocked by this tool.", { remote: z.string().optional(), branch: z.string().optional(), force: z.boolean().default(false), approvalToken: z.string().optional() });
 
-  remote("sandbox_info", "Sandbox info", "Show active native/best-effort/policy-only sandbox backend.", {});
-  remote("sandbox_smoke_test", "Sandbox smoke test", "Run a local sandbox smoke test.", {});
-  remote("terminal_preflight", "Check terminal command risk", "Call this before running a terminal command. It performs deterministic local risk checks. If status is approval_required, ask the user in ChatGPT and retry the command tool with the returned approvalToken; do not ask in the local terminal.", { command: z.string().min(1), cwd: z.string().default(".") });
+  remote("sandbox_info", "Execution security", "Compatibility tool that reports the active host-policy execution model. OS sandboxing is disabled.", {});
+  remote("sandbox_smoke_test", "Execution security smoke test", "Compatibility check for host-policy execution; no OS sandbox is started.", {});
+  remote("terminal_preflight", "Check terminal command risk", "Call this before running a terminal command. Deterministic local policy blocks workspace escapes and credentials, reuses remembered structured approvals, and requires fresh ChatGPT confirmation for critical actions.", { command: z.string().min(1), cwd: z.string().default(".") });
   remote("terminal_history", "Terminal history", "Query the local redacted audit history of terminal commands CodeLocal actually executed in this workspace.", { query: z.string().default(""), limit: z.number().int().min(1).max(500).default(50), event: z.enum(["started", "finished", "all"]).default("started") });
-  remote("run_command", "Run command", "Run a guarded command after terminal_preflight. Safe commands run immediately. For reviewed commands, retry only after explicit user confirmation in ChatGPT using the one-time approvalToken.", { command: z.string().min(1), cwd: z.string().default("."), approvalToken: z.string().optional(), yieldMs: z.number().int().min(0).max(10000).default(1000), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
+  remote("run_command", "Run command", "Run a host command after terminal_preflight. Safe or remembered actions run immediately; reviewed actions require ChatGPT approval, while critical actions always require fresh approval.", { command: z.string().min(1), cwd: z.string().default("."), approvalToken: z.string().optional(), yieldMs: z.number().int().min(0).max(10000).default(1000), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
   remote("exec_start", "Start process", "Start a guarded non-PTY process. Call terminal_preflight first; reviewed commands require the one-time approvalToken after explicit confirmation in ChatGPT.", { command: z.string().min(1), cwd: z.string().default("."), approvalToken: z.string().optional(), timeoutMs: z.number().int().min(0).max(3_600_000).default(0) });
   remote("exec_poll", "Poll process", "Read incremental stdout/stderr.", { processId: z.string().min(1), stdoutCursor: z.number().int().min(0).optional(), stderrCursor: z.number().int().min(0).optional() });
   remote("exec_write", "Write process stdin", "Write to a running process stdin.", { processId: z.string().min(1), input: z.string() });
@@ -277,6 +277,10 @@ function createMcpServer(userId: string) {
   remote("process_poll", "Poll process compatibility", "Compatibility poll tool.", { processId: z.string().min(1), cursor: z.number().int().min(0).optional() });
   remote("process_write", "Write process compatibility", "Compatibility stdin tool.", { processId: z.string().min(1), input: z.string() });
   remote("process_kill", "Kill process compatibility", "Compatibility termination tool.", { processId: z.string().min(1), signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM") });
+
+  remote("approval_list", "List remembered approvals", "List approval memory stored locally for the selected workspace. No approval data is stored in CodeLocal Cloud.", {});
+  remote("approval_revoke", "Revoke remembered approval", "Forget one locally remembered approval by ID or structured action key. This can only reduce future permissions.", { id: z.string().optional(), actionKey: z.string().optional() });
+  remote("approval_reset", "Reset remembered approvals", "Forget every locally remembered approval for the selected workspace. This can only reduce future permissions.", {});
 
   remote("mcp_list", "List installed MCPs", "List MCP extensions installed in the selected local CodeLocal workspace without exposing every extension tool to ChatGPT.", {});
   remote("mcp_search_tools", "Search installed MCP tools", "Search the local MCP extension catalog and return only the most relevant tools.", { query: z.string().default(""), limit: z.number().int().min(1).max(50).default(8), server: z.string().optional(), refresh: z.boolean().default(false) });
@@ -363,7 +367,7 @@ app.get("/pair/approve", async (req, res) => {
   res.type("html").send(authPage({
     title: "Approve device",
     subtitle: `Pair ${pairing.deviceName} with ${me.user.email}.`,
-    body: `<div class="card" style="box-shadow:none;padding:16px;margin-bottom:16px"><div class="label">Pairing code shown in your terminal</div><div class="metric mono">${escapeHtml(pairing.code)}</div><div class="row-meta">Device ID: ${escapeHtml(pairing.deviceId)}</div></div><form class="form" method="post" action="/pair/approve"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}"><input type="hidden" name="pairingId" value="${escapeHtml(pairingId)}"><div class="field"><label>Confirm pairing code</label><input class="input mono" name="code" inputmode="numeric" pattern="[0-9]{6}" required></div><button class="btn primary" type="submit">Approve this device</button></form>`,
+    body: `<div class="card" style="box-shadow:none;padding:16px;margin-bottom:16px"><div class="label">Device requesting access</div><div class="title" style="margin-top:6px">${escapeHtml(pairing.deviceName)}</div><div class="row-meta" style="margin-top:6px">Device ID: ${escapeHtml(pairing.deviceId)}</div></div><form class="form" method="post" action="/pair/approve"><input type="hidden" name="csrf" value="${escapeHtml(me.csrf)}"><input type="hidden" name="pairingId" value="${escapeHtml(pairingId)}"><input type="hidden" name="code" value="${escapeHtml(pairing.code)}"><button class="btn primary" type="submit">Approve device</button><div class="hint">Only approve if you just started CodeLocal on this device.</div></form>`,
   }));
 });
 app.post("/pair/approve", express.urlencoded({ extended: false }), requireWebUser, async (req, res) => {

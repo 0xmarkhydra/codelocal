@@ -32,6 +32,8 @@ export type ClientCapabilities = {
   idempotency: boolean;
   cancellation: boolean;
   approvals: boolean;
+  approvalMemory?: boolean;
+  hostPolicyExecution?: boolean;
   mcpHub?: boolean;
 };
 
@@ -124,6 +126,8 @@ export function isSideEffectingTool(tool: string) {
     "git_unstage",
     "git_commit",
     "git_push",
+    "approval_revoke",
+    "approval_reset",
     "mcp_call",
   ]).has(tool);
 }

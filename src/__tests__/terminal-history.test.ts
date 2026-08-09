@@ -23,7 +23,7 @@ test("terminal history records executed commands locally without leaking secrets
       matchedRules: [],
       approval: "automatic",
       startedAt,
-      executionMode: "sandbox",
+      executionMode: "host-policy",
     });
 
     const record: ProcessRecord = {
@@ -42,7 +42,7 @@ test("terminal history records executed commands locally without leaking secrets
       stderr: { text: "", baseOffset: 0, totalBytes: 0 },
       timeoutAt: null,
       pty: false,
-      executionMode: "sandbox",
+      executionMode: "host-policy",
     };
     await history.finished(record);
 

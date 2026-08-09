@@ -7,6 +7,10 @@ export type CommandPreflight = {
   reason: string;
   matchedRules: string[];
   command: string;
+  approvalPolicy: PolicyDecision["approvalPolicy"];
+  approvalKey?: string;
+  approvalLabel?: string;
+  remembered?: boolean;
   approvalToken?: string;
   expiresAt?: number;
 };
@@ -39,6 +43,8 @@ export class ChatApprovalBroker {
       cwd,
       rules: [...decision.matchedRules].sort(),
       risk: decision.riskLevel,
+      approvalPolicy: decision.approvalPolicy,
+      approvalKey: decision.approvalKey ?? null,
     }));
   }
 
@@ -49,8 +55,8 @@ export class ChatApprovalBroker {
 
   preflight(command: string, cwd: string, decision: PolicyDecision): CommandPreflight {
     this.prune();
-    if (decision.blocked) return { status: "blocked", riskLevel: decision.riskLevel, reason: decision.reason, matchedRules: decision.matchedRules, command: decision.redactedCommand };
-    if (!decision.requiresApproval) return { status: "safe", riskLevel: decision.riskLevel, reason: decision.reason, matchedRules: decision.matchedRules, command: decision.redactedCommand };
+    if (decision.blocked) return { status: "blocked", riskLevel: decision.riskLevel, reason: decision.reason, matchedRules: decision.matchedRules, command: decision.redactedCommand, approvalPolicy: decision.approvalPolicy, approvalKey: decision.approvalKey, approvalLabel: decision.approvalLabel };
+    if (!decision.requiresApproval) return { status: "safe", riskLevel: decision.riskLevel, reason: decision.reason, matchedRules: decision.matchedRules, command: decision.redactedCommand, approvalPolicy: decision.approvalPolicy, approvalKey: decision.approvalKey, approvalLabel: decision.approvalLabel };
 
     const approvalToken = randomUUID() + randomUUID().replaceAll("-", "");
     const id = randomUUID();
@@ -62,6 +68,9 @@ export class ChatApprovalBroker {
       reason: decision.reason,
       matchedRules: decision.matchedRules,
       command: decision.redactedCommand,
+      approvalPolicy: decision.approvalPolicy,
+      approvalKey: decision.approvalKey,
+      approvalLabel: decision.approvalLabel,
       approvalToken: `${id}.${approvalToken}`,
       expiresAt,
     };

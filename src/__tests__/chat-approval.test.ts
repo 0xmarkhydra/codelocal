@@ -10,6 +10,9 @@ const review: PolicyDecision = {
   blocked: false,
   redactedCommand: "git push origin dev",
   reason: "Git write action",
+  approvalPolicy: "rememberable",
+  approvalKey: "git.push:origin:dev",
+  approvalLabel: "Git push origin dev",
 };
 
 test("chat approval token is bound to command/cwd and can be consumed once", () => {
@@ -32,8 +35,8 @@ test("chat approval token is bound to command/cwd and can be consumed once", () 
 
 test("safe and blocked decisions never create approval credentials", () => {
   const broker = new ChatApprovalBroker();
-  const safe: PolicyDecision = { ...review, riskLevel: "SAFE", matchedRules: [], requiresApproval: false, redactedCommand: "npm test", reason: "safe" };
-  const blocked: PolicyDecision = { ...review, riskLevel: "BLOCKED", blocked: true, requiresApproval: false, redactedCommand: "sudo rm -rf /", reason: "blocked" };
+  const safe: PolicyDecision = { ...review, riskLevel: "SAFE", matchedRules: [], requiresApproval: false, redactedCommand: "npm test", reason: "safe", approvalPolicy: "none", approvalKey: undefined };
+  const blocked: PolicyDecision = { ...review, riskLevel: "BLOCKED", blocked: true, requiresApproval: false, redactedCommand: "sudo rm -rf /", reason: "blocked", approvalPolicy: "blocked", approvalKey: undefined };
   assert.deepEqual(broker.preflight("npm test", ".", safe).status, "safe");
   assert.equal(broker.preflight("npm test", ".", safe).approvalToken, undefined);
   assert.equal(broker.preflight("sudo rm -rf /", ".", blocked).status, "blocked");

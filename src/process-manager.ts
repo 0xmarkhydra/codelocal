@@ -1,14 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { SandboxManager } from "./sandbox.js";
 
 const MAX_BUFFER_BYTES = Number(process.env.CODELOCAL_MAX_PROCESS_BUFFER_BYTES ?? 2 * 1024 * 1024);
 const MAX_PROCESSES = Number(process.env.CODELOCAL_MAX_PROCESSES ?? 64);
-const MAC_DEV_HOST_MODE = process.env.CODELOCAL_MAC_DEV_HOST_MODE !== "0";
 
 type Status = "running" | "exited" | "cancelled" | "failed";
-type ExecutionMode = "sandbox" | "host-developer";
+type ExecutionMode = "host-policy";
 
 type StreamBuffer = { text: string; baseOffset: number; totalBytes: number };
 
@@ -74,32 +72,12 @@ async function loadNodePty(): Promise<any | null> {
   }
 }
 
-export function isMacDeveloperHostCommand(command: string) {
-  if (process.platform !== "darwin" || !MAC_DEV_HOST_MODE) return false;
-  const normalized = command.replace(/\s+/g, " ").trim();
-  // Host developer mode is deliberately limited to one simple toolchain command.
-  // Anything that composes shell commands, redirects IO, expands a subshell, or
-  // contains newlines falls back to the sandbox/policy path instead of inheriting
-  // host execution just because one fragment mentions `flutter`/`dart`/Xcode.
-  if (/[;&|<>`\r\n]/.test(command) || /\$\s*\(/.test(command)) return false;
-  return /^(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+)\s+)*(?:fvm\s+flutter|flutter|dart|xcodebuild|xcrun|pod)(?:\s|$)/i.test(normalized);
-}
-
 function hostShell(command: string, cwd: string) {
-  const shell = process.env.SHELL || "/bin/zsh";
-  return {
-    command: shell,
-    args: ["-lc", command],
-    cwd,
-    sandbox: {
-      platform: process.platform,
-      backend: "host-developer",
-      mode: "none" as const,
-      available: true,
-      networkMode: "allow" as const,
-      notes: ["approved macOS developer toolchain command is running on the host instead of sandbox-exec"],
-    },
-  };
+  const shell = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "/bin/zsh");
+  // Use the runtime's inherited environment without starting a login shell. This preserves
+  // PATH/credential helpers while avoiding arbitrary profile startup hooks on every command.
+  const args = process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command];
+  return { command: shell, args, cwd };
 }
 
 export class ProcessManager {
@@ -110,7 +88,6 @@ export class ProcessManager {
   constructor(
     private workspaceRoot: string,
     private workspaceKey: string,
-    private sandbox: SandboxManager,
     private onOutput?: (record: ProcessRecord, stream: "stdout" | "stderr", text: string) => void,
     private onSettled?: (record: ProcessRecord) => void | Promise<void>,
   ) {}
@@ -160,14 +137,12 @@ export class ProcessManager {
 
   async start(command: string, options: { cwd: string; timeoutMs?: number; ownerSessionId?: string; requestId?: string; usePty?: boolean; cols?: number; rows?: number }) {
     this.prune();
-    const executionMode: ExecutionMode = isMacDeveloperHostCommand(command) ? "host-developer" : "sandbox";
+    const executionMode: ExecutionMode = "host-policy";
     const record = this.baseRecord(command, options.cwd, executionMode, options.ownerSessionId);
     this.records.set(record.processId, record);
     if (options.requestId) this.requestToProcess.set(options.requestId, record.processId);
 
-    const wrap = async () => executionMode === "host-developer"
-      ? hostShell(command, options.cwd)
-      : this.sandbox.wrapShell(command, options.cwd);
+    const wrap = async () => hostShell(command, options.cwd);
 
     if (options.usePty) {
       const nodePty = await loadNodePty();

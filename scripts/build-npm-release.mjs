@@ -8,7 +8,7 @@ const staging = path.join(root, ".release", "npm");
 const stagingDist = path.join(staging, "dist");
 
 const runtimeFiles = [
-  "approval.js",
+  "approval-memory.js",
   "audit.js",
   "chat-approval.js",
   "cli-saas.js",
@@ -27,7 +27,6 @@ const runtimeFiles = [
   "process-manager.js",
   "protocol.js",
   "runtime-daemon.js",
-  "sandbox.js",
   "security-policy.js",
   "semantic-router.js",
   "semantic.js",
