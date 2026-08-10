@@ -10,6 +10,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/ui"
+	"github.com/0xmarkhydra/codelocal/internal/webauth"
 )
 
 // MainUIHandler ports the completed Node control-plane presentation onto the
@@ -92,15 +93,15 @@ func mainWorkspaceState(status string) (label, badge string) {
 
 func mainEventLabel(event string) string {
 	labels := map[string]string{
-		"device.paired":                    "Device paired",
-		"device.pairing_approved":          "Device pairing approved",
-		"device.revoked":                   "Device access revoked",
-		"workspace.activation_requested":   "Workspace activation requested",
-		"workspace.activated":              "Workspace activated",
-		"workspace.activation_rejected":    "Workspace activation rejected",
-		"workspace.revocation_requested":   "Workspace removal requested",
-		"workspace.revoked":                "Workspace authorization removed",
-		"terminal.executed":                "Terminal command executed",
+		"device.paired":                  "Device paired",
+		"device.pairing_approved":        "Device pairing approved",
+		"device.revoked":                 "Device access revoked",
+		"workspace.activation_requested": "Workspace activation requested",
+		"workspace.activated":            "Workspace activated",
+		"workspace.activation_rejected":  "Workspace activation rejected",
+		"workspace.revocation_requested": "Workspace removal requested",
+		"workspace.revoked":              "Workspace authorization removed",
+		"terminal.executed":              "Terminal command executed",
 	}
 	if label := labels[event]; label != "" {
 		return label
