@@ -24,6 +24,7 @@ func main() {
 		slog.Error("CodeLocal Cloud initialization failed", "error", err)
 		os.Exit(1)
 	}
+	server.RegisterDashboardExtras()
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
 	select {
