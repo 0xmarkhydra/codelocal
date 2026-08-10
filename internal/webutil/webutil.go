@@ -25,7 +25,13 @@ func DecodeJSON(r *http.Request, limit int64, dst any) error {
 		limit = 1 << 20
 	}
 	decoder := json.NewDecoder(io.LimitReader(r.Body, limit))
-	decoder.DisallowUnknownFields()
+	// Workspace sync is a compatibility boundary. Older CodeLocal runtimes send
+	// local-only metadata such as grantedAt/lastActivatedAt. Ignore unknown fields
+	// on this endpoint so a Cloud upgrade remains a drop-in replacement for old
+	// clients, while keeping strict JSON validation everywhere else.
+	if r.URL.Path != "/api/client/workspaces/sync" {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(dst); err != nil {
 		return err
 	}
