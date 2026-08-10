@@ -158,7 +158,7 @@ func (s *Server) routes() {
 	mux := s.Mux
 	s.WebAuth.Register(mux)
 	s.OAuth.Register(mux)
-	mux.HandleFunc("GET /", s.landing)
+	mux.HandleFunc("/", s.landing)
 	mux.Handle("GET /dashboard", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/devices", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/workspaces", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
@@ -218,6 +218,15 @@ func readBodyReplay(r *http.Request, limit int64) ([]byte, error) {
 }
 
 func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
 	identity, _ := s.WebAuth.Identity(r)
 	href := "/register"
 	label := "Create free account"
