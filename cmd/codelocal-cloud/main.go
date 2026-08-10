@@ -13,6 +13,10 @@ import (
 )
 
 func main() {
+	// Railway classifies stderr as errors. Keep structured INFO/WARN traffic on
+	// stdout so healthy requests do not paint the deployment log red.
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	server, err := cloudserver.New(ctx)
