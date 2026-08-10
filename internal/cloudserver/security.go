@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/ui"
-	"github.com/0xmarkhydra/codelocal/internal/webauth"
 )
 
 const securityPageSize = 25
@@ -92,5 +91,3 @@ LIMIT $2 OFFSET $3`, identity.User.ID, securityPageSize, offset)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(ui.Page("Security · CodeLocal Cloud", "Cloud audit metadata for terminal executions only.", body.String())))
 }
-
-var _ *webauth.Identity
