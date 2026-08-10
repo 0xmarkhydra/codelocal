@@ -76,14 +76,18 @@ process.exit(result.status ?? 1);
 	public := map[string]any{"name": "codelocal", "version": manifest.Version, "description": "Native Go runtime that securely connects ChatGPT to local development workspaces.", "license": "UNLICENSED", "bin": map[string]string{"codelocal": "bin/codelocal.js"}, "files": []string{"bin/", "README.md"}, "engines": map[string]string{"node": ">=20"}, "keywords": []string{"chatgpt", "mcp", "coding", "local", "go"}}
 	publicRaw, _ := json.MarshalIndent(public, "", "  ")
 	must(os.WriteFile(filepath.Join(staging, "package.json"), append(publicRaw, '\n'), 0o600))
+	releaseChannel := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_RELEASE_CHANNEL")))
+	installCommand := "npm i -g codelocal"
+	if releaseChannel == "beta" {
+		installCommand += "@beta"
+	}
 	readme := `# CodeLocal
 
 Native Go local development runtime for ChatGPT.
 
 ## Install
 
-` + "```bash\n" + `npm i -g codelocal@beta
-` + "```\n\n" + `## Authorize a project
+` + "```bash\n" + installCommand + "\n" + "```\n\n" + `## Authorize a project
 
 ` + "```bash\n" + `cd /path/to/project
 codelocal .

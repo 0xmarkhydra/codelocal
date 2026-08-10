@@ -1,6 +1,6 @@
 {
   "name": "codex-mcp",
-  "version": "1.5.0-beta.6",
+  "version": "1.5.3",
   "private": true,
   "description": "CodeLocal native Go runtime and horizontally scalable MCP gateway for ChatGPT.",
   "license": "UNLICENSED",
@@ -10,7 +10,8 @@
     "test": "go test ./...",
     "ci": "go test ./... && go vet ./...",
     "build:npm": "go run ./cmd/release",
-    "release:prepare": "npm run ci && go run ./cmd/release && npm pack --dry-run ./.release/npm"
+    "release:prepare": "npm run ci && go run ./cmd/release && npm pack --dry-run ./.release/npm",
+    "release:npm": "bash ./release.sh"
   },
   "engines": {
     "node": ">=20"
