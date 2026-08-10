@@ -256,6 +256,7 @@ export class CloudStore {
       CREATE INDEX IF NOT EXISTS idx_codelocal_pairings_expires ON codelocal_pairings(expires_at);
 
       UPDATE codelocal_workspaces SET project_root=NULL WHERE project_root IS NOT NULL;
+      DELETE FROM codelocal_audit_logs WHERE event <> 'terminal.executed';
     `);
   }
 
@@ -554,6 +555,7 @@ export class CloudStore {
   }
 
   async audit(userId: string | undefined, event: string, detail: Record<string, unknown> = {}, deviceId?: string, workspaceId?: string) {
+    if (event !== "terminal.executed") return;
     await this.db().query(
       "INSERT INTO codelocal_audit_logs(id,user_id,event,device_id,workspace_id,detail,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
       [randomUUID(), userId ?? null, event, deviceId ?? null, workspaceId ?? null, JSON.stringify(detail), Date.now()],
@@ -566,6 +568,31 @@ export class CloudStore {
       [userId, Math.max(1, Math.min(limit, 200))],
     );
     return result.rows.map((row) => ({ id: row.id, event: row.event, deviceId: row.device_id, workspaceId: row.workspace_id, detail: row.detail ?? {}, createdAt: Number(row.created_at) }));
+  }
+
+  async auditPage(userId: string, page = 1, pageSize = 20) {
+    const requestedPage = Math.max(1, Math.floor(page));
+    const safePageSize = Math.max(1, Math.min(Math.floor(pageSize), 100));
+    const countResult = await this.db().query("SELECT COUNT(*) AS total FROM codelocal_audit_logs WHERE user_id=$1", [userId]);
+    const total = Number(countResult.rows[0]?.total ?? 0);
+    const totalPages = Math.max(1, Math.ceil(total / safePageSize));
+    const safePage = Math.min(requestedPage, totalPages);
+    const offset = (safePage - 1) * safePageSize;
+    const result = await this.db().query(
+      `SELECT id,event,device_id,workspace_id,detail,created_at
+       FROM codelocal_audit_logs
+       WHERE user_id=$1
+       ORDER BY created_at DESC,id DESC
+       LIMIT $2 OFFSET $3`,
+      [userId, safePageSize, offset],
+    );
+    return {
+      items: result.rows.map((row) => ({ id: row.id, event: row.event, deviceId: row.device_id, workspaceId: row.workspace_id, detail: row.detail ?? {}, createdAt: Number(row.created_at) })),
+      page: safePage,
+      pageSize: safePageSize,
+      total,
+      totalPages,
+    };
   }
 
   private mapPairing(row: any): CloudPairing | null {

@@ -1,0 +1,494 @@
+package process
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/0xmarkhydra/codelocal/internal/security"
+)
+
+type Status string
+
+const (
+	StatusRunning   Status = "running"
+	StatusExited    Status = "exited"
+	StatusCancelled Status = "cancelled"
+	StatusFailed    Status = "failed"
+)
+
+type streamBuffer struct {
+	Data       []byte
+	BaseOffset int64
+	TotalBytes int64
+}
+
+type Record struct {
+	ProcessID      string
+	WorkspaceKey   string
+	OwnerSessionID string
+	RequestID      string
+	PID            int
+	Command        string
+	CWD            string
+	StartedAt      int64
+	LastActivityAt int64
+	Status         Status
+	ExitCode       *int
+	Signal         string
+	Stdout         streamBuffer
+	Stderr         streamBuffer
+	TimeoutAt      int64
+	PTY            bool
+	ExecutionMode  string
+	cmd            *exec.Cmd
+	stdin          io.WriteCloser
+	pty            ptyHandle
+	cancel         context.CancelFunc
+}
+
+type Snapshot struct {
+	ProcessID      string         `json:"processId"`
+	WorkspaceKey   string         `json:"workspaceKey"`
+	OwnerSessionID string         `json:"ownerSessionId,omitempty"`
+	PID            int            `json:"pid,omitempty"`
+	Command        string         `json:"command"`
+	CWD            string         `json:"cwd"`
+	StartedAt      int64          `json:"startedAt"`
+	LastActivityAt int64          `json:"lastActivityAt"`
+	Status         Status         `json:"status"`
+	Running        bool           `json:"running"`
+	ExitCode       *int           `json:"exitCode"`
+	Signal         string         `json:"signal,omitempty"`
+	TimeoutAt      int64          `json:"timeoutAt,omitempty"`
+	PTY            bool           `json:"pty"`
+	ExecutionMode  string         `json:"executionMode"`
+	Stdout         map[string]any `json:"stdout"`
+	Stderr         map[string]any `json:"stderr"`
+}
+
+type StartOptions struct {
+	CWD            string
+	Timeout        time.Duration
+	OwnerSessionID string
+	RequestID      string
+	UsePTY         bool
+	Cols           int
+	Rows           int
+}
+
+type Manager struct {
+	mu               sync.Mutex
+	workspaceRoot    string
+	workspaceKey     string
+	records          map[string]*Record
+	requestToProcess map[string]string
+	maxBufferBytes   int
+	maxProcesses     int
+	onOutput         func(*Record, string, string)
+	onSettled        func(*Record)
+}
+
+func NewManager(workspaceRoot, workspaceKey string, onOutput func(*Record, string, string), onSettled func(*Record)) *Manager {
+	maxBuffer := envInt("CODELOCAL_MAX_PROCESS_BUFFER_BYTES", 2*1024*1024)
+	maxProcesses := envInt("CODELOCAL_MAX_PROCESSES", 64)
+	return &Manager{workspaceRoot: workspaceRoot, workspaceKey: workspaceKey, records: map[string]*Record{}, requestToProcess: map[string]string{}, maxBufferBytes: maxBuffer, maxProcesses: maxProcesses, onOutput: onOutput, onSettled: onSettled}
+}
+
+func envInt(name string, fallback int) int {
+	if raw := strings.TrimSpace(os.Getenv(name)); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
+			return value
+		}
+	}
+	return fallback
+}
+
+func id() string {
+	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
+}
+
+func (m *Manager) append(record *Record, stream, value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	record.LastActivityAt = time.Now().UnixMilli()
+	buffer := &record.Stdout
+	if stream == "stderr" {
+		buffer = &record.Stderr
+	}
+	chunk := []byte(value)
+	buffer.TotalBytes += int64(len(chunk))
+	buffer.Data = append(buffer.Data, chunk...)
+	if len(buffer.Data) > m.maxBufferBytes {
+		start := len(buffer.Data) - m.maxBufferBytes
+		for start < len(buffer.Data) && (buffer.Data[start]&0xc0) == 0x80 {
+			start++
+		}
+		buffer.BaseOffset += int64(start)
+		buffer.Data = append([]byte(nil), buffer.Data[start:]...)
+	}
+	if m.onOutput != nil {
+		copyRecord := *record
+		go m.onOutput(&copyRecord, stream, value)
+	}
+}
+
+func readBuffer(buffer streamBuffer, cursor *int64) map[string]any {
+	requested := buffer.BaseOffset
+	if cursor != nil && *cursor > requested {
+		requested = *cursor
+	}
+	relative := requested - buffer.BaseOffset
+	if relative < 0 {
+		relative = 0
+	}
+	if relative > int64(len(buffer.Data)) {
+		relative = int64(len(buffer.Data))
+	}
+	for relative < int64(len(buffer.Data)) && (buffer.Data[relative]&0xc0) == 0x80 {
+		relative++
+	}
+	return map[string]any{"text": string(buffer.Data[relative:]), "cursor": buffer.TotalBytes, "truncatedBeforeCursor": cursor != nil && *cursor < buffer.BaseOffset}
+}
+
+func (m *Manager) pruneLocked() error {
+	if len(m.records) < m.maxProcesses {
+		return nil
+	}
+	var oldest *Record
+	for _, record := range m.records {
+		if record.Status == StatusRunning {
+			continue
+		}
+		if oldest == nil || record.StartedAt < oldest.StartedAt {
+			oldest = record
+		}
+	}
+	if oldest == nil {
+		return fmt.Errorf("too many active CodeLocal processes (%d)", m.maxProcesses)
+	}
+	delete(m.records, oldest.ProcessID)
+	return nil
+}
+
+func hostShell(command, cwd string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		shell := os.Getenv("COMSPEC")
+		if shell == "" {
+			shell = "cmd.exe"
+		}
+		cmd := exec.Command(shell, "/d", "/s", "/c", command)
+		cmd.Dir = cwd
+		return cmd
+	}
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/zsh"
+	}
+	cmd := exec.Command(shell, "-c", command)
+	cmd.Dir = cwd
+	return cmd
+}
+
+func withEnv(cmd *exec.Cmd) {
+	env := os.Environ()
+	env = append(env, "PAGER=cat", "GIT_PAGER=cat", "CODELOCAL_EXECUTION_MODE=host-policy")
+	if os.Getenv("CI") == "" {
+		env = append(env, "CI=1")
+	}
+	cmd.Env = env
+}
+
+func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) {
+	m.mu.Lock()
+	if err := m.pruneLocked(); err != nil {
+		m.mu.Unlock()
+		return Snapshot{}, err
+	}
+	now := time.Now().UnixMilli()
+	record := &Record{ProcessID: id(), WorkspaceKey: m.workspaceKey, OwnerSessionID: options.OwnerSessionID, RequestID: options.RequestID, Command: command, CWD: options.CWD, StartedAt: now, LastActivityAt: now, Status: StatusRunning, ExecutionMode: "host-policy"}
+	m.records[record.ProcessID] = record
+	if record.RequestID != "" {
+		m.requestToProcess[record.RequestID] = record.ProcessID
+	}
+	m.mu.Unlock()
+
+	ctx := context.Background()
+	if options.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, options.Timeout)
+		record.cancel = cancel
+		record.TimeoutAt = time.Now().Add(options.Timeout).UnixMilli()
+	}
+	cmd := hostShell(command, options.CWD)
+	withEnv(cmd)
+	if options.UsePTY {
+		if handle, err := startPTY(cmd, options.Cols, options.Rows); err == nil && handle != nil {
+			record.PTY = true
+			record.pty = handle
+			record.PID = cmd.Process.Pid
+			go m.copyPTY(record, handle)
+			go m.wait(record, ctx, cmd)
+			return m.Snapshot(record.ProcessID, nil, nil)
+		}
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return Snapshot{}, m.failStart(record, err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return Snapshot{}, m.failStart(record, err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return Snapshot{}, m.failStart(record, err)
+	}
+	if err := cmd.Start(); err != nil {
+		return Snapshot{}, m.failStart(record, err)
+	}
+	record.cmd, record.stdin, record.PID = cmd, stdin, cmd.Process.Pid
+	go m.copyStream(record, "stdout", stdout)
+	go m.copyStream(record, "stderr", stderr)
+	go m.wait(record, ctx, cmd)
+	return m.Snapshot(record.ProcessID, nil, nil)
+}
+
+func (m *Manager) failStart(record *Record, err error) error {
+	m.mu.Lock()
+	record.Status = StatusFailed
+	code := -1
+	record.ExitCode = &code
+	m.mu.Unlock()
+	m.append(record, "stderr", "\n[process error] "+err.Error()+"\n")
+	m.settled(record)
+	return err
+}
+
+func (m *Manager) copyStream(record *Record, stream string, source io.Reader) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := source.Read(buf)
+		if n > 0 {
+			m.append(record, stream, string(buf[:n]))
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (m *Manager) copyPTY(record *Record, handle ptyHandle) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := handle.Read(buf)
+		if n > 0 {
+			m.append(record, "stdout", string(buf[:n]))
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (m *Manager) wait(record *Record, ctx context.Context, cmd *exec.Cmd) {
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var err error
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		m.mu.Lock()
+		if record.Status == StatusRunning {
+			record.Status = StatusCancelled
+		}
+		m.mu.Unlock()
+		_ = terminateProcess(cmd)
+		err = <-done
+	}
+	m.mu.Lock()
+	if record.Status == StatusRunning {
+		if err != nil && !isExitError(err) {
+			record.Status = StatusFailed
+		} else {
+			record.Status = StatusExited
+		}
+	}
+	if cmd.ProcessState != nil {
+		code := cmd.ProcessState.ExitCode()
+		record.ExitCode = &code
+	}
+	record.LastActivityAt = time.Now().UnixMilli()
+	m.mu.Unlock()
+	m.settled(record)
+}
+
+func isExitError(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr)
+}
+
+func (m *Manager) settled(record *Record) {
+	m.mu.Lock()
+	if record.RequestID != "" && m.requestToProcess[record.RequestID] == record.ProcessID {
+		delete(m.requestToProcess, record.RequestID)
+	}
+	if record.cancel != nil {
+		record.cancel()
+		record.cancel = nil
+	}
+	copyRecord := *record
+	m.mu.Unlock()
+	if m.onSettled != nil {
+		go m.onSettled(&copyRecord)
+	}
+}
+
+func (m *Manager) Snapshot(processID string, stdoutCursor, stderrCursor *int64) (Snapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	record := m.records[processID]
+	if record == nil {
+		return Snapshot{}, errors.New("unknown processId")
+	}
+	rel, err := filepath.Rel(m.workspaceRoot, record.CWD)
+	if err != nil || rel == "" {
+		rel = "."
+	}
+	return Snapshot{ProcessID: record.ProcessID, WorkspaceKey: record.WorkspaceKey, OwnerSessionID: record.OwnerSessionID, PID: record.PID, Command: security.RedactCommand(record.Command), CWD: filepath.ToSlash(rel), StartedAt: record.StartedAt, LastActivityAt: record.LastActivityAt, Status: record.Status, Running: record.Status == StatusRunning, ExitCode: record.ExitCode, Signal: record.Signal, TimeoutAt: record.TimeoutAt, PTY: record.PTY, ExecutionMode: record.ExecutionMode, Stdout: readBuffer(record.Stdout, stdoutCursor), Stderr: readBuffer(record.Stderr, stderrCursor)}, nil
+}
+
+func (m *Manager) List() []map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]map[string]any, 0, len(m.records))
+	for _, record := range m.records {
+		rel, _ := filepath.Rel(m.workspaceRoot, record.CWD)
+		out = append(out, map[string]any{"processId": record.ProcessID, "pid": record.PID, "command": security.RedactCommand(record.Command), "cwd": filepath.ToSlash(rel), "status": record.Status, "exitCode": record.ExitCode, "signal": record.Signal, "startedAt": record.StartedAt, "lastActivityAt": record.LastActivityAt, "pty": record.PTY, "executionMode": record.ExecutionMode})
+	}
+	return out
+}
+
+func (m *Manager) Write(processID, input string) (map[string]any, error) {
+	m.mu.Lock()
+	record := m.records[processID]
+	m.mu.Unlock()
+	if record == nil || record.Status != StatusRunning {
+		return nil, errors.New("process not running")
+	}
+	var err error
+	if record.pty != nil {
+		_, err = record.pty.Write([]byte(input))
+	} else if record.stdin != nil {
+		_, err = io.WriteString(record.stdin, input)
+	} else {
+		err = errors.New("process stdin unavailable")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"written": len([]byte(input))}, nil
+}
+
+func (m *Manager) Resize(processID string, cols, rows int) (map[string]any, error) {
+	m.mu.Lock()
+	record := m.records[processID]
+	m.mu.Unlock()
+	if record == nil || record.pty == nil {
+		return nil, errors.New("PTY resize is not available for this process")
+	}
+	if err := record.pty.Resize(cols, rows); err != nil {
+		return nil, err
+	}
+	return map[string]any{"resized": true, "cols": cols, "rows": rows}, nil
+}
+
+func (m *Manager) Signal(processID, signal string) (map[string]any, error) {
+	m.mu.Lock()
+	record := m.records[processID]
+	m.mu.Unlock()
+	if record == nil {
+		return nil, errors.New("unknown processId")
+	}
+	if record.Status != StatusRunning {
+		return map[string]any{"signalled": false, "status": record.Status}, nil
+	}
+	if signal == "" {
+		signal = "SIGTERM"
+	}
+	if err := signalProcess(record.cmd, record.pty, signal); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	record.Signal = signal
+	record.LastActivityAt = time.Now().UnixMilli()
+	m.mu.Unlock()
+	return map[string]any{"signalled": true, "signal": signal}, nil
+}
+
+func (m *Manager) Cancel(processID, reason string) (map[string]any, error) {
+	m.mu.Lock()
+	record := m.records[processID]
+	if record == nil {
+		m.mu.Unlock()
+		return nil, errors.New("unknown processId")
+	}
+	if record.Status == StatusRunning {
+		record.Status = StatusCancelled
+	}
+	m.mu.Unlock()
+	if record.Status == StatusCancelled {
+		m.append(record, "stderr", "\n[CodeLocal] "+reason+"\n")
+		_ = signalProcess(record.cmd, record.pty, "SIGTERM")
+	}
+	return map[string]any{"cancelled": true, "processId": processID}, nil
+}
+
+func (m *Manager) CancelRequest(requestID, reason string) map[string]any {
+	m.mu.Lock()
+	processID := m.requestToProcess[requestID]
+	m.mu.Unlock()
+	if processID == "" {
+		return map[string]any{"cancelled": false, "reason": "no process associated with request"}
+	}
+	result, err := m.Cancel(processID, reason)
+	if err != nil {
+		return map[string]any{"cancelled": false, "reason": err.Error()}
+	}
+	return result
+}
+
+func (m *Manager) StopAll(reason string) map[string]any {
+	m.mu.Lock()
+	ids := []string{}
+	for id, record := range m.records {
+		if record.Status == StatusRunning {
+			ids = append(ids, id)
+		}
+	}
+	m.requestToProcess = map[string]string{}
+	m.mu.Unlock()
+	for _, id := range ids {
+		_, _ = m.Cancel(id, reason)
+	}
+	return map[string]any{"cancelled": len(ids)}
+}
+
+func Tail(data []byte, max int) string {
+	if len(data) <= max {
+		return string(data)
+	}
+	return string(bytes.Clone(data[len(data)-max:]))
+}
+
+func Redacted(command string) string { return security.RedactCommand(command) }

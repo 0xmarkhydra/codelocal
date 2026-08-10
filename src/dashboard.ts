@@ -32,7 +32,10 @@ function flash(req: express.Request) {
   return `${ok}${error}`;
 }
 
-function eventLabel(event: string) {
+function eventLabel(event: string, detail?: Record<string, unknown>) {
+  if (event === "terminal.executed" && typeof detail?.tool === "string" && detail.tool.trim()) {
+    return `ChatGPT used terminal · ${detail.tool.trim()}`;
+  }
   const labels: Record<string, string> = {
     "device.paired": "Device paired",
     "device.pairing_approved": "Device pairing approved",
@@ -43,7 +46,7 @@ function eventLabel(event: string) {
     "workspace.revocation_requested": "Workspace removal requested",
     "workspace.revoked": "Workspace authorization removed",
     "runtime.workspaces_synced": "Workspace permissions synced",
-    "gateway.tool.dispatch": "ChatGPT used a CodeLocal tool",
+    "terminal.executed": "ChatGPT used terminal",
   };
   return labels[event] ?? event.split(/[._-]/).filter(Boolean).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
 }
@@ -104,7 +107,7 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
           const state = workspaceState(workspace, deviceOnline.get(workspace.deviceId) === true);
           return `<div class="row"><div class="entity"><div class="entity-icon">${uiIcons.folder}</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta">${escapeHtml(workspace.deviceId)} · ${formatTime(workspace.lastSeenAt)}</div></div></div><span class="badge ${state.badge}">${state.label}</span></div>`;
         }).join("") || `<div class="empty"><div class="empty-icon">${uiIcons.folder}</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`}</div></div>
-        <div class="card span4"><div class="section-head"><div><div class="title">Recent activity</div><div class="label">Cloud security metadata only.</div></div><a class="btn small" href="/dashboard/security">View all</a></div><div class="divider"></div>${audit.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event))}</div><div class="activity-meta">${formatTime(item.createdAt)}</div></div></div>`).join("") || `<div class="empty">No activity yet.</div>`}</div>
+        <div class="card span4"><div class="section-head"><div><div class="title">Recent terminal activity</div><div class="label">Successful terminal executions only.</div></div><a class="btn small" href="/dashboard/security">View all</a></div><div class="divider"></div>${audit.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event, item.detail))}</div><div class="activity-meta">${formatTime(item.createdAt)}</div></div></div>`).join("") || `<div class="empty">No terminal activity yet.</div>`}</div>
       </div>`,
     });
   });
@@ -179,13 +182,17 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
     });
   });
 
-  router.get("/dashboard/security", async (_req, res) => {
+  router.get("/dashboard/security", async (req, res) => {
     const me = identity(res);
-    const audit = await cloudStore.recentAudit(me.user.id, 100);
+    const requestedPage = Number.parseInt(String(req.query.page ?? "1"), 10);
+    const audit = await cloudStore.auditPage(me.user.id, Number.isFinite(requestedPage) ? requestedPage : 1, 20);
+    const previous = audit.page > 1 ? `<a class="btn small" href="/dashboard/security?page=${audit.page - 1}">← Previous</a>` : "";
+    const next = audit.page < audit.totalPages ? `<a class="btn small" href="/dashboard/security?page=${audit.page + 1}">Next →</a>` : "";
+    const pager = `<div class="divider"></div><div class="section-head"><div class="label">Page ${audit.page} of ${audit.totalPages} · ${audit.total} event${audit.total === 1 ? "" : "s"} · 20 per page</div><div class="actions">${previous}${next}</div></div>`;
     shell(res, {
       title: "Security", active: "security", email: me.user.email, csrf: me.csrf,
-      subtitle: "Cloud audit metadata for account, device and workspace changes. Source code, terminal output and local secrets are not stored here.",
-      body: `<div class="card"><div class="section-head"><div><div class="title">Activity</div><div class="label">Newest events first.</div></div><span class="badge blue">Metadata only</span></div><div class="divider"></div>${audit.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event))}</div><div class="activity-meta">${formatTime(item.createdAt)}${item.deviceId ? ` · ${escapeHtml(item.deviceId)}` : ""}${item.workspaceId ? ` · ${escapeHtml(item.workspaceId)}` : ""}</div></div></div>`).join("") || `<div class="empty">No audit events yet.</div>`}</div>`,
+      subtitle: "Cloud stores terminal-execution metadata only. Source code, terminal output, command text and local secrets are not stored here.",
+      body: `<div class="card"><div class="section-head"><div><div class="title">Terminal activity</div><div class="label">Only successful terminal executions are stored. Newest events first.</div></div><span class="badge blue">Metadata only</span></div><div class="divider"></div>${audit.items.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event, item.detail))}</div><div class="activity-meta">${formatTime(item.createdAt)}${item.deviceId ? ` · ${escapeHtml(item.deviceId)}` : ""}${item.workspaceId ? ` · ${escapeHtml(item.workspaceId)}` : ""}</div></div></div>`).join("") || `<div class="empty">No terminal activity yet.</div>`}${pager}</div>`,
     });
   });
 

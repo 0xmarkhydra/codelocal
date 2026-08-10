@@ -1,0 +1,333 @@
+package oauth
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/ui"
+	"github.com/0xmarkhydra/codelocal/internal/webauth"
+	"github.com/0xmarkhydra/codelocal/internal/webutil"
+)
+
+const Scope = "mcp:tools offline_access"
+
+type tokenPayload struct {
+	Type     string `json:"typ"`
+	Subject  string `json:"sub"`
+	ClientID string `json:"client_id"`
+	Resource string `json:"resource"`
+	Scope    string `json:"scope"`
+	IssuedAt int64  `json:"iat"`
+	Expires  int64  `json:"exp"`
+	JTI      string `json:"jti"`
+}
+
+type Claims struct {
+	Subject  string
+	ClientID string
+	Resource string
+	Scope    string
+}
+
+type contextKey string
+
+const claimsKey contextKey = "codelocal-oauth-claims"
+
+type Server struct {
+	Store      *cloud.Store
+	WebAuth    *webauth.Manager
+	BaseURL    string
+	Resource   string
+	Secret     []byte
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration
+	CodeTTL    time.Duration
+}
+
+func New(store *cloud.Store, auth *webauth.Manager, baseURL, secret string) (*Server, error) {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" || secret == "" {
+		return nil, errors.New("missing PUBLIC_BASE_URL or MCP_AUTH_SECRET")
+	}
+	return &Server{Store: store, WebAuth: auth, BaseURL: baseURL, Resource: baseURL + "/mcp", Secret: []byte(secret), AccessTTL: time.Hour, RefreshTTL: 30 * 24 * time.Hour, CodeTTL: 5 * time.Minute}, nil
+}
+
+func randomURL(n int) string {
+	buf := make([]byte, n)
+	_, _ = rand.Read(buf)
+	return base64.RawURLEncoding.EncodeToString(buf)
+}
+func (s *Server) sign(payload tokenPayload) string {
+	raw, _ := json.Marshal(payload)
+	encoded := base64.RawURLEncoding.EncodeToString(raw)
+	mac := hmac.New(sha256.New, s.Secret)
+	_, _ = mac.Write([]byte(encoded))
+	return encoded + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+func (s *Server) verify(token, expectedType string) (tokenPayload, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return tokenPayload{}, errors.New("malformed token")
+	}
+	mac := hmac.New(sha256.New, s.Secret)
+	_, _ = mac.Write([]byte(parts[0]))
+	expected := mac.Sum(nil)
+	actual, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || len(actual) != len(expected) || subtle.ConstantTimeCompare(actual, expected) != 1 {
+		return tokenPayload{}, errors.New("invalid token signature")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return tokenPayload{}, err
+	}
+	var payload tokenPayload
+	if json.Unmarshal(raw, &payload) != nil {
+		return tokenPayload{}, errors.New("invalid token")
+	}
+	now := time.Now().Unix()
+	if payload.Type != expectedType || payload.Expires <= now || payload.Resource != s.Resource || payload.Subject == "" {
+		return tokenPayload{}, errors.New("expired or invalid token")
+	}
+	return payload, nil
+}
+func parseScope(value string) string {
+	if value == "" {
+		value = Scope
+	}
+	set := map[string]struct{}{}
+	for _, part := range strings.Fields(value) {
+		set[part] = struct{}{}
+	}
+	set["mcp:tools"] = struct{}{}
+	set["offline_access"] = struct{}{}
+	ordered := []string{}
+	for _, part := range strings.Fields(value) {
+		if _, ok := set[part]; ok {
+			ordered = append(ordered, part)
+			delete(set, part)
+		}
+	}
+	for _, part := range []string{"mcp:tools", "offline_access"} {
+		if _, ok := set[part]; ok {
+			ordered = append(ordered, part)
+			delete(set, part)
+		}
+	}
+	return strings.Join(ordered, " ")
+}
+func (s *Server) issue(userID, clientID, resource, scope string) map[string]any {
+	now := time.Now().Unix()
+	scope = parseScope(scope)
+	access := s.sign(tokenPayload{Type: "access", Subject: userID, ClientID: clientID, Resource: resource, Scope: scope, IssuedAt: now, Expires: now + int64(s.AccessTTL.Seconds()), JTI: randomURL(16)})
+	refresh := s.sign(tokenPayload{Type: "refresh", Subject: userID, ClientID: clientID, Resource: resource, Scope: scope, IssuedAt: now, Expires: now + int64(s.RefreshTTL.Seconds()), JTI: randomURL(16)})
+	return map[string]any{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int64(s.AccessTTL.Seconds()), "scope": scope}
+}
+
+func validRedirect(value string) bool {
+	u, err := url.Parse(value)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+func contains(values []string, value string) bool {
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+func hidden(fields map[string]string) string { return ui.Hidden(fields) }
+
+func (s *Server) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+		webutil.JSON(w, 200, map[string]any{"resource": s.Resource, "authorization_servers": []string{s.BaseURL}, "scopes_supported": []string{"mcp:tools", "offline_access"}, "bearer_methods_supported": []string{"header"}})
+	})
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		webutil.JSON(w, 200, map[string]any{"issuer": s.BaseURL, "authorization_endpoint": s.BaseURL + "/authorize", "token_endpoint": s.BaseURL + "/token", "registration_endpoint": s.BaseURL + "/register", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": []string{"mcp:tools", "offline_access"}})
+	})
+	register := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			RedirectURIs []string `json:"redirect_uris"`
+			ClientName   string   `json:"client_name"`
+		}
+		if err := webutil.DecodeJSON(r, 64<<10, &input); err != nil || len(input.RedirectURIs) == 0 {
+			webutil.JSON(w, 400, map[string]any{"error": "invalid_redirect_uri"})
+			return
+		}
+		for _, uri := range input.RedirectURIs {
+			if !validRedirect(uri) {
+				webutil.JSON(w, 400, map[string]any{"error": "invalid_redirect_uri"})
+				return
+			}
+		}
+		client, err := s.Store.CreateOAuthClient(r.Context(), cloud.OAuthClient{ClientID: "codelocal_" + randomURL(24), RedirectURIs: input.RedirectURIs, ClientName: truncate(input.ClientName, 160)})
+		if err != nil {
+			webutil.JSON(w, 500, map[string]any{"error": "server_error"})
+			return
+		}
+		webutil.JSON(w, 201, map[string]any{"client_id": client.ClientID, "client_name": func() string {
+			if client.ClientName != "" {
+				return client.ClientName
+			}
+			return "MCP client"
+		}(), "redirect_uris": client.RedirectURIs, "grant_types": []string{"authorization_code", "refresh_token"}, "response_types": []string{"code"}, "token_endpoint_auth_method": "none"})
+	})
+	mux.Handle("POST /register", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "oauth-register-ip", Limit: 30, Window: time.Minute}, register))
+	mux.HandleFunc("GET /authorize", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		clientID := q.Get("client_id")
+		redirectURI := q.Get("redirect_uri")
+		responseType := q.Get("response_type")
+		challenge := q.Get("code_challenge")
+		method := q.Get("code_challenge_method")
+		resource := q.Get("resource")
+		scope := parseScope(q.Get("scope"))
+		state := q.Get("state")
+		client, _ := s.Store.OAuthClient(r.Context(), clientID)
+		if client == nil || !contains(client.RedirectURIs, redirectURI) || responseType != "code" || challenge == "" || method != "S256" || resource != s.Resource {
+			http.Error(w, "Invalid OAuth authorization request.", 400)
+			return
+		}
+		identity, _ := s.WebAuth.Identity(r)
+		if identity == nil {
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+			return
+		}
+		name := client.ClientName
+		if name == "" {
+			name = "ChatGPT"
+		}
+		body := `<div class="row"><div class="row-title">` + ui.Escape(name) + `</div><div class="row-meta mono">` + ui.Escape(s.Resource) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/authorize">` + hidden(map[string]string{"client_id": clientID, "redirect_uri": redirectURI, "code_challenge": challenge, "resource": resource, "scope": scope, "state": state, "csrf": identity.CSRF}) + `<button class="btn primary" type="submit">Authorize ChatGPT</button><a class="btn" href="/dashboard">Cancel</a></form>`
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(ui.Page("Connect ChatGPT", "Signed in as "+identity.User.Email+". ChatGPT will only see devices and workspaces belonging to this CodeLocal account.", body)))
+	})
+	mux.HandleFunc("POST /authorize", func(w http.ResponseWriter, r *http.Request) {
+		identity, _ := s.WebAuth.Identity(r)
+		if identity == nil {
+			http.Error(w, "Sign in to CodeLocal and restart the ChatGPT connection flow.", 401)
+			return
+		}
+		if !s.WebAuth.VerifyCSRF(r) {
+			http.Error(w, "Invalid security token. Restart the authorization flow.", 403)
+			return
+		}
+		clientID := r.FormValue("client_id")
+		redirectURI := r.FormValue("redirect_uri")
+		challenge := r.FormValue("code_challenge")
+		resource := r.FormValue("resource")
+		scope := parseScope(r.FormValue("scope"))
+		state := r.FormValue("state")
+		client, _ := s.Store.OAuthClient(r.Context(), clientID)
+		if client == nil || !contains(client.RedirectURIs, redirectURI) || challenge == "" || resource != s.Resource {
+			http.Error(w, "Invalid OAuth authorization request.", 400)
+			return
+		}
+		code := randomURL(32)
+		if err := s.Store.PutOAuthCode(r.Context(), cloud.OAuthCode{Code: code, UserID: identity.User.ID, ClientID: clientID, RedirectURI: redirectURI, CodeChallenge: challenge, Resource: resource, Scope: scope, ExpiresAt: time.Now().Add(s.CodeTTL).UnixMilli()}); err != nil {
+			http.Error(w, "Unable to authorize", 500)
+			return
+		}
+		s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "oauth.authorized", Detail: map[string]any{"clientId": clientID, "clientName": client.ClientName}})
+		target, _ := url.Parse(redirectURI)
+		params := target.Query()
+		params.Set("code", code)
+		if state != "" {
+			params.Set("state", state)
+		}
+		target.RawQuery = params.Encode()
+		http.Redirect(w, r, target.String(), http.StatusFound)
+	})
+	tokenHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
+		grant := r.Form.Get("grant_type")
+		clientID := r.Form.Get("client_id")
+		resource := r.Form.Get("resource")
+		if grant == "authorization_code" {
+			record, err := s.Store.ConsumeOAuthCode(r.Context(), r.Form.Get("code"))
+			if err != nil || record == nil || record.ExpiresAt < time.Now().UnixMilli() || record.ClientID != clientID || record.RedirectURI != r.Form.Get("redirect_uri") || record.Resource != resource {
+				webutil.JSON(w, 400, map[string]any{"error": "invalid_grant"})
+				return
+			}
+			sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
+			challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+			if r.Form.Get("code_verifier") == "" || challenge != record.CodeChallenge {
+				webutil.JSON(w, 400, map[string]any{"error": "invalid_grant"})
+				return
+			}
+			webutil.JSON(w, 200, s.issue(record.UserID, clientID, resource, record.Scope))
+			return
+		}
+		if grant == "refresh_token" {
+			payload, err := s.verify(r.Form.Get("refresh_token"), "refresh")
+			if err != nil || payload.ClientID != clientID || payload.Resource != resource {
+				webutil.JSON(w, 400, map[string]any{"error": "invalid_grant"})
+				return
+			}
+			webutil.JSON(w, 200, s.issue(payload.Subject, clientID, resource, payload.Scope))
+			return
+		}
+		webutil.JSON(w, 400, map[string]any{"error": "unsupported_grant_type"})
+	})
+	tokenClientRate := webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "oauth-token-client", Limit: 60, Window: time.Minute, Subject: func(r *http.Request) string { _ = r.ParseForm(); return truncate(r.Form.Get("client_id"), 160) }}, tokenHandler)
+	mux.Handle("POST /token", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "oauth-token-ip", Limit: 120, Window: time.Minute}, tokenClientRate))
+}
+
+func truncate(v string, n int) string {
+	v = strings.TrimSpace(v)
+	if len(v) > n {
+		return v[:n]
+	}
+	return v
+}
+
+func (s *Server) RequireMCP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := r.Header.Get("Authorization")
+		if !strings.HasPrefix(header, "Bearer ") {
+			s.unauthorized(w)
+			return
+		}
+		payload, err := s.verify(strings.TrimPrefix(header, "Bearer "), "access")
+		if err != nil {
+			s.unauthorized(w)
+			return
+		}
+		if !contains(strings.Fields(payload.Scope), "mcp:tools") {
+			webutil.JSON(w, 403, map[string]any{"error": "insufficient_scope"})
+			return
+		}
+		claims := Claims{Subject: payload.Subject, ClientID: payload.ClientID, Resource: payload.Resource, Scope: payload.Scope}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
+	})
+}
+func (s *Server) unauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm="codelocal", resource_metadata="%s/.well-known/oauth-protected-resource"`, s.BaseURL))
+	webutil.JSON(w, 401, map[string]any{"error": "unauthorized"})
+}
+func ClaimsFrom(ctx context.Context) (Claims, bool) {
+	claims, ok := ctx.Value(claimsKey).(Claims)
+	return claims, ok
+}

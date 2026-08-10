@@ -173,14 +173,16 @@ async function activateWorkspace(userId: string, key: string) {
   throw new Error(`Workspace activation timed out after ${WORKSPACE_ACTIVATION_TIMEOUT_MS}ms. Keep \`codelocal\` running on ${workspace.deviceId} and try again.`);
 }
 
+function isTerminalExecutionTool(tool: string) {
+  return tool === "run_command" || tool === "exec_start" || tool === "pty_start";
+}
+
 async function callClient(userId: string, tool: string, args: unknown, selectedKey: string | null, options: { signal?: AbortSignal; sessionId?: string } = {}) {
   const client = selectedKey ? await activateWorkspace(userId, selectedKey) : resolveClient(userId, selectedKey);
   const requestId = randomUUID();
   const startedAt = Date.now();
   const idempotencyKey = isSideEffectingTool(tool) ? requestId : undefined;
   log("info", "tool.dispatch", { requestId, tool, userId, mcpSessionId: options.sessionId ?? null, selectedWorkspaceKey: selectedKey, clientKey: client.key, args: summarizeToolArgs(tool, args), pending: pending.size });
-  await audit({ event: "gateway.tool.dispatch", requestId, workspaceKey: client.key, tool });
-  await cloudStore.audit(userId, "gateway.tool.dispatch", { requestId, tool }, client.deviceId, client.workspaceId).catch(() => undefined);
 
   const result = new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -272,16 +274,16 @@ function createMcpServer(userId: string, routing: WorkspaceRoutingState) {
     return localResult({ selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, clientVersion: client.clientVersion ?? null, update: clientUpdateStatus(client.clientVersion), capabilities: client.capabilities, lastSeenAt: client.lastSeenAt }, client);
   });
 
-  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, host execution policy, approval memory and instructions. Call first after selecting a workspace.", {});
+  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, host execution policy, approval memory and instructions. Call first after selecting a workspace. For coding/debug/refactor tasks, follow it with context_for_task before broad file listing, text search, or multi-file reads.", {});
   remote("project_map", "Project map", "Return cached compact project structure, languages, frameworks, commands and roots.", { force: z.boolean().default(false) });
-  remote("context_for_task", "Context for task", "Select likely relevant symbols/files for a task hint before broad repository scans.", { taskHint: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
+  remote("context_for_task", "Context for task", "Primary semantic-first retrieval step for coding, debugging, review and refactor work. Call this with the user's concrete task before broad repository scans. It returns ranked files, semantic/LSP symbols, dependency graph neighbors, diagnostics and bounded source snippets; use that packet first, then request exact definitions/references or targeted ranges only as needed.", { taskHint: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
   remote("read_instructions", "Read instructions", "Read scoped AGENTS.md and supported coding instructions.", { path: z.string().default(".") });
-  remote("list_files", "List files", "Gitignore-aware project listing. Sensitive paths remain blocked.", { path: z.string().default("."), maxDepth: z.number().int().min(0).max(20).default(4), includeIgnored: z.boolean().default(false) });
+  remote("list_files", "List files", "Gitignore-aware project listing. Sensitive paths remain blocked. For coding tasks, prefer context_for_task first and use listing only when structural discovery is still needed.", { path: z.string().default("."), maxDepth: z.number().int().min(0).max(20).default(4), includeIgnored: z.boolean().default(false) });
   remote("file_info", "File metadata", "Read metadata/hash without source content.", { path: z.string().min(1) });
-  remote("read_file", "Read file", "Read a targeted UTF-8 file.", { path: z.string().min(1) });
-  remote("read_file_range", "Read file range", "Read a targeted line range.", { path: z.string().min(1), startLine: z.number().int().min(1), endLine: z.number().int().min(1) });
-  remote("read_files", "Read files", "Batch read targeted files.", { paths: z.array(z.string().min(1)).min(1).max(50) });
-  remote("search_code", "Search code", "Text search fallback for literal/unknown queries. Prefer semantic tools for definitions/references.", { query: z.string().min(1), path: z.string().default("."), maxResults: z.number().int().min(1).max(1000).default(200), fixedStrings: z.boolean().default(false), includeIgnored: z.boolean().default(false) });
+  remote("read_file", "Read file", "Read a targeted UTF-8 file. For coding tasks, choose the file from context_for_task or semantic navigation rather than guessing paths from a broad scan.", { path: z.string().min(1) });
+  remote("read_file_range", "Read file range", "Read a targeted line range. Prefer ranges identified by context_for_task, definitions/references, symbols or diagnostics.", { path: z.string().min(1), startLine: z.number().int().min(1), endLine: z.number().int().min(1) });
+  remote("read_files", "Read files", "Batch read targeted files. Avoid broad multi-file dumping; for coding tasks use context_for_task first and batch-read only the ranked files that still need more context.", { paths: z.array(z.string().min(1)).min(1).max(50) });
+  remote("search_code", "Search code", "Literal-text fallback for unknown strings, config keys, logs and exact text. For coding/debug/refactor discovery, call context_for_task and semantic definition/reference tools first; do not use repository-wide grep as the default context strategy.", { query: z.string().min(1), path: z.string().default("."), maxResults: z.number().int().min(1).max(1000).default(200), fixedStrings: z.boolean().default(false), includeIgnored: z.boolean().default(false) });
   remote("inspect_dependency", "Inspect dependency", "Inspect dependency metadata for Node/Python/Rust/Go.", { name: z.string().min(1), ecosystem: z.enum(["auto", "node", "python", "rust", "go"]).default("auto") });
   remote("read_dependency", "Read dependency", "Read a targeted installed Node dependency file.", { name: z.string().min(1), path: z.string().default("package.json"), startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), ecosystem: z.string().optional() });
   remote("search_dependency", "Search dependency", "Search inside one installed Node dependency.", { name: z.string().min(1), query: z.string().min(1), maxResults: z.number().int().min(1).max(500).default(100), fixedStrings: z.boolean().default(false) });
@@ -614,7 +616,14 @@ wss.on("connection", (ws) => {
     if (!wait || !record || wait.userId !== record.userId) return;
     pending.delete(requestId); clearTimeout(wait.timer); wait.abortCleanup?.();
     const durationMs = Date.now() - wait.startedAt;
-    if (msg.ok) { wait.resolve(msg.result); log("info", "tool.complete", { requestId, tool: wait.tool, clientKey: wait.clientKey, durationMs }); }
+    if (msg.ok) {
+      wait.resolve(msg.result);
+      log("info", "tool.complete", { requestId, tool: wait.tool, clientKey: wait.clientKey, durationMs });
+      if (isTerminalExecutionTool(wait.tool)) {
+        await audit({ event: "gateway.terminal.executed", requestId, workspaceKey: wait.clientKey, tool: wait.tool });
+        await cloudStore.audit(record.userId, "terminal.executed", { requestId, tool: wait.tool }, record.deviceId, record.workspaceId).catch(() => undefined);
+      }
+    }
     else { const message = String(msg.errorMessage ?? msg.error ?? "Client tool failed"); const error = new Error(message); (error as any).code = msg.errorCode; wait.reject(error); log("error", "tool.failed", { requestId, tool: wait.tool, clientKey: wait.clientKey, durationMs, errorCode: msg.errorCode, error: message }); }
   });
   ws.on("close", () => {

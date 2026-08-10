@@ -1,0 +1,69 @@
+package oauth
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func testServer() *Server {
+	return &Server{BaseURL: "https://example.test", Resource: "https://example.test/mcp", Secret: []byte("test-secret-with-enough-entropy"), AccessTTL: time.Hour, RefreshTTL: 24 * time.Hour, CodeTTL: 5 * time.Minute}
+}
+
+func TestTokenSignVerify(t *testing.T) {
+	s := testServer()
+	now := time.Now().Unix()
+	token := s.sign(tokenPayload{Type: "access", Subject: "user-1", ClientID: "client-1", Resource: s.Resource, Scope: Scope, IssuedAt: now, Expires: now + 60, JTI: "jti"})
+	payload, err := s.verify(token, "access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Subject != "user-1" || payload.ClientID != "client-1" {
+		t.Fatalf("payload=%#v", payload)
+	}
+	parts := strings.Split(token, ".")
+	parts[0] = "x" + parts[0][1:]
+	if _, err := s.verify(strings.Join(parts, "."), "access"); err == nil {
+		t.Fatal("tampered token verified")
+	}
+}
+
+func TestTokenRejectsWrongTypeResourceAndExpiry(t *testing.T) {
+	s := testServer()
+	now := time.Now().Unix()
+	refresh := s.sign(tokenPayload{Type: "refresh", Subject: "u", ClientID: "c", Resource: s.Resource, Scope: Scope, IssuedAt: now, Expires: now + 60, JTI: "j"})
+	if _, err := s.verify(refresh, "access"); err == nil {
+		t.Fatal("refresh token accepted as access token")
+	}
+	wrongResource := s.sign(tokenPayload{Type: "access", Subject: "u", ClientID: "c", Resource: "https://other.test/mcp", Scope: Scope, IssuedAt: now, Expires: now + 60, JTI: "j"})
+	if _, err := s.verify(wrongResource, "access"); err == nil {
+		t.Fatal("wrong resource token verified")
+	}
+	expired := s.sign(tokenPayload{Type: "access", Subject: "u", ClientID: "c", Resource: s.Resource, Scope: Scope, IssuedAt: now - 120, Expires: now - 1, JTI: "j"})
+	if _, err := s.verify(expired, "access"); err == nil {
+		t.Fatal("expired token verified")
+	}
+}
+
+func TestRedirectPolicy(t *testing.T) {
+	for _, allowed := range []string{"https://chatgpt.com/oauth/callback", "http://localhost:1234/callback", "http://127.0.0.1/callback", "http://[::1]:8080/callback"} {
+		if !validRedirect(allowed) {
+			t.Fatalf("allowed redirect rejected: %s", allowed)
+		}
+	}
+	for _, blocked := range []string{"http://example.com/callback", "ftp://example.com/callback", "javascript:alert(1)", "/relative"} {
+		if validRedirect(blocked) {
+			t.Fatalf("unsafe redirect accepted: %s", blocked)
+		}
+	}
+}
+
+func TestParseScopeAlwaysIncludesRequiredScopes(t *testing.T) {
+	scope := parseScope("custom mcp:tools")
+	fields := strings.Fields(scope)
+	for _, required := range []string{"custom", "mcp:tools", "offline_access"} {
+		if !contains(fields, required) {
+			t.Fatalf("scope %q missing %q", scope, required)
+		}
+	}
+}

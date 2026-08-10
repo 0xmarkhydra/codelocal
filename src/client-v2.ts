@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import WebSocket from "ws";
 import ignore, { type Ignore } from "ignore";
 import chokidar from "chokidar";
-import { log, mirrorProcessOutput, summarizeToolArgs } from "./log.js";
+import { estimateMcpTokens, log, mirrorProcessOutput, summarizeToolArgs } from "./log.js";
 import { PROTOCOL_VERSION, isSideEffectingTool, normalizeError, type ToolCallMessage } from "./protocol.js";
 import { classifyCommand, classifyGitWrite, isSensitivePath, type NetworkPolicy, type PolicyDecision } from "./security-policy.js";
 import { ProcessManager } from "./process-manager.js";
@@ -526,6 +526,16 @@ async function handleTool(tool: string, args: any, request: { requestId: string;
       approvalMemory: "local-workspace-scoped",
       networkPolicy: NETWORK_POLICY,
       metadataEpoch,
+      recommendedWorkflow: {
+        codingTask: [
+          "Call context_for_task with the user's concrete task before broad repository scans.",
+          "Use the returned ranked files, semantic symbols, graph edges and bounded snippets as the initial context packet.",
+          "Follow with find_definition/find_references/get_callers/get_callees or targeted read_file_range only when the packet is insufficient.",
+          "Use search_code as a literal-text fallback, not as the default repository discovery path.",
+          "After edits, run verify_changes and the smallest relevant project checks.",
+        ],
+        rationale: "Semantic-first retrieval reduces irrelevant context, preserves dependency/call relationships, and avoids broad file dumping into ChatGPT.",
+      },
       capabilities: ["protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "diagnostic-regression", "process-manager-v2", "pty-when-installed", "cancellation", "host-policy-execution", "structured-command-policy", "approval-memory", "idempotency", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "audit"],
     };
   }
@@ -768,6 +778,7 @@ async function connect() {
     lastToolActivityAt = Date.now();
     const requestId = String(message.requestId ?? message.id ?? "");
     const startedAt = Date.now();
+    const inputTokensEstimated = estimateMcpTokens(message.args);
     const trace = {
       mcpSessionId: typeof message.sessionId === "string" ? message.sessionId : undefined,
       workspaceKey: WORKSPACE_KEY,
@@ -779,12 +790,12 @@ async function connect() {
     try {
       const result = await executeRequest(message);
       ws.send(JSON.stringify({ type: "tool_result", protocolVersion: PROTOCOL_VERSION, requestId, id: requestId, ok: true, result, metadata: { durationMs: Date.now() - startedAt } }));
-      log("info", "tool.completed", { requestId, ...trace, tool: message.tool, durationMs: Date.now() - startedAt });
+      log("info", "tool.completed", { requestId, ...trace, tool: message.tool, durationMs: Date.now() - startedAt, estimatedTokens: inputTokensEstimated + estimateMcpTokens(result) });
       await audit({ event: "tool.completed", requestId, mcpSessionId: trace.mcpSessionId, workspaceKey: WORKSPACE_KEY, tool: message.tool, status: "ok" });
     } catch (error) {
       const normalized = normalizeError(error);
       ws.send(JSON.stringify({ type: "tool_result", protocolVersion: PROTOCOL_VERSION, requestId, id: requestId, ok: false, ...normalized, error: normalized.errorMessage, metadata: { durationMs: Date.now() - startedAt } }));
-      log("error", "tool.failed", { requestId, ...trace, tool: message.tool, durationMs: Date.now() - startedAt, error });
+      log("error", "tool.failed", { requestId, ...trace, tool: message.tool, durationMs: Date.now() - startedAt, estimatedTokens: inputTokensEstimated + estimateMcpTokens(normalized), error });
       await audit({ event: "tool.failed", requestId, mcpSessionId: trace.mcpSessionId, workspaceKey: WORKSPACE_KEY, tool: message.tool, status: normalized.errorCode, detail: normalized.errorMessage });
     }
   });

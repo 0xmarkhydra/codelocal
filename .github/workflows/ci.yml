@@ -2,7 +2,7 @@ name: CodeLocal CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, go-migration]
   pull_request:
 
 jobs:
@@ -11,45 +11,42 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-      - name: Install
-        run: npm install
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Tests
-        run: npm test
-
-  linux-sandbox:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install bubblewrap
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
-      - name: Install
-        run: npm install
-      - name: Build
-        run: npm run build
-      - name: Security regression tests
-        run: node --test dist/__tests__/security-policy.test.js dist/__tests__/editing-engine.test.js dist/__tests__/device-store.test.js
+          go-version: '1.25.x'
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build native commands
+        run: go build ./cmd/...
 
   packaging-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
-      - run: npm run build
-      - name: CLI smoke
-        run: node dist/cli.js status
+      - name: Build cross-platform npm staging package
+        run: go run ./cmd/release
+      - name: Inspect npm package
+        run: npm pack --dry-run ./.release/npm
+      - name: Native CLI smoke
+        run: node .release/npm/bin/codelocal.js --version
+
+  cloud-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Cloud image
+        run: docker build -t codelocal-cloud:ci .

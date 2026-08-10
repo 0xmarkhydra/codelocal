@@ -1,0 +1,12 @@
+.git
+.gitignore
+node_modules
+.release
+.go-check
+.codelocal-go-test.log
+.go-pass
+grap
+*.log
+.env
+.env.*
+!/.env.example
