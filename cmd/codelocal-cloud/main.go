@@ -25,6 +25,9 @@ func main() {
 		os.Exit(1)
 	}
 	server.RegisterDashboardExtras()
+	// Keep the Go backend/runtime while rendering the public landing page and
+	// dashboard surfaces from the completed UI language on main.
+	server.HTTP.Handler = server.MainUIHandler(server.HTTP.Handler)
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
 	select {
