@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 
@@ -144,6 +144,24 @@ export class CloudStore {
   private cache() {
     if (!this.redis) throw new Error("CloudStore Redis is not initialized.");
     return this.redis;
+  }
+
+  async rateLimit(scope: string, identifier: string, limit: number, windowSeconds: number) {
+    await this.init();
+    const safeScope = scope.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "default";
+    const subject = createHash("sha256").update(identifier || "unknown").digest("hex").slice(0, 32);
+    const max = Math.max(1, Math.floor(limit));
+    const ttlSeconds = Math.max(1, Math.floor(windowSeconds));
+    const key = `codelocal:rate:${safeScope}:${subject}`;
+    const script = `
+      local count = redis.call('INCR', KEYS[1])
+      if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+      return count
+    `;
+    const raw = await this.cache().eval(script, { keys: [key], arguments: [String(ttlSeconds)] });
+    const count = Number(raw) || 0;
+    const retryAfterSeconds = count > max ? Math.max(1, await this.cache().ttl(key)) : 0;
+    return { allowed: count <= max, count, limit: max, retryAfterSeconds };
   }
 
   private async ensureSchema() {

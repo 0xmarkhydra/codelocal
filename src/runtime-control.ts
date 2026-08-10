@@ -50,6 +50,49 @@ async function delay(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function endpointExists(endpoint: string) {
+  if (process.platform === "win32") return true;
+  return fs.stat(endpoint).then(() => true).catch(() => false);
+}
+
+async function sendRuntimeCommandToRecord(
+  record: RuntimeLeaseRecord,
+  command: RuntimeControlCommand,
+  timeoutMs = 1_200,
+): Promise<unknown | null> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection(record.endpoint);
+    let settled = false;
+    let buffer = "";
+    const finish = (value: unknown | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), Math.max(100, timeoutMs));
+    timer.unref?.();
+
+    socket.setEncoding("utf8");
+    socket.once("connect", () => socket.write(`${JSON.stringify(command)}\n`));
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      try {
+        const response = JSON.parse(buffer.slice(0, newline)) as { ok?: boolean; instanceId?: string; result?: unknown };
+        if (!response.ok || response.instanceId !== record.instanceId) { finish(null); return; }
+        finish(response.result ?? true);
+      } catch {
+        finish(null);
+      }
+    });
+    socket.once("error", () => finish(null));
+    socket.once("close", () => { if (!settled) finish(null); });
+  });
+}
+
 export async function readRuntimeLease(stateDir = DEFAULT_STATE_DIR) {
   const record = await readJsonFile<RuntimeLeaseRecord | null>(runtimeLockPath(stateDir), null);
   if (!record || !processAlive(record.pid)) return null;
@@ -86,7 +129,21 @@ export async function acquireRuntimeLease(version: string, stateDir = DEFAULT_ST
       if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
       const existing = await readJsonFile<RuntimeLeaseRecord | null>(lockFile, null);
       if (existing && processAlive(existing.pid)) {
-        return { acquired: false, record: existing, release: async () => undefined };
+        const live = await sendRuntimeCommandToRecord(existing, { type: "status" }, 350);
+        if (live != null) return { acquired: false, record: existing, release: async () => undefined };
+
+        const ageMs = Date.now() - existing.startedAt;
+        if (ageMs < 1_500) {
+          await delay(50);
+          continue;
+        }
+
+        if (!(await endpointExists(existing.endpoint || endpoint))) {
+          await fs.unlink(lockFile).catch(() => undefined);
+          continue;
+        }
+
+        throw new Error(`CodeLocal runtime PID ${existing.pid} is alive but its control channel is unresponsive. Refusing to start a duplicate runtime.`);
       }
       if (!existing) {
         const stat = await fs.stat(lockFile).catch(() => null);
@@ -105,7 +162,8 @@ export async function acquireRuntimeLease(version: string, stateDir = DEFAULT_ST
 
 export async function startRuntimeControlServer(
   handler: (command: RuntimeControlCommand) => unknown | Promise<unknown>,
-  stateDir = DEFAULT_STATE_DIR,
+  stateDir: string,
+  instanceId: string,
 ) {
   await ensurePrivateDir(stateDir);
   const endpoint = runtimeEndpoint(stateDir);
@@ -118,7 +176,10 @@ export async function startRuntimeControlServer(
 
     const respond = (payload: unknown) => {
       if (socket.destroyed) return;
-      socket.end(`${JSON.stringify(payload)}\n`);
+      const envelope = payload && typeof payload === "object"
+        ? { ...(payload as Record<string, unknown>), instanceId }
+        : { ok: false, error: "invalid_runtime_control_response", instanceId };
+      socket.end(`${JSON.stringify(envelope)}\n`);
     };
 
     socket.on("data", (chunk) => {
@@ -174,38 +235,7 @@ export async function sendRuntimeCommand(
 ): Promise<unknown | null> {
   const lease = await readRuntimeLease(stateDir);
   if (!lease) return null;
-  const endpoint = lease.endpoint || runtimeEndpoint(stateDir);
-
-  return new Promise((resolve) => {
-    const socket = net.createConnection(endpoint);
-    let settled = false;
-    let buffer = "";
-    const finish = (value: unknown | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(value);
-    };
-    const timer = setTimeout(() => finish(null), Math.max(100, timeoutMs));
-    timer.unref?.();
-
-    socket.setEncoding("utf8");
-    socket.once("connect", () => socket.write(`${JSON.stringify(command)}\n`));
-    socket.on("data", (chunk) => {
-      buffer += chunk;
-      const newline = buffer.indexOf("\n");
-      if (newline < 0) return;
-      try {
-        const response = JSON.parse(buffer.slice(0, newline)) as { ok?: boolean; result?: unknown };
-        finish(response.ok ? response.result ?? true : null);
-      } catch {
-        finish(null);
-      }
-    });
-    socket.once("error", () => finish(null));
-    socket.once("close", () => { if (!settled) finish(null); });
-  });
+  return sendRuntimeCommandToRecord(lease, command, timeoutMs);
 }
 
 export async function runtimeSummary(stateDir = DEFAULT_STATE_DIR) {

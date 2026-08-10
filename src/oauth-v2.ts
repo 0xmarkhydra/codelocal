@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { cloudStore } from "./cloud-store.js";
 import { getWebIdentity, verifyCsrf } from "./saas-auth.js";
 import { authPage, escapeHtml } from "./web-ui.js";
+import { rateLimit } from "./rate-limit.js";
 
 const BASE_URL = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 const MCP_AUTH_SECRET = process.env.MCP_AUTH_SECRET ?? "";
@@ -72,10 +73,18 @@ function loginNext(req: Request) {
 
 export const oauthRouter = express.Router();
 oauthRouter.use(express.urlencoded({ extended: false, limit: "64kb" }));
+const oauthRegisterRateLimit = rateLimit({ scope: "oauth-register-ip", limit: 30, windowSeconds: 60 });
+const oauthTokenIpRateLimit = rateLimit({ scope: "oauth-token-ip", limit: 120, windowSeconds: 60 });
+const oauthTokenClientRateLimit = rateLimit({
+  scope: "oauth-token-client",
+  limit: 60,
+  windowSeconds: 60,
+  subject: (req) => String(req.body?.client_id ?? "unknown").slice(0, 160) || "unknown",
+});
 oauthRouter.get("/.well-known/oauth-protected-resource", (_req, res) => res.json({ resource: MCP_RESOURCE, authorization_servers: [BASE_URL], scopes_supported: ["mcp:tools", "offline_access"], bearer_methods_supported: ["header"] }));
 oauthRouter.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({ issuer: BASE_URL, authorization_endpoint: `${BASE_URL}/authorize`, token_endpoint: `${BASE_URL}/token`, registration_endpoint: `${BASE_URL}/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], scopes_supported: ["mcp:tools", "offline_access"] }));
 
-oauthRouter.post("/register", express.json({ limit: "64kb" }), async (req, res) => {
+oauthRouter.post("/register", express.json({ limit: "64kb" }), oauthRegisterRateLimit, async (req, res) => {
   const raw = Array.isArray(req.body?.redirect_uris) ? req.body.redirect_uris : [];
   const redirectUris: string[] = raw.filter((value: unknown): value is string => typeof value === "string");
   if (!redirectUris.length || redirectUris.some((redirectUri) => !validRedirectUri(redirectUri))) { res.status(400).json({ error: "invalid_redirect_uri" }); return; }
@@ -129,7 +138,7 @@ oauthRouter.post("/authorize", async (req, res) => {
   res.redirect(302, target.toString());
 });
 
-oauthRouter.post("/token", async (req, res) => {
+oauthRouter.post("/token", oauthTokenIpRateLimit, oauthTokenClientRateLimit, async (req, res) => {
   res.setHeader("Cache-Control", "no-store"); res.setHeader("Pragma", "no-cache");
   const grantType = String(req.body.grant_type ?? "");
   const clientId = String(req.body.client_id ?? "");

@@ -77,12 +77,19 @@ export function compareSemver(left: unknown, right: unknown): number | null {
   return comparePrerelease(a.prerelease, b.prerelease);
 }
 
+function releaseChannel(value: unknown) {
+  const channel = typeof value === "string" ? value.trim() : "";
+  return /^[A-Za-z][A-Za-z0-9._-]{0,31}$/.test(channel) ? channel : "beta";
+}
+
 export function clientReleaseManifest(env: NodeJS.ProcessEnv = process.env): ClientReleaseManifest {
+  const channel = releaseChannel(env.CODELOCAL_RELEASE_CHANNEL ?? "beta");
+  const defaultUpdateCommand = `npm i -g codelocal@${channel}`;
   return {
     latestVersion: normalizeVersion(env.CODELOCAL_LATEST_CLIENT_VERSION),
     minimumVersion: normalizeVersion(env.CODELOCAL_MIN_CLIENT_VERSION),
-    channel: String(env.CODELOCAL_RELEASE_CHANNEL ?? "beta").trim() || "beta",
-    updateCommand: String(env.CODELOCAL_UPDATE_COMMAND ?? "npm i -g codelocal@latest").trim() || "npm i -g codelocal@latest",
+    channel,
+    updateCommand: String(env.CODELOCAL_UPDATE_COMMAND ?? defaultUpdateCommand).trim() || defaultUpdateCommand,
     restartCommand: String(env.CODELOCAL_RESTART_COMMAND ?? "codelocal").trim() || "codelocal",
     message: String(env.CODELOCAL_UPDATE_MESSAGE ?? "CodeLocal has a new version available. Please tell the user to update.").trim(),
   };

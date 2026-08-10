@@ -20,6 +20,7 @@ import { bridgeMcpToolResult } from "./mcp-bridge.js";
 import { createWorkspaceRoutingState, selectWorkspaceForSession, workspaceKeyForSession, type WorkspaceRoutingState } from "./mcp-session-routing.js";
 import { clientReleaseManifest, evaluateClientUpdate, renderClientUpdateNotice, type ClientUpdateNotice } from "./client-update.js";
 import { VERSION } from "./version.js";
+import { rateLimit } from "./rate-limit.js";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
@@ -403,12 +404,27 @@ app.use(createDashboardRouter({
   isDeviceOnline: async (userId, deviceId) => runtimeActivationStore.isOnline(userId, deviceId),
 }));
 
+const pairStartIpRateLimit = rateLimit({ scope: "pair-start-ip", limit: 40, windowSeconds: 10 * 60 });
+const pairStartDeviceRateLimit = rateLimit({
+  scope: "pair-start-device",
+  limit: 12,
+  windowSeconds: 10 * 60,
+  subject: (req) => String(req.body?.deviceId ?? "unknown").slice(0, 200) || "unknown",
+});
+const pairClaimIpRateLimit = rateLimit({ scope: "pair-claim-ip", limit: 300, windowSeconds: 60 });
+const pairClaimRequestRateLimit = rateLimit({
+  scope: "pair-claim-request",
+  limit: 120,
+  windowSeconds: 60,
+  subject: (req) => String(req.body?.pairingId ?? "unknown").slice(0, 120) || "unknown",
+});
+
 app.get("/", async (req, res) => {
   const base = (process.env.PUBLIC_BASE_URL ?? `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   res.type("html").send(landingPage({ endpoint: `${base}/mcp`, signedIn: Boolean(await getWebIdentity(req)) }));
 });
 
-app.post("/pair/start", async (req, res) => {
+app.post("/pair/start", pairStartIpRateLimit, pairStartDeviceRateLimit, async (req, res) => {
   const deviceId = String(req.body?.deviceId ?? "").trim();
   const deviceName = String(req.body?.deviceName ?? deviceId).trim().slice(0, 120);
   if (!deviceId || deviceId.length > 200) { res.status(400).json({ error: "deviceId_required" }); return; }
@@ -436,7 +452,7 @@ app.post("/pair/approve", express.urlencoded({ extended: false }), requireWebUse
   await cloudStore.audit(me.user.id, "device.pairing_approved", { deviceId: pairing.deviceId, deviceName: pairing.deviceName }, pairing.deviceId);
   res.type("html").send(authPage({ title: "Device approved", subtitle: "Return to your terminal. CodeLocal will claim its device credential automatically.", body: `<a class="btn primary" href="/dashboard/devices">View devices</a>` }));
 });
-app.post("/pair/claim", async (req, res) => {
+app.post("/pair/claim", pairClaimIpRateLimit, pairClaimRequestRateLimit, async (req, res) => {
   const credential = await deviceStore.claimPairing(String(req.body?.pairingId ?? ""), String(req.body?.code ?? ""));
   if (!credential) { res.status(400).json({ error: "pairing_not_approved_or_expired" }); return; }
   await cloudStore.audit(credential.userId, "device.paired", { credentialId: credential.credentialId, deviceName: credential.deviceName }, credential.deviceId);
@@ -473,6 +489,7 @@ app.post("/api/client/workspaces/sync", async (req, res) => {
     synced++;
   }
   const removed = await cloudStore.reconcileWorkspacesForDevice(device.userId, device.deviceId, authorizedWorkspaceIds);
+  await runtimeActivationStore.heartbeat(device.userId, device.deviceId, authorizedWorkspaceIds, 45);
   await cloudStore.audit(device.userId, "runtime.workspaces_synced", { count: synced, removed: removed.length }, device.deviceId).catch(() => undefined);
   res.json({ synced, removed: removed.length, syncedAt: Date.now() });
 });
@@ -482,10 +499,14 @@ app.post("/api/client/runtime/poll", async (req, res) => {
   const device = credentialId && secret ? await deviceStore.authenticate(credentialId, secret) : null;
   if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
   const workspaceIds = Array.isArray(req.body?.workspaceIds) ? [...new Set(req.body.workspaceIds.map(String).filter((value: string) => /^[A-Za-z0-9._-]{1,80}$/.test(value)))].slice(0, 500) : [];
-  await runtimeActivationStore.heartbeat(device.userId, device.deviceId, workspaceIds);
-  const revocation = await runtimeActivationStore.consumeRevocation(device.userId, device.deviceId);
-  const activation = revocation ? null : await runtimeActivationStore.consume(device.userId, device.deviceId);
-  if (activation && !workspaceIds.includes(activation.workspaceId)) {
+  const requestedWaitMs = Number(req.body?.waitMs ?? 0);
+  const waitMs = Number.isFinite(requestedWaitMs) ? Math.max(0, Math.min(30_000, Math.floor(requestedWaitMs))) : 0;
+  const presenceTtlSeconds = Math.max(20, Math.ceil((waitMs + 15_000) / 1000));
+  await runtimeActivationStore.heartbeat(device.userId, device.deviceId, workspaceIds, presenceTtlSeconds);
+  const next = await runtimeActivationStore.waitForNext(device.userId, device.deviceId, waitMs);
+  const revocation = next.revocation;
+  const activation = revocation ? null : next.activation;
+  if (activation && !(await runtimeActivationStore.isAuthorized(device.userId, device.deviceId, activation.workspaceId))) {
     await cloudStore.audit(device.userId, "workspace.activation_rejected", { requestId: activation.requestId, reason: "not-authorized" }, device.deviceId, activation.workspaceId).catch(() => undefined);
     res.json({ activation: null, revocation: null, now: Date.now() });
     return;

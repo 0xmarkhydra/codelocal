@@ -5,21 +5,28 @@ import os from "node:os";
 import path from "node:path";
 import { acquireRuntimeLease, runtimeSummary, sendRuntimeCommand, startRuntimeControlServer } from "../runtime-control.js";
 
-test("runtime lease enforces one CodeLocal daemon per state directory", async () => {
+test("runtime lease validates the live IPC instance before reusing a daemon", async () => {
   const stateDir = await mkdtemp(path.join(os.tmpdir(), "codelocal-runtime-"));
-  try {
-    const first = await acquireRuntimeLease("1.0.0", stateDir);
-    assert.equal(first.acquired, true);
+  const first = await acquireRuntimeLease("1.0.0", stateDir);
+  const control = await startRuntimeControlServer(async (command) => {
+    if (command.type === "status") return { phase: "online" };
+    return { ok: true };
+  }, stateDir, first.record.instanceId);
 
+  try {
+    assert.equal(first.acquired, true);
     const second = await acquireRuntimeLease("1.0.0", stateDir);
     assert.equal(second.acquired, false);
-    assert.equal(second.record.pid, process.pid);
+    assert.equal(second.record.instanceId, first.record.instanceId);
 
+    await control.close();
     await first.release();
     const third = await acquireRuntimeLease("1.0.1", stateDir);
     assert.equal(third.acquired, true);
     await third.release();
   } finally {
+    await control.close();
+    await first.release();
     await rm(stateDir, { recursive: true, force: true });
   }
 });
@@ -32,7 +39,7 @@ test("runtime control socket supports status and hot reload", async () => {
     if (command.type === "status") return { authorizedWorkspaces: [{ workspaceId: "a" }], activeWorkspaces: [] };
     if (command.type === "reload") return { reloaded: true, count: ++reloads };
     return { stopping: true };
-  }, stateDir);
+  }, stateDir, lease.record.instanceId);
 
   try {
     const status = await sendRuntimeCommand({ type: "status" }, stateDir) as { authorizedWorkspaces?: unknown[] } | null;

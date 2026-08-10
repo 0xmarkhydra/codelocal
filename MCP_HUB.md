@@ -20,15 +20,21 @@ CodeLocal local MCP Hub
 
 Installed MCP tools are **not** individually registered with ChatGPT. A user may install hundreds of extension tools without expanding the ChatGPT-facing tool catalog by hundreds of schemas.
 
-## Start a project
+## Authorize a project and start CodeLocal
 
-From a project directory:
+From a project directory, authorize the folder locally once:
 
 ```bash
 codelocal .
 ```
 
-This is equivalent to `codelocal start .`.
+Then start the single machine runtime separately:
+
+```bash
+codelocal
+```
+
+`codelocal .` only updates the local workspace authorization registry. It does not pair the machine, connect to CodeLocal Cloud, or start another runtime.
 
 ## Install a local stdio MCP
 
@@ -245,11 +251,12 @@ codelocal mcp info local-echo
 codelocal mcp probe local-echo
 ```
 
-Then run CodeLocal from any project:
+Then authorize a project and start the machine runtime:
 
 ```bash
 cd /path/to/project
 codelocal .
+codelocal
 ```
 
 From ChatGPT, test:

@@ -24,11 +24,19 @@ test("outdated and legacy clients receive update notices", () => {
   const outdated = evaluateClientUpdate("1.5.0-beta.2", manifest);
   assert.equal(outdated?.level, "recommended");
   assert.equal(outdated?.latestVersion, "1.5.0-beta.3");
-  assert.match(renderClientUpdateNotice(outdated!), /npm i -g codelocal@latest/);
+  assert.equal(manifest.channel, "beta");
+  assert.match(renderClientUpdateNotice(outdated!), /npm i -g codelocal@beta/);
 
   const legacy = evaluateClientUpdate(undefined, manifest);
   assert.equal(legacy?.level, "recommended");
   assert.equal(legacy?.installedVersion, null);
+});
+
+test("release channel chooses a safe npm dist-tag update command", () => {
+  assert.equal(clientReleaseManifest({ CODELOCAL_RELEASE_CHANNEL: "latest" }).updateCommand, "npm i -g codelocal@latest");
+  assert.equal(clientReleaseManifest({ CODELOCAL_RELEASE_CHANNEL: "beta" }).updateCommand, "npm i -g codelocal@beta");
+  assert.equal(clientReleaseManifest({ CODELOCAL_RELEASE_CHANNEL: "beta; rm -rf /" }).updateCommand, "npm i -g codelocal@beta");
+  assert.equal(clientReleaseManifest({ CODELOCAL_RELEASE_CHANNEL: "beta", CODELOCAL_UPDATE_COMMAND: "npm i -g codelocal@beta.5" }).updateCommand, "npm i -g codelocal@beta.5");
 });
 
 test("clients below the configured minimum are marked required", () => {

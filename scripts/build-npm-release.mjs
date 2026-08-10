@@ -72,7 +72,7 @@ const manifest = {
   engines: { node: ">=20" }
 };
 
-const readme = `# CodeLocal\n\nLocal code intelligence and execution runtime for ChatGPT.\n\n## Install\n\n\`\`\`bash\nnpm i -g codelocal\n\`\`\`\n\n## Run\n\n\`\`\`bash\ncodelocal\n\`\`\`\n\nCodeLocal starts the machine runtime in your terminal and connects it to ChatGPT.\n\nTo authorize the current project once:\n\n\`\`\`bash\ncodelocal .\n\`\`\`\n\nThis npm package contains compiled runtime files only. The CodeLocal source repository and cloud backend are not distributed in this package.\n\nCopyright © CodeLocal. All rights reserved.\n`;
+const readme = `# CodeLocal\n\nLocal code intelligence and execution runtime for ChatGPT.\n\n## Install\n\n\`\`\`bash\nnpm i -g codelocal@beta\n\`\`\`\n\n## Authorize a project\n\n\`\`\`bash\ncd /path/to/project\ncodelocal .\n\`\`\`\n\n\`codelocal .\` only authorizes that folder locally. It does not pair the machine or connect to CodeLocal Cloud.\n\n## Start CodeLocal\n\n\`\`\`bash\ncodelocal\n\`\`\`\n\nCodeLocal starts one machine runtime, pairs the computer automatically on first use, syncs the authorized workspace list and waits for ChatGPT. Running \`codelocal\` again reuses the existing runtime instead of creating a duplicate.\n\nUse \`codelocal status\` to inspect it and \`codelocal stop\` to stop it.\n\nThis npm package contains compiled runtime files only. The CodeLocal source repository and cloud backend are not distributed in this package.\n\nCopyright © CodeLocal. All rights reserved.\n`;
 
 await fs.writeFile(path.join(staging, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 await fs.writeFile(path.join(staging, "README.md"), readme, { mode: 0o600 });

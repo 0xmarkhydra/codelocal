@@ -11,6 +11,8 @@ export type RuntimeDaemonOptions = {
   serverUrl: string;
   credential: LocalDeviceCredential;
   pollMs?: number;
+  longPollMs?: number;
+  onReady?: () => void | Promise<void>;
 };
 
 type ActivationResponse = {
@@ -36,6 +38,7 @@ export class RuntimeDaemon {
   private stopped = false;
   private workspaces: AuthorizedWorkspace[] = [];
   private syncedSignature = "";
+  private pollController: AbortController | null = null;
 
   constructor(private options: RuntimeDaemonOptions) {}
 
@@ -53,8 +56,9 @@ export class RuntimeDaemon {
     const workspaces = await this.registry.list();
     this.stopUnauthorizedChildren(workspaces);
     const signature = registrySignature(workspaces);
+    const changed = signature !== this.syncedSignature;
     this.workspaces = workspaces;
-    if (!force && signature === this.syncedSignature) return workspaces;
+    if (!force && !changed) return workspaces;
     const response = await fetch(`${this.options.baseUrl}/api/client/workspaces/sync`, {
       method: "POST",
       headers: deviceHeaders(this.options.credential),
@@ -115,15 +119,25 @@ export class RuntimeDaemon {
   }
 
   private async pollOnce() {
-    const response = await fetch(`${this.options.baseUrl}/api/client/runtime/poll`, {
-      method: "POST",
-      headers: deviceHeaders(this.options.credential),
-      body: JSON.stringify({ workspaceIds: this.workspaces.map((workspace) => workspace.workspaceId) }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (response.status === 401 || response.status === 403) throw new Error("CodeLocal runtime device authorization was revoked.");
-    if (!response.ok) throw new Error(`Runtime poll failed (${response.status}).`);
-    return await response.json() as ActivationResponse;
+    const waitMs = Math.max(0, Math.min(30_000, this.options.longPollMs ?? 25_000));
+    const controller = new AbortController();
+    this.pollController = controller;
+    const timeout = setTimeout(() => controller.abort(), waitMs + 10_000);
+    timeout.unref?.();
+    try {
+      const response = await fetch(`${this.options.baseUrl}/api/client/runtime/poll`, {
+        method: "POST",
+        headers: deviceHeaders(this.options.credential),
+        body: JSON.stringify({ workspaceIds: this.workspaces.map((workspace) => workspace.workspaceId), waitMs }),
+        signal: controller.signal,
+      });
+      if (response.status === 401 || response.status === 403) throw new Error("CodeLocal runtime device authorization was revoked.");
+      if (!response.ok) throw new Error(`Runtime poll failed (${response.status}).`);
+      return await response.json() as ActivationResponse;
+    } finally {
+      clearTimeout(timeout);
+      if (this.pollController === controller) this.pollController = null;
+    }
   }
 
   async run() {
@@ -134,10 +148,12 @@ export class RuntimeDaemon {
     terminalStatus("info", "Workspaces", `${workspaces.length} authorized`);
     if (!workspaces.length) terminalStatus("warn", "Workspace", "None granted · run codelocal grant /path/to/project");
     terminalStatus("muted", "Status", "Waiting for ChatGPT…");
+    await this.options.onReady?.();
 
     while (!this.stopped) {
       try {
         await this.syncRegistry();
+        const pollStartedAt = Date.now();
         const message = await this.pollOnce();
         if (message.revocation?.workspaceId) {
           await this.revokeWorkspace(message.revocation.workspaceId);
@@ -146,13 +162,19 @@ export class RuntimeDaemon {
         if (message.activation?.workspaceId) {
           const workspace = await this.activate(message.activation.workspaceId);
           terminalStatus("accent", "ChatGPT", `Activated ${workspace.workspaceName}`);
+          continue;
+        }
+
+        // New Cloud versions hold the request open. If an older server returns
+        // immediately, preserve the legacy delay so this client cannot busy-loop.
+        if (!this.stopped && Date.now() - pollStartedAt < 1_000) {
+          await sleep(this.options.pollMs ?? 2_500);
         }
       } catch (error) {
         if (this.stopped) break;
         terminalStatus("error", "Runtime", error instanceof Error ? error.message : String(error));
         await sleep(Math.max(1500, this.options.pollMs ?? 2500));
       }
-      if (!this.stopped) await sleep(this.options.pollMs ?? 2500);
     }
   }
 
@@ -169,6 +191,8 @@ export class RuntimeDaemon {
 
   async stop() {
     this.stopped = true;
+    this.pollController?.abort();
+    this.pollController = null;
     for (const child of this.children.values()) {
       if (child.exitCode == null && !child.killed) child.kill("SIGTERM");
     }

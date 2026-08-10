@@ -668,7 +668,7 @@ Developers should not need to clone the repository and manually manage environme
 Target UX:
 
 ```bash
-npm install -g codelocal
+npm install -g codelocal@beta
 codelocal login
 codelocal pair
 codelocal doctor /path/to/project
