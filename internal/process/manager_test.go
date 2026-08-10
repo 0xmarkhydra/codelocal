@@ -2,10 +2,18 @@ package process
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func usePortableTestShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Setenv("SHELL", "/bin/sh")
+	}
+}
 
 func waitExited(t *testing.T, manager *Manager, processID string) Snapshot {
 	t.Helper()
@@ -26,6 +34,7 @@ func waitExited(t *testing.T, manager *Manager, processID string) Snapshot {
 }
 
 func TestProcessManagerExecutesAndCleansRequestMapping(t *testing.T) {
+	usePortableTestShell(t)
 	root, err := filepath.Abs(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +68,7 @@ func TestReadBufferUsesUTF8ByteOffsets(t *testing.T) {
 }
 
 func TestSnapshotAndListRedactCommandSecrets(t *testing.T) {
+	usePortableTestShell(t)
 	root := t.TempDir()
 	manager := NewManager(root, "test-workspace", nil, nil)
 	started, err := manager.Start("echo --token super-secret-value", StartOptions{CWD: root, Timeout: 10 * time.Second})
@@ -77,6 +87,7 @@ func TestSnapshotAndListRedactCommandSecrets(t *testing.T) {
 }
 
 func TestManagerPrunesFinishedProcesses(t *testing.T) {
+	usePortableTestShell(t)
 	t.Setenv("CODELOCAL_MAX_PROCESSES", "1")
 	root := t.TempDir()
 	manager := NewManager(root, "test-workspace", nil, nil)
