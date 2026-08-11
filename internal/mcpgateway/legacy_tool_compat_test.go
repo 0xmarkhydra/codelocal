@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -112,7 +113,7 @@ func TestLegacyToolCallCompatibilityMiddleware(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	handler := LegacyToolCallCompatibility(next)
-	req := httptest.NewRequest(http.MethodPost, "/mcp", io.NopCloserString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_devices","arguments":{}}}`))
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_devices","arguments":{}}}`))
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusNoContent {
