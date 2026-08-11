@@ -25,11 +25,14 @@ func DecodeJSON(r *http.Request, limit int64, dst any) error {
 		limit = 1 << 20
 	}
 	decoder := json.NewDecoder(io.LimitReader(r.Body, limit))
-	// Workspace sync is a compatibility boundary. Older CodeLocal runtimes send
-	// local-only metadata such as grantedAt/lastActivatedAt. Ignore unknown fields
-	// on this endpoint so a Cloud upgrade remains a drop-in replacement for old
-	// clients, while keeping strict JSON validation everywhere else.
-	if r.URL.Path != "/api/client/workspaces/sync" {
+	// Workspace sync and OAuth dynamic client registration are compatibility
+	// boundaries. Older CodeLocal runtimes send local-only workspace metadata,
+	// while RFC 7591/OAuth clients such as ChatGPT may send additional client
+	// metadata fields (for example grant_types, response_types or
+	// token_endpoint_auth_method). Ignore unknown fields on those endpoints so
+	// the Go server matches the previous Express behavior, while keeping strict
+	// JSON validation everywhere else.
+	if r.URL.Path != "/api/client/workspaces/sync" && r.URL.Path != "/register" {
 		decoder.DisallowUnknownFields()
 	}
 	if err := decoder.Decode(dst); err != nil {
