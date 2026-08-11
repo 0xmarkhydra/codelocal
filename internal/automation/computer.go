@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 type ComputerController struct {
@@ -20,6 +21,7 @@ type ComputerController struct {
 	Root         string
 	Helper       string
 	Backend      string
+	Capabilities map[string]any
 	mu           sync.Mutex
 }
 
@@ -50,6 +52,64 @@ func ComputerHelperPath() string {
 	return ""
 }
 
+func helperCapabilities(helper string, environment Environment) map[string]any {
+	base := map[string]any{
+		"available":         false,
+		"backend":           environment.ComputerBackend,
+		"screenCapture":     false,
+		"uiTree":            false,
+		"pointer":           false,
+		"keyboard":          false,
+		"clipboard":         false,
+		"backgroundControl": false,
+		"secureDesktop":     false,
+	}
+	if helper == "" {
+		return base
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, helper, "--capabilities")
+	cmd.Env = append(os.Environ(), "CI=1")
+	output, err := cmd.Output()
+	if err != nil {
+		return base
+	}
+	var reported map[string]any
+	if json.Unmarshal(output, &reported) != nil {
+		return base
+	}
+	for _, key := range []string{"available", "backend", "screenCapture", "uiTree", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
+		if value, ok := reported[key]; ok {
+			base[key] = value
+		}
+	}
+	// CodeLocal never automates UAC / secure-desktop style surfaces even if a
+	// helper accidentally claims otherwise.
+	base["secureDesktop"] = false
+	return base
+}
+
+func ComputerCapabilities() map[string]any {
+	settings, _ := Load()
+	enabled := settings != nil && settings.Computer.Enabled
+	environment := Detect()
+	helper := ComputerHelperPath()
+	capabilities := helperCapabilities(helper, environment)
+	available, _ := capabilities["available"].(bool)
+	available = available && enabled && environment.ComputerSupported && helper != ""
+	capabilities["available"] = available
+	capabilities["enabled"] = enabled
+	capabilities["helperReady"] = helper != ""
+	capabilities["notes"] = environment.Notes
+	if !available {
+		for _, key := range []string{"screenCapture", "uiTree", "pointer", "keyboard", "clipboard", "backgroundControl"} {
+			capabilities[key] = false
+		}
+	}
+	return capabilities
+}
+
 func NewComputerController(workspaceID, workspaceKey, root string) (*ComputerController, error) {
 	settings, err := Load()
 	if err != nil {
@@ -66,29 +126,13 @@ func NewComputerController(workspaceID, workspaceKey, root string) (*ComputerCon
 	if helper == "" {
 		return nil, errors.New("native Computer Use helper is not packaged for this platform")
 	}
-	return &ComputerController{WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Helper: helper, Backend: environment.ComputerBackend}, nil
-}
-
-func ComputerCapabilities() map[string]any {
-	settings, _ := Load()
-	enabled := settings != nil && settings.Computer.Enabled
-	environment := Detect()
-	helper := ComputerHelperPath()
-	available := enabled && environment.ComputerSupported && helper != ""
-	return map[string]any{
-		"available":         available,
-		"enabled":           enabled,
-		"backend":           environment.ComputerBackend,
-		"helperReady":       helper != "",
-		"screenCapture":     available,
-		"uiTree":            available,
-		"pointer":           available,
-		"keyboard":          available,
-		"clipboard":         false,
-		"backgroundControl": available && runtime.GOOS != "linux",
-		"secureDesktop":     false,
-		"notes":             environment.Notes,
+	capabilities := ComputerCapabilities()
+	available, _ := capabilities["available"].(bool)
+	if !available {
+		return nil, errors.New("native Computer Use helper is present but not ready in this graphical session")
 	}
+	backend, _ := capabilities["backend"].(string)
+	return &ComputerController{WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Helper: helper, Backend: backend, Capabilities: capabilities}, nil
 }
 
 func (c *ComputerController) Call(ctx context.Context, operation string, args map[string]any) (any, error) {
@@ -104,11 +148,11 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 		return nil, fmt.Errorf("unsupported Computer Use operation: %s", operation)
 	}
 	request := map[string]any{
-		"version":      1,
-		"operation":    operation,
-		"workspaceId":  c.WorkspaceID,
+		"version":       1,
+		"operation":     operation,
+		"workspaceId":   c.WorkspaceID,
 		"workspaceRoot": c.Root,
-		"arguments":    args,
+		"arguments":     args,
 	}
 	raw, _ := json.Marshal(request)
 	c.mu.Lock()
@@ -128,8 +172,8 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 		return nil, fmt.Errorf("Computer Use helper failed: %s", message)
 	}
 	var response struct {
-		OK     bool `json:"ok"`
-		Result any  `json:"result"`
+		OK     bool   `json:"ok"`
+		Result any    `json:"result"`
 		Error  string `json:"error"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
