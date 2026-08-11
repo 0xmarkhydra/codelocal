@@ -251,7 +251,7 @@ func (w *WorkspaceWorker) Start(parent context.Context) error {
 	}
 	conn.SetReadLimit(32 << 20)
 	w.conn = conn
-	register := protocol.RegisterMessage{Type: "register", ProtocolVersion: protocol.Version, ClientVersion: version.Version, CredentialID: w.Runtime.Options.Credential.CredentialID, CredentialSecret: w.Runtime.Options.Credential.CredentialSecret, DeviceID: w.Runtime.Options.Credential.DeviceID, DeviceName: w.Runtime.Options.Credential.DeviceName, WorkspaceID: w.Workspace.WorkspaceID, WorkspaceName: w.Workspace.WorkspaceName, ProjectRoot: w.Workspace.LocalPath, Capabilities: protocol.Capabilities{Filesystem: true, Git: true, Shell: w.Engine.ShellEnabled, PTY: w.Engine.ShellEnabled, Sandbox: "policy-only", SemanticProviders: w.Engine.SemanticProviders(), Idempotency: true, Cancellation: true, Approvals: true, ApprovalMemory: true, HostPolicyExecution: true, MCPHub: true, TerminalChatApproval: true, TerminalHistory: true}}
+	register := protocol.RegisterMessage{Type: "register", ProtocolVersion: protocol.Version, ClientVersion: version.Version, CredentialID: w.Runtime.Options.Credential.CredentialID, CredentialSecret: w.Runtime.Options.Credential.CredentialSecret, DeviceID: w.Runtime.Options.Credential.DeviceID, DeviceName: w.Runtime.Options.Credential.DeviceName, WorkspaceID: w.Workspace.WorkspaceID, WorkspaceName: w.Workspace.WorkspaceName, ProjectRoot: w.Workspace.LocalPath, Capabilities: protocol.Capabilities{Filesystem: true, Git: true, Shell: w.Engine.ShellEnabled, PTY: w.Engine.ShellEnabled, Sandbox: "policy-only", SemanticProviders: w.Engine.SemanticProviders(), Idempotency: true, Cancellation: true, Approvals: true, ApprovalMemory: true, HostPolicyExecution: true, MCPHub: true, TerminalChatApproval: true, TerminalHistory: true, Automation: workspaceAutomationCapabilities(w)}}
 	if err := w.send(ctx, register); err != nil {
 		conn.Close(websocket.StatusInternalError, "register failed")
 		return err
@@ -438,7 +438,7 @@ func (w *WorkspaceWorker) handleCall(parent context.Context, msg struct {
 	)
 	slog.Debug("MCP tool received", "requestId", requestID, "sessionId", msg.SessionID, "workspace", w.Workspace.WorkspaceID, "tool", msg.Tool)
 	startedAt := time.Now()
-	result, err := w.Engine.Handle(ctx, msg.Tool, msg.Args, localclient.HandleOptions{RequestID: requestID, SessionID: msg.SessionID, IdempotencyKey: msg.IdempotencyKey})
+	result, err := w.handleTool(ctx, msg.Tool, msg.Args, localclient.HandleOptions{RequestID: requestID, SessionID: msg.SessionID, IdempotencyKey: msg.IdempotencyKey})
 	response := protocol.ToolResult{Type: "tool_result", ProtocolVersion: protocol.Version, RequestID: requestID, OK: err == nil, Result: result}
 	if err != nil {
 		response.ErrorCode = normalizeErrorCode(err)
@@ -531,6 +531,7 @@ func (w *WorkspaceWorker) Stop(reason string) {
 	if w.conn != nil {
 		_ = w.conn.Close(websocket.StatusNormalClosure, reason)
 	}
+	closeWorkspaceAutomation(w)
 	if w.Engine != nil {
 		w.Engine.Close()
 	}
