@@ -14,10 +14,11 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/state"
 )
 
-const settingsVersion = 1
+const settingsVersion = 2
 
 type BrowserSettings struct {
-	Enabled bool `json:"enabled"`
+	Enabled  bool `json:"enabled"`
+	Prepared bool `json:"prepared,omitempty"`
 }
 
 type ComputerSettings struct {
@@ -63,7 +64,7 @@ func Load() (*Settings, error) {
 		return nil, err
 	}
 	if settings.Version <= 0 {
-		settings.Version = settingsVersion
+		settings.Version = 1
 	}
 	// Coding is the core CodeLocal capability. Older/pre-release settings that
 	// did not contain the field must not accidentally disable the runtime.
@@ -96,7 +97,7 @@ func Detect() Environment {
 		env.Notes = append(env.Notes, "Windows secure desktop and UAC prompts remain outside Computer Use control.")
 	case "linux":
 		if strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY")) != "" {
-			env.ComputerSupported = commandExists("xdg-desktop-portal") || commandExists("gdbus")
+			env.ComputerSupported = commandExists("gdbus") || commandExists("busctl")
 			env.ComputerBackend = "wayland-xdg-desktop-portal"
 			env.Notes = append(env.Notes, "Wayland Computer Use depends on the desktop portal/compositor capabilities granted by the user.")
 		} else if strings.TrimSpace(os.Getenv("DISPLAY")) != "" {
