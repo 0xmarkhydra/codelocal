@@ -62,6 +62,7 @@ func helperCapabilities(helper string, environment Environment) map[string]any {
 	base := map[string]any{
 		"available":         false,
 		"backend":           environment.ComputerBackend,
+		"windowList":        false,
 		"screenCapture":     false,
 		"uiTree":            false,
 		"pointer":           false,
@@ -85,7 +86,7 @@ func helperCapabilities(helper string, environment Environment) map[string]any {
 	if json.Unmarshal(output, &reported) != nil {
 		return base
 	}
-	for _, key := range []string{"available", "backend", "screenCapture", "uiTree", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
+	for _, key := range []string{"available", "backend", "windowList", "screenCapture", "uiTree", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
 		if value, ok := reported[key]; ok {
 			base[key] = value
 		}
@@ -109,7 +110,7 @@ func ComputerCapabilities() map[string]any {
 	capabilities["helperReady"] = helper != ""
 	capabilities["notes"] = environment.Notes
 	if !available {
-		for _, key := range []string{"screenCapture", "uiTree", "pointer", "keyboard", "clipboard", "backgroundControl"} {
+		for _, key := range []string{"windowList", "screenCapture", "uiTree", "pointer", "keyboard", "clipboard", "backgroundControl"} {
 			capabilities[key] = false
 		}
 	}
