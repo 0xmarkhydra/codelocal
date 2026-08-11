@@ -89,9 +89,18 @@ oauthRouter.get("/.well-known/oauth-protected-resource", (_req, res) => res.json
 oauthRouter.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({ issuer: BASE_URL, authorization_endpoint: `${BASE_URL}/authorize`, token_endpoint: `${BASE_URL}/token`, registration_endpoint: `${BASE_URL}/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], scopes_supported: ["mcp:tools", "offline_access"] }));
 
 oauthRouter.post("/register", express.json({ limit: "64kb" }), oauthRegisterRateLimit, async (req, res) => {
-  const raw = Array.isArray(req.body?.redirect_uris) ? req.body.redirect_uris : [];
-  const redirectUris: string[] = raw.filter((value: unknown): value is string => typeof value === "string");
-  if (!redirectUris.length || redirectUris.some((redirectUri) => !validRedirectUri(redirectUri))) { res.status(400).json({ error: "invalid_redirect_uri" }); return; }
+  const rawRedirectUris = req.body?.redirect_uris;
+  const raw = Array.isArray(rawRedirectUris)
+    ? rawRedirectUris
+    : typeof rawRedirectUris === "string"
+      ? [rawRedirectUris]
+      : typeof req.body?.redirect_uri === "string"
+        ? [req.body.redirect_uri]
+        : [];
+  const redirectUris: string[] = raw.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0);
+  if (!redirectUris.length) { res.status(400).json({ error: "invalid_redirect_uri", error_description: "At least one redirect URI is required." }); return; }
+  const invalidIndex = redirectUris.findIndex((redirectUri) => !validRedirectUri(redirectUri));
+  if (invalidIndex >= 0) { res.status(400).json({ error: "invalid_redirect_uri", error_description: `Redirect URI at index ${invalidIndex} is not an absolute OAuth callback URI.` }); return; }
   const clientId = `codelocal_${randomBytes(24).toString("base64url")}`;
   const client = await cloudStore.createOAuthClient({ clientId, redirectUris, clientName: typeof req.body?.client_name === "string" ? req.body.client_name.slice(0, 160) : undefined });
   res.status(201).json({ client_id: client.clientId, client_name: client.clientName ?? "MCP client", redirect_uris: client.redirectUris, grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" });

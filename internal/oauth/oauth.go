@@ -178,20 +178,40 @@ func (s *Server) Register(mux *http.ServeMux) {
 	})
 	register := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
-			RedirectURIs []string `json:"redirect_uris"`
-			ClientName   string   `json:"client_name"`
+			RedirectURIs json.RawMessage `json:"redirect_uris"`
+			RedirectURI  string          `json:"redirect_uri"`
+			ClientName   string          `json:"client_name"`
 		}
-		if err := webutil.DecodeJSON(r, 64<<10, &input); err != nil || len(input.RedirectURIs) == 0 {
-			webutil.JSON(w, 400, map[string]any{"error": "invalid_redirect_uri"})
+		if err := webutil.DecodeJSON(r, 64<<10, &input); err != nil {
+			webutil.JSON(w, 400, map[string]any{"error": "invalid_client_metadata", "error_description": "Invalid JSON client metadata."})
 			return
 		}
-		for _, uri := range input.RedirectURIs {
+		redirectURIs := []string{}
+		if len(input.RedirectURIs) > 0 && string(input.RedirectURIs) != "null" {
+			if err := json.Unmarshal(input.RedirectURIs, &redirectURIs); err != nil {
+				var single string
+				if err := json.Unmarshal(input.RedirectURIs, &single); err == nil && strings.TrimSpace(single) != "" {
+					redirectURIs = []string{single}
+				} else {
+					webutil.JSON(w, 400, map[string]any{"error": "invalid_redirect_uri", "error_description": "redirect_uris must be a URI or an array of URIs."})
+					return
+				}
+			}
+		}
+		if len(redirectURIs) == 0 && strings.TrimSpace(input.RedirectURI) != "" {
+			redirectURIs = []string{input.RedirectURI}
+		}
+		if len(redirectURIs) == 0 {
+			webutil.JSON(w, 400, map[string]any{"error": "invalid_redirect_uri", "error_description": "At least one redirect URI is required."})
+			return
+		}
+		for i, uri := range redirectURIs {
 			if !validRedirect(uri) {
-				webutil.JSON(w, 400, map[string]any{"error": "invalid_redirect_uri"})
+				webutil.JSON(w, 400, map[string]any{"error": "invalid_redirect_uri", "error_description": fmt.Sprintf("Redirect URI at index %d is not an absolute OAuth callback URI.", i)})
 				return
 			}
 		}
-		client, err := s.Store.CreateOAuthClient(r.Context(), cloud.OAuthClient{ClientID: "codelocal_" + randomURL(24), RedirectURIs: input.RedirectURIs, ClientName: truncate(input.ClientName, 160)})
+		client, err := s.Store.CreateOAuthClient(r.Context(), cloud.OAuthClient{ClientID: "codelocal_" + randomURL(24), RedirectURIs: redirectURIs, ClientName: truncate(input.ClientName, 160)})
 		if err != nil {
 			webutil.JSON(w, 500, map[string]any{"error": "server_error"})
 			return
