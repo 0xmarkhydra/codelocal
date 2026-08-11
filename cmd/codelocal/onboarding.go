@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -88,8 +89,17 @@ func ensureFirstRunSetup() (automation.Settings, automation.Environment, error) 
 		fmt.Println("· Non-interactive session detected; using safe defaults (Browser on, Computer Use off).")
 	}
 
-	if settings.Browser.Enabled && !environment.BrowserReady {
-		fmt.Println("! Bundled Playwright CLI was not detected. CodeLocal will still start, but Browser Automation will remain unavailable until the package is repaired or updated.")
+	if settings.Browser.Enabled {
+		if !environment.BrowserReady {
+			fmt.Println("! Bundled Playwright CLI was not detected. CodeLocal will still start, but Browser Automation will remain unavailable until the package is repaired or updated.")
+		} else {
+			fmt.Println("Preparing Browser Automation...")
+			if err := automation.EnsureBrowserRuntime(context.Background()); err != nil {
+				fmt.Printf("! Browser runtime preparation failed: %v\n", err)
+			} else {
+				fmt.Println("✓ Browser Automation ready")
+			}
+		}
 	}
 	if settings.Computer.Enabled {
 		if environment.ComputerSupported {
