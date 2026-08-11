@@ -151,7 +151,7 @@ func (b *BrowserController) run(ctx context.Context, raw bool, args ...string) (
 	commandArgs = append(commandArgs, args...)
 	cmd := exec.CommandContext(ctx, b.CLI, commandArgs...)
 	cmd.Dir = b.Root
-	cmd.Env = append(os.Environ(),
+	cmd.Env = browserCommandEnv(
 		"PLAYWRIGHT_CLI_SESSION="+b.Session,
 		"PLAYWRIGHT_MCP_OUTPUT_DIR="+b.OutputDir,
 		"CI=1",

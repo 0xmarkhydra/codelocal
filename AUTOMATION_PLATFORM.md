@@ -39,7 +39,7 @@ Browser and Computer must not be modeled as unrestricted shell access.
 
 ## Browser engine
 
-CodeLocal packages `@playwright/cli` as an npm dependency and passes its package-local path into the native runtime. First-run provisioning installs Chromium only. Browser sessions are workspace-scoped and use CodeLocal-owned profiles/state rather than the user's normal browser profile by default.
+CodeLocal packages `@playwright/cli` as an npm dependency and passes its package-local path into the native runtime. First-run provisioning installs Chromium only. The managed browser lives under the CodeLocal state directory (`~/.codelocal/browser-runtime` by default), rather than Playwright's shared project cache, so `codelocal reset --all` removes it without touching unrelated projects. Browser sessions are workspace-scoped and use CodeLocal-owned profiles/state rather than the user's normal browser profile by default.
 
 The model-facing MCP surface exposes one compact `browser(action=...)` tool rather than arbitrary `playwright-cli` shell strings. Its private runtime operations are:
 

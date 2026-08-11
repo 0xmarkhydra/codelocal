@@ -61,6 +61,11 @@ Runtime:
   codelocal status                   Show account, pairing and runtime status
   codelocal stop                     Stop the machine runtime
 
+Reset / uninstall:
+  codelocal reset --all              Remove all local data; keep CodeLocal installed
+  codelocal uninstall --all          Remove all local data and the global npm package
+  Add --yes to either command for intentional non-interactive cleanup
+
 Capabilities:
   codelocal setup                    Change Browser Automation and Computer Use choices
   codelocal doctor [project]         Inspect coding and automation readiness
@@ -956,6 +961,10 @@ func main() {
 			err = status()
 		case "stop":
 			err = stop()
+		case "reset":
+			err = resetCommand(ctx, args[1:])
+		case "uninstall":
+			err = uninstallCommand(ctx, args[1:])
 		case "setup":
 			if len(args) != 1 {
 				err = errors.New("setup does not accept arguments")

@@ -84,9 +84,27 @@ codelocal grant <path>
 codelocal ungrant <path-or-id>
 codelocal doctor <path>
 codelocal stop
+codelocal reset --all
+codelocal uninstall --all
 codelocal approvals list
 codelocal mcp list
 ```
+
+Reset all local state while keeping the CLI installed:
+
+```bash
+codelocal reset --all
+```
+
+This stops the runtime and removes the local login, workspace grants, approvals, indexes, history, managed browser runtime and capability choices. The next `codelocal` run starts first-time setup again. Use `--yes` only for intentional non-interactive cleanup.
+
+Remove both local state and the globally installed npm package:
+
+```bash
+codelocal uninstall --all
+```
+
+Operating-system privacy permissions such as macOS Accessibility and Screen Recording remain controlled by the OS and are not silently changed.
 
 ## Update
 

@@ -59,6 +59,7 @@ func printAutomationDoctor() {
 		fmt.Println("  settings: configured")
 	}
 	fmt.Printf("  browser: enabled=%s prepared=%s cli=%s\n", yesNo(browserEnabled), yesNo(browserPrepared), yesNo(browserCLI != ""))
+	fmt.Printf("    runtime: %s\n", automation.BrowserRuntimeDir())
 	if browserEnabled && (!browserPrepared || browserCLI == "") {
 		fmt.Println("    ! Browser Automation is not ready yet. Start `codelocal` interactively to retry preparation.")
 	}

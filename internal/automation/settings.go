@@ -16,7 +16,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/state"
 )
 
-const settingsVersion = 2
+const settingsVersion = 3
 
 type BrowserSettings struct {
 	Enabled  bool `json:"enabled"`
@@ -46,6 +46,24 @@ type Environment struct {
 
 func Path() string { return filepath.Join(state.Dir(), "automation.json") }
 
+// BrowserRuntimeDir keeps CodeLocal's managed browser inside CodeLocal state.
+// This avoids deleting or depending on Playwright caches shared by unrelated
+// projects and lets `codelocal reset --all` remove the complete local runtime.
+func BrowserRuntimeDir() string { return filepath.Join(state.Dir(), "browser-runtime") }
+
+func browserCommandEnv(extra ...string) []string {
+	env := os.Environ()
+	key := "PLAYWRIGHT_BROWSERS_PATH="
+	filtered := env[:0]
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, key) {
+			filtered = append(filtered, entry)
+		}
+	}
+	filtered = append(filtered, key+BrowserRuntimeDir())
+	return append(filtered, extra...)
+}
+
 func Default() Settings {
 	return Settings{
 		Version: settingsVersion,
@@ -65,12 +83,18 @@ func Load() (*Settings, error) {
 		}
 		return nil, err
 	}
+	originalVersion := settings.Version
 	if settings.Version <= 0 {
 		settings.Version = 1
 	}
 	// Coding is the core CodeLocal capability. Older/pre-release settings that
 	// did not contain the field must not accidentally disable the runtime.
 	settings.Coding = true
+	// Versions before 3 used Playwright's shared machine cache. Force one
+	// idempotent preparation so enabled installs move into CodeLocal-owned state.
+	if originalVersion < 3 && settings.Browser.Enabled {
+		settings.Browser.Prepared = false
+	}
 	return &settings, nil
 }
 
@@ -121,10 +145,13 @@ func EnsureBrowserRuntime(ctx context.Context, progress io.Writer) error {
 	if cli == "" {
 		return errors.New("bundled Playwright CLI was not found")
 	}
+	if err := state.EnsurePrivateDir(BrowserRuntimeDir()); err != nil {
+		return fmt.Errorf("prepare CodeLocal browser directory: %w", err)
+	}
 	// The managed automation runtime defaults to Chromium. Installing only that
 	// engine avoids downloading unused Firefox and WebKit bundles on first run.
 	cmd := exec.CommandContext(ctx, cli, "install-browser", "chromium")
-	cmd.Env = append(os.Environ(), "CI=1")
+	cmd.Env = browserCommandEnv("CI=1")
 	var captured bytes.Buffer
 	if progress != nil {
 		writer := io.MultiWriter(progress, &captured)

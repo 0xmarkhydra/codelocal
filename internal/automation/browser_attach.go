@@ -164,7 +164,7 @@ func (b *BrowserController) runAttached(ctx context.Context, raw bool, endpoint 
 	commandArgs = append(commandArgs, args...)
 	cmd := exec.CommandContext(ctx, b.CLI, commandArgs...)
 	cmd.Dir = b.Root
-	cmd.Env = append(os.Environ(), "PLAYWRIGHT_CLI_SESSION="+b.Session, "PLAYWRIGHT_MCP_OUTPUT_DIR="+b.OutputDir, "CI=1")
+	cmd.Env = browserCommandEnv("PLAYWRIGHT_CLI_SESSION="+b.Session, "PLAYWRIGHT_MCP_OUTPUT_DIR="+b.OutputDir, "CI=1")
 	output, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(output))
 	if err != nil {

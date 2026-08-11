@@ -78,6 +78,22 @@ func TestLoadMigratesLegacySettingsWithoutDisablingCoding(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesSharedBrowserCacheSettings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODELOCAL_STATE_DIR", dir)
+	legacy := []byte("{\"version\":2,\"coding\":true,\"browser\":{\"enabled\":true,\"prepared\":true},\"computer\":{\"enabled\":true}}\n")
+	if err := os.WriteFile(filepath.Join(dir, "automation.json"), legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded == nil || loaded.Browser.Prepared {
+		t.Fatal("version 2 browser settings must be prepared again in CodeLocal-owned storage")
+	}
+}
+
 func TestBrowserCLIPathPrefersBundledEnvironmentPath(t *testing.T) {
 	dir := t.TempDir()
 	name := "playwright-cli"
@@ -99,8 +115,10 @@ func TestEnsureBrowserRuntimeStreamsProgress(t *testing.T) {
 		t.Skip("shell fixture is Unix-only")
 	}
 	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	t.Setenv("CODELOCAL_STATE_DIR", stateDir)
 	path := filepath.Join(dir, "playwright-cli")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'downloading browser: %s %s\\n' \"$1\" \"$2\"\n"), 0o700); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'downloading browser: %s %s at %s\\n' \"$1\" \"$2\" \"$PLAYWRIGHT_BROWSERS_PATH\"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CODELOCAL_PLAYWRIGHT_CLI", path)
@@ -108,8 +126,11 @@ func TestEnsureBrowserRuntimeStreamsProgress(t *testing.T) {
 	if err := EnsureBrowserRuntime(context.Background(), &progress); err != nil {
 		t.Fatal(err)
 	}
-	if got := progress.String(); got != "downloading browser: install-browser chromium\n" {
+	if got, want := progress.String(), "downloading browser: install-browser chromium at "+filepath.Join(stateDir, "browser-runtime")+"\n"; got != want {
 		t.Fatalf("progress output = %q", got)
+	}
+	if info, err := os.Stat(filepath.Join(stateDir, "browser-runtime")); err != nil || !info.IsDir() {
+		t.Fatalf("managed browser directory was not created privately: %v", err)
 	}
 }
 
@@ -118,6 +139,7 @@ func TestEnsureBrowserRuntimeIncludesCommandOutputInError(t *testing.T) {
 		t.Skip("shell fixture is Unix-only")
 	}
 	dir := t.TempDir()
+	t.Setenv("CODELOCAL_STATE_DIR", filepath.Join(dir, "state"))
 	path := filepath.Join(dir, "playwright-cli")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'download blocked by proxy\\n' >&2\nexit 7\n"), 0o700); err != nil {
 		t.Fatal(err)

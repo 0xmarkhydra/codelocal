@@ -148,6 +148,8 @@ The Go runtime then pairs this machine if needed, syncs authorized workspaces, a
 Use ` + "`codelocal status`" + ` to inspect it and ` + "`codelocal stop`" + ` to stop it.
 
 Use ` + "`codelocal setup`" + ` to change either choice later and ` + "`codelocal doctor`" + ` to inspect Browser/Computer readiness. The user only installs and starts ` + "`codelocal`" + `; Playwright and native Computer Use helpers are internal package details and do not require separate install commands.
+
+Use ` + "`codelocal reset --all`" + ` to stop CodeLocal and remove all local state while keeping the CLI installed. Use ` + "`codelocal uninstall --all`" + ` to remove both local state and the global npm package. Both commands ask for confirmation; add ` + "`--yes`" + ` only for intentional non-interactive cleanup. Operating-system privacy permissions remain controlled by the OS.
 `
 	must(os.WriteFile(filepath.Join(staging, "README.md"), []byte(readme), 0o600))
 	nativeEntries, _ := os.ReadDir(filepath.Join(staging, "bin", "native"))
