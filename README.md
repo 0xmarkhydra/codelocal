@@ -142,7 +142,7 @@ The Cloud gateway routes by:
 user + device + workspace
 ```
 
-MCP sessions can use `list_workspaces`, `select_workspace` and the returned `workspaceKey`. Selection is scoped to the MCP session, while passing `workspaceKey` keeps an individual call explicit and thread-safe.
+MCP sessions use `workspace(action=list)`, `workspace(action=select)` and the returned `workspaceKey`. Selection is scoped to the MCP session, while passing `workspaceKey` keeps an individual call explicit and thread-safe.
 
 ## Native Go capabilities
 
@@ -222,25 +222,16 @@ go vet ./...
 go build ./cmd/...
 ```
 
-### MCP tool surface evaluation
+### Compact MCP tool surface
 
-The Cloud gateway currently defaults to the stable 77-tool legacy surface while
-the compact 16-domain surface is evaluated:
+The Cloud gateway exposes exactly 16 domain tools: `device`, `workspace`,
+`project`, `context`, `read`, `search`, `dependency`, `lsp`, `edit`, `verify`,
+`git`, `terminal`, `process`, `approvals`, `security` and `mcp`.
 
-```bash
-# Stable default.
-CODELOCAL_MCP_TOOL_SURFACE=legacy
-
-# Compact domain tools only.
-CODELOCAL_MCP_TOOL_SURFACE=compact
-
-# Temporary compatibility/debug mode; advertises both surfaces.
-CODELOCAL_MCP_TOOL_SURFACE=dual
-```
-
-Changing the value requires a gateway restart because MCP servers are cached per
-authenticated user. Keep `legacy` in production until the representative
-ChatGPT workflow evaluation in `MCP_TOOL_SURFACE_PLAN.md` passes.
+The previous 77 top-level tool schemas are no longer advertised and cannot be
+re-enabled by configuration. Their granular command names remain only as the
+private Cloud-to-native runtime protocol, so capability is preserved without
+adding model-facing schema or tool-selection cost.
 
 Performance-sensitive defaults are intentionally bounded:
 

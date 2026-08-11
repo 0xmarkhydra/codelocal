@@ -1,15 +1,15 @@
 # CodeLocal MCP Tool Surface Simplification Plan
 
-Status: In progress — P0/P1/P2 implemented behind a safe feature flag; P3 measurement/evaluation started
+Status: Implemented — compact public cutover complete; production measurement continues
 Branch baseline: `dev`
 Baseline date: 2026-08-12
-Current legacy first-party MCP tool count: **77**
-Implemented compact surface: **16 domain tools**
-Target public tool surface after handoff: **~17 tools**
+Previous public MCP tool count: **77**
+Current public MCP tool count: **16 domain tools**
+Private native runtime commands: **77 mapped to stable operation IDs**
 
 ## 1. Why this document exists
 
-CodeLocal currently exposes 77 first-party MCP tools directly to ChatGPT. The capability set is strong, but the public MCP surface has grown around implementation details: individual LSP operations, file read variants, Git commands, process lifecycle operations, PTY operations, approval operations, and compatibility aliases are each represented as separate tools.
+Before this migration, CodeLocal exposed 77 first-party MCP tools directly to ChatGPT. The capability set was strong, but the public MCP surface had grown around implementation details: individual LSP operations, file read variants, Git commands, process lifecycle operations, PTY operations, approval operations, and compatibility aliases were each represented as separate tools.
 
 The goal is **not** to remove capability. The goal is to keep the full runtime capability while presenting ChatGPT with a smaller, clearer, domain-oriented tool surface.
 
@@ -27,12 +27,9 @@ The intended result is:
 
 ### 2.1 Tool count
 
-The Go MCP gateway currently builds the first-party registry in:
-
-- `internal/mcpgateway/server.go`
-- `toolDefinitions()`
-
-At the baseline above, that registry exposes **77 tools**.
+At baseline the Go MCP gateway built 77 public schemas in `toolDefinitions()`.
+That registry has been removed. `serverFor` now registers only the 16 definitions
+from `compactToolDefinitions()`.
 
 ### 2.2 Too much implementation detail is public
 
@@ -578,7 +575,7 @@ If testing shows a safety-sensitive operation deserves its own public tool, keep
 
 ### 9.1 Separate operation definitions from public tool definitions
 
-Currently `toolDefinitions()` closely represents the public MCP surface.
+Previously `toolDefinitions()` directly represented the public MCP surface.
 
 Refactor toward two concepts:
 
@@ -746,19 +743,20 @@ After a compatibility window:
 - remove obsolete top-level schemas;
 - remove compatibility handlers only when no supported client depends on them.
 
-Do not remove legacy behavior in the same release that introduces the compact surface.
+Product decision on 2026-08-12: the public compatibility window was waived.
+Users will be told to update, while the granular names remain private runtime
+commands so the compact gateway does not lose capability.
 
 ### Implementation checkpoint — 2026-08-12
 
 Implemented in the current working tree:
 
-- the 77-tool legacy contract is frozen in tests;
-- every legacy tool maps to a stable internal operation ID and shared metadata;
-- legacy calls route through the common operation dispatcher;
+- the 77 native runtime commands are frozen in tests;
+- every runtime command maps to a stable internal operation ID and shared metadata;
 - 16 compact domain tools cover every current internal operation;
-- `legacy`, `compact` and `dual` advertisement modes are available through `CODELOCAL_MCP_TOOL_SURFACE`;
-- unknown surface values fail closed to `legacy`;
-- representative compact calls are checked against their legacy operation/runtime equivalents;
+- the gateway always advertises the 16 compact tools; legacy/dual advertisement and the feature flag were removed;
+- stale `CODELOCAL_MCP_TOOL_SURFACE` deployment values cannot re-enable granular public tools;
+- representative compact calls are checked against their native runtime equivalents;
 - a compact tool is invoked through the real MCP HTTP transport in tests, not only through its resolver;
 - successful and error results expose compact JSON text plus MCP `structuredContent`;
 - runtime duration metadata is carried back through WebSocket and cross-replica routing so gateway logs can separate local execution from relay/activation overhead;
@@ -770,13 +768,13 @@ Implemented in the current working tree:
 - process write, resize, signal and kill aliases now share the same side-effect serialization metadata as their canonical operations;
 - the advertised schema estimate fell from 39,798 bytes to 15,079 bytes, a 62.1% reduction.
 
-Still required before changing the default:
+Still required after the compact cutover:
 
-- run the representative workflows with real ChatGPT sessions on both surfaces;
+- run representative workflows with real ChatGPT sessions;
 - measure task completion, invalid calls, retries, total model/tool turns and end-to-end latency;
 - verify approval wording and confirmation behavior for mixed read/write domain tools;
-- decide whether the legacy TypeScript implementation receives parity or is explicitly retired;
-- decide whether `handoff` lands before or after compact becomes the default.
+- retire or explicitly isolate the legacy TypeScript implementation;
+- decide whether `handoff` should be added as a seventeenth domain tool.
 
 ### Why Codex CLI feels faster, and what CodeLocal should optimize
 
@@ -918,12 +916,12 @@ Exact files should be confirmed during implementation with `context_for_task` an
 
 - compact registry exposes only the intended public tools;
 - names are stable;
-- no accidental legacy tool is advertised in compact mode;
+- no private granular runtime command is advertised publicly;
 - no target domain tool is missing.
 
 ### Mapping tests
 
-Every legacy operation must map to exactly one internal operation ID or be explicitly marked obsolete.
+Every private runtime command must map to exactly one internal operation ID or be explicitly marked obsolete.
 
 ### Schema tests
 
@@ -950,7 +948,7 @@ At minimum:
 
 ### Compatibility tests
 
-For each representative legacy call, assert equivalent compact call behavior.
+For each representative native runtime command, assert equivalent compact action behavior.
 
 Example:
 
@@ -966,23 +964,11 @@ Add high-level tests that simulate the common ChatGPT sequence instead of only t
 
 ## 13. Rollout / rollback strategy
 
-The compact surface should be reversible without reverting runtime internals.
-
-Recommended rollout controls:
-
-- environment/config flag selecting `legacy`, `compact`, or temporary `dual` mode;
-- server default can be switched quickly;
-- internal operation router remains common to both modes;
-- no destructive data migration required.
-
-Rollback should mean:
-
-```text
-compact advertisement OFF
-legacy advertisement ON
-```
-
-without changing workspace data, approvals, credentials, or user projects.
+The product decision is a hard public cutover to the compact surface. There is
+no runtime flag that can re-advertise the 77 granular commands. Rollback requires
+an explicit code revert and Cloud restart, while workspace data, approvals,
+credentials and user projects remain unchanged. The internal native command
+router stays stable so the public cutover does not require a data migration.
 
 ## 14. Tool surface versioning
 
@@ -1034,12 +1020,12 @@ This preserves the semantic-first behavior CodeLocal already wants while reducin
 
 The migration is considered successful when all of the following are true:
 
-- [ ] Default modern sessions expose no more than ~20 first-party CodeLocal tools.
+- [x] Modern sessions expose exactly 16 first-party CodeLocal tools.
 - [x] All important capability from the current 77 tools remains reachable through compact operation mappings.
 - [ ] No security/approval regression exists.
-- [ ] Workspace/thread routing behavior remains correct.
+- [x] Workspace/thread routing behavior remains correct in gateway tests.
 - [x] Existing projects require no data migration.
-- [x] Legacy clients can still function during the compatibility window.
+- [x] Native runtime protocol command compatibility remains intact.
 - [x] MCP Hub remains lazy/dynamic.
 - [x] Tool-schema serialized size is materially lower than the 77-tool baseline (62.1% in the current fixture).
 - [ ] Representative coding workflows require the same or fewer model/tool round trips.
@@ -1047,28 +1033,21 @@ The migration is considered successful when all of the following are true:
 - [x] Full Go tests pass.
 - [ ] Relevant TypeScript compatibility tests pass while the legacy implementation remains supported.
 
-## 18. Recommended implementation order
+## 18. Implemented order
 
-Do **not** begin by deleting tools from `toolDefinitions()`.
-
-Recommended order:
-
-1. Inventory/freeze all 77 current tools.
-2. Introduce internal operation IDs and metadata.
-3. Route legacy tools through the common operation dispatcher.
-4. Add compact domain tool schemas.
-5. Make policy/approval action-aware.
-6. Add compact-vs-legacy workflow tests and schema-size benchmark.
-7. Enable compact surface behind a flag.
-8. Evaluate with real ChatGPT coding flows.
-9. Make compact default.
-10. Deprecate legacy advertisement later.
+1. Inventoried the 77 native runtime commands.
+2. Introduced stable internal operation IDs and metadata.
+3. Added 16 compact domain schemas and action resolvers.
+4. Added operation coverage, routing, safety and schema-size tests.
+5. Removed granular public advertisement and its feature flag.
+6. Kept native protocol commands private and stable.
+7. Continued real ChatGPT workflow and latency evaluation after cutover.
 
 ## 19. Decision summary
 
 **Decision:** CodeLocal should reduce its model-facing first-party MCP catalog substantially, but should not reduce its actual runtime capability.
 
-**Current:** 77 public first-party tools.
+**Current:** 16 public domain tools backed by 77 private native runtime commands.
 
 **Recommended target:** approximately **16 domain-oriented public tools**, allowing a practical final range of **15-20** after safety/schema testing.
 

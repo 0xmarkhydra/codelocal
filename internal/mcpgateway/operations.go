@@ -12,7 +12,7 @@ import (
 //
 // RuntimeTool intentionally remains the current protocol-v1/v2 tool name so
 // this migration does not require a client protocol change. OperationID is the
-// durable semantic identity that compact and legacy MCP surfaces can share.
+// durable semantic identity shared by the compact MCP surface and native runtime.
 type operationInvocation struct {
 	OperationID       string
 	RuntimeTool       string
@@ -26,10 +26,10 @@ type operationInvocation struct {
 	SideEffecting     bool
 }
 
-// legacyOperationIDs freezes the semantic meaning of every tool in Tool
-// Surface v1. Compatibility aliases deliberately resolve to the same stable
-// operation ID as their canonical operation.
-var legacyOperationIDs = map[string]string{
+// runtimeOperationIDs freezes the semantic meaning of every native runtime
+// command. Compatibility aliases deliberately resolve to the same stable
+// operation ID as their canonical command.
+var runtimeOperationIDs = map[string]string{
 	"list_devices":           "device.list_active",
 	"list_device_identities": "device.list_paired",
 	"revoke_device":          "device.revoke",
@@ -119,8 +119,8 @@ var legacyOperationIDs = map[string]string{
 	"mcp_call":         "mcp.call",
 }
 
-func operationIDForLegacyTool(name string) (string, bool) {
-	id, ok := legacyOperationIDs[name]
+func runtimeOperationID(name string) (string, bool) {
+	id, ok := runtimeOperationIDs[name]
 	return id, ok
 }
 
@@ -133,7 +133,7 @@ func localOperationTool(name string) bool {
 	}
 }
 
-func legacyTerminalExecutionTool(name string) bool {
+func runtimeTerminalExecutionTool(name string) bool {
 	switch name {
 	case "run_command", "exec_start", "pty_start":
 		return true
@@ -142,7 +142,7 @@ func legacyTerminalExecutionTool(name string) bool {
 	}
 }
 
-func legacyToolMutatesState(name string) bool {
+func runtimeToolMutatesState(name string) bool {
 	if protocol.SideEffecting(name) {
 		return true
 	}
@@ -154,7 +154,7 @@ func legacyToolMutatesState(name string) bool {
 	}
 }
 
-func legacyToolDestructive(name string) bool {
+func runtimeToolDestructive(name string) bool {
 	switch name {
 	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call":
 		return true
@@ -163,7 +163,7 @@ func legacyToolDestructive(name string) bool {
 	}
 }
 
-func legacyToolOpenWorld(name string) bool {
+func runtimeToolOpenWorld(name string) bool {
 	switch name {
 	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call":
 		return true
@@ -172,7 +172,7 @@ func legacyToolOpenWorld(name string) bool {
 	}
 }
 
-func legacyToolIdempotent(name string) bool {
+func runtimeToolIdempotent(name string) bool {
 	switch name {
 	case "select_workspace", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
 		return true
@@ -181,7 +181,7 @@ func legacyToolIdempotent(name string) bool {
 	}
 }
 
-func legacyToolCapability(name string) string {
+func runtimeToolCapability(name string) string {
 	if strings.HasPrefix(name, "git_") {
 		return "git"
 	}
@@ -201,21 +201,21 @@ func legacyToolCapability(name string) string {
 	}
 }
 
-func operationForLegacyTool(name string) (operationInvocation, error) {
-	id, ok := operationIDForLegacyTool(name)
+func operationForRuntimeTool(name string) (operationInvocation, error) {
+	id, ok := runtimeOperationID(name)
 	if !ok {
 		return operationInvocation{}, fmt.Errorf("unregistered CodeLocal operation for tool %s", name)
 	}
 	return operationInvocation{
 		OperationID:       id,
 		RuntimeTool:       name,
-		Capability:        legacyToolCapability(name),
+		Capability:        runtimeToolCapability(name),
 		Local:             localOperationTool(name),
-		MutatesState:      legacyToolMutatesState(name),
-		Destructive:       legacyToolDestructive(name),
-		OpenWorld:         legacyToolOpenWorld(name),
-		Idempotent:        legacyToolIdempotent(name),
-		TerminalExecution: legacyTerminalExecutionTool(name),
+		MutatesState:      runtimeToolMutatesState(name),
+		Destructive:       runtimeToolDestructive(name),
+		OpenWorld:         runtimeToolOpenWorld(name),
+		Idempotent:        runtimeToolIdempotent(name),
+		TerminalExecution: runtimeTerminalExecutionTool(name),
 		SideEffecting:     protocol.SideEffecting(name),
 	}, nil
 }

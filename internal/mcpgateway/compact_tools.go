@@ -4,16 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
-const (
-	toolSurfaceLegacy  = "legacy"
-	toolSurfaceCompact = "compact"
-	toolSurfaceDual    = "dual"
 )
 
 const compactOrchestrationInstructions = `CodeLocal connects ChatGPT to explicitly authorized local workspaces. Reuse the selected workspace and prior results. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. Avoid repeated project/workspace inspection unless state changed. Local security policy and ChatGPT approvals remain authoritative for side effects.`
@@ -25,24 +18,6 @@ type compactToolDef struct {
 	Schema      json.RawMessage
 	Annotations *mcp.ToolAnnotations
 	Resolve     func(map[string]any) (operationInvocation, map[string]any, error)
-}
-
-func configuredToolSurface() string {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_MCP_TOOL_SURFACE"))) {
-	case toolSurfaceCompact:
-		return toolSurfaceCompact
-	case toolSurfaceDual:
-		return toolSurfaceDual
-	default:
-		return toolSurfaceLegacy
-	}
-}
-
-func orchestrationInstructionsForSurface(surface string) string {
-	if surface == toolSurfaceCompact || surface == toolSurfaceDual {
-		return compactOrchestrationInstructions
-	}
-	return orchestrationInstructions
 }
 
 func compactAnnotations(title string, readOnly, destructive, openWorld bool) *mcp.ToolAnnotations {
@@ -94,7 +69,7 @@ func resolveAction(args map[string]any, actions map[string]string, required map[
 	if err := requireArgs(forward, action, required[action]...); err != nil {
 		return operationInvocation{}, nil, err
 	}
-	operation, err := operationForLegacyTool(runtimeTool)
+	operation, err := operationForRuntimeTool(runtimeTool)
 	if err != nil {
 		return operationInvocation{}, nil, err
 	}
@@ -107,7 +82,7 @@ func singleOperationResolver(runtimeTool string, required ...string) func(map[st
 		if err := requireArgs(forward, runtimeTool, required...); err != nil {
 			return operationInvocation{}, nil, err
 		}
-		operation, err := operationForLegacyTool(runtimeTool)
+		operation, err := operationForRuntimeTool(runtimeTool)
 		return operation, forward, err
 	}
 }

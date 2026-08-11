@@ -39,12 +39,12 @@ func TestCompactToolSurfaceContract(t *testing.T) {
 	if len(defs) != 16 {
 		t.Fatalf("compact tool count = %d, want 16 until handoff phase lands", len(defs))
 	}
-	legacyBytes := legacySurfaceBytes(toolDefinitions())
+	const previousPublicSchemaBytes = 39798
 	compactBytes := compactSurfaceBytes(defs)
-	if compactBytes >= legacyBytes {
-		t.Fatalf("compact schema should be smaller: compact=%d legacy=%d", compactBytes, legacyBytes)
+	if compactBytes >= previousPublicSchemaBytes {
+		t.Fatalf("compact schema should be smaller: compact=%d previous=%d", compactBytes, previousPublicSchemaBytes)
 	}
-	t.Logf("MCP surface bytes: legacy=%d compact=%d reduction=%.1f%%", legacyBytes, compactBytes, 100*(1-float64(compactBytes)/float64(legacyBytes)))
+	t.Logf("MCP surface bytes: previous=%d compact=%d reduction=%.1f%%", previousPublicSchemaBytes, compactBytes, 100*(1-float64(compactBytes)/float64(previousPublicSchemaBytes)))
 }
 
 func allCompactActions(t *testing.T, def compactToolDef) []string {
@@ -71,7 +71,7 @@ func universalCompactArgs(action string) map[string]any {
 	}
 }
 
-func TestCompactSurfaceCoversEveryLegacyOperation(t *testing.T) {
+func TestCompactSurfaceCoversEveryRuntimeOperation(t *testing.T) {
 	covered := map[string]struct{}{}
 	for _, def := range compactToolDefinitions() {
 		if def.Name == "context" {
@@ -92,7 +92,7 @@ func TestCompactSurfaceCoversEveryLegacyOperation(t *testing.T) {
 	}
 
 	expected := map[string]struct{}{}
-	for _, operationID := range legacyOperationIDs {
+	for _, operationID := range runtimeOperationIDs {
 		expected[operationID] = struct{}{}
 	}
 	if !reflect.DeepEqual(covered, expected) {
@@ -116,41 +116,21 @@ func TestCompactResolverRejectsInvalidOrIncompleteActions(t *testing.T) {
 	}
 }
 
-func TestConfiguredToolSurfaceDefaultsSafe(t *testing.T) {
-	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", "")
-	if got := configuredToolSurface(); got != toolSurfaceLegacy {
-		t.Fatalf("default surface = %q, want legacy", got)
-	}
-	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", "compact")
-	if got := configuredToolSurface(); got != toolSurfaceCompact {
-		t.Fatalf("compact surface = %q", got)
-	}
-	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", "dual")
-	if got := configuredToolSurface(); got != toolSurfaceDual {
-		t.Fatalf("dual surface = %q", got)
-	}
-	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", "garbage")
-	if got := configuredToolSurface(); got != toolSurfaceLegacy {
-		t.Fatalf("unknown surface must fail closed to legacy, got %q", got)
-	}
-}
-
-func listServerToolsForSurface(t *testing.T, surface string) []string {
+func listServerTools(t *testing.T) []string {
 	t.Helper()
-	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", surface)
 	s := &Service{servers: map[string]*mcp.Server{}, routes: map[string]map[string]string{}, shownUpdates: map[string]map[string]struct{}{}}
-	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.serverFor("test-user-" + surface) }, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
-	httpServer := httptest.NewServer(legacyMCPCompatibility(stream))
+	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.serverFor("test-user") }, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
+	httpServer := httptest.NewServer(statefulMCPCompatibility(stream))
 	defer httpServer.Close()
 	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-surface-test", Version: "1"}, nil)
 	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
 	if err != nil {
-		t.Fatalf("connect %s surface: %v", surface, err)
+		t.Fatalf("connect compact surface: %v", err)
 	}
 	defer session.Close()
 	result, err := session.ListTools(context.Background(), nil)
 	if err != nil {
-		t.Fatalf("list %s tools: %v", surface, err)
+		t.Fatalf("list compact tools: %v", err)
 	}
 	out := make([]string, 0, len(result.Tools))
 	for _, tool := range result.Tools {
@@ -165,19 +145,22 @@ func sortedStrings(values []string) []string {
 	return out
 }
 
-func TestServerAdvertisesSelectedToolSurface(t *testing.T) {
-	compact := listServerToolsForSurface(t, toolSurfaceCompact)
+func TestServerAdvertisesOnlyCompactToolSurface(t *testing.T) {
+	// A stale deployment variable must not be able to re-enable the removed
+	// granular public surface.
+	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", "legacy")
+	compact := listServerTools(t)
 	if !reflect.DeepEqual(sortedStrings(compact), sortedStrings(frozenCompactToolNames)) {
 		t.Fatalf("compact advertised tools mismatch: %v", compact)
 	}
-	dual := listServerToolsForSurface(t, toolSurfaceDual)
-	if len(dual) != len(frozenLegacyToolNames)+len(frozenCompactToolNames) {
-		t.Fatalf("dual advertised %d tools, want %d", len(dual), len(frozenLegacyToolNames)+len(frozenCompactToolNames))
+	for _, name := range compact {
+		if _, internalRuntimeTool := runtimeOperationIDs[name]; internalRuntimeTool {
+			t.Fatalf("internal runtime tool %q leaked into the public MCP surface", name)
+		}
 	}
 }
 
 func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
-	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", toolSurfaceCompact)
 	s := &Service{
 		Hub:          gateway.NewHub(nil, "compact-call-test"),
 		servers:      map[string]*mcp.Server{},
@@ -187,7 +170,7 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return s.serverFor("test-user")
 	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
-	httpServer := httptest.NewServer(legacyMCPCompatibility(stream))
+	httpServer := httptest.NewServer(statefulMCPCompatibility(stream))
 	defer httpServer.Close()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-compact-call-test", Version: "1"}, nil)
@@ -229,24 +212,24 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 	}
 }
 
-func TestRepresentativeCompactCallsMatchLegacyOperations(t *testing.T) {
+func TestRepresentativeCompactCallsMatchRuntimeOperations(t *testing.T) {
 	definitions := map[string]compactToolDef{}
 	for _, definition := range compactToolDefinitions() {
 		definitions[definition.Name] = definition
 	}
 	cases := []struct {
-		tool       string
-		action     string
-		legacyTool string
-		args       map[string]any
+		tool        string
+		action      string
+		runtimeTool string
+		args        map[string]any
 	}{
-		{tool: "workspace", action: "select", legacyTool: "select_workspace", args: map[string]any{"key": "workspace"}},
-		{tool: "lsp", action: "definition", legacyTool: "find_definition", args: map[string]any{"path": "main.go", "line": 10, "column": 3}},
-		{tool: "edit", action: "apply", legacyTool: "apply_edits", args: map[string]any{"files": []any{map[string]any{"path": "main.go", "edits": []any{}}}}},
-		{tool: "terminal", action: "start_pty", legacyTool: "pty_start", args: map[string]any{"command": "go test ./..."}},
-		{tool: "process", action: "poll", legacyTool: "exec_poll", args: map[string]any{"processId": "process"}},
-		{tool: "git", action: "push", legacyTool: "git_push", args: map[string]any{"remote": "origin", "branch": "dev"}},
-		{tool: "mcp", action: "call", legacyTool: "mcp_call", args: map[string]any{"server": "github", "tool": "search", "arguments": map[string]any{}}},
+		{tool: "workspace", action: "select", runtimeTool: "select_workspace", args: map[string]any{"key": "workspace"}},
+		{tool: "lsp", action: "definition", runtimeTool: "find_definition", args: map[string]any{"path": "main.go", "line": 10, "column": 3}},
+		{tool: "edit", action: "apply", runtimeTool: "apply_edits", args: map[string]any{"files": []any{map[string]any{"path": "main.go", "edits": []any{}}}}},
+		{tool: "terminal", action: "start_pty", runtimeTool: "pty_start", args: map[string]any{"command": "go test ./..."}},
+		{tool: "process", action: "poll", runtimeTool: "exec_poll", args: map[string]any{"processId": "process"}},
+		{tool: "git", action: "push", runtimeTool: "git_push", args: map[string]any{"remote": "origin", "branch": "dev"}},
+		{tool: "mcp", action: "call", runtimeTool: "mcp_call", args: map[string]any{"server": "github", "tool": "search", "arguments": map[string]any{}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool+"_"+tc.action, func(t *testing.T) {
@@ -257,12 +240,12 @@ func TestRepresentativeCompactCallsMatchLegacyOperations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			legacy, err := operationForLegacyTool(tc.legacyTool)
+			runtimeOperation, err := operationForRuntimeTool(tc.runtimeTool)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if operation != legacy {
-				t.Fatalf("compact operation = %#v, legacy operation = %#v", operation, legacy)
+			if operation != runtimeOperation {
+				t.Fatalf("compact operation = %#v, runtime operation = %#v", operation, runtimeOperation)
 			}
 			if _, leaked := forward["action"]; leaked {
 				t.Fatalf("compact discriminator leaked to runtime args: %#v", forward)
@@ -275,17 +258,9 @@ func TestRepresentativeCompactCallsMatchLegacyOperations(t *testing.T) {
 }
 
 func TestWorkspaceRoutingErrorsMatchAdvertisedSurface(t *testing.T) {
-	operation, err := operationForLegacyTool("read_file")
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := workspaceRoutingError("read_file", operation, false).Error()
-	if !strings.Contains(legacy, "list_workspaces") || strings.Contains(legacy, "workspace(action=") {
-		t.Fatalf("legacy guidance names unavailable compact tools: %q", legacy)
-	}
-	compact := workspaceRoutingError("read", operation, false).Error()
+	compact := workspaceRoutingError(false).Error()
 	if !strings.Contains(compact, "workspace(action=list)") || strings.Contains(compact, "list_workspaces") {
-		t.Fatalf("compact guidance names unavailable legacy tools: %q", compact)
+		t.Fatalf("compact guidance names removed public tools: %q", compact)
 	}
 }
 

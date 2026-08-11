@@ -50,41 +50,15 @@ func TestUpdateNoticeIsScopedPerWorkspace(t *testing.T) {
 	}
 }
 
-func definitionNamed(t *testing.T, name string) toolDef {
-	t.Helper()
-	for _, def := range toolDefinitions() {
-		if def.Name == name {
-			return def
-		}
-	}
-	t.Fatalf("tool definition not found: %s", name)
-	return toolDef{}
-}
-
-func TestToolMetadataMakesCommonCallsUnderstandable(t *testing.T) {
-	status := definitionNamed(t, "git_status")
-	if got := toolDisplayTitle(status.Name, status.Title); got != "Check Git status" {
-		t.Fatalf("unexpected git_status title: %q", got)
-	}
-	statusAnnotations := toolAnnotations(status)
-	if !statusAnnotations.ReadOnlyHint || statusAnnotations.OpenWorldHint == nil || *statusAnnotations.OpenWorldHint {
-		t.Fatalf("git_status annotations should describe a closed-world read-only action: %#v", statusAnnotations)
-	}
-
-	push := definitionNamed(t, "git_push")
-	pushAnnotations := toolAnnotations(push)
-	if pushAnnotations.ReadOnlyHint || pushAnnotations.OpenWorldHint == nil || !*pushAnnotations.OpenWorldHint {
-		t.Fatalf("git_push annotations should describe an external side effect: %#v", pushAnnotations)
-	}
-}
-
 func TestToolCompatibilityGating(t *testing.T) {
-	legacy := &gateway.WorkspaceView{ProtocolVersion: 1}
-	if err := ensureToolSupported(definitionNamed(t, "git_status"), legacy); err != nil {
-		t.Fatalf("legacy git_status should stay available: %v", err)
+	protocolOne := &gateway.WorkspaceView{ProtocolVersion: 1}
+	gitStatus, _ := operationForRuntimeTool("git_status")
+	if err := ensureOperationSupported(gitStatus, protocolOne); err != nil {
+		t.Fatalf("protocol-v1 git status should stay available: %v", err)
 	}
-	if err := ensureToolSupported(definitionNamed(t, "git_commit"), legacy); err == nil {
-		t.Fatal("legacy protocol-v1 client must not receive unsupported git_commit")
+	gitCommit, _ := operationForRuntimeTool("git_commit")
+	if err := ensureOperationSupported(gitCommit, protocolOne); err == nil {
+		t.Fatal("protocol-v1 client must not receive unsupported git commit")
 	}
 
 	modern := &gateway.WorkspaceView{ProtocolVersion: 2, Capabilities: map[string]any{
@@ -96,18 +70,21 @@ func TestToolCompatibilityGating(t *testing.T) {
 		"approvalMemory":  true,
 		"terminalHistory": true,
 	}}
-	if err := ensureToolSupported(definitionNamed(t, "git_diff"), modern); err != nil {
+	gitDiff, _ := operationForRuntimeTool("git_diff")
+	if err := ensureOperationSupported(gitDiff, modern); err != nil {
 		t.Fatalf("git_diff should be available: %v", err)
 	}
-	if err := ensureToolSupported(definitionNamed(t, "pty_start"), modern); err == nil {
+	ptyStart, _ := operationForRuntimeTool("pty_start")
+	if err := ensureOperationSupported(ptyStart, modern); err == nil {
 		t.Fatal("pty_start must be gated when PTY is not advertised")
 	}
-	if err := ensureToolSupported(definitionNamed(t, "mcp_call"), modern); err == nil {
+	mcpCall, _ := operationForRuntimeTool("mcp_call")
+	if err := ensureOperationSupported(mcpCall, modern); err == nil {
 		t.Fatal("mcp_call must be gated when MCP Hub is not advertised")
 	}
 }
 
-func TestLegacyMCPCompatibilityForcesModernProbeToFallback(t *testing.T) {
+func TestStatefulMCPCompatibilityForcesModernProbeToFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		body       string
@@ -118,7 +95,7 @@ func TestLegacyMCPCompatibilityForcesModernProbeToFallback(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
-			handler := legacyMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := statefulMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				called = true
 				w.WriteHeader(http.StatusNoContent)
 			}))
@@ -141,9 +118,9 @@ func TestLegacyMCPCompatibilityForcesModernProbeToFallback(t *testing.T) {
 	}
 }
 
-func TestLegacyMCPCompatibilityPassesInitialize(t *testing.T) {
+func TestStatefulMCPCompatibilityPassesInitialize(t *testing.T) {
 	called := false
-	handler := legacyMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := statefulMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -151,12 +128,11 @@ func TestLegacyMCPCompatibilityPassesInitialize(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if !called || rec.Code != http.StatusNoContent {
-		t.Fatalf("legacy initialize should pass through: called=%v status=%d", called, rec.Code)
+		t.Fatalf("stateful initialize should pass through: called=%v status=%d", called, rec.Code)
 	}
 }
 
 func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
-	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", toolSurfaceLegacy)
 	s := &Service{
 		servers:      map[string]*mcp.Server{},
 		routes:       map[string]map[string]string{},
@@ -165,7 +141,7 @@ func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
 	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return s.serverFor("test-user")
 	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
-	httpServer := httptest.NewServer(legacyMCPCompatibility(stream))
+	httpServer := httptest.NewServer(statefulMCPCompatibility(stream))
 	defer httpServer.Close()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-test", Version: "1"}, nil)
@@ -179,7 +155,7 @@ func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tools/list failed: %v", err)
 	}
-	if len(result.Tools) != len(toolDefinitions()) {
-		t.Fatalf("tools/list returned %d tools, want %d", len(result.Tools), len(toolDefinitions()))
+	if len(result.Tools) != len(compactToolDefinitions()) {
+		t.Fatalf("tools/list returned %d tools, want %d", len(result.Tools), len(compactToolDefinitions()))
 	}
 }
