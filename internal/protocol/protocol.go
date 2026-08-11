@@ -18,6 +18,7 @@ type BrowserCapabilities struct {
 type ComputerCapabilities struct {
 	Available         bool   `json:"available"`
 	Backend           string `json:"backend,omitempty"`
+	WindowList        bool   `json:"windowList,omitempty"`
 	ScreenCapture     bool   `json:"screenCapture,omitempty"`
 	UITree            bool   `json:"uiTree,omitempty"`
 	Pointer           bool   `json:"pointer,omitempty"`
