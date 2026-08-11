@@ -16,10 +16,13 @@ func TestAutomationCapabilitiesMarshalGranularFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, want := range []string{`"automation"`, `"browser"`, `"computer"`, `"windowList":true`, `"screenCapture":true`, `"secureDesktop":false`} {
+	for _, want := range []string{`"automation"`, `"browser"`, `"computer"`, `"windowList":true`, `"screenCapture":true`, `"pointer":true`, `"keyboard":true`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("capabilities JSON missing %s: %s", want, text)
 		}
+	}
+	if strings.Contains(text, `"secureDesktop":true`) {
+		t.Fatalf("secure desktop must never be advertised as controllable: %s", text)
 	}
 }
 
