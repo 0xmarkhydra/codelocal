@@ -136,18 +136,28 @@ func (s *Server) issue(userID, clientID, resource, scope string) map[string]any 
 }
 
 func validRedirect(value string) bool {
+	value = strings.TrimSpace(value)
 	u, err := url.Parse(value)
-	if err != nil || u.Hostname() == "" {
+	if err != nil || u.Scheme == "" || u.User != nil || u.Fragment != "" {
 		return false
 	}
-	if u.Scheme == "https" {
-		return true
+	scheme := strings.ToLower(u.Scheme)
+	if scheme == "https" {
+		return u.Hostname() != ""
 	}
-	if u.Scheme != "http" {
+	if scheme == "http" {
+		host := strings.ToLower(u.Hostname())
+		return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	}
+
+	// RFC 8252 permits public/native OAuth clients to use private-use URI
+	// schemes. ChatGPT MCP registration may provide one of these callbacks,
+	// while PKCE and exact redirect-URI binding still protect the auth code.
+	switch scheme {
+	case "javascript", "data", "file", "vbscript":
 		return false
 	}
-	host := u.Hostname()
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	return u.Host != "" || u.Path != "" || u.Opaque != ""
 }
 func contains(values []string, value string) bool {
 	for _, v := range values {

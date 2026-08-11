@@ -55,9 +55,13 @@ function issueTokens(userId: string, clientId: string, resource: string, scope =
 }
 function validRedirectUri(value: string) {
   try {
-    const url = new URL(value);
+    const url = new URL(value.trim());
+    if (url.username || url.password || url.hash) return false;
     const host = url.hostname.replace(/^\[/, "").replace(/\]$/, "");
-    return url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(host));
+    if (url.protocol === "https:") return !!host;
+    if (url.protocol === "http:") return ["localhost", "127.0.0.1", "::1"].includes(host.toLowerCase());
+    if (["javascript:", "data:", "file:", "vbscript:"].includes(url.protocol.toLowerCase())) return false;
+    return !!(host || url.pathname);
   } catch { return false; }
 }
 function htmlEscape(value: string) { return escapeHtml(value); }
