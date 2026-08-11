@@ -172,7 +172,7 @@ func (m *Manager) form(mode, csrf, next, errorMessage string) string {
 	}
 	referralField := ""
 	if signup {
-		referralField = `<div class="field"><label>Referral code</label><input class="input mono" type="text" name="referralCode" autocomplete="off" minlength="4" maxlength="32" pattern="[A-Za-z0-9]+" required></div><div class="hint">Ask an existing CodeLocal member for an invite code. New accounts cannot access the dashboard without a valid referral.</div>`
+		referralField = `<div class="field"><label>Referral code</label><input class="input mono" type="text" name="referralCode" autocomplete="off" minlength="4" maxlength="6" pattern="[A-Za-z0-9]+" required></div><div class="hint">Enter the 6-character invite code from an existing CodeLocal member.</div>`
 	}
 	body := alert + `<form class="form" method="post" action="/` + mode + `"><input type="hidden" name="csrf" value="` + ui.Escape(csrf) + `"><input type="hidden" name="next" value="` + ui.Escape(next) + `"><div class="field"><label>Email</label><input class="input" type="email" name="email" autocomplete="email" maxlength="254" required autofocus></div><div class="field"><label>Password</label><input class="input" type="password" name="password" autocomplete="` + autocomplete + `" minlength="10" maxlength="256" required></div>` + referralField + `<button class="btn primary" type="submit">` + button + `</button></form><div class="auth-switch">` + switcher + `</div>`
 	return ui.Page(title, subtitle, body)

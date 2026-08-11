@@ -343,6 +343,50 @@ ON CONFLICT(user_id) DO UPDATE SET
 DROP TABLE codelocal_mcp_usage;
 ALTER TABLE codelocal_mcp_usage_total RENAME TO codelocal_mcp_usage;
 `},
+		{9, `
+DO $$
+DECLARE
+ rec RECORD;
+ attempt INTEGER;
+ candidate TEXT;
+BEGIN
+ CREATE TEMP TABLE codelocal_referral_short_map (
+  user_id TEXT PRIMARY KEY,
+  old_code TEXT NOT NULL,
+  temp_code TEXT NOT NULL UNIQUE,
+  new_code TEXT NOT NULL UNIQUE
+ ) ON COMMIT DROP;
+
+ FOR rec IN SELECT id, referral_code FROM codelocal_users ORDER BY id LOOP
+  attempt := 0;
+  LOOP
+   candidate := UPPER(SUBSTR(MD5(rec.id || ':referral-v2:' || attempt::TEXT),1,6));
+   BEGIN
+    INSERT INTO codelocal_referral_short_map(user_id,old_code,temp_code,new_code)
+    VALUES(rec.id,rec.referral_code,'__REF6__' || rec.id,candidate);
+    EXIT;
+   EXCEPTION WHEN unique_violation THEN
+    attempt := attempt + 1;
+   END;
+  END LOOP;
+ END LOOP;
+
+ UPDATE codelocal_users child
+ SET referred_by_code=map.new_code
+ FROM codelocal_referral_short_map map
+ WHERE UPPER(COALESCE(child.referred_by_code,''))=UPPER(map.old_code);
+
+ UPDATE codelocal_users user_row
+ SET referral_code=map.temp_code
+ FROM codelocal_referral_short_map map
+ WHERE user_row.id=map.user_id;
+
+ UPDATE codelocal_users user_row
+ SET referral_code=map.new_code
+ FROM codelocal_referral_short_map map
+ WHERE user_row.id=map.user_id;
+END $$;
+`},
 	}
 	for _, migration := range migrations {
 		var exists bool
@@ -436,7 +480,10 @@ func NormalizeReferralCode(value string) string { return strings.ToUpper(strings
 
 func ValidReferralCode(value string) bool {
 	value = NormalizeReferralCode(value)
-	if len(value) < 4 || len(value) > 32 {
+	if value == "MMON" {
+		return true
+	}
+	if len(value) != 6 {
 		return false
 	}
 	for _, r := range value {
@@ -450,16 +497,19 @@ func ValidReferralCode(value string) bool {
 
 func RandomReferralCode() string {
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	buf := make([]byte, 8)
+	buf := make([]byte, 6)
 	if _, err := rand.Read(buf); err != nil {
-		return "CL" + strings.ToUpper(RandomHex(5))
+		n := uint64(time.Now().UnixNano())
+		for i := range buf {
+			buf[i] = alphabet[n%uint64(len(alphabet))]
+			n /= uint64(len(alphabet))
+		}
+		return string(buf)
 	}
-	out := make([]byte, 0, 10)
-	out = append(out, 'C', 'L')
-	for _, b := range buf {
-		out = append(out, alphabet[int(b)%len(alphabet)])
+	for i, b := range buf {
+		buf[i] = alphabet[int(b)%len(alphabet)]
 	}
-	return string(out)
+	return string(buf)
 }
 
 func (s *Store) RateLimit(ctx context.Context, scope, identifier string, limit, windowSeconds int) (allowed bool, count, retry int, err error) {

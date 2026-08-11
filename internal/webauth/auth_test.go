@@ -51,8 +51,8 @@ func TestValidEmail(t *testing.T) {
 func TestSignupFormRequiresReferralCode(t *testing.T) {
 	manager := &Manager{}
 	signup := manager.form("signup", "csrf-token", "/dashboard", "")
-	if !strings.Contains(signup, `name="referralCode"`) || !strings.Contains(signup, "required") {
-		t.Fatal("signup form must require referral code")
+	if !strings.Contains(signup, `name="referralCode"`) || !strings.Contains(signup, `maxlength="6"`) || !strings.Contains(signup, "required") {
+		t.Fatal("signup form must require a 6-character referral code")
 	}
 	login := manager.form("login", "csrf-token", "/dashboard", "")
 	if strings.Contains(login, `name="referralCode"`) {

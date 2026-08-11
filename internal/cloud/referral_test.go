@@ -28,19 +28,19 @@ func TestReferralCodeNormalizationAndGeneration(t *testing.T) {
 	if got := NormalizeReferralCode("  mMon  "); got != "MMON" {
 		t.Fatalf("normalized code = %q", got)
 	}
-	for _, code := range []string{"MMON", "CL7K9AB2QZ", "USER2026"} {
+	for _, code := range []string{"MMON", "A7K2M9", "USER26"} {
 		if !ValidReferralCode(code) {
 			t.Fatalf("valid code rejected: %q", code)
 		}
 	}
-	for _, code := range []string{"", "ABC", "HAS SPACE", "BAD-CODE", "CODE!"} {
+	for _, code := range []string{"", "ABC", "ABCDE", "ABCDEFG", "CL7K9AB2QZ", "HAS SPACE", "BAD-CODE", "CODE!"} {
 		if ValidReferralCode(code) {
 			t.Fatalf("invalid code accepted: %q", code)
 		}
 	}
 	for i := 0; i < 20; i++ {
 		code := RandomReferralCode()
-		if !ValidReferralCode(code) || len(code) != 10 || code[:2] != "CL" {
+		if !ValidReferralCode(code) || len(code) != 6 || code == "MMON" {
 			t.Fatalf("generated invalid code: %q", code)
 		}
 	}
