@@ -97,13 +97,13 @@ func maskLeaderboardEmail(email string) string {
 }
 
 func (s *Server) mainUsageLeaderboard(ctx context.Context, currentEmail string) string {
-	users, err := s.Store.ListAdminUsers(ctx)
+	now := time.Now().UnixMilli()
+	since := time.Now().Add(-30 * 24 * time.Hour).UnixMilli()
+	users, err := s.Store.ListUsageLeaderboardUsers(ctx, since)
 	if err != nil {
 		return `<div class="card span12"><div class="empty">Unable to load leaderboard right now.</div></div>`
 	}
 
-	now := time.Now().UnixMilli()
-	since := time.Now().Add(-30 * 24 * time.Hour).UnixMilli()
 	start := mainUsageDayStart(since)
 	step := int64(24 * time.Hour / time.Millisecond)
 	entries := make([]mainUsageLeaderboardEntry, 0, len(users))
@@ -111,9 +111,6 @@ func (s *Server) mainUsageLeaderboard(ctx context.Context, currentEmail string) 
 	pipe := s.Store.Redis.Pipeline()
 
 	for _, user := range users {
-		if user.LastMCPUsedAt < since {
-			continue
-		}
 		entries = append(entries, mainUsageLeaderboardEntry{Email: user.Email})
 		entry := &entries[len(entries)-1]
 		for at := start; at <= now; at += step {

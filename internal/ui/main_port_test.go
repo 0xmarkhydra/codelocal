@@ -15,8 +15,8 @@ func TestDashboardPagePinsSidebarOnDesktop(t *testing.T) {
 		IsAdmin: true,
 	})
 
-	if !strings.Contains(html, `<div class="shell"><div class="sidebar-column"><aside class="sidebar">`) {
-		t.Fatal("dashboard sidebar must keep a reserved sidebar column next to page content")
+	if !strings.Contains(html, `<body class="dashboard-body"><div class="shell"><div class="sidebar-column"><aside class="sidebar">`) {
+		t.Fatal("dashboard must scope its viewport lock to the dashboard body and keep a reserved sidebar column")
 	}
 	if !strings.Contains(mainPortExtras, `height:100dvh;min-height:0;grid-template-columns:256px minmax(0,1fr);overflow:hidden`) {
 		t.Fatal("dashboard shell must be locked to the viewport")
@@ -30,8 +30,30 @@ func TestDashboardPagePinsSidebarOnDesktop(t *testing.T) {
 	if !strings.Contains(mainPortExtras, `@media(max-width:1100px) and (min-width:761px){.shell{grid-template-columns:78px minmax(0,1fr)}`) {
 		t.Fatal("tablet dashboard must collapse into an icon rail")
 	}
+	if strings.Contains(mainPortExtras, `.sidebar-foot form{display:none}`) || !strings.Contains(mainPortExtras, `.sidebar-foot form{display:block}`) {
+		t.Fatal("tablet icon rail must keep a compact sign-out action available")
+	}
+	if !strings.Contains(html, `aria-label="Sign out"`) || !strings.Contains(html, `title="Leaderboard"`) {
+		t.Fatal("tablet icon controls must remain discoverable and accessible")
+	}
 	if !strings.Contains(mainPortExtras, `.sidebar.nav-open{height:100dvh;overflow-y:auto}`) || !strings.Contains(html, `data-nav-toggle`) {
 		t.Fatal("mobile dashboard must use a drawer instead of scrolling the desktop sidebar with page content")
+	}
+	if !strings.Contains(mainPortExtras, `.shell.nav-open .main{overflow:hidden}`) || !strings.Contains(dashboardScript, `shell?.classList.toggle('nav-open', open)`) {
+		t.Fatal("open mobile navigation must lock the underlying content scroll")
+	}
+	if !strings.Contains(dashboardScript, `if (event.key === 'Escape') setNavOpen(false)`) {
+		t.Fatal("mobile navigation must close with Escape")
+	}
+}
+
+func TestLandingPageKeepsDocumentScroll(t *testing.T) {
+	html := LandingPage(LandingOptions{Endpoint: "https://codelocal.cloud/mcp"})
+	if strings.Contains(html, `<body class="dashboard-body">`) {
+		t.Fatal("landing page must not inherit the dashboard viewport lock")
+	}
+	if strings.Contains(mainPortExtras, `html,body{height:100%;overflow:hidden}`) {
+		t.Fatal("shared UI styles must not globally disable landing page scrolling")
 	}
 }
 

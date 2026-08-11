@@ -255,28 +255,28 @@ func (m *Manager) Register(mux *http.ServeMux) {
 	signup := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		csrf := m.EnsureCSRF(w, r)
 		next := webutil.SafeNext(r.FormValue("next"))
+		referralCode := cloud.NormalizeReferralCode(r.FormValue("referralCode"))
 		if !m.VerifyCSRF(r) {
 			w.WriteHeader(403)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Security token expired. Please try again.")))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Security token expired. Please try again.", referralCode)))
 			return
 		}
 		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		password := r.FormValue("password")
-		referralCode := cloud.NormalizeReferralCode(r.FormValue("referralCode"))
 		if !validEmail(email) {
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid email address.")))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid email address.", referralCode)))
 			return
 		}
 		if !cloud.ValidReferralCode(referralCode) {
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid referral code from an existing member.")))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid referral code from an existing member.", referralCode)))
 			return
 		}
 		hash, salt, err := HashPassword(password)
 		if err != nil {
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, err.Error())))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, err.Error(), referralCode)))
 			return
 		}
 		user, err := m.Store.CreateUser(r.Context(), email, hash, salt, referralCode)
@@ -291,7 +291,7 @@ func (m *Manager) Register(mux *http.ServeMux) {
 				message = "Unable to allocate a referral code. Please try again."
 			}
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, message)))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, message, referralCode)))
 			return
 		}
 		sessionID, err := m.Store.CreateSession(r.Context(), user.ID, csrf, m.SessionTTL)
