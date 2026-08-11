@@ -1,11 +1,13 @@
 package automation
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,13 +18,17 @@ import (
 )
 
 type ComputerController struct {
-	WorkspaceID  string
-	WorkspaceKey string
-	Root         string
-	Helper       string
-	Backend      string
+	WorkspaceID   string
+	WorkspaceKey  string
+	Root          string
+	Helper        string
+	Backend       string
 	Capabilities map[string]any
-	mu           sync.Mutex
+	mu            sync.Mutex
+	cmd           *exec.Cmd
+	stdin         io.WriteCloser
+	stdout        *bufio.Reader
+	stderr        bytes.Buffer
 }
 
 func computerHelperName() string {
@@ -135,6 +141,93 @@ func NewComputerController(workspaceID, workspaceKey, root string) (*ComputerCon
 	return &ComputerController{WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Helper: helper, Backend: backend, Capabilities: capabilities}, nil
 }
 
+func (c *ComputerController) resetProcessLocked() {
+	if c.stdin != nil {
+		_ = c.stdin.Close()
+	}
+	if c.cmd != nil && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+		_, _ = c.cmd.Process.Wait()
+	}
+	c.cmd = nil
+	c.stdin = nil
+	c.stdout = nil
+	c.stderr.Reset()
+}
+
+func (c *ComputerController) startProcessLocked() error {
+	if c.cmd != nil && c.cmd.Process != nil && c.stdin != nil && c.stdout != nil {
+		return nil
+	}
+	cmd := exec.Command(c.Helper, "--serve")
+	cmd.Dir = c.Root
+	cmd.Env = append(os.Environ(), "CI=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return err
+	}
+	c.stderr.Reset()
+	cmd.Stderr = &c.stderr
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		return err
+	}
+	c.cmd = cmd
+	c.stdin = stdin
+	c.stdout = bufio.NewReaderSize(stdoutPipe, 64<<10)
+	return nil
+}
+
+type computerHelperResponse struct {
+	OK     bool   `json:"ok"`
+	Result any    `json:"result"`
+	Error  string `json:"error"`
+}
+
+func (c *ComputerController) callLocked(ctx context.Context, raw []byte) (computerHelperResponse, error) {
+	var response computerHelperResponse
+	if err := c.startProcessLocked(); err != nil {
+		return response, err
+	}
+	if _, err := c.stdin.Write(append(raw, '\n')); err != nil {
+		c.resetProcessLocked()
+		return response, err
+	}
+	type readResult struct {
+		line []byte
+		err  error
+	}
+	readCh := make(chan readResult, 1)
+	go func(reader *bufio.Reader) {
+		line, err := reader.ReadBytes('\n')
+		readCh <- readResult{line: line, err: err}
+	}(c.stdout)
+	select {
+	case <-ctx.Done():
+		c.resetProcessLocked()
+		return response, ctx.Err()
+	case read := <-readCh:
+		if read.err != nil {
+			message := strings.TrimSpace(c.stderr.String())
+			c.resetProcessLocked()
+			if message == "" {
+				message = read.err.Error()
+			}
+			return response, errors.New(message)
+		}
+		if err := json.Unmarshal(read.line, &response); err != nil {
+			c.resetProcessLocked()
+			return response, fmt.Errorf("invalid Computer Use helper response: %w", err)
+		}
+		return response, nil
+	}
+}
+
 func (c *ComputerController) Call(ctx context.Context, operation string, args map[string]any) (any, error) {
 	if c == nil || c.Helper == "" {
 		return nil, errors.New("Computer Use helper unavailable")
@@ -157,27 +250,9 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 	raw, _ := json.Marshal(request)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	cmd := exec.CommandContext(ctx, c.Helper, "--json")
-	cmd.Dir = c.Root
-	cmd.Env = append(os.Environ(), "CI=1")
-	cmd.Stdin = bytes.NewReader(raw)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = err.Error()
-		}
-		return nil, fmt.Errorf("Computer Use helper failed: %s", message)
-	}
-	var response struct {
-		OK     bool   `json:"ok"`
-		Result any    `json:"result"`
-		Error  string `json:"error"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
-		return nil, fmt.Errorf("invalid Computer Use helper response: %w", err)
+	response, err := c.callLocked(ctx, raw)
+	if err != nil {
+		return nil, fmt.Errorf("Computer Use helper failed: %w", err)
 	}
 	if !response.OK {
 		if response.Error == "" {
@@ -188,4 +263,11 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 	return response.Result, nil
 }
 
-func (c *ComputerController) Close() {}
+func (c *ComputerController) Close() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.resetProcessLocked()
+	c.mu.Unlock()
+}
