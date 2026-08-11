@@ -1,7 +1,9 @@
 package automation
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,7 +82,7 @@ func Save(settings Settings) error {
 
 func Detect() Environment {
 	env := Environment{Platform: runtime.GOOS, Notes: []string{}}
-	env.BrowserCLI = browserCLIPath()
+	env.BrowserCLI = BrowserCLIPath()
 	env.BrowserReady = env.BrowserCLI != ""
 
 	switch runtime.GOOS {
@@ -108,7 +110,28 @@ func Detect() Environment {
 	return env
 }
 
-func browserCLIPath() string {
+// EnsureBrowserRuntime installs Playwright's managed browser only after the
+// user opted into Browser Automation. npm supplies the CLI with CodeLocal, so
+// the user never needs a second install command.
+func EnsureBrowserRuntime(ctx context.Context) error {
+	cli := BrowserCLIPath()
+	if cli == "" {
+		return errors.New("bundled Playwright CLI was not found")
+	}
+	cmd := exec.CommandContext(ctx, cli, "install-browser")
+	cmd.Env = append(os.Environ(), "CI=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return fmt.Errorf("install Playwright browser: %s", message)
+	}
+	return nil
+}
+
+func BrowserCLIPath() string {
 	candidates := []string{}
 	if configured := strings.TrimSpace(os.Getenv("CODELOCAL_PLAYWRIGHT_CLI")); configured != "" {
 		candidates = append(candidates, configured)
