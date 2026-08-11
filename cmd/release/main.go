@@ -16,9 +16,10 @@ type rootManifest struct {
 }
 
 type target struct {
-	GOOS   string
-	GOARCH string
-	File   string
+	GOOS       string
+	GOARCH     string
+	File       string
+	HelperFile string
 }
 
 func main() {
@@ -34,15 +35,31 @@ func main() {
 	staging := filepath.Join(root, ".release", "npm")
 	must(os.RemoveAll(staging))
 	must(os.MkdirAll(filepath.Join(staging, "bin", "native"), 0o755))
-	targets := []target{{"darwin", "arm64", "codelocal-darwin-arm64"}, {"darwin", "amd64", "codelocal-darwin-x64"}, {"linux", "arm64", "codelocal-linux-arm64"}, {"linux", "amd64", "codelocal-linux-x64"}, {"windows", "amd64", "codelocal-win32-x64.exe"}, {"windows", "arm64", "codelocal-win32-arm64.exe"}}
+	must(os.MkdirAll(filepath.Join(staging, "bin", "helpers"), 0o755))
+	targets := []target{
+		{"darwin", "arm64", "codelocal-darwin-arm64", "computer-darwin-arm64"},
+		{"darwin", "amd64", "codelocal-darwin-x64", "computer-darwin-amd64"},
+		{"linux", "arm64", "codelocal-linux-arm64", "computer-linux-arm64"},
+		{"linux", "amd64", "codelocal-linux-x64", "computer-linux-amd64"},
+		{"windows", "amd64", "codelocal-win32-x64.exe", "computer-windows-amd64.exe"},
+		{"windows", "arm64", "codelocal-win32-arm64.exe", "computer-windows-arm64.exe"},
+	}
 	for _, t := range targets {
 		fmt.Printf("building %s/%s\n", t.GOOS, t.GOARCH)
-		cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(staging, "bin", "native", t.File), "./cmd/codelocal")
-		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+t.GOOS, "GOARCH="+t.GOARCH)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		must(cmd.Run())
+		env := append(os.Environ(), "CGO_ENABLED=0", "GOOS="+t.GOOS, "GOARCH="+t.GOARCH)
+		core := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(staging, "bin", "native", t.File), "./cmd/codelocal")
+		core.Dir = root
+		core.Env = env
+		core.Stdout = os.Stdout
+		core.Stderr = os.Stderr
+		must(core.Run())
+
+		helper := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(staging, "bin", "helpers", t.HelperFile), "./cmd/computerhelper")
+		helper.Dir = root
+		helper.Env = env
+		helper.Stdout = os.Stdout
+		helper.Stderr = os.Stderr
+		must(helper.Run())
 	}
 	launcher := `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
@@ -56,18 +73,29 @@ const files = {
   'win32-x64': 'codelocal-win32-x64.exe',
   'win32-arm64': 'codelocal-win32-arm64.exe'
 };
+const helperFiles = {
+  'darwin-arm64': 'computer-darwin-arm64',
+  'darwin-x64': 'computer-darwin-amd64',
+  'linux-arm64': 'computer-linux-arm64',
+  'linux-x64': 'computer-linux-amd64',
+  'win32-x64': 'computer-windows-amd64.exe',
+  'win32-arm64': 'computer-windows-arm64.exe'
+};
 const file = files[key];
-if (!file) {
-  console.error('CodeLocal does not have a native binary for ' + key + '.');
+const helperFile = helperFiles[key];
+if (!file || !helperFile) {
+  console.error('CodeLocal does not have native binaries for ' + key + '.');
   process.exit(1);
 }
 const packageRoot = path.resolve(__dirname, '..');
 const playwrightCli = path.join(packageRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'playwright-cli.cmd' : 'playwright-cli');
 const binary = path.join(__dirname, 'native', file);
+const computerHelper = path.join(__dirname, 'helpers', helperFile);
 const env = {
   ...process.env,
   CODELOCAL_PACKAGE_ROOT: packageRoot,
-  CODELOCAL_PLAYWRIGHT_CLI: process.env.CODELOCAL_PLAYWRIGHT_CLI || playwrightCli
+  CODELOCAL_PLAYWRIGHT_CLI: process.env.CODELOCAL_PLAYWRIGHT_CLI || playwrightCli,
+  CODELOCAL_COMPUTER_HELPER: process.env.CODELOCAL_COMPUTER_HELPER || computerHelper
 };
 const result = spawnSync(binary, process.argv.slice(2), { stdio: 'inherit', env });
 if (result.error) {
@@ -91,7 +119,7 @@ process.exit(result.status ?? 1);
 		"dependencies": map[string]string{
 			"@playwright/cli": "0.1.17",
 		},
-		"keywords": []string{"chatgpt", "mcp", "coding", "local", "go", "playwright", "browser-automation"},
+		"keywords": []string{"chatgpt", "mcp", "coding", "local", "go", "playwright", "browser-automation", "computer-use"},
 	}
 	publicRaw, _ := json.MarshalIndent(public, "", "  ")
 	must(os.WriteFile(filepath.Join(staging, "package.json"), append(publicRaw, '\n'), 0o600))
@@ -113,19 +141,23 @@ codelocal .
 ` + "```\n\n" + "`codelocal .` only authorizes that folder locally. It does not pair the machine or connect to CodeLocal Cloud.\n\n" + `## Start CodeLocal
 
 ` + "```bash\n" + `codelocal
-` + "```\n\n" + `On first start, CodeLocal asks which local capabilities ChatGPT may use. Browser Automation is powered by the Playwright CLI dependency that ships with CodeLocal; if enabled, CodeLocal prepares its managed browser automatically before starting the runtime. Computer Use remains a separate opt-in capability.
+` + "```\n\n" + `On first start, CodeLocal asks which local capabilities ChatGPT may use. Browser Automation is powered by the Playwright CLI dependency that ships with CodeLocal; if enabled, CodeLocal prepares its managed browser automatically before starting the runtime. Computer Use remains a separate opt-in capability and uses the native helper already bundled for the current operating system.
 
 The Go runtime then pairs this machine if needed, syncs authorized workspaces, and waits for ChatGPT. One machine runs one runtime; multiple workspaces activate lazily inside it.
 
 Use ` + "`codelocal status`" + ` to inspect it and ` + "`codelocal stop`" + ` to stop it.
 
-The user only installs and starts ` + "`codelocal`" + `; Playwright is an internal dependency and does not require a separate global install command.
+The user only installs and starts ` + "`codelocal`" + `; Playwright and native Computer Use helpers are internal package details and do not require separate install commands.
 `
 	must(os.WriteFile(filepath.Join(staging, "README.md"), []byte(readme), 0o600))
-	entries, _ := os.ReadDir(filepath.Join(staging, "bin", "native"))
+	nativeEntries, _ := os.ReadDir(filepath.Join(staging, "bin", "native"))
+	helperEntries, _ := os.ReadDir(filepath.Join(staging, "bin", "helpers"))
 	names := []string{}
-	for _, entry := range entries {
-		names = append(names, entry.Name())
+	for _, entry := range nativeEntries {
+		names = append(names, "native/"+entry.Name())
+	}
+	for _, entry := range helperEntries {
+		names = append(names, "helpers/"+entry.Name())
 	}
 	sort.Strings(names)
 	fmt.Printf("staged CodeLocal %s (%s) on %s/%s\n", manifest.Version, strings.Join(names, ", "), runtime.GOOS, runtime.GOARCH)
