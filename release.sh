@@ -38,7 +38,7 @@ esac
 
 local_version="$(node -p "require('./package.json').version")"
 printf '\nChecking published versions on npm...\n'
-published_versions="$(npm view "$PACKAGE_NAME" versions --json 2>/dev/null || printf '[]')"
+published_versions="$(npm view "$PACKAGE_NAME" versions --json --prefer-online 2>/dev/null || printf '[]')"
 
 next_version="$(
   CODELOCAL_RELEASE_CHANNEL="$channel" \
@@ -135,8 +135,46 @@ fi
 printf '\nPublishing codelocal@%s with npm tag %s...\n\n' "$next_version" "$channel"
 npm publish ./.release/npm --tag "$channel"
 
-printf '\n✓ Published codelocal@%s (%s)\n\n' "$next_version" "$channel"
-npm view "$PACKAGE_NAME" dist-tags
+printf '\nPublished. Waiting for npm registry to expose codelocal@%s and update %s...\n' "$next_version" "$channel"
+
+registry_ready=0
+max_registry_attempts="${CODELOCAL_REGISTRY_ATTEMPTS:-20}"
+registry_retry_seconds="${CODELOCAL_REGISTRY_RETRY_SECONDS:-3}"
+
+for ((attempt = 1; attempt <= max_registry_attempts; attempt++)); do
+  published_version="$(npm view "$PACKAGE_NAME@$next_version" version --prefer-online 2>/dev/null || true)"
+  tagged_version="$(npm view "$PACKAGE_NAME@$channel" version --prefer-online 2>/dev/null || true)"
+
+  if [[ "$published_version" == "$next_version" && "$tagged_version" == "$next_version" ]]; then
+    registry_ready=1
+    break
+  fi
+
+  printf '  npm sync %d/%d: version=%s, %s=%s\n' \
+    "$attempt" \
+    "$max_registry_attempts" \
+    "${published_version:-pending}" \
+    "$channel" \
+    "${tagged_version:-pending}"
+
+  if (( attempt < max_registry_attempts )); then
+    sleep "$registry_retry_seconds"
+  fi
+done
+
+if [[ "$registry_ready" != "1" ]]; then
+  echo "✗ npm accepted the publish, but registry metadata did not converge in time." >&2
+  echo "  Expected version: $next_version" >&2
+  echo "  Expected $channel tag: $next_version" >&2
+  echo "  Verify with:" >&2
+  echo "    npm view $PACKAGE_NAME@$next_version version --prefer-online" >&2
+  echo "    npm view $PACKAGE_NAME@$channel version --prefer-online" >&2
+  echo "    npm view $PACKAGE_NAME dist-tags --prefer-online" >&2
+  exit 1
+fi
+
+printf '\n✓ Release ready: codelocal@%s (%s)\n\n' "$next_version" "$channel"
+npm view "$PACKAGE_NAME" dist-tags --prefer-online
 printf '\nInstalled by users with:\n  %s\n\n' "$install_command"
 printf 'Version files are updated locally. Commit them when ready:\n'
 printf '  git add package.json package-lock.json internal/version/version.go\n'
