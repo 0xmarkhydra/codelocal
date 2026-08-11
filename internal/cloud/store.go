@@ -323,6 +323,28 @@ SET referral_code='U' || UPPER(SUBSTR(MD5(id || ':reserved-mmon'),1,16)),
     referred_by_code=COALESCE(NULLIF(BTRIM(referred_by_code),''),'MMON')
 WHERE UPPER(referral_code)='MMON';
 `},
+		{8, `
+CREATE TABLE IF NOT EXISTS codelocal_mcp_usage_total (
+ user_id TEXT PRIMARY KEY REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ calls BIGINT NOT NULL DEFAULT 0,
+ input_bytes BIGINT NOT NULL DEFAULT 0, output_bytes BIGINT NOT NULL DEFAULT 0,
+ input_tokens_est BIGINT NOT NULL DEFAULT 0, output_tokens_est BIGINT NOT NULL DEFAULT 0,
+ last_used_at BIGINT NOT NULL DEFAULT 0
+);
+INSERT INTO codelocal_mcp_usage_total(user_id,calls,input_bytes,output_bytes,input_tokens_est,output_tokens_est,last_used_at)
+SELECT user_id,SUM(calls),SUM(input_bytes),SUM(output_bytes),SUM(input_tokens_est),SUM(output_tokens_est),MAX(bucket_start)
+FROM codelocal_mcp_usage
+GROUP BY user_id
+ON CONFLICT(user_id) DO UPDATE SET
+ calls=codelocal_mcp_usage_total.calls+EXCLUDED.calls,
+ input_bytes=codelocal_mcp_usage_total.input_bytes+EXCLUDED.input_bytes,
+ output_bytes=codelocal_mcp_usage_total.output_bytes+EXCLUDED.output_bytes,
+ input_tokens_est=codelocal_mcp_usage_total.input_tokens_est+EXCLUDED.input_tokens_est,
+ output_tokens_est=codelocal_mcp_usage_total.output_tokens_est+EXCLUDED.output_tokens_est,
+ last_used_at=GREATEST(codelocal_mcp_usage_total.last_used_at,EXCLUDED.last_used_at);
+DROP TABLE codelocal_mcp_usage;
+ALTER TABLE codelocal_mcp_usage_total RENAME TO codelocal_mcp_usage;
+`},
 	}
 	for _, migration := range migrations {
 		var exists bool
@@ -950,8 +972,22 @@ func parseInt64(value any) int64 {
 	return time.Now().UnixMilli()
 }
 
+func parseUsageInt64(value string) int64 {
+	n, _ := strconv.ParseInt(value, 10, 64)
+	return n
+}
+
 func usageBucketStart(createdAt int64) int64 {
 	return (createdAt / 3600000) * 3600000
+}
+
+func usageDayStart(createdAt int64) int64 {
+	const dayMs = int64(24 * time.Hour / time.Millisecond)
+	return (createdAt / dayMs) * dayMs
+}
+
+func usageWindowKey(userID, bucket string, startedAt int64) string {
+	return "codelocal:usage:" + bucket + ":" + userID + ":" + strconv.FormatInt(startedAt, 10)
 }
 
 func mcpActiveKey(userID string) string { return "codelocal:user:mcp-active:" + userID }
@@ -1011,21 +1047,45 @@ func (s *Store) persistMCPUsage(ctx context.Context, event MCPUsageEvent) error 
 	if event.Calls <= 0 {
 		event.Calls = 1
 	}
-	bucketStart := usageBucketStart(event.CreatedAt)
-	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_mcp_usage(user_id,bucket_start,device_id,workspace_id,tool,calls,input_bytes,output_bytes,input_tokens_est,output_tokens_est)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-ON CONFLICT(user_id,bucket_start,device_id,workspace_id,tool) DO UPDATE SET
+	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_mcp_usage(user_id,calls,input_bytes,output_bytes,input_tokens_est,output_tokens_est,last_used_at)
+VALUES($1,$2,$3,$4,$5,$6,$7)
+ON CONFLICT(user_id) DO UPDATE SET
  calls=codelocal_mcp_usage.calls+EXCLUDED.calls,
  input_bytes=codelocal_mcp_usage.input_bytes+EXCLUDED.input_bytes,
  output_bytes=codelocal_mcp_usage.output_bytes+EXCLUDED.output_bytes,
  input_tokens_est=codelocal_mcp_usage.input_tokens_est+EXCLUDED.input_tokens_est,
- output_tokens_est=codelocal_mcp_usage.output_tokens_est+EXCLUDED.output_tokens_est`, event.UserID, bucketStart, event.DeviceID, event.WorkspaceID, event.Tool, event.Calls, event.InputBytes, event.OutputBytes, event.InputTokensEst, event.OutputTokensEst)
+ output_tokens_est=codelocal_mcp_usage.output_tokens_est+EXCLUDED.output_tokens_est,
+ last_used_at=GREATEST(codelocal_mcp_usage.last_used_at,EXCLUDED.last_used_at)`, event.UserID, event.Calls, event.InputBytes, event.OutputBytes, event.InputTokensEst, event.OutputTokensEst, event.CreatedAt)
+	if err != nil {
+		return err
+	}
+	if err := s.persistMCPUsageWindows(ctx, event); err != nil {
+		slog.Warn("MCP rolling usage update failed", "error", err, "userId", event.UserID)
+	}
+	return nil
+}
+
+func (s *Store) persistMCPUsageWindows(ctx context.Context, event MCPUsageEvent) error {
+	hourKey := usageWindowKey(event.UserID, "h", usageBucketStart(event.CreatedAt))
+	dayKey := usageWindowKey(event.UserID, "d", usageDayStart(event.CreatedAt))
+	_, err := s.Redis.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		for _, key := range []string{hourKey, dayKey} {
+			pipe.HIncrBy(ctx, key, "calls", event.Calls)
+			pipe.HIncrBy(ctx, key, "input_bytes", int64(event.InputBytes))
+			pipe.HIncrBy(ctx, key, "output_bytes", int64(event.OutputBytes))
+			pipe.HIncrBy(ctx, key, "input_tokens", int64(event.InputTokensEst))
+			pipe.HIncrBy(ctx, key, "output_tokens", int64(event.OutputTokensEst))
+		}
+		pipe.Expire(ctx, hourKey, 49*time.Hour)
+		pipe.Expire(ctx, dayKey, 35*24*time.Hour)
+		return nil
+	})
 	return err
 }
 
 type usageAggregateKey struct {
-	UserID, DeviceID, WorkspaceID, Tool string
-	BucketStart                         int64
+	UserID      string
+	BucketStart int64
 }
 
 func (s *Store) usageWorker() {
@@ -1038,13 +1098,12 @@ func (s *Store) usageWorker() {
 			event.Calls = 1
 		}
 		bucket := usageBucketStart(event.CreatedAt)
-		key := usageAggregateKey{UserID: event.UserID, DeviceID: event.DeviceID, WorkspaceID: event.WorkspaceID, Tool: event.Tool, BucketStart: bucket}
+		key := usageAggregateKey{UserID: event.UserID, BucketStart: bucket}
 		current := pending[key]
 		current.UserID = event.UserID
-		current.DeviceID = event.DeviceID
-		current.WorkspaceID = event.WorkspaceID
-		current.Tool = event.Tool
-		current.CreatedAt = bucket
+		if event.CreatedAt > current.CreatedAt {
+			current.CreatedAt = event.CreatedAt
+		}
 		current.Calls += event.Calls
 		current.InputBytes += event.InputBytes
 		current.OutputBytes += event.OutputBytes
@@ -1060,7 +1119,7 @@ func (s *Store) usageWorker() {
 		defer cancel()
 		for key, event := range pending {
 			if err := s.persistMCPUsage(ctx, event); err != nil {
-				slog.Error("MCP usage aggregate flush failed", "error", err, "tool", event.Tool)
+				slog.Error("MCP usage aggregate flush failed", "error", err, "userId", event.UserID)
 				continue
 			}
 			delete(pending, key)
@@ -1091,36 +1150,49 @@ func (s *Store) usageWorker() {
 
 func (s *Store) MCPUsageSummary(ctx context.Context, userID string, since int64) (MCPUsageSummary, error) {
 	var out MCPUsageSummary
-	bucketSince := int64(0)
-	if since > 0 {
-		bucketSince = (since / 3600000) * 3600000
-	}
-	err := s.DB.QueryRow(ctx, `SELECT COALESCE(SUM(calls),0),COALESCE(SUM(input_bytes),0),COALESCE(SUM(output_bytes),0),COALESCE(SUM(input_tokens_est),0),COALESCE(SUM(output_tokens_est),0) FROM codelocal_mcp_usage WHERE user_id=$1 AND bucket_start >= $2`, userID, bucketSince).Scan(&out.Calls, &out.InputBytes, &out.OutputBytes, &out.InputTokensEst, &out.OutputTokensEst)
-	out.TotalTokensEst = out.InputTokensEst + out.OutputTokensEst
-	return out, err
-}
-
-func (s *Store) RecentMCPUsage(ctx context.Context, userID string, limit int) ([]MCPUsageEvent, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	rows, err := s.DB.Query(ctx, `SELECT user_id,device_id,workspace_id,tool,calls,input_bytes,output_bytes,input_tokens_est,output_tokens_est,bucket_start FROM codelocal_mcp_usage WHERE user_id=$1 ORDER BY bucket_start DESC,calls DESC LIMIT $2`, userID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []MCPUsageEvent{}
-	for rows.Next() {
-		var item MCPUsageEvent
-		if err := rows.Scan(&item.UserID, &item.DeviceID, &item.WorkspaceID, &item.Tool, &item.Calls, &item.InputBytes, &item.OutputBytes, &item.InputTokensEst, &item.OutputTokensEst, &item.CreatedAt); err != nil {
-			return nil, err
+	if since <= 0 {
+		err := s.DB.QueryRow(ctx, `SELECT calls,input_bytes,output_bytes,input_tokens_est,output_tokens_est FROM codelocal_mcp_usage WHERE user_id=$1`, userID).Scan(&out.Calls, &out.InputBytes, &out.OutputBytes, &out.InputTokensEst, &out.OutputTokensEst)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = nil
 		}
-		out = append(out, item)
+		out.TotalTokensEst = out.InputTokensEst + out.OutputTokensEst
+		return out, err
 	}
-	return out, rows.Err()
+
+	now := time.Now().UnixMilli()
+	useHourly := now-since <= int64(48*time.Hour/time.Millisecond)
+	bucket := "d"
+	step := int64(24 * time.Hour / time.Millisecond)
+	start := usageDayStart(since)
+	if useHourly {
+		bucket = "h"
+		step = int64(time.Hour / time.Millisecond)
+		start = usageBucketStart(since)
+	}
+	keys := make([]string, 0, 32)
+	for at := start; at <= now; at += step {
+		keys = append(keys, usageWindowKey(userID, bucket, at))
+	}
+	commands := make([]*redis.MapStringStringCmd, 0, len(keys))
+	_, err := s.Redis.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		for _, key := range keys {
+			commands = append(commands, pipe.HGetAll(ctx, key))
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return out, err
+	}
+	for _, command := range commands {
+		values := command.Val()
+		out.Calls += parseUsageInt64(values["calls"])
+		out.InputBytes += parseUsageInt64(values["input_bytes"])
+		out.OutputBytes += parseUsageInt64(values["output_bytes"])
+		out.InputTokensEst += parseUsageInt64(values["input_tokens"])
+		out.OutputTokensEst += parseUsageInt64(values["output_tokens"])
+	}
+	out.TotalTokensEst = out.InputTokensEst + out.OutputTokensEst
+	return out, nil
 }
 
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
@@ -1133,7 +1205,7 @@ SELECT
  u.created_at,
  (SELECT COUNT(*) FROM codelocal_users child WHERE UPPER(COALESCE(child.referred_by_code,''))=UPPER(u.referral_code)) AS invite_count,
  COALESCE((SELECT MAX(d.last_seen_at) FROM codelocal_devices d WHERE d.user_id=u.id AND d.revoked_at IS NULL),0) AS last_device_seen_at,
- COALESCE((SELECT MAX(m.bucket_start) FROM codelocal_mcp_usage m WHERE m.user_id=u.id),0) AS last_mcp_used_at
+ COALESCE((SELECT m.last_used_at FROM codelocal_mcp_usage m WHERE m.user_id=u.id),0) AS last_mcp_used_at
 FROM codelocal_users u
 ORDER BY u.created_at ASC,u.email ASC`)
 	if err != nil {

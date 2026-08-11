@@ -126,6 +126,70 @@ func mainImportantEvent(event string) bool {
 	}
 }
 
+const mainPageSize = 12
+
+func mainQuery(r *http.Request) string {
+	return strings.TrimSpace(r.URL.Query().Get("q"))
+}
+
+func mainPageBounds(r *http.Request, total int) (page, start, end, totalPages int) {
+	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	totalPages = (total + mainPageSize - 1) / mainPageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	start = (page - 1) * mainPageSize
+	if start > total {
+		start = total
+	}
+	end = start + mainPageSize
+	if end > total {
+		end = total
+	}
+	return
+}
+
+func mainListToolbar(path, query string, total int) string {
+	clear := ""
+	if query != "" {
+		clear = `<a class="btn small" href="` + path + `">Clear</a>`
+	}
+	placeholder := "Search name or ID"
+	if path == "/dashboard/admin" {
+		placeholder = "Search email or referral code"
+	}
+	return `<div class="list-toolbar"><form class="search-form" method="get" action="` + path + `"><input class="search-input" type="search" name="q" value="` + ui.Escape(query) + `" placeholder="` + placeholder + `"><button class="btn small" type="submit">Search</button>` + clear + `</form><span class="badge blue">` + strconv.Itoa(total) + ` result(s)</span></div>`
+}
+
+func mainPager(path, query string, page, totalPages int) string {
+	if totalPages <= 1 {
+		return ""
+	}
+	pageURL := func(value int) string {
+		params := url.Values{}
+		if query != "" {
+			params.Set("q", query)
+		}
+		params.Set("page", strconv.Itoa(value))
+		return path + "?" + params.Encode()
+	}
+	prev := `<span class="btn small disabled">Previous</span>`
+	if page > 1 {
+		prev = `<a class="btn small" href="` + pageURL(page-1) + `">Previous</a>`
+	}
+	next := `<span class="btn small disabled">Next</span>`
+	if page < totalPages {
+		next = `<a class="btn small" href="` + pageURL(page+1) + `">Next</a>`
+	}
+	return `<div class="pager">` + prev + `<span class="pager-meta">Page ` + strconv.Itoa(page) + ` of ` + strconv.Itoa(totalPages) + `</span>` + next + `</div>`
+}
+
 func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	devices, _ := s.Store.ListDevices(r.Context(), identity.User.ID)
 	workspaces, _ := s.Workspaces.Catalog(r.Context(), identity.User.ID)
@@ -194,25 +258,39 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 		activities.WriteString(`<div class="empty">No security activity yet.</div>`)
 	}
 
+	invitedBy := identity.User.ReferredByCode
+	if invitedBy == "" {
+		invitedBy = "Root account"
+	}
 	body := `<div class="grid">` +
 		ui.MetricCard("Machine runtimes", onlineDevices, fmt.Sprintf("%d paired device(s)", paired)) +
 		ui.MetricCard("Active workspaces", activeWorkspaces, "Loaded for a ChatGPT session") +
 		ui.MetricCard("Sleeping workspaces", sleepingWorkspaces, "Authorized, zero heavy runtime") +
+		`<div class="card span12 invite-card"><div><div class="section-kicker">Invite members</div><div class="title">Your referral code</div><div class="label">Share this code with someone you want to invite. They must enter it when creating a CodeLocal account. Invited by: ` + ui.Escape(invitedBy) + `.</div></div><div class="invite-code-wrap"><div class="invite-code mono" id="referral-code">` + ui.Escape(identity.User.ReferralCode) + `</div><button class="btn primary" type="button" data-copy-target="#referral-code">Copy code</button></div></div>` +
 		`<div class="card span8"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">` + workspaceRows.String() + `</div></div>` +
 		`<div class="card span4"><div class="section-head"><div><div class="title">Recent activity</div><div class="label">Cloud security metadata only.</div></div><a class="btn small" href="/dashboard/security">View all</a></div><div class="divider"></div>` + activities.String() + `</div></div>`
 
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
 		Title: "Overview", Active: "overview", Email: identity.User.Email, CSRF: identity.CSRF,
 		Subtitle: "A private control plane for the local machines and project folders you explicitly authorize.",
-		Actions: `<a class="btn primary" href="/dashboard/connect"><span class="btn-icon">↗</span>Connect ChatGPT</a>`,
-		Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email),
+		Actions:  `<a class="btn primary" href="/dashboard/connect"><span class="btn-icon">↗</span>Connect ChatGPT</a>`,
+		Body:     body, IsAdmin: cloud.IsAdminEmail(identity.User.Email),
 	}))
 }
 
 func (s *Server) mainDevices(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	devices, _ := s.Store.ListDevices(r.Context(), identity.User.ID)
-	var rows strings.Builder
+	query := strings.ToLower(mainQuery(r))
+	filtered := make([]cloud.Device, 0, len(devices))
 	for _, device := range devices {
+		haystack := strings.ToLower(device.DeviceName + " " + device.DeviceID)
+		if query == "" || strings.Contains(haystack, query) {
+			filtered = append(filtered, device)
+		}
+	}
+	page, start, end, totalPages := mainPageBounds(r, len(filtered))
+	var rows strings.Builder
+	for _, device := range filtered[start:end] {
 		online := false
 		if device.RevokedAt == 0 {
 			online, _ = s.Activation.IsOnline(r.Context(), identity.User.ID, device.DeviceID)
@@ -230,16 +308,30 @@ func (s *Server) mainDevices(w http.ResponseWriter, r *http.Request, identity *w
 		rows.WriteString(`<div class="row"><div class="entity"><div class="entity-icon">` + ui.Icon("device") + `</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(device.DeviceName) + `</span></div><div class="row-meta mono">` + ui.Escape(device.DeviceID) + `</div><div class="row-meta">Paired ` + ui.Escape(ui.FormatTime(device.CreatedAt)) + ` · last seen ` + ui.Escape(ui.FormatTime(device.LastSeenAt)) + `</div></div></div><div class="actions">` + actions + `</div></div>`)
 	}
 	if rows.Len() == 0 {
-		rows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("device") + `</div>No paired devices yet.</div>`)
+		message := "No paired devices yet."
+		if query != "" {
+			message = "No devices match your search."
+		}
+		rows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("device") + `</div>` + message + `</div>`)
 	}
-	body := mainFlash(r) + `<div class="card"><div class="section-head"><div><div class="title">Paired machines</div><div class="label">Online means the lightweight <code>codelocal</code> runtime is reachable now.</div></div></div><div class="divider"></div><div class="list">` + rows.String() + `</div></div>`
+	originalQuery := mainQuery(r)
+	body := mainFlash(r) + `<div class="card"><div class="section-head"><div><div class="title">Paired machines</div><div class="label">Online means the lightweight <code>codelocal</code> runtime is reachable now.</div></div></div>` + mainListToolbar("/dashboard/devices", originalQuery, len(filtered)) + `<div class="divider"></div><div class="list">` + rows.String() + `</div>` + mainPager("/dashboard/devices", originalQuery, page, totalPages) + `</div>`
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Devices", Active: "devices", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "A paired device credential lets one CodeLocal machine runtime connect to your account. Revoke anything you no longer trust.", Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
 }
 
 func (s *Server) mainWorkspaces(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	workspaces, _ := s.Workspaces.Catalog(r.Context(), identity.User.ID)
-	var rows strings.Builder
+	query := strings.ToLower(mainQuery(r))
+	filtered := workspaces[:0]
 	for _, workspace := range workspaces {
+		haystack := strings.ToLower(workspace.WorkspaceName + " " + workspace.WorkspaceID + " " + workspace.DeviceName + " " + workspace.DeviceID)
+		if query == "" || strings.Contains(haystack, query) {
+			filtered = append(filtered, workspace)
+		}
+	}
+	page, start, end, totalPages := mainPageBounds(r, len(filtered))
+	var rows strings.Builder
+	for _, workspace := range filtered[start:end] {
 		label, badge := mainWorkspaceState(workspace.Status)
 		folder := "folder"
 		if workspace.Status == "active" {
@@ -252,9 +344,14 @@ func (s *Server) mainWorkspaces(w http.ResponseWriter, r *http.Request, identity
 		rows.WriteString(`<div class="row"><div class="entity"><div class="entity-icon">` + ui.Icon(folder) + `</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(workspace.WorkspaceName) + `</span></div><div class="row-meta mono">` + ui.Escape(workspace.WorkspaceID) + `</div><div class="row-meta">Device ` + ui.Escape(workspace.DeviceName) + ` · last seen ` + ui.Escape(ui.FormatTime(workspace.LastSeenAt)) + `</div></div></div><div class="actions"><span class="badge ` + badge + `">` + label + `</span>` + remove + `</div></div>`)
 	}
 	if rows.Len() == 0 {
-		rows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("folder") + `</div>No authorized workspace has synced yet.<br><span class="muted">Open a project on your machine and run <code>codelocal .</code> once.</span></div>`)
+		message := `No authorized workspace has synced yet.<br><span class="muted">Open a project on your machine and run <code>codelocal .</code> once.</span>`
+		if query != "" {
+			message = "No workspaces match your search."
+		}
+		rows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("folder") + `</div>` + message + `</div>`)
 	}
-	body := mainFlash(r) + `<div class="card"><div class="section-head"><div><div class="title">Authorized folders</div><div class="label">Remove access without deleting or modifying the project folder itself.</div></div><div class="badge blue">` + strconv.Itoa(len(workspaces)) + ` authorized</div></div><div class="divider"></div><div class="list">` + rows.String() + `</div></div>`
+	originalQuery := mainQuery(r)
+	body := mainFlash(r) + `<div class="card"><div class="section-head"><div><div class="title">Authorized folders</div><div class="label">Remove access without deleting or modifying the project folder itself.</div></div><div class="badge blue">` + strconv.Itoa(len(workspaces)) + ` authorized</div></div>` + mainListToolbar("/dashboard/workspaces", originalQuery, len(filtered)) + `<div class="divider"></div><div class="list">` + rows.String() + `</div>` + mainPager("/dashboard/workspaces", originalQuery, page, totalPages) + `</div>`
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Workspaces", Active: "workspaces", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "A workspace is a local project folder you granted once. Sleeping workspaces consume no heavy project runtime until ChatGPT selects them.", Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
 }
 
@@ -262,19 +359,10 @@ func (s *Server) mainUsage(w http.ResponseWriter, r *http.Request, identity *web
 	usage24h, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-24*time.Hour).UnixMilli())
 	usage30d, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-30*24*time.Hour).UnixMilli())
 	usageAll, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, 0)
-	recent, _ := s.Store.RecentMCPUsage(r.Context(), identity.User.ID, 50)
 	metric := func(label string, value cloud.MCPUsageSummary, sub string) string {
 		return ui.MetricCard(label, "~"+fmt.Sprint(value.TotalTokensEst), fmt.Sprintf("%d tool calls · %s", value.Calls, sub))
 	}
-	var rows strings.Builder
-	for _, item := range recent {
-		total := item.InputTokensEst + item.OutputTokensEst
-		rows.WriteString(`<div class="row"><div class="row-main"><div class="row-title">` + ui.Escape(item.Tool) + ` <span class="badge blue">~` + fmt.Sprint(total) + ` tokens</span></div><div class="row-meta mono">` + fmt.Sprint(item.Calls) + ` calls · ChatGPT → CodeLocal ~` + fmt.Sprint(item.InputTokensEst) + ` · CodeLocal → ChatGPT ~` + fmt.Sprint(item.OutputTokensEst) + ` · ` + ui.Escape(item.WorkspaceID) + ` · ` + ui.Escape(ui.FormatTime(item.CreatedAt)) + `</div></div></div>`)
-	}
-	if rows.Len() == 0 {
-		rows.WriteString(`<div class="empty">No MCP usage has been recorded yet.</div>`)
-	}
-	body := `<div class="grid">` + metric("Last 24 hours", usage24h, "MCP payload estimate") + metric("Last 30 days", usage30d, "MCP payload estimate") + metric("All time", usageAll, "MCP payload estimate") + `<div class="card span12"><div class="section-head"><div><div class="title">Recent usage</div><div class="label">ChatGPT does not expose full conversation or billing token counts to MCP servers. These values estimate only payload passing through CodeLocal tools.</div></div><span class="badge blue">Estimated</span></div><div class="divider"></div><div class="list">` + rows.String() + `</div></div></div>`
+	body := `<div class="grid">` + metric("Last 24 hours", usage24h, "MCP payload estimate") + metric("Last 30 days", usage30d, "MCP payload estimate") + metric("All time", usageAll, "MCP payload estimate") + `<div class="card span12 usage-note"><div class="section-head"><div><div class="title">Lightweight usage counters</div><div class="label">CodeLocal stores only cumulative totals for your account. Rolling 24-hour and 30-day counters expire automatically; no per-tool or per-workspace usage history is kept.</div></div><span class="badge blue">Estimated</span></div><div class="divider"></div><div class="label">ChatGPT does not expose the model's full conversation or billing token count to MCP servers. These numbers estimate only payload passing through CodeLocal tool calls.</div></div></div>`
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Token usage", Active: "usage", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "Estimated MCP payload usage through CodeLocal — not OpenAI billing tokens.", Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
 }
 

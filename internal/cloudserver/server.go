@@ -293,7 +293,6 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	usage24h, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-24*time.Hour).UnixMilli())
 	usage30d, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-30*24*time.Hour).UnixMilli())
 	usageAll, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, 0)
-	recentUsage, _ := s.Store.RecentMCPUsage(r.Context(), identity.User.ID, 30)
 	var body strings.Builder
 	body.WriteString(dashboardNav(identity) + `<div style="height:18px"></div><div class="stack">`)
 	inviteSource := identity.User.ReferredByCode
@@ -305,12 +304,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	body.WriteString(usageRow("Last 24 hours", usage24h))
 	body.WriteString(usageRow("Last 30 days", usage30d))
 	body.WriteString(usageRow("All time", usageAll))
-	if r.URL.Path == "/dashboard/usage" {
-		for _, item := range recentUsage {
-			total := item.InputTokensEst + item.OutputTokensEst
-			body.WriteString(`<div class="row"><div class="row-title">` + ui.Escape(item.Tool) + ` · ` + fmt.Sprintf("%d", item.Calls) + ` calls · ~` + fmt.Sprintf("%d", total) + ` tokens</div><div class="row-meta mono">Hourly aggregate · ChatGPT → CodeLocal ~` + fmt.Sprintf("%d", item.InputTokensEst) + ` · CodeLocal → ChatGPT ~` + fmt.Sprintf("%d", item.OutputTokensEst) + ` · ` + ui.Escape(item.WorkspaceID) + ` · ` + time.UnixMilli(item.CreatedAt).Format(time.RFC3339) + `</div></div>`)
-		}
-	} else {
+	if r.URL.Path != "/dashboard/usage" {
 		body.WriteString(`<div class="row"><div class="row-title">Gateway</div><div class="row-meta mono">` + ui.Escape(s.InstanceID) + ` · Go ` + ui.Escape(runtime.Version()) + ` · ` + ui.Escape(version.Version) + `</div></div>`)
 		for _, device := range devices {
 			body.WriteString(`<div class="row"><div class="row-title">` + ui.Escape(device.DeviceName) + `</div><div class="row-meta mono">` + ui.Escape(device.DeviceID) + ` · last seen ` + time.UnixMilli(device.LastSeenAt).Format(time.RFC3339) + `</div></div>`)
@@ -414,24 +408,42 @@ func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request, identity
 			activeCount++
 		}
 	}
-	var body strings.Builder
-	body.WriteString(dashboardNav(identity) + `<div style="height:18px"></div>`)
-	body.WriteString(`<div class="metrics"><div class="metric-box"><div class="metric-label">Total users</div><div class="metric-value">` + fmt.Sprintf("%d", len(states)) + `</div></div><div class="metric-box"><div class="metric-label">Active users</div><div class="metric-value">` + fmt.Sprintf("%d", activeCount) + `</div></div><div class="metric-box"><div class="metric-label">Runtime online</div><div class="metric-value">` + fmt.Sprintf("%d", runtimeCount) + `</div></div><div class="metric-box"><div class="metric-label">Using MCP now</div><div class="metric-value">` + fmt.Sprintf("%d", usingCount) + `</div></div></div>`)
-	body.WriteString(`<div style="height:18px"></div><div class="row"><div class="row-title">Users</div><div class="row-meta">Using MCP now means at least one CodeLocal MCP tool call in the last 5 minutes. Runtime online comes from the live machine heartbeat.</div></div><div class="stack">`)
+
+	queryText := mainQuery(r)
+	query := strings.ToLower(queryText)
+	filtered := make([]adminUserState, 0, len(states))
 	for _, user := range states {
+		haystack := strings.ToLower(user.Email + " " + user.ReferralCode + " " + user.ReferredByCode)
+		if query == "" || strings.Contains(haystack, query) {
+			filtered = append(filtered, user)
+		}
+	}
+	page, start, end, totalPages := mainPageBounds(r, len(filtered))
+	var userRows strings.Builder
+	for _, user := range filtered[start:end] {
 		parent := user.ReferredByCode
 		if parent == "" {
 			parent = "—"
 		}
-		lastUsed := "never"
-		if user.LastMCPUsedAt > 0 {
-			lastUsed = time.UnixMilli(user.LastMCPUsedAt).Format(time.RFC3339)
-		}
-		body.WriteString(`<div class="row"><div class="row-title">` + ui.Escape(user.Email) + ` ` + adminStatus(user) + `</div><div class="row-meta mono">code ` + ui.Escape(user.ReferralCode) + ` · invited by ` + ui.Escape(parent) + ` · ` + fmt.Sprintf("%d", user.InviteCount) + ` direct invite(s)</div><div class="row-meta">Joined ` + time.UnixMilli(user.CreatedAt).Format(time.RFC3339) + ` · last MCP bucket ` + ui.Escape(lastUsed) + `</div></div>`)
+		lastMCP := ui.FormatTime(user.LastMCPUsedAt)
+		lastDevice := ui.FormatTime(user.LastDeviceSeenAt)
+		userRows.WriteString(`<div class="admin-row"><div class="admin-user"><div class="admin-user-email">` + ui.Escape(user.Email) + `</div><div class="admin-cell-sub">Joined ` + ui.Escape(ui.FormatTime(user.CreatedAt)) + `</div></div><div class="admin-status">` + adminStatus(user) + `</div><div><div class="admin-code mono">` + ui.Escape(user.ReferralCode) + `</div><div class="admin-cell-sub">Invited by ` + ui.Escape(parent) + ` · ` + fmt.Sprintf("%d", user.InviteCount) + ` direct</div></div><div><div class="admin-activity">MCP ` + ui.Escape(lastMCP) + `</div><div class="admin-cell-sub">Device ` + ui.Escape(lastDevice) + `</div></div></div>`)
 	}
-	body.WriteString(`</div><div style="height:18px"></div><div class="row"><div class="row-title">Referral tree</div><div class="row-meta">Direct parent → child relationships. MMON is the root referral for accounts that existed before referral gating.</div></div><div class="tree">` + renderReferralTree(states) + `</div>`)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("Admin · CodeLocal Cloud", "User activity and referral relationships", body.String())))
+	if userRows.Len() == 0 {
+		userRows.WriteString(`<div class="empty">No users match your search.</div>`)
+	}
+
+	body := `<div class="grid admin-grid">` +
+		`<div class="card span12 admin-hero"><div><div class="section-kicker">Administration</div><div class="title">User network at a glance</div><div class="label">Live runtime status, MCP activity and referral growth in one place.</div></div><span class="badge blue">Admin only</span></div>` +
+		`<div class="admin-stat-grid"><div class="admin-stat"><div class="admin-stat-label">Total users</div><div class="admin-stat-value">` + fmt.Sprintf("%d", len(states)) + `</div><div class="admin-stat-sub">Registered accounts</div></div><div class="admin-stat"><div class="admin-stat-label">Active users</div><div class="admin-stat-value">` + fmt.Sprintf("%d", activeCount) + `</div><div class="admin-stat-sub">Runtime or MCP active</div></div><div class="admin-stat"><div class="admin-stat-label">Runtime online</div><div class="admin-stat-value">` + fmt.Sprintf("%d", runtimeCount) + `</div><div class="admin-stat-sub">Live machine heartbeat</div></div><div class="admin-stat"><div class="admin-stat-label">Using MCP now</div><div class="admin-stat-value">` + fmt.Sprintf("%d", usingCount) + `</div><div class="admin-stat-sub">Tool call in last 5 min</div></div></div>` +
+		`<div class="card span12"><div class="section-head"><div><div class="title">Users</div><div class="label">Search by email, referral code or inviter code. Status is computed from live runtime and MCP activity.</div></div></div>` + mainListToolbar("/dashboard/admin", queryText, len(filtered)) + `<div class="admin-table"><div class="admin-row admin-head"><div>User</div><div>Status</div><div>Referral</div><div>Last activity</div></div>` + userRows.String() + `</div>` + mainPager("/dashboard/admin", queryText, page, totalPages) + `</div>` +
+		`<div class="card span12 referral-tree-card"><div class="section-head"><div><div class="title">Referral tree</div><div class="label">Parent → child relationships. MMON remains the legacy root marker for pre-gating accounts.</div></div><span class="badge blue">` + fmt.Sprintf("%d", len(states)) + ` users</span></div><div class="divider"></div><div class="tree">` + renderReferralTree(states) + `</div></div></div>`
+
+	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
+		Title: "Administration", Active: "admin", Email: identity.User.Email, CSRF: identity.CSRF,
+		Subtitle: "Monitor account activity and referral relationships without exposing local source code.",
+		Body:     body, IsAdmin: true,
+	}))
 }
 
 func usageRow(label string, value cloud.MCPUsageSummary) string {
