@@ -41,6 +41,7 @@ func workspaceAutomationCapabilities(w *WorkspaceWorker) protocol.AutomationCapa
 		value, _ := computerMap[key].(string)
 		return value
 	}
+	uiTree := boolValue("uiTree")
 	return protocol.AutomationCapabilities{
 		Browser: protocol.BrowserCapabilities{
 			Available:       browserAvailable,
@@ -54,7 +55,8 @@ func workspaceAutomationCapabilities(w *WorkspaceWorker) protocol.AutomationCapa
 			Backend:           stringValue("backend"),
 			WindowList:        boolValue("windowList"),
 			ScreenCapture:     boolValue("screenCapture"),
-			UITree:            boolValue("uiTree"),
+			UITree:            uiTree,
+			SemanticActions:   uiTree,
 			Pointer:           boolValue("pointer"),
 			Keyboard:          boolValue("keyboard"),
 			Clipboard:         boolValue("clipboard"),
