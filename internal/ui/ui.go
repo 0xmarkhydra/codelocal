@@ -68,13 +68,15 @@ func icon(path string) string {
 }
 
 var navIcons = map[string]string{
-	"overview":   icon(`<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>`),
-	"workspaces": icon(`<path d="M3.5 7.5h6l2-2h9v13.5H3.5z"/><path d="M3.5 9.5h17"/>`),
-	"devices":    icon(`<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9.5 6h5M11 18h2"/>`),
-	"usage":      icon(`<path d="M4 18V9M10 18V5M16 18v-7M22 18V3"/>`),
-	"connect":    icon(`<path d="M8 12h8M13 9l3 3-3 3"/><path d="M5 5.5h6M5 18.5h6"/>`),
-	"security":   icon(`<path d="M12 3l7 3v5c0 4.6-2.8 8.3-7 10-4.2-1.7-7-5.4-7-10V6z"/><path d="M9.5 12l1.7 1.7 3.5-4"/>`),
-	"admin":      icon(`<circle cx="12" cy="8" r="3"/><path d="M5 20c.8-4 3.2-6 7-6s6.2 2 7 6"/>`),
+	"overview":    icon(`<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>`),
+	"workspaces":  icon(`<path d="M3.5 7.5h6l2-2h9v13.5H3.5z"/><path d="M3.5 9.5h17"/>`),
+	"devices":     icon(`<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9.5 6h5M11 18h2"/>`),
+	"usage":       icon(`<path d="M4 18V9M10 18V5M16 18v-7M22 18V3"/>`),
+	"connect":     icon(`<path d="M8 12h8M13 9l3 3-3 3"/><path d="M5 5.5h6M5 18.5h6"/>`),
+	"invite":      icon(`<path d="M4 12h16M12 4v16"/><path d="M5 7.5h14v11H5z"/><path d="M5 10h14"/>`),
+	"leaderboard": icon(`<path d="M8 4h8v4a4 4 0 0 1-8 0z"/><path d="M6 5H4v2a4 4 0 0 0 4 4M18 5h2v2a4 4 0 0 1-4 4M12 12v4M8 20h8M9 16h6"/>`),
+	"security":    icon(`<path d="M12 3l7 3v5c0 4.6-2.8 8.3-7 10-4.2-1.7-7-5.4-7-10V6z"/><path d="M9.5 12l1.7 1.7 3.5-4"/>`),
+	"admin":       icon(`<circle cx="12" cy="8" r="3"/><path d="M5 20c.8-4 3.2-6 7-6s6.2 2 7 6"/>`),
 }
 
 func dashboardPage(title, subtitle, body string) string {

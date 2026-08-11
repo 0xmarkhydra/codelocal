@@ -45,3 +45,12 @@ func TestMainUsageMetricShowsCompactAndExactUsage(t *testing.T) {
 		t.Fatalf("usage metric must keep the exact estimate in supporting copy: %s", html)
 	}
 }
+
+func TestMaskLeaderboardEmail(t *testing.T) {
+	if got := maskLeaderboardEmail("monglv36@gmail.com"); got != "mo***@gmail.com" {
+		t.Fatalf("maskLeaderboardEmail() = %q, want %q", got, "mo***@gmail.com")
+	}
+	if got := maskLeaderboardEmail("a@example.com"); got != "a***@example.com" {
+		t.Fatalf("maskLeaderboardEmail(short) = %q, want %q", got, "a***@example.com")
+	}
+}

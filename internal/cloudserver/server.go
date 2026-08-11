@@ -344,30 +344,42 @@ func renderReferralTree(users []adminUserState) string {
 		children[parent] = append(children[parent], user)
 	}
 	visited := map[string]bool{}
-	var out strings.Builder
-	var walk func(adminUserState, int)
-	walk = func(user adminUserState, depth int) {
+	var walk func(adminUserState, int) string
+	walk = func(user adminUserState, depth int) string {
 		if visited[user.ID] {
-			return
+			return ""
 		}
 		visited[user.ID] = true
-		indent := depth * 22
-		out.WriteString(`<div class="tree-node" style="margin-left:` + fmt.Sprintf("%d", indent) + `px"><div><strong>` + ui.Escape(user.Email) + `</strong> ` + adminStatus(user) + `</div><div class="row-meta mono">code ` + ui.Escape(user.ReferralCode) + ` · ` + fmt.Sprintf("%d", user.InviteCount) + ` direct invite(s)</div></div>`)
-		for _, child := range children[cloud.NormalizeReferralCode(user.ReferralCode)] {
-			walk(child, depth+1)
+		code := cloud.NormalizeReferralCode(user.ReferralCode)
+		childUsers := children[code]
+		node := `<div><strong>` + ui.Escape(user.Email) + `</strong> ` + adminStatus(user) + `</div><div class="row-meta mono">code ` + ui.Escape(user.ReferralCode) + ` · ` + fmt.Sprintf("%d", user.InviteCount) + ` direct invite(s)</div>`
+		if len(childUsers) == 0 {
+			return `<div class="tree-node">` + node + `</div>`
 		}
+		var nested strings.Builder
+		for _, child := range childUsers {
+			nested.WriteString(walk(child, depth+1))
+		}
+		open := ""
+		if depth == 0 {
+			open = " open"
+		}
+		return `<details class="tree-branch"` + open + `><summary class="tree-node">` + node + `<span class="tree-chevron">›</span></summary><div class="tree-children">` + nested.String() + `</div></details>`
 	}
+
+	var out strings.Builder
 	if root, ok := byCode["MMON"]; ok {
-		walk(root, 0)
+		out.WriteString(walk(root, 0))
 	} else if len(children["MMON"]) > 0 {
-		out.WriteString(`<div class="tree-node"><div><strong>MMON</strong> <span class="badge muted">Legacy root</span></div></div>`)
+		var nested strings.Builder
 		for _, child := range children["MMON"] {
-			walk(child, 1)
+			nested.WriteString(walk(child, 1))
 		}
+		out.WriteString(`<details class="tree-branch" open><summary class="tree-node"><div><strong>MMON</strong> <span class="badge muted">Legacy root</span></div><span class="tree-chevron">›</span></summary><div class="tree-children">` + nested.String() + `</div></details>`)
 	}
 	for _, user := range users {
 		if !visited[user.ID] {
-			walk(user, 0)
+			out.WriteString(walk(user, 0))
 		}
 	}
 	return out.String()

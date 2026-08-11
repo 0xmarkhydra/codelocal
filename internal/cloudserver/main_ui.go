@@ -47,6 +47,10 @@ func (s *Server) MainUIHandler(next http.Handler) http.Handler {
 			s.mainUsage(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/connect":
 			s.mainConnect(w, r, identity)
+		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/invite":
+			s.mainInvite(w, r, identity)
+		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/leaderboard":
+			s.mainLeaderboard(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/admin":
 			s.adminDashboard(w, r, identity)
 		default:
@@ -159,10 +163,6 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 	usage24h, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-24*time.Hour).UnixMilli())
 	usage30d, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-30*24*time.Hour).UnixMilli())
 	usageAll, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, 0)
-	leaderboard := ""
-	if cloud.IsAdminEmail(identity.User.Email) {
-		leaderboard = s.mainUsageLeaderboard(r.Context())
-	}
 
 	paired := 0
 	onlineDevices := 0
@@ -201,18 +201,12 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 		workspaceRows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("folder") + `</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`)
 	}
 
-	invitedBy := identity.User.ReferredByCode
-	if invitedBy == "" {
-		invitedBy = "Root account"
-	}
 	body := `<div class="grid">` +
 		ui.MetricCard("Machine runtimes", onlineDevices, fmt.Sprintf("%d paired device(s)", paired)) +
 		ui.MetricCard("Active workspaces", activeWorkspaces, "Loaded for a ChatGPT session") +
 		ui.MetricCard("Sleeping workspaces", sleepingWorkspaces, "Authorized, zero heavy runtime") +
 		`<div class="card span12 usage-note" id="token-usage"><div class="section-head"><div><div class="section-kicker">Usage</div><div class="title">Token usage</div><div class="label">Estimated MCP payload passing through CodeLocal — not OpenAI billing or full conversation tokens.</div></div><span class="badge blue">Estimated</span></div><div class="divider"></div><div class="grid">` + mainUsageMetric("Last 24 hours", usage24h) + mainUsageMetric("Last 30 days", usage30d) + mainUsageMetric("All time", usageAll) + `</div><div class="divider"></div><div class="label">CodeLocal keeps lightweight cumulative counters only. Rolling 24-hour and 30-day counters expire automatically; no per-tool or per-workspace usage history is stored.</div></div>` +
-		leaderboard +
-		`<div class="card span12 invite-card"><div><div class="section-kicker">Invite members</div><div class="title">Your referral code</div><div class="label">Share this code with someone you want to invite. They must enter it when creating a CodeLocal account. Invited by: ` + ui.Escape(invitedBy) + `.</div></div><div class="invite-code-wrap"><div class="invite-code mono" id="referral-code">` + ui.Escape(identity.User.ReferralCode) + `</div><button class="btn primary" type="button" data-copy-target="#referral-code">Copy code</button></div></div>` +
-		`<div class="card span12"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">` + workspaceRows.String() + `</div></div></div>`
+		`<div class="card span12"><div class="section-head"><div><div class="title">Recent workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">` + workspaceRows.String() + `</div></div></div>`
 
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
 		Title: "Overview", Active: "overview", Email: identity.User.Email, CSRF: identity.CSRF,
@@ -247,9 +241,9 @@ func (s *Server) mainDevices(w http.ResponseWriter, r *http.Request, identity *w
 		}
 		actions := `<span class="badge ` + badge + `">` + status + `</span>`
 		if device.RevokedAt == 0 {
-			actions += `<form method="post" action="/dashboard/devices/` + url.PathEscape(device.CredentialID) + `/revoke">` + ui.Hidden(map[string]string{"csrf": identity.CSRF}) + `<button class="btn danger small" type="submit" data-confirm data-confirm-message="This immediately disconnects the machine and prevents its credential from accessing CodeLocal Cloud. Local project files are not deleted.">Revoke</button></form>`
+			actions += `<details class="action-menu"><summary aria-label="Device actions">⋯</summary><div class="action-menu-panel"><form method="post" action="/dashboard/devices/` + url.PathEscape(device.CredentialID) + `/revoke">` + ui.Hidden(map[string]string{"csrf": identity.CSRF}) + `<button class="action-menu-item danger" type="submit" data-confirm data-confirm-title="Revoke this device?" data-confirm-label="Revoke device" data-confirm-message="This immediately disconnects the machine and prevents its credential from accessing CodeLocal Cloud. Local project files are not deleted.">Revoke device</button></form></div></details>`
 		}
-		rows.WriteString(`<div class="row"><div class="entity"><div class="entity-icon">` + ui.Icon("device") + `</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(device.DeviceName) + `</span></div><div class="row-meta mono">` + ui.Escape(device.DeviceID) + `</div><div class="row-meta">Paired ` + ui.Escape(ui.FormatTime(device.CreatedAt)) + ` · last seen ` + ui.Escape(ui.FormatTime(device.LastSeenAt)) + `</div></div></div><div class="actions">` + actions + `</div></div>`)
+		rows.WriteString(`<div class="row"><div class="entity"><div class="entity-icon">` + ui.Icon("device") + `</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(device.DeviceName) + `</span></div><div class="row-meta">Paired ` + ui.Escape(ui.FormatTime(device.CreatedAt)) + ` · last seen ` + ui.Escape(ui.FormatTime(device.LastSeenAt)) + `</div></div></div><div class="actions">` + actions + `</div></div>`)
 	}
 	if rows.Len() == 0 {
 		message := "No paired devices yet."
@@ -281,11 +275,12 @@ func (s *Server) mainWorkspaces(w http.ResponseWriter, r *http.Request, identity
 		if workspace.Status == "active" {
 			folder = "folderCheck"
 		}
-		remove := `<button class="btn danger small" type="button" disabled title="Start codelocal on this device to remove local authorization">Remove</button>`
+		remove := `<button class="action-menu-item" type="button" disabled>Remove access</button><div class="action-menu-hint">Start CodeLocal on this device before removing local authorization.</div>`
 		if workspace.RuntimeOnline {
-			remove = `<form method="post" action="/dashboard/workspaces/` + url.PathEscape(workspace.DeviceID) + `/` + url.PathEscape(workspace.WorkspaceID) + `/remove">` + ui.Hidden(map[string]string{"csrf": identity.CSRF}) + `<button class="btn danger small" type="submit" data-confirm data-confirm-message="CodeLocal will revoke this folder from the local machine. The project and every file inside it stay untouched. You can authorize it again later with codelocal .">Remove</button></form>`
+			remove = `<form method="post" action="/dashboard/workspaces/` + url.PathEscape(workspace.DeviceID) + `/` + url.PathEscape(workspace.WorkspaceID) + `/remove">` + ui.Hidden(map[string]string{"csrf": identity.CSRF}) + `<button class="action-menu-item danger" type="submit" data-confirm data-confirm-title="Remove workspace access?" data-confirm-label="Remove access" data-confirm-message="CodeLocal will revoke this folder from the local machine. The project and every file inside it stay untouched. You can authorize it again later with codelocal .">Remove access</button></form>`
 		}
-		rows.WriteString(`<div class="row"><div class="entity"><div class="entity-icon">` + ui.Icon(folder) + `</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(workspace.WorkspaceName) + `</span></div><div class="row-meta mono">` + ui.Escape(workspace.WorkspaceID) + `</div><div class="row-meta">Device ` + ui.Escape(workspace.DeviceName) + ` · last seen ` + ui.Escape(ui.FormatTime(workspace.LastSeenAt)) + `</div></div></div><div class="actions"><span class="badge ` + badge + `">` + label + `</span>` + remove + `</div></div>`)
+		menu := `<details class="action-menu"><summary aria-label="Workspace actions">⋯</summary><div class="action-menu-panel">` + remove + `</div></details>`
+		rows.WriteString(`<div class="row"><div class="entity"><div class="entity-icon">` + ui.Icon(folder) + `</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(workspace.WorkspaceName) + `</span></div><div class="row-meta">Device ` + ui.Escape(workspace.DeviceName) + ` · last seen ` + ui.Escape(ui.FormatTime(workspace.LastSeenAt)) + `</div></div></div><div class="actions"><span class="badge ` + badge + `">` + label + `</span>` + menu + `</div></div>`)
 	}
 	if rows.Len() == 0 {
 		message := `No authorized workspace has synced yet.<br><span class="muted">Open a project on your machine and run <code>codelocal .</code> once.</span>`
@@ -303,10 +298,59 @@ func (s *Server) mainUsage(w http.ResponseWriter, r *http.Request, identity *web
 	http.Redirect(w, r, "/dashboard#token-usage", http.StatusFound)
 }
 
+func (s *Server) mainInvite(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
+	users, err := s.Store.ListInvitedUsers(r.Context(), identity.User.ReferralCode)
+	loadError := err != nil
+	direct := make([]adminUserState, 0, len(users))
+	ids := make([]string, 0, len(users))
+	for _, user := range users {
+		direct = append(direct, adminUserState{AdminUser: user})
+		ids = append(ids, user.ID)
+	}
+	runtimeActive, _ := s.Activation.UserOnlineMap(r.Context(), ids)
+	mcpActive, _ := s.Store.UserMCPActiveMap(r.Context(), ids)
+	activeCount := 0
+	var rows strings.Builder
+	for i := range direct {
+		direct[i].RuntimeActive = runtimeActive[direct[i].ID]
+		direct[i].MCPActive = mcpActive[direct[i].ID]
+		if direct[i].RuntimeActive || direct[i].MCPActive {
+			activeCount++
+		}
+		rows.WriteString(`<div class="row"><div class="entity"><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(maskLeaderboardEmail(direct[i].Email)) + `</span></div><div class="row-meta">Joined ` + ui.Escape(ui.FormatTime(direct[i].CreatedAt)) + `</div></div></div>` + adminStatus(direct[i]) + `</div>`)
+	}
+	if rows.Len() == 0 {
+		if loadError {
+			rows.WriteString(`<div class="empty">Unable to load invited members right now.</div>`)
+		} else {
+			rows.WriteString(`<div class="empty">No one has joined with your invite code yet.</div>`)
+		}
+	}
+
+	invitedBy := identity.User.ReferredByCode
+	if invitedBy == "" {
+		invitedBy = "Root account"
+	}
+	inviteLink := strings.TrimRight(s.WebAuth.PublicBaseURL, "/") + "/register?ref=" + url.QueryEscape(identity.User.ReferralCode)
+	body := `<div class="grid">` +
+		`<div class="card span12 invite-card"><div><div class="section-kicker">Your invite</div><div class="title">Invite code</div><div class="label">Share this six-character code with people you trust. Invited by: ` + ui.Escape(invitedBy) + `.</div></div><div class="invite-code-wrap"><div class="invite-code mono" id="referral-code">` + ui.Escape(identity.User.ReferralCode) + `</div><button class="btn primary" type="button" data-copy-target="#referral-code">Copy code</button></div></div>` +
+		ui.MetricCard("Direct invites", len(direct), "Accounts created with your code") +
+		ui.MetricCard("Active invites", activeCount, "Runtime or MCP currently active") +
+		`<div class="card span4"><div class="metric-label">Invite link</div><div class="metric-state">Ready to share</div><div class="metric-sub">Includes your referral code automatically.</div></div>` +
+		`<div class="card span12"><div class="section-head"><div><div class="title">Invite link</div><div class="label">Anyone opening this link will have your code prefilled at registration.</div></div></div><div class="copy-row"><div class="code-block" id="invite-link">` + ui.Escape(inviteLink) + `</div><button class="btn" type="button" data-copy-target="#invite-link">Copy link</button></div></div>` +
+		`<div class="card span12"><div class="section-head"><div><div class="title">People you invited</div><div class="label">Direct referrals only. Emails are masked for privacy.</div></div><span class="badge blue">` + strconv.Itoa(len(direct)) + ` direct</span></div><div class="divider"></div><div class="list">` + rows.String() + `</div></div></div>`
+	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Invite", Active: "invite", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "Manage your invite code and see the people who joined through you.", Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
+}
+
+func (s *Server) mainLeaderboard(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
+	body := `<div class="grid">` + s.mainUsageLeaderboard(r.Context(), identity.User.Email) + `</div>`
+	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Leaderboard", Active: "leaderboard", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "Top CodeLocal users by estimated MCP payload over the last 30 days.", Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
+}
+
 func (s *Server) mainConnect(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	endpoint := strings.TrimRight(s.WebAuth.PublicBaseURL, "/") + "/mcp"
-	body := `<div class="grid"><div class="card span7 glow"><div class="section-head"><div><div class="title">ChatGPT MCP endpoint</div><div class="label">Use this remote MCP URL when adding CodeLocal to ChatGPT.</div></div><span class="badge green">OAuth</span></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">` + ui.Escape(endpoint) + `</div><button class="btn" type="button" data-copy-target="#mcp-endpoint">Copy</button></div><div class="divider"></div><div class="label">Authentication: <strong>OAuth</strong>. Sign in with this CodeLocal account and approve the connection when ChatGPT opens the browser.</div></div><div class="card span5"><div class="section-head"><div><div class="title">ChatGPT plugin icon</div><div class="label">Production asset from the completed main UI.</div></div><img src="/assets/chatgpt-plugin-icon.png" alt="" style="width:56px;height:56px;border-radius:16px"></div><div class="divider"></div><a class="btn primary" href="/assets/chatgpt-plugin-icon.png" download="codelocal-chatgpt-plugin-icon.png">Download icon</a><div style="height:12px"></div><div class="label">No separate OpenAI API key and no per-token CodeLocal billing. Your ChatGPT plan remains the AI layer.</div></div></div>`
-	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Connect ChatGPT", Active: "connect", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "Connect the CodeLocal Cloud MCP once. Workspace choice stays scoped to each ChatGPT MCP session.", Actions: `<a class="btn" href="/#setup">View full setup guide</a>`, Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
+	body := `<div class="grid"><div class="card span8"><div class="section-head"><div><div class="title">MCP server URL</div><div class="label">Add this endpoint to ChatGPT and choose OAuth authentication.</div></div><span class="badge green">OAuth</span></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">` + ui.Escape(endpoint) + `</div><button class="btn primary" type="button" data-copy-target="#mcp-endpoint">Copy URL</button></div></div><div class="card span4"><div class="title">Connection flow</div><div class="divider"></div><div class="kv"><div class="kv-key">1</div><div class="kv-value">Add MCP server</div></div><div class="kv"><div class="kv-key">2</div><div class="kv-value">Choose OAuth</div></div><div class="kv"><div class="kv-key">3</div><div class="kv-value">Sign in to CodeLocal</div></div><div class="kv"><div class="kv-key">4</div><div class="kv-value">Approve connection</div></div></div></div>`
+	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Connect ChatGPT", Active: "connect", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "Connect CodeLocal to ChatGPT once, then choose the workspace you want inside each chat session.", Actions: `<a class="btn" href="/#setup">Full setup guide</a>`, Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
 }
 
 func (s *Server) mainRevokeDevice(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {

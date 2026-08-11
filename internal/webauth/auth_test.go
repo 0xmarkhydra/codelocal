@@ -58,4 +58,8 @@ func TestSignupFormRequiresReferralCode(t *testing.T) {
 	if strings.Contains(login, `name="referralCode"`) {
 		t.Fatal("login form must not request referral code")
 	}
+	prefilled := manager.form("signup", "csrf-token", "/dashboard", "", "mmon6a")
+	if !strings.Contains(prefilled, `name="referralCode" value="MMON6A"`) {
+		t.Fatal("signup form must prefill a referral code supplied by an invite link")
+	}
 }

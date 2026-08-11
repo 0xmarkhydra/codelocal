@@ -83,10 +83,23 @@ func mainUsageValue(values map[string]string, key string) int64 {
 	return value
 }
 
-func (s *Server) mainUsageLeaderboard(ctx context.Context) string {
+func maskLeaderboardEmail(email string) string {
+	parts := strings.SplitN(strings.TrimSpace(email), "@", 2)
+	if len(parts) != 2 || parts[0] == "" {
+		return "CodeLocal user"
+	}
+	local := []rune(parts[0])
+	visible := 1
+	if len(local) >= 4 {
+		visible = 2
+	}
+	return string(local[:visible]) + "***@" + parts[1]
+}
+
+func (s *Server) mainUsageLeaderboard(ctx context.Context, currentEmail string) string {
 	users, err := s.Store.ListAdminUsers(ctx)
 	if err != nil {
-		return ""
+		return `<div class="card span12"><div class="empty">Unable to load leaderboard right now.</div></div>`
 	}
 
 	now := time.Now().UnixMilli()
@@ -98,25 +111,18 @@ func (s *Server) mainUsageLeaderboard(ctx context.Context) string {
 	pipe := s.Store.Redis.Pipeline()
 
 	for _, user := range users {
-		// The durable all-time counter tells us whether this user has any chance
-		// of appearing in the rolling window. Skipping old users keeps the Redis
-		// pipeline small without storing any new leaderboard data.
 		if user.LastMCPUsedAt < since {
 			continue
 		}
 		entries = append(entries, mainUsageLeaderboardEntry{Email: user.Email})
 		entry := &entries[len(entries)-1]
 		for at := start; at <= now; at += step {
-			commands = append(commands, mainUsageLeaderboardCommand{
-				entry: entry,
-				cmd:   pipe.HGetAll(ctx, mainUsageDayKey(user.ID, at)),
-			})
+			commands = append(commands, mainUsageLeaderboardCommand{entry: entry, cmd: pipe.HGetAll(ctx, mainUsageDayKey(user.ID, at))})
 		}
 	}
-
 	if len(commands) > 0 {
 		if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
-			return ""
+			return `<div class="card span12"><div class="empty">Unable to load leaderboard right now.</div></div>`
 		}
 	}
 	for _, pending := range commands {
@@ -141,21 +147,40 @@ func (s *Server) mainUsageLeaderboard(ctx context.Context) string {
 		}
 		return strings.ToLower(entries[i].Email) < strings.ToLower(entries[j].Email)
 	})
-	if len(entries) > 10 {
-		entries = entries[:10]
+
+	currentRank := 0
+	currentTokens := int64(0)
+	for i, entry := range entries {
+		if strings.EqualFold(entry.Email, currentEmail) {
+			currentRank = i + 1
+			currentTokens = entry.Tokens
+			break
+		}
+	}
+	visible := entries
+	if len(visible) > 10 {
+		visible = visible[:10]
 	}
 
 	var rows strings.Builder
-	for i, entry := range entries {
+	for i, entry := range visible {
 		rankClass := "muted"
 		if i == 0 {
 			rankClass = "blue"
 		}
-		rows.WriteString(`<div class="row"><div class="entity"><span class="badge ` + rankClass + `">#` + strconv.Itoa(i+1) + `</span><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(entry.Email) + `</span></div><div class="row-meta">` + mainExactNumber(entry.Calls) + ` tool calls in the last 30 days</div></div></div><div class="actions"><div style="text-align:right"><div class="row-title">` + mainCompactNumber(entry.Tokens) + ` tokens</div><div class="row-meta">~` + mainExactNumber(entry.Tokens) + ` estimated</div></div></div></div>`)
+		name := maskLeaderboardEmail(entry.Email)
+		if strings.EqualFold(entry.Email, currentEmail) {
+			name = "You · " + name
+		}
+		rows.WriteString(`<div class="row"><div class="entity"><span class="badge ` + rankClass + `">#` + strconv.Itoa(i+1) + `</span><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(name) + `</span></div><div class="row-meta">` + mainExactNumber(entry.Calls) + ` tool calls · last 30 days</div></div></div><div class="actions"><div style="text-align:right"><div class="row-title">` + mainCompactNumber(entry.Tokens) + `</div><div class="row-meta">estimated MCP tokens</div></div></div></div>`)
 	}
 	if rows.Len() == 0 {
 		rows.WriteString(`<div class="empty">No MCP usage has been recorded in the last 30 days.</div>`)
 	}
 
-	return `<div class="card span12"><div class="section-head"><div><div class="section-kicker">Community</div><div class="title">Usage leaderboard</div><div class="label">Top CodeLocal users by estimated MCP payload in the last 30 days.</div></div><span class="badge blue">Admin only · Top 10</span></div><div class="divider"></div><div class="list">` + rows.String() + `</div><div class="divider"></div><div class="label">Ranking reuses the existing rolling usage counters. No per-tool history or additional leaderboard records are stored.</div></div>`
+	yourRank := `<span class="badge muted">No rank yet</span>`
+	if currentRank > 0 {
+		yourRank = `<span class="badge blue">Your rank #` + strconv.Itoa(currentRank) + ` · ` + mainCompactNumber(currentTokens) + ` tokens</span>`
+	}
+	return `<div class="card span12"><div class="section-head"><div><div class="title">Top users</div><div class="label">Ranked by estimated MCP payload during the last 30 days. Emails are masked for privacy.</div></div>` + yourRank + `</div><div class="divider"></div><div class="list">` + rows.String() + `</div><div class="divider"></div><div class="label">This leaderboard reuses existing rolling counters. CodeLocal does not store extra per-tool leaderboard history.</div></div>`
 }

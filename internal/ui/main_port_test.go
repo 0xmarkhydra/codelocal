@@ -18,14 +18,20 @@ func TestDashboardPagePinsSidebarOnDesktop(t *testing.T) {
 	if !strings.Contains(html, `<div class="shell"><div class="sidebar-column"><aside class="sidebar">`) {
 		t.Fatal("dashboard sidebar must keep a reserved sidebar column next to page content")
 	}
-	if !strings.Contains(styles, `.sidebar{position:fixed;z-index:20;top:0;left:0;width:264px;height:100dvh`) {
-		t.Fatal("desktop dashboard sidebar must stay fixed to the viewport while main content scrolls")
+	if !strings.Contains(mainPortExtras, `height:100dvh;min-height:0;grid-template-columns:256px minmax(0,1fr);overflow:hidden`) {
+		t.Fatal("dashboard shell must be locked to the viewport")
 	}
-	if !strings.Contains(styles, `@media(max-width:980px){.shell{grid-template-columns:230px minmax(0,1fr)}.sidebar{width:230px}`) {
-		t.Fatal("fixed sidebar width must stay aligned with the responsive desktop grid column")
+	if !strings.Contains(mainPortExtras, `.sidebar-column{height:100dvh;overflow:hidden`) {
+		t.Fatal("sidebar column must remain pinned inside the viewport")
 	}
-	if !strings.Contains(styles, `@media(max-width:760px){.shell{display:block}`) || !strings.Contains(styles, `.sidebar{position:static;z-index:auto;left:auto;width:auto;height:auto`) {
-		t.Fatal("mobile dashboard must return the sidebar to normal document flow")
+	if !strings.Contains(mainPortExtras, `.main{height:100dvh;max-width:none;margin:0;padding:38px 44px 72px;overflow-y:auto`) {
+		t.Fatal("main content must own vertical scrolling independently of the sidebar")
+	}
+	if !strings.Contains(mainPortExtras, `@media(max-width:1100px) and (min-width:761px){.shell{grid-template-columns:78px minmax(0,1fr)}`) {
+		t.Fatal("tablet dashboard must collapse into an icon rail")
+	}
+	if !strings.Contains(mainPortExtras, `.sidebar.nav-open{height:100dvh;overflow-y:auto}`) || !strings.Contains(html, `data-nav-toggle`) {
+		t.Fatal("mobile dashboard must use a drawer instead of scrolling the desktop sidebar with page content")
 	}
 }
 
@@ -39,5 +45,11 @@ func TestDashboardPageDoesNotRenderStandaloneTokenUsageTab(t *testing.T) {
 
 	if strings.Contains(html, `href="/dashboard/usage"`) || strings.Contains(html, `>Token usage</span>`) {
 		t.Fatal("token usage belongs inside Overview and must not render as a standalone sidebar tab")
+	}
+	if !strings.Contains(html, `href="/dashboard/invite"`) || !strings.Contains(html, `>Invite</span>`) {
+		t.Fatal("invite must render as its own sidebar tab")
+	}
+	if !strings.Contains(html, `href="/dashboard/leaderboard"`) || !strings.Contains(html, `>Leaderboard</span>`) {
+		t.Fatal("leaderboard must render as its own sidebar tab")
 	}
 }
