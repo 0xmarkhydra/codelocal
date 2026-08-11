@@ -21,6 +21,7 @@ type ComputerCapabilities struct {
 	WindowList        bool   `json:"windowList,omitempty"`
 	ScreenCapture     bool   `json:"screenCapture,omitempty"`
 	UITree            bool   `json:"uiTree,omitempty"`
+	SemanticActions   bool   `json:"semanticActions,omitempty"`
 	Pointer           bool   `json:"pointer,omitempty"`
 	Keyboard          bool   `json:"keyboard,omitempty"`
 	Clipboard         bool   `json:"clipboard,omitempty"`
