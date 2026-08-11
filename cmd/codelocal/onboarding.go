@@ -59,19 +59,45 @@ func prepareBrowser(settings *automation.Settings, environment automation.Enviro
 	}
 	if verbose {
 		fmt.Println("Preparing Browser Automation...")
+		fmt.Println("  CodeLocal is installing its managed Playwright browser on this computer.")
+		fmt.Println("  The first download may take several minutes, depending on your network.")
+		fmt.Println("  Progress from Playwright will appear below. Press Ctrl+C to cancel;")
+		fmt.Println("  rerun codelocal and choose n for Browser Automation to skip it.")
+		fmt.Println()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	if err := automation.EnsureBrowserRuntime(ctx); err != nil {
-		if verbose {
-			fmt.Printf("! Browser runtime preparation failed: %v\n", err)
-			fmt.Println("  CodeLocal will retry automatically next time; Coding can still start now.")
-		}
-		return
-	}
-	settings.Browser.Prepared = true
+	var progress *os.File
 	if verbose {
-		fmt.Println("✓ Browser Automation ready")
+		progress = os.Stdout
+	}
+	done := make(chan error, 1)
+	startedAt := time.Now()
+	go func() {
+		done <- automation.EnsureBrowserRuntime(ctx, progress)
+	}()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-done:
+			if err == nil {
+				settings.Browser.Prepared = true
+				if verbose {
+					fmt.Println("✓ Browser Automation ready")
+				}
+				return
+			}
+			if verbose {
+				fmt.Printf("! Browser runtime preparation failed: %v\n", err)
+				fmt.Println("  CodeLocal will retry automatically next time; Coding can still start now.")
+			}
+			return
+		case <-ticker.C:
+			if verbose {
+				fmt.Printf("  Still preparing Browser Automation... %s elapsed\n", time.Since(startedAt).Round(time.Second))
+			}
+		}
 	}
 }
 

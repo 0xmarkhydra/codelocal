@@ -1,9 +1,12 @@
 package automation
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -88,5 +91,44 @@ func TestBrowserCLIPathPrefersBundledEnvironmentPath(t *testing.T) {
 	t.Setenv("CODELOCAL_PLAYWRIGHT_CLI", path)
 	if got := BrowserCLIPath(); got != path {
 		t.Fatalf("BrowserCLIPath() = %q, want %q", got, path)
+	}
+}
+
+func TestEnsureBrowserRuntimeStreamsProgress(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "playwright-cli")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'downloading browser: %s\\n' \"$1\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODELOCAL_PLAYWRIGHT_CLI", path)
+	var progress bytes.Buffer
+	if err := EnsureBrowserRuntime(context.Background(), &progress); err != nil {
+		t.Fatal(err)
+	}
+	if got := progress.String(); got != "downloading browser: install-browser\n" {
+		t.Fatalf("progress output = %q", got)
+	}
+}
+
+func TestEnsureBrowserRuntimeIncludesCommandOutputInError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "playwright-cli")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'download blocked by proxy\\n' >&2\nexit 7\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODELOCAL_PLAYWRIGHT_CLI", path)
+	var progress bytes.Buffer
+	err := EnsureBrowserRuntime(context.Background(), &progress)
+	if err == nil || !strings.Contains(err.Error(), "download blocked by proxy") {
+		t.Fatalf("EnsureBrowserRuntime() error = %v", err)
+	}
+	if got := progress.String(); got != "download blocked by proxy\n" {
+		t.Fatalf("progress output = %q", got)
 	}
 }

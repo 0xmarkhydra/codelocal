@@ -1,9 +1,11 @@
 package automation
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,16 +116,25 @@ func Detect() Environment {
 // EnsureBrowserRuntime installs Playwright's managed browser only after the
 // user opted into Browser Automation. npm supplies the CLI with CodeLocal, so
 // the user never needs a second install command.
-func EnsureBrowserRuntime(ctx context.Context) error {
+func EnsureBrowserRuntime(ctx context.Context, progress io.Writer) error {
 	cli := BrowserCLIPath()
 	if cli == "" {
 		return errors.New("bundled Playwright CLI was not found")
 	}
 	cmd := exec.CommandContext(ctx, cli, "install-browser")
 	cmd.Env = append(os.Environ(), "CI=1")
-	output, err := cmd.CombinedOutput()
+	var captured bytes.Buffer
+	if progress != nil {
+		writer := io.MultiWriter(progress, &captured)
+		cmd.Stdout = writer
+		cmd.Stderr = writer
+	} else {
+		cmd.Stdout = &captured
+		cmd.Stderr = &captured
+	}
+	err := cmd.Run()
 	if err != nil {
-		message := strings.TrimSpace(string(output))
+		message := strings.TrimSpace(captured.String())
 		if message == "" {
 			message = err.Error()
 		}
