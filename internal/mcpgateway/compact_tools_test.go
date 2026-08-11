@@ -16,7 +16,7 @@ import (
 
 var frozenCompactToolNames = []string{
 	"device", "workspace", "project", "context", "read", "search", "dependency", "lsp",
-	"edit", "verify", "git", "terminal", "process", "approvals", "security", "mcp",
+	"edit", "verify", "git", "terminal", "process", "approvals", "security", "mcp", "browser", "computer",
 }
 
 func compactSurfaceBytes(defs []compactToolDef) int {
@@ -36,8 +36,8 @@ func TestCompactToolSurfaceContract(t *testing.T) {
 	if !reflect.DeepEqual(got, frozenCompactToolNames) {
 		t.Fatalf("compact MCP tool contract changed\n got: %#v\nwant: %#v", got, frozenCompactToolNames)
 	}
-	if len(defs) != 16 {
-		t.Fatalf("compact tool count = %d, want 16 until handoff phase lands", len(defs))
+	if len(defs) != 18 {
+		t.Fatalf("compact tool count = %d, want 18 with Browser and Computer Use", len(defs))
 	}
 	const previousPublicSchemaBytes = 39798
 	compactBytes := compactSurfaceBytes(defs)
@@ -68,6 +68,8 @@ func universalCompactArgs(action string) map[string]any {
 		"content": "content", "oldText": "old", "newText": "new", "patch": "diff --git a/a b/a", "files": []any{map[string]any{"path": "file.go", "edits": []any{map[string]any{"replacement": "x"}}}},
 		"message": "commit", "command": "go test ./...", "processId": "process", "input": "input", "cols": 120, "rows": 36,
 		"server": "server", "tool": "tool", "id": "approval", "actionKey": "approval-key",
+		"url": "https://example.com", "ref": "e1", "text": "input", "windowId": "window-1", "elementId": "element-1",
+		"x": 100, "y": 100, "deltaX": 0, "deltaY": 100, "fromX": 10, "fromY": 10, "toX": 100, "toY": 100,
 	}
 }
 
@@ -113,6 +115,12 @@ func TestCompactResolverRejectsInvalidOrIncompleteActions(t *testing.T) {
 	}
 	if _, _, err := defs["lsp"].Resolve(map[string]any{"action": "not-real"}); err == nil {
 		t.Fatal("unknown compact action must fail")
+	}
+	if _, _, err := defs["browser"].Resolve(map[string]any{"action": "open"}); err == nil {
+		t.Fatal("browser open without url must fail")
+	}
+	if _, _, err := defs["computer"].Resolve(map[string]any{"action": "click"}); err == nil {
+		t.Fatal("computer click without elementId or coordinates must fail")
 	}
 }
 

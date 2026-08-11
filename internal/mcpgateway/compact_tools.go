@@ -9,7 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const compactOrchestrationInstructions = `CodeLocal connects ChatGPT to explicitly authorized local workspaces. Reuse the selected workspace and prior results. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. Avoid repeated project/workspace inspection unless state changed. Local security policy and ChatGPT approvals remain authoritative for side effects.`
+const compactOrchestrationInstructions = `CodeLocal connects ChatGPT to explicitly authorized local workspaces. Reuse the selected workspace and prior results. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. For websites, inspect with browser snapshot/find before interacting. For desktop apps, inspect computer windows/UI tree or a fresh screenshot before input; prefer semantic element IDs over coordinates. Browser and Computer Use are separate opt-in domains, and first-run consent never replaces action-level approval. Avoid repeated inspection unless state changed. Local security policy and ChatGPT approvals remain authoritative for side effects.`
 
 type compactToolDef struct {
 	Name        string
@@ -116,7 +116,7 @@ func compactToolDefinitions() []compactToolDef {
 	securityActions := map[string]string{"info": "sandbox_info", "smoke_test": "sandbox_smoke_test"}
 	mcpActions := map[string]string{"list": "mcp_list", "search": "mcp_search_tools", "info": "mcp_tool_info", "call": "mcp_call"}
 
-	return []compactToolDef{
+	tools := []compactToolDef{
 		{
 			Name: "device", Title: "Manage CodeLocal devices", Description: "List active/paired CodeLocal devices or rename/revoke a paired device. Use only for device/account management.",
 			Schema:      actionSchema([]string{"active", "paired", "rename", "revoke"}, map[string]any{"credentialId": str("Paired device credential ID."), "deviceName": str("New device name.")}),
@@ -248,6 +248,7 @@ func compactToolDefinitions() []compactToolDef {
 			},
 		},
 	}
+	return append(tools, compactAutomationToolDefinitions()...)
 }
 
 func registerCompactTools(server *mcp.Server, service *Service, userID string) {

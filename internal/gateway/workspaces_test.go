@@ -19,8 +19,8 @@ func TestActivateUsesConnectedLocalWorkspaceFastPath(t *testing.T) {
 		WorkspaceID:     "workspace",
 		WorkspaceName:   "CodeLocal",
 		ProjectRoot:     "/project",
-		ProtocolVersion: 2,
-		ClientVersion:   "1.5.4",
+		ProtocolVersion: 3,
+		ClientVersion:   "1.5.6",
 		Capabilities: protocol.Capabilities{
 			Filesystem:           true,
 			Git:                  true,
@@ -30,6 +30,10 @@ func TestActivateUsesConnectedLocalWorkspaceFastPath(t *testing.T) {
 			Cancellation:         true,
 			ApprovalMemory:       true,
 			TerminalChatApproval: true,
+			Automation: protocol.AutomationCapabilities{
+				Browser:  protocol.BrowserCapabilities{Available: true, IsolatedProfile: true, Screenshots: true},
+				Computer: protocol.ComputerCapabilities{Available: true, Backend: "test", WindowList: true, Pointer: true},
+			},
 		},
 		closed: make(chan struct{}),
 	}
@@ -44,10 +48,16 @@ func TestActivateUsesConnectedLocalWorkspaceFastPath(t *testing.T) {
 	if workspace.Key != key || workspace.Status != "active" || workspace.Authorized != true {
 		t.Fatalf("unexpected local workspace view: %#v", workspace)
 	}
-	if workspace.ProtocolVersion != 2 || workspace.ClientVersion != "1.5.4" || workspace.LastSeenAt != 1234 {
+	if workspace.ProtocolVersion != 3 || workspace.ClientVersion != "1.5.6" || workspace.LastSeenAt != 1234 {
 		t.Fatalf("local workspace metadata was not preserved: %#v", workspace)
 	}
 	if workspace.Capabilities["filesystem"] != true || workspace.Capabilities["pty"] != true || workspace.Capabilities["approvalMemory"] != true {
 		t.Fatalf("local workspace capabilities were not preserved: %#v", workspace.Capabilities)
+	}
+	automation, _ := workspace.Capabilities["automation"].(map[string]any)
+	browser, _ := automation["browser"].(map[string]any)
+	computer, _ := automation["computer"].(map[string]any)
+	if browser["available"] != true || computer["backend"] != "test" || computer["pointer"] != true {
+		t.Fatalf("automation capabilities were not preserved: %#v", automation)
 	}
 }

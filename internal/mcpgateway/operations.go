@@ -117,6 +117,29 @@ var runtimeOperationIDs = map[string]string{
 	"mcp_search_tools": "mcp.search",
 	"mcp_tool_info":    "mcp.info",
 	"mcp_call":         "mcp.call",
+
+	"browser_status":     "browser.status",
+	"browser_open":       "browser.open",
+	"browser_snapshot":   "browser.snapshot",
+	"browser_find":       "browser.find",
+	"browser_click":      "browser.click",
+	"browser_fill":       "browser.fill",
+	"browser_press":      "browser.press",
+	"browser_screenshot": "browser.screenshot",
+	"browser_console":    "browser.console",
+	"browser_requests":   "browser.requests",
+	"browser_close":      "browser.close",
+
+	"computer_status":       "computer.status",
+	"computer_list_windows": "computer.list_windows",
+	"computer_ui_tree":      "computer.ui_tree",
+	"computer_screenshot":   "computer.screenshot",
+	"computer_focus":        "computer.focus",
+	"computer_click":        "computer.click",
+	"computer_type":         "computer.type",
+	"computer_key":          "computer.key",
+	"computer_scroll":       "computer.scroll",
+	"computer_drag":         "computer.drag",
 }
 
 func runtimeOperationID(name string) (string, bool) {
@@ -156,7 +179,8 @@ func runtimeToolMutatesState(name string) bool {
 
 func runtimeToolDestructive(name string) bool {
 	switch name {
-	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call":
+	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call",
+		"browser_click", "browser_fill", "browser_press", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag":
 		return true
 	default:
 		return false
@@ -165,7 +189,7 @@ func runtimeToolDestructive(name string) bool {
 
 func runtimeToolOpenWorld(name string) bool {
 	switch name {
-	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call":
+	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call", "browser_open":
 		return true
 	default:
 		return false
@@ -182,6 +206,12 @@ func runtimeToolIdempotent(name string) bool {
 }
 
 func runtimeToolCapability(name string) string {
+	if strings.HasPrefix(name, "browser_") {
+		return "browser"
+	}
+	if strings.HasPrefix(name, "computer_") {
+		return "computer"
+	}
 	if strings.HasPrefix(name, "git_") {
 		return "git"
 	}

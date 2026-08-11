@@ -4,7 +4,7 @@ Status: Implemented — compact public cutover complete; production measurement 
 Branch baseline: `dev`
 Baseline date: 2026-08-12
 Previous public MCP tool count: **77**
-Current public MCP tool count: **16 domain tools**
+Current public MCP tool count: **18 domain tools**
 Private native runtime commands: **77 mapped to stable operation IDs**
 
 ## 1. Why this document exists
@@ -135,7 +135,7 @@ CodeLocal has requirements OpenCode does not have in exactly the same form, incl
 
 ## 5. Recommended target public surface
 
-The current recommendation is **16 public domain tools**.
+The current recommendation is **18 public domain tools**: the original 16 coding/platform domains plus one Browser Automation domain and one Computer Use domain.
 
 ### 5.1 `device`
 
@@ -484,7 +484,9 @@ This architecture should remain dynamic. Do not flatten installed third-party MC
 | Approval memory | 3 | 1 |
 | Security | 2 | 1 |
 | MCP Hub | 4 | 1 |
-| **Total** | **77** | **16** |
+| Browser Automation | 11 | 1 |
+| Computer Use | 10 | 1 |
+| **Total** | **98** | **18** |
 
 Note: the exact grouping is intentionally subject to implementation validation. The target is a semantic surface, not a requirement to hit exactly 16 at any cost.
 
@@ -766,7 +768,7 @@ Implemented in the current working tree:
 - code search streams results and stops the child process as soon as the requested result limit is exceeded instead of buffering unbounded stdout;
 - `context_for_task` refreshes its structural/import index once, reuses warm LSP providers without cold-starting one, and runs one bounded text search for the task instead of one repository scan/process per term;
 - process write, resize, signal and kill aliases now share the same side-effect serialization metadata as their canonical operations;
-- the advertised schema estimate fell from 39,798 bytes to 15,079 bytes, a 62.1% reduction.
+- after adding the two compact automation domains, the advertised schema estimate is 18,776 bytes versus the conservative 39,798-byte pre-automation baseline, a 52.8% reduction.
 
 Still required after the compact cutover:
 
@@ -1020,14 +1022,14 @@ This preserves the semantic-first behavior CodeLocal already wants while reducin
 
 The migration is considered successful when all of the following are true:
 
-- [x] Modern sessions expose exactly 16 first-party CodeLocal tools.
-- [x] All important capability from the current 77 tools remains reachable through compact operation mappings.
+- [x] Modern sessions expose exactly 18 first-party CodeLocal tools.
+- [x] All important capability from the current 98 tools remains reachable through compact operation mappings.
 - [ ] No security/approval regression exists.
 - [x] Workspace/thread routing behavior remains correct in gateway tests.
 - [x] Existing projects require no data migration.
 - [x] Native runtime protocol command compatibility remains intact.
 - [x] MCP Hub remains lazy/dynamic.
-- [x] Tool-schema serialized size is materially lower than the 77-tool baseline (62.1% in the current fixture).
+- [x] Tool-schema serialized size remains materially lower than the conservative 77-tool baseline (52.8% after Browser and Computer Use in the current fixture).
 - [ ] Representative coding workflows require the same or fewer model/tool round trips.
 - [ ] Invalid tool-selection/retry rate does not regress.
 - [x] Full Go tests pass.
@@ -1037,7 +1039,7 @@ The migration is considered successful when all of the following are true:
 
 1. Inventoried the 77 native runtime commands.
 2. Introduced stable internal operation IDs and metadata.
-3. Added 16 compact domain schemas and action resolvers.
+3. Added 18 compact domain schemas and action resolvers, including Browser and Computer Use.
 4. Added operation coverage, routing, safety and schema-size tests.
 5. Removed granular public advertisement and its feature flag.
 6. Kept native protocol commands private and stable.
@@ -1047,7 +1049,7 @@ The migration is considered successful when all of the following are true:
 
 **Decision:** CodeLocal should reduce its model-facing first-party MCP catalog substantially, but should not reduce its actual runtime capability.
 
-**Current:** 16 public domain tools backed by 77 private native runtime commands.
+**Current:** 18 public domain tools backed by 98 private native runtime commands.
 
 **Recommended target:** approximately **16 domain-oriented public tools**, allowing a practical final range of **15-20** after safety/schema testing.
 

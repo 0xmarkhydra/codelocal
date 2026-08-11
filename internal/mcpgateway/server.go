@@ -98,6 +98,9 @@ func ensureOperationSupported(operation operationInvocation, workspace *gateway.
 	if workspace == nil {
 		return errors.New("workspace unavailable")
 	}
+	if automationRuntimeTool(operation.RuntimeTool) {
+		return ensureAutomationOperationSupported(operation.RuntimeTool, workspace)
+	}
 	if workspace.ProtocolVersion <= 1 {
 		if !protocolOneRuntimeTool(operation.RuntimeTool) {
 			return fmt.Errorf("%s requires a newer CodeLocal client; update the client before using this operation", operation.OperationID)
@@ -339,7 +342,7 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 		s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "terminal.executed", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID, "tool": publicTool, "runtimeTool": operation.RuntimeTool, "operationId": operation.OperationID}})
 	}
 	notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
-	return textResultWithNotice(result.Result, false, notice), nil
+	return toolResultWithNotice(result.Result, false, notice), nil
 }
 
 func workspaceRoutingError(multiple bool) error {

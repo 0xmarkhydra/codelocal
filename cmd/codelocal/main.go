@@ -61,6 +61,10 @@ Runtime:
   codelocal status                   Show account, pairing and runtime status
   codelocal stop                     Stop the machine runtime
 
+Capabilities:
+  codelocal setup                    Change Browser Automation and Computer Use choices
+  codelocal doctor [project]         Inspect coding and automation readiness
+
 Workspaces:
   codelocal .                        Authorize the current folder locally
   codelocal <project-path>           Authorize a project folder locally
@@ -69,7 +73,6 @@ Workspaces:
   codelocal workspaces               List local authorized workspaces
 
 Developer tools:
-  codelocal doctor [project]         Inspect local development dependencies
   codelocal approvals list           List remembered local approvals
   codelocal approvals revoke <id>    Revoke one remembered approval
   codelocal approvals reset          Forget remembered approvals for this workspace
@@ -953,6 +956,12 @@ func main() {
 			err = status()
 		case "stop":
 			err = stop()
+		case "setup":
+			if len(args) != 1 {
+				err = errors.New("setup does not accept arguments")
+			} else {
+				err = rerunAutomationSetup()
+			}
 		case "pair":
 			server, parseErr := optionalGatewayArg("pair", args[1:])
 			if parseErr != nil {

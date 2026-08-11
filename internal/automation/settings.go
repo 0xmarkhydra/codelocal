@@ -121,7 +121,9 @@ func EnsureBrowserRuntime(ctx context.Context, progress io.Writer) error {
 	if cli == "" {
 		return errors.New("bundled Playwright CLI was not found")
 	}
-	cmd := exec.CommandContext(ctx, cli, "install-browser")
+	// The managed automation runtime defaults to Chromium. Installing only that
+	// engine avoids downloading unused Firefox and WebKit bundles on first run.
+	cmd := exec.CommandContext(ctx, cli, "install-browser", "chromium")
 	cmd.Env = append(os.Environ(), "CI=1")
 	var captured bytes.Buffer
 	if progress != nil {

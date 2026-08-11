@@ -128,7 +128,7 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 			deviceName = w.DeviceID
 		}
 		if local != nil {
-			caps = map[string]any{"filesystem": local.Capabilities.Filesystem, "git": local.Capabilities.Git, "shell": local.Capabilities.Shell, "pty": local.Capabilities.PTY, "sandbox": local.Capabilities.Sandbox, "semanticProviders": local.Capabilities.SemanticProviders, "idempotency": local.Capabilities.Idempotency, "cancellation": local.Capabilities.Cancellation, "approvals": local.Capabilities.Approvals, "approvalMemory": local.Capabilities.ApprovalMemory, "hostPolicyExecution": local.Capabilities.HostPolicyExecution, "mcpHub": local.Capabilities.MCPHub, "terminalChatApproval": local.Capabilities.TerminalChatApproval, "terminalHistory": local.Capabilities.TerminalHistory}
+			caps = clientCapabilityMap(local)
 			projectRoot = local.ProjectRoot
 			deviceName = local.DeviceName
 		}

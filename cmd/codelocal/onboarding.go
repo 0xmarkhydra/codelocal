@@ -59,7 +59,7 @@ func prepareBrowser(settings *automation.Settings, environment automation.Enviro
 	}
 	if verbose {
 		fmt.Println("Preparing Browser Automation...")
-		fmt.Println("  CodeLocal is installing its managed Playwright browser on this computer.")
+		fmt.Println("  CodeLocal is installing one managed Chromium browser for website automation.")
 		fmt.Println("  The first download may take several minutes, depending on your network.")
 		fmt.Println("  Progress from Playwright will appear below. Press Ctrl+C to cancel;")
 		fmt.Println("  rerun codelocal and choose n for Browser Automation to skip it.")
@@ -131,9 +131,16 @@ func ensureFirstRunSetup() (automation.Settings, automation.Environment, error) 
 		fmt.Println("  Run `codelocal` in a terminal later to choose Browser and Computer permissions.")
 		return settings, environment, nil
 	}
+	return promptAutomationSetup(settings, environment, true)
+}
 
+func promptAutomationSetup(settings automation.Settings, environment automation.Environment, startRuntime bool) (automation.Settings, automation.Environment, error) {
 	fmt.Println()
-	fmt.Println("CodeLocal first-time setup")
+	if startRuntime {
+		fmt.Println("CodeLocal first-time setup")
+	} else {
+		fmt.Println("CodeLocal capability setup")
+	}
 	fmt.Println()
 	fmt.Println("Choose what ChatGPT may use on this computer. Coding is always available inside workspaces you explicitly authorize.")
 	fmt.Println()
@@ -143,8 +150,10 @@ func ensureFirstRunSetup() (automation.Settings, automation.Environment, error) 
 
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Browser Automation")
-	fmt.Println("  Inspect and test websites using CodeLocal's bundled Playwright runtime.")
-	settings.Browser.Enabled, err = askYesNo(reader, "Enable Browser Automation?", true)
+	fmt.Println("  Let ChatGPT open, inspect, click, type and screenshot websites in an isolated browser.")
+	fmt.Println("  Downloads one managed Chromium browser on first use; Coding works without it.")
+	var err error
+	settings.Browser.Enabled, err = askYesNo(reader, "Enable Browser Automation?", settings.Browser.Enabled)
 	if err != nil {
 		return automation.Settings{}, environment, err
 	}
@@ -152,8 +161,9 @@ func ensureFirstRunSetup() (automation.Settings, automation.Environment, error) 
 
 	if environment.ComputerSupported {
 		fmt.Println("Computer Use")
-		fmt.Println("  Allow desktop UI access. Screen, pointer and keyboard actions remain separately policy-controlled.")
-		settings.Computer.Enabled, err = askYesNo(reader, "Enable Computer Use?", false)
+		fmt.Println("  Let ChatGPT inspect and control desktop apps using screen, pointer and keyboard tools.")
+		fmt.Println("  No browser download is needed; macOS/Windows/Linux permissions and action approvals still apply.")
+		settings.Computer.Enabled, err = askYesNo(reader, "Enable Computer Use?", settings.Computer.Enabled)
 		if err != nil {
 			return automation.Settings{}, environment, err
 		}
@@ -183,7 +193,25 @@ func ensureFirstRunSetup() (automation.Settings, automation.Environment, error) 
 	}
 	fmt.Println()
 	fmt.Println("✓ Setup saved locally.")
-	fmt.Println("Starting CodeLocal runtime...")
+	if startRuntime {
+		fmt.Println("Starting CodeLocal runtime...")
+	} else {
+		fmt.Println("Restart CodeLocal so active workspace sessions advertise the updated capabilities.")
+	}
 	fmt.Println()
 	return settings, environment, nil
+}
+
+func rerunAutomationSetup() error {
+	if !stdinInteractive() {
+		return fmt.Errorf("codelocal setup requires an interactive terminal")
+	}
+	settings := automation.Default()
+	if existing, err := automation.Load(); err != nil {
+		return err
+	} else if existing != nil {
+		settings = *existing
+	}
+	_, _, err := promptAutomationSetup(settings, automation.Detect(), false)
+	return err
 }

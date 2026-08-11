@@ -114,6 +114,31 @@ func (h *Hub) LocalClientCount() int {
 
 func (c *Client) LastSeenAt() int64 { return c.lastSeenAt.Load() }
 
+func automationCapabilityMap(capabilities protocol.AutomationCapabilities) map[string]any {
+	return map[string]any{
+		"browser": map[string]any{
+			"available":       capabilities.Browser.Available,
+			"isolatedProfile": capabilities.Browser.IsolatedProfile,
+			"screenshots":     capabilities.Browser.Screenshots,
+			"devtools":        capabilities.Browser.Devtools,
+			"attachExisting":  capabilities.Browser.AttachExisting,
+		},
+		"computer": map[string]any{
+			"available":         capabilities.Computer.Available,
+			"backend":           capabilities.Computer.Backend,
+			"windowList":        capabilities.Computer.WindowList,
+			"screenCapture":     capabilities.Computer.ScreenCapture,
+			"uiTree":            capabilities.Computer.UITree,
+			"semanticActions":   capabilities.Computer.SemanticActions,
+			"pointer":           capabilities.Computer.Pointer,
+			"keyboard":          capabilities.Computer.Keyboard,
+			"clipboard":         capabilities.Computer.Clipboard,
+			"backgroundControl": capabilities.Computer.BackgroundControl,
+			"secureDesktop":     false,
+		},
+	}
+}
+
 func clientCapabilityMap(client *Client) map[string]any {
 	capabilities := map[string]any{
 		"filesystem":           client.Capabilities.Filesystem,
@@ -130,6 +155,7 @@ func clientCapabilityMap(client *Client) map[string]any {
 		"mcpHub":               client.Capabilities.MCPHub,
 		"terminalChatApproval": client.Capabilities.TerminalChatApproval,
 		"terminalHistory":      client.Capabilities.TerminalHistory,
+		"automation":           automationCapabilityMap(client.Capabilities.Automation),
 	}
 	if client.ClientVersion != "" {
 		capabilities["clientVersion"] = client.ClientVersion

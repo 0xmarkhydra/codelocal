@@ -64,12 +64,20 @@ Start one machine runtime:
 codelocal
 ```
 
+On first start, CodeLocal explains and asks separately for two optional capabilities:
+
+- **Browser Automation** gives ChatGPT the compact `browser` tool for opening, inspecting, clicking, typing and taking screenshots in an isolated website session. Enabling it downloads one managed Chromium browser once; choosing No does not affect Coding.
+- **Computer Use** gives ChatGPT the compact `computer` tool for inspecting and controlling desktop apps through a bundled native helper. It does not download a browser, remains opt-in, requires the operating system's screen/accessibility permissions, and still applies action-level approvals.
+
+Run `codelocal setup` to change either choice later. Run `codelocal doctor` at any time to see whether the browser, native helper and required capabilities are ready.
+
 A single runtime can keep many workspaces authorized and activates each workspace lazily when ChatGPT needs it. You do **not** need one CodeLocal daemon per project.
 
 Useful CLI commands:
 
 ```text
 codelocal --version
+codelocal setup
 codelocal status
 codelocal workspaces
 codelocal grant <path>
@@ -224,11 +232,12 @@ go build ./cmd/...
 
 ### Compact MCP tool surface
 
-The Cloud gateway exposes exactly 16 domain tools: `device`, `workspace`,
+The Cloud gateway exposes exactly 18 domain tools: `device`, `workspace`,
 `project`, `context`, `read`, `search`, `dependency`, `lsp`, `edit`, `verify`,
-`git`, `terminal`, `process`, `approvals`, `security` and `mcp`.
+`git`, `terminal`, `process`, `approvals`, `security`, `mcp`, `browser` and
+`computer`.
 
-The previous 77 top-level tool schemas are no longer advertised and cannot be
+The 98 granular runtime commands are not advertised as top-level tools and cannot be
 re-enabled by configuration. Their granular command names remain only as the
 private Cloud-to-native runtime protocol, so capability is preserved without
 adding model-facing schema or tool-selection cost.

@@ -100,7 +100,7 @@ func TestEnsureBrowserRuntimeStreamsProgress(t *testing.T) {
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "playwright-cli")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'downloading browser: %s\\n' \"$1\"\n"), 0o700); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'downloading browser: %s %s\\n' \"$1\" \"$2\"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CODELOCAL_PLAYWRIGHT_CLI", path)
@@ -108,7 +108,7 @@ func TestEnsureBrowserRuntimeStreamsProgress(t *testing.T) {
 	if err := EnsureBrowserRuntime(context.Background(), &progress); err != nil {
 		t.Fatal(err)
 	}
-	if got := progress.String(); got != "downloading browser: install-browser\n" {
+	if got := progress.String(); got != "downloading browser: install-browser chromium\n" {
 		t.Fatalf("progress output = %q", got)
 	}
 }
