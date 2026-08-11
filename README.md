@@ -18,7 +18,7 @@ Authorized workspaces       files, Git, terminal, local MCP extensions
 
 ## Version
 
-`1.5.2` — current stable native Go release.
+`1.5.5` — current stable native Go release.
 
 The application runtime and Cloud gateway are implemented in Go. The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 
@@ -221,6 +221,36 @@ go test ./...
 go vet ./...
 go build ./cmd/...
 ```
+
+### MCP tool surface evaluation
+
+The Cloud gateway currently defaults to the stable 77-tool legacy surface while
+the compact 16-domain surface is evaluated:
+
+```bash
+# Stable default.
+CODELOCAL_MCP_TOOL_SURFACE=legacy
+
+# Compact domain tools only.
+CODELOCAL_MCP_TOOL_SURFACE=compact
+
+# Temporary compatibility/debug mode; advertises both surfaces.
+CODELOCAL_MCP_TOOL_SURFACE=dual
+```
+
+Changing the value requires a gateway restart because MCP servers are cached per
+authenticated user. Keep `legacy` in production until the representative
+ChatGPT workflow evaluation in `MCP_TOOL_SURFACE_PLAN.md` passes.
+
+Performance-sensitive defaults are intentionally bounded:
+
+- `CODELOCAL_READ_CONCURRENCY=6` controls parallel workers inside `read_files`;
+- `CODELOCAL_USAGE_LOCAL_QUEUE_SIZE=8192` controls the non-blocking usage ingress;
+- `CODELOCAL_USAGE_STREAM_MAXLEN=1000000` bounds the approximate Redis Stream length.
+
+Usage writes never block an MCP response. They flow through the local queue and
+Redis Stream to a single leased, idempotent PostgreSQL batch consumer. File and
+search reads can fan out; edits, Git mutations and process writes remain ordered.
 
 Build the cross-platform npm staging package:
 

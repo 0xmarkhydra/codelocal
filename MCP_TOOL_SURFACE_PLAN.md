@@ -1,10 +1,11 @@
 # CodeLocal MCP Tool Surface Simplification Plan
 
-Status: Planning
+Status: In progress — P0/P1/P2 implemented behind a safe feature flag; P3 measurement/evaluation started
 Branch baseline: `dev`
 Baseline date: 2026-08-12
-Current first-party MCP tool count: **77**
-Target public tool surface: **~15-18 tools**
+Current legacy first-party MCP tool count: **77**
+Implemented compact surface: **16 domain tools**
+Target public tool surface after handoff: **~17 tools**
 
 ## 1. Why this document exists
 
@@ -747,6 +748,136 @@ After a compatibility window:
 
 Do not remove legacy behavior in the same release that introduces the compact surface.
 
+### Implementation checkpoint — 2026-08-12
+
+Implemented in the current working tree:
+
+- the 77-tool legacy contract is frozen in tests;
+- every legacy tool maps to a stable internal operation ID and shared metadata;
+- legacy calls route through the common operation dispatcher;
+- 16 compact domain tools cover every current internal operation;
+- `legacy`, `compact` and `dual` advertisement modes are available through `CODELOCAL_MCP_TOOL_SURFACE`;
+- unknown surface values fail closed to `legacy`;
+- representative compact calls are checked against their legacy operation/runtime equivalents;
+- a compact tool is invoked through the real MCP HTTP transport in tests, not only through its resolver;
+- successful and error results expose compact JSON text plus MCP `structuredContent`;
+- runtime duration metadata is carried back through WebSocket and cross-replica routing so gateway logs can separate local execution from relay/activation overhead;
+- active workspaces connected to the current gateway use a direct fast path that avoids rebuilding the durable catalog and avoids a redundant Redis owner lookup on every tool call;
+- usage accounting is removed from the request path: calls enter a bounded local queue, are aggregated into a Redis Stream, then one leased consumer persists idempotent batches to PostgreSQL sequentially;
+- `read_files` preflights the byte budget and reads with a bounded six-worker pool while preserving input order; mutations remain ordered;
+- code search streams results and stops the child process as soon as the requested result limit is exceeded instead of buffering unbounded stdout;
+- `context_for_task` refreshes its structural/import index once, reuses warm LSP providers without cold-starting one, and runs one bounded text search for the task instead of one repository scan/process per term;
+- process write, resize, signal and kill aliases now share the same side-effect serialization metadata as their canonical operations;
+- the advertised schema estimate fell from 39,798 bytes to 15,079 bytes, a 62.1% reduction.
+
+Still required before changing the default:
+
+- run the representative workflows with real ChatGPT sessions on both surfaces;
+- measure task completion, invalid calls, retries, total model/tool turns and end-to-end latency;
+- verify approval wording and confirmation behavior for mixed read/write domain tools;
+- decide whether the legacy TypeScript implementation receives parity or is explicitly retired;
+- decide whether `handoff` lands before or after compact becomes the default.
+
+### Why Codex CLI feels faster, and what CodeLocal should optimize
+
+The current CodeLocal runtime is not globally single-threaded. The native client
+starts each incoming tool call in its own goroutine, the gateway tracks concurrent
+requests by request ID, and cross-replica requests are also handled concurrently.
+Only side-effecting local operations are serialized intentionally to protect
+idempotency and mutation order.
+
+The more important architectural difference is the path length:
+
+```text
+Codex CLI
+  model/agent loop -> local filesystem, patch and shell
+
+ChatGPT + CodeLocal
+  ChatGPT model loop -> HTTPS MCP -> CodeLocal Cloud
+  -> optional Redis cross-replica hop -> WebSocket -> local runtime
+  -> WebSocket/Redis/HTTPS response -> next model decision
+```
+
+Codex CLI therefore keeps the coding loop next to the repository and installed
+tools. It can also delegate independent investigations to subagents, but
+parallelism is not the only or necessarily the largest advantage. ChatGPT may
+issue independent MCP calls concurrently, and CodeLocal can execute them
+concurrently, but dependent steps still require the model to inspect one result
+before choosing the next call.
+
+Official OpenAI guidance supports two relevant design choices:
+
+- keep prompts and advertised tool sets lean, and expose only task-relevant tools;
+- use parallel/programmatic calls only for bounded independent work, while keeping semantic judgment, approvals and final validation as direct calls.
+
+References:
+
+- https://developers.openai.com/api/docs/guides/latest-model
+- https://learn.chatgpt.com/docs/codex/cli
+- https://developers.openai.com/plugins/build/mcp-server
+
+#### Phase 3 latency measurements
+
+Measure warm and cold calls separately, at P50/P95 at minimum:
+
+- `gateway duration`: entry into the common operation dispatcher through routed result;
+- `runtime duration`: time spent inside the native local engine;
+- `relay/activation duration`: gateway duration minus runtime duration;
+- same-gateway-owner versus Redis cross-replica calls;
+- active versus sleeping workspace calls;
+- request/response bytes and estimated tokens;
+- model/tool turn count for the whole workflow, which the MCP server cannot infer from one call alone.
+
+The runtime now returns `runtimeDurationMs` as hidden protocol metadata and the
+gateway logs `durationMs`, `runtimeDurationMs` and `relayDurationMs`. Do not draw
+conclusions from average runtime duration alone; a fast local operation can still
+feel slow when model and relay round trips dominate.
+
+#### Optimization order
+
+1. **Reduce model round trips.** Make `context`, `read(action=many)` and `verify`
+   return bounded, decision-ready packets so the model does not need several
+   predictable follow-up reads.
+2. **Remove repeated routing work.** Same-gateway active calls now use the live
+   WebSocket client as their workspace/capability source and bypass redundant
+   catalog/owner lookups. Measure the remaining cross-replica path; if it is
+   material, add a targeted active-workspace lookup or connection affinity rather
+   than rebuilding the full catalog.
+3. **Keep results small and structured.** Prefer MCP `structuredContent`, compact
+   JSON, stable IDs, explicit limits and concise error shapes. Add output schemas
+   only where they improve selection enough to justify their advertised token cost.
+4. **Preserve read concurrency.** Independent tool calls can run concurrently and
+   `read(action=many)` now uses bounded internal workers. Keep limits explicit and
+   benchmark on real repositories before raising the default concurrency above six.
+5. **Use server-side fan-out inside coherent tools.** It is safer and cheaper to
+   let `context` gather/rank independent semantic evidence internally than to add
+   a generic model-facing `batch` tool.
+6. **Keep mutations ordered.** Do not parallelize edits, Git writes, terminal
+   approvals or other side effects merely to reduce wall-clock time.
+
+#### Usage persistence pipeline
+
+```text
+MCP response path
+  -> non-blocking local channel
+  -> 250 ms in-memory aggregation
+  -> Redis Stream (durable handoff)
+  -> one Redis-leased consumer
+  -> idempotent PostgreSQL transaction
+  -> Redis rolling usage windows
+```
+
+The request never falls back to a direct database write. Queue saturation is
+observable through a dropped-event counter/log and intentionally affects only
+approximate telemetry, not the user's tool result. Redis Stream batch IDs plus
+`codelocal_mcp_usage_batches` prevent PostgreSQL double counting after retries or
+consumer failover.
+
+A generic `batch(actions=[...])` tool is not recommended for the default surface:
+it weakens per-action safety metadata, complicates approval UX and can make one
+large schema cost as many tokens as the legacy catalog. Prefer domain-local batch
+operations such as `read(action=many)` and bounded internal fan-out.
+
 ## 11. Files likely to change
 
 Primary:
@@ -904,16 +1035,16 @@ This preserves the semantic-first behavior CodeLocal already wants while reducin
 The migration is considered successful when all of the following are true:
 
 - [ ] Default modern sessions expose no more than ~20 first-party CodeLocal tools.
-- [ ] All important capability from the current 77 tools remains reachable.
+- [x] All important capability from the current 77 tools remains reachable through compact operation mappings.
 - [ ] No security/approval regression exists.
 - [ ] Workspace/thread routing behavior remains correct.
-- [ ] Existing projects require no data migration.
-- [ ] Legacy clients can still function during the compatibility window.
-- [ ] MCP Hub remains lazy/dynamic.
-- [ ] Tool-schema serialized size is materially lower than the 77-tool baseline.
+- [x] Existing projects require no data migration.
+- [x] Legacy clients can still function during the compatibility window.
+- [x] MCP Hub remains lazy/dynamic.
+- [x] Tool-schema serialized size is materially lower than the 77-tool baseline (62.1% in the current fixture).
 - [ ] Representative coding workflows require the same or fewer model/tool round trips.
 - [ ] Invalid tool-selection/retry rate does not regress.
-- [ ] Full Go tests pass.
+- [x] Full Go tests pass.
 - [ ] Relevant TypeScript compatibility tests pass while the legacy implementation remains supported.
 
 ## 18. Recommended implementation order

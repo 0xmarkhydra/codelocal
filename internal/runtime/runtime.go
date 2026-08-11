@@ -446,8 +446,9 @@ func (w *WorkspaceWorker) handleCall(parent context.Context, msg struct {
 		response.ErrorCode = normalizeErrorCode(err)
 		response.ErrorMessage = err.Error()
 	}
-	outputBytes, outputTokens := usagecalc.EstimateTokens(response)
 	durationMs := time.Since(startedAt).Milliseconds()
+	response.Metadata = map[string]any{"runtimeDurationMs": durationMs}
+	outputBytes, outputTokens := usagecalc.EstimateTokens(response)
 	totalTokens := inputTokens + outputTokens
 	stamp := terminalTimestamp(time.Now())
 	usage := fmt.Sprintf(" - %d token", totalTokens)

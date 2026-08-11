@@ -81,7 +81,9 @@ func Compatible(v int) bool { return v >= MinVersion && v <= Version }
 func SideEffecting(tool string) bool {
 	switch tool {
 	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files",
-		"run_command", "exec_start", "pty_start", "process_write", "process_kill", "exec_cancel",
+		"run_command", "exec_start", "pty_start",
+		"exec_write", "pty_write", "process_write", "pty_resize",
+		"exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill", "exec_cancel",
 		"git_stage", "git_unstage", "git_commit", "git_push", "approval_revoke", "approval_reset", "mcp_call":
 		return true
 	default:

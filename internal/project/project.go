@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/0xmarkhydra/codelocal/internal/localfs"
 	"github.com/0xmarkhydra/codelocal/internal/lsp"
@@ -30,6 +31,7 @@ type indexedFile struct {
 	MTimeNS int64
 	Size    int64
 	Symbols []indexedSymbol
+	Imports []string
 }
 
 type Engine struct {
@@ -193,6 +195,37 @@ func unique(in []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+var contextStopwords = map[string]struct{}{
+	"and": {}, "are": {}, "can": {}, "code": {}, "for": {}, "from": {}, "into": {}, "the": {}, "this": {}, "that": {}, "with": {},
+	"các": {}, "cần": {}, "cho": {}, "của": {}, "đang": {}, "được": {}, "không": {}, "khi": {}, "làm": {}, "này": {}, "thêm": {}, "trong": {}, "tối": {}, "việc": {}, "với": {}, "sửa": {},
+}
+
+func contextTerms(task string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 8)
+	for _, token := range strings.FieldsFunc(strings.ToLower(task), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' || r == '/')
+	}) {
+		token = strings.Trim(token, "._-/")
+		if utf8Len := len([]rune(token)); utf8Len < 3 || utf8Len > 80 {
+			continue
+		}
+		if _, ignored := contextStopwords[token]; ignored {
+			continue
+		}
+		if _, duplicate := seen[token]; duplicate {
+			continue
+		}
+		seen[token] = struct{}{}
+		out = append(out, token)
+		if len(out) == 8 {
+			break
+		}
+	}
+	return out
+}
+
 func packageManager(root string) string {
 	if exists(filepath.Join(root, "pnpm-lock.yaml")) {
 		return "pnpm"
@@ -295,6 +328,12 @@ func cloneMap(in map[string]any) map[string]any {
 }
 
 var symbolRE = regexp.MustCompile(`(?m)^\s*(?:export\s+)?(?:async\s+)?(?:func|function|class|interface|type|struct|enum|trait|protocol|def|fn|let|const|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)`)
+var importPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?m)(?:from\s+|import\s+[^"']*?from\s+)["']([^"']+)["']`),
+	regexp.MustCompile(`(?m)require\(["']([^"']+)["']\)`),
+	regexp.MustCompile(`(?m)^\s*use\s+([A-Za-z0-9_:]+)`),
+	regexp.MustCompile(`(?m)^\s*#include\s+[<"]([^>"]+)[>"]`),
+}
 
 func (e *Engine) refreshStructuralIndex() error {
 	e.indexMu.Lock()
@@ -331,7 +370,13 @@ func (e *Engine) refreshStructuralIndex() error {
 		for _, match := range symbolRE.FindAllSubmatchIndex(data, -1) {
 			symbols = append(symbols, indexedSymbol{Name: string(data[match[2]:match[3]]), Line: 1 + bytes.Count(data[:match[0]], []byte("\n"))})
 		}
-		e.index[rel] = indexedFile{MTimeNS: info.ModTime().UnixNano(), Size: info.Size(), Symbols: symbols}
+		imports := []string{}
+		for _, pattern := range importPatterns {
+			for _, match := range pattern.FindAllSubmatch(data, -1) {
+				imports = append(imports, string(match[1]))
+			}
+		}
+		e.index[rel] = indexedFile{MTimeNS: info.ModTime().UnixNano(), Size: info.Size(), Symbols: symbols, Imports: imports}
 		return nil
 	})
 	if err != nil {
@@ -355,6 +400,10 @@ func (e *Engine) Symbols(query string, limit int) ([]map[string]any, error) {
 	if err := e.refreshStructuralIndex(); err != nil {
 		return nil, err
 	}
+	return e.symbolsFromIndex(query, limit), nil
+}
+
+func (e *Engine) symbolsFromIndex(query string, limit int) []map[string]any {
 	needle := strings.ToLower(strings.TrimSpace(query))
 	e.indexMu.Lock()
 	out := []map[string]any{}
@@ -382,7 +431,7 @@ func (e *Engine) Symbols(query string, limit int) ([]map[string]any, error) {
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out, nil
+	return out
 }
 func (e *Engine) DocumentSymbols(path string, limit int) ([]map[string]any, error) {
 	read, err := e.FS.Read(path, 0, 0)
@@ -533,12 +582,7 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 		limit = 100
 	}
 
-	terms := unique(strings.FieldsFunc(strings.ToLower(task), func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.')
-	}))
-	if len(terms) > 16 {
-		terms = terms[:16]
-	}
+	terms := contextTerms(task)
 
 	scores := map[string]int{}
 	reasons := map[string][]string{}
@@ -546,16 +590,23 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 	symbols := []map[string]any{}
 	seenSymbols := map[string]struct{}{}
 
+	// Refresh the native index once for the whole packet. Previously every term
+	// could trigger its own full WalkDir when the LSP returned no matches.
+	_ = e.refreshStructuralIndex()
+
 	// Semantic/structural symbols carry substantially more weight than raw text.
-	// WorkspaceSymbols uses an active LSP when available and falls back to the
-	// native structural index, so this remains useful across languages.
+	// Reuse already-active language servers without cold-starting an arbitrary
+	// provider during context discovery; exact LSP tools can still start the
+	// provider selected by a concrete source path.
 	for _, term := range terms {
-		if len(term) < 3 {
-			continue
+		found := e.symbolsFromIndex(term, 80)
+		if e.LSP != nil {
+			if semantic, err := e.LSP.ActiveWorkspaceSymbols(ctx, term); err == nil {
+				found = append(semantic, found...)
+			}
 		}
-		found, err := e.WorkspaceSymbols(ctx, term, 80)
-		if err != nil {
-			continue
+		if len(found) > 80 {
+			found = found[:80]
 		}
 		for _, symbol := range found {
 			file := strings.TrimPrefix(filepath.ToSlash(fmt.Sprint(symbol["path"])), "./")
@@ -585,28 +636,42 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 	}
 
 	// Literal/text matches are a fallback signal rather than the primary ranker.
-	for _, term := range terms {
-		if len(term) < 3 {
-			continue
+	// Run one bounded ripgrep process for the whole task instead of one process
+	// per term, then attribute each result to the terms present on that line.
+	if len(terms) > 0 {
+		patterns := make([]string, 0, len(terms))
+		for _, term := range terms {
+			patterns = append(patterns, regexp.QuoteMeta(term))
 		}
-		result, err := e.FS.Search(term, ".", 200, true, false)
-		if err != nil {
-			continue
-		}
-		matches, _ := result["matches"].([]string)
-		for _, match := range matches {
-			parts := strings.SplitN(strings.TrimPrefix(match, "./"), ":", 4)
-			if len(parts) == 0 || parts[0] == "" {
-				continue
-			}
-			file := filepath.ToSlash(parts[0])
-			scores[file] += 2
-			reasons[file] = append(reasons[file], "text-match:"+term)
-			if preferredLine[file] == 0 && len(parts) > 1 {
-				line := 0
-				fmt.Sscan(parts[1], &line)
-				if line > 0 {
-					preferredLine[file] = line
+		maxMatches := min(600, max(200, len(terms)*60))
+		result, err := e.FS.Search("(?i)("+strings.Join(patterns, "|")+")", ".", maxMatches, false, false)
+		if err == nil {
+			matches, _ := result["matches"].([]string)
+			for _, match := range matches {
+				parts := strings.SplitN(strings.TrimPrefix(match, "./"), ":", 4)
+				if len(parts) == 0 || parts[0] == "" {
+					continue
+				}
+				file := filepath.ToSlash(parts[0])
+				lowerMatch := strings.ToLower(match)
+				matchedTerm := "task"
+				for _, term := range terms {
+					if strings.Contains(lowerMatch, term) {
+						scores[file] += 2
+						reasons[file] = append(reasons[file], "text-match:"+term)
+						matchedTerm = term
+					}
+				}
+				if matchedTerm == "task" {
+					scores[file] += 2
+					reasons[file] = append(reasons[file], "text-match:task")
+				}
+				if preferredLine[file] == 0 && len(parts) > 1 {
+					line := 0
+					fmt.Sscan(parts[1], &line)
+					if line > 0 {
+						preferredLine[file] = line
+					}
 				}
 			}
 		}
@@ -614,7 +679,6 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 
 	// Expand from high-confidence seed files through the import graph. Relative
 	// imports are resolved against the structural index when possible.
-	_ = e.refreshStructuralIndex()
 	e.indexMu.Lock()
 	knownPaths := make(map[string]struct{}, len(e.index))
 	for file := range e.index {
@@ -638,7 +702,7 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 		return ""
 	}
 
-	graph, _ := e.ImportGraph(5000)
+	graph := e.importGraphFromIndex(5000)
 	seed := map[string]struct{}{}
 	for file, score := range scores {
 		if score >= 4 {
@@ -728,7 +792,7 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 	projectMap, _ := e.Map(false)
 	return map[string]any{
 		"taskHint":       task,
-		"strategy":       "lsp-or-structural-symbols + literal-fallback + import-graph-neighbors + symbol-centered-bounded-snippets",
+		"strategy":       "lsp-or-structural-symbols + literal-fallback + cached-import-graph-neighbors + symbol-centered-bounded-snippets",
 		"project":        projectMap,
 		"rankedFiles":    files,
 		"symbols":        symbols,
@@ -792,38 +856,31 @@ func (e *Engine) ImportGraph(limit int) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 2000
 	}
+	if err := e.refreshStructuralIndex(); err != nil {
+		return nil, err
+	}
+	return e.importGraphFromIndex(limit), nil
+}
+
+func (e *Engine) importGraphFromIndex(limit int) []map[string]any {
+	e.indexMu.Lock()
+	paths := make([]string, 0, len(e.index))
+	for path := range e.index {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
 	edges := []map[string]any{}
-	patterns := []*regexp.Regexp{regexp.MustCompile(`(?m)(?:from\s+|import\s+[^"']*?from\s+)["']([^"']+)["']`), regexp.MustCompile(`(?m)require\(["']([^"']+)["']\)`), regexp.MustCompile(`(?m)^\s*use\s+([A-Za-z0-9_:]+)`), regexp.MustCompile(`(?m)^\s*#include\s+[<"]([^>"]+)[>"]`)}
-	_ = filepath.WalkDir(e.FS.Root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || len(edges) >= limit {
-			return nil
-		}
-		rel := e.FS.Rel(path)
-		if rel != "." && (security.IsSensitivePath(rel) || e.FS.Ignored(rel, d.IsDir())) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() || sourceExt[strings.ToLower(filepath.Ext(path))] == "" {
-			return nil
-		}
-		info, _ := d.Info()
-		if info == nil || info.Size() > 1<<20 {
-			return nil
-		}
-		data, _ := os.ReadFile(path)
-		for _, re := range patterns {
-			for _, m := range re.FindAllSubmatch(data, -1) {
-				edges = append(edges, map[string]any{"from": rel, "to": string(m[1]), "specifier": string(m[1])})
-				if len(edges) >= limit {
-					return nil
-				}
+	for _, path := range paths {
+		for _, specifier := range e.index[path].Imports {
+			edges = append(edges, map[string]any{"from": path, "to": specifier, "specifier": specifier})
+			if len(edges) >= limit {
+				e.indexMu.Unlock()
+				return edges
 			}
 		}
-		return nil
-	})
-	return edges, nil
+	}
+	e.indexMu.Unlock()
+	return edges
 }
 
 func (e *Engine) Diagnostics(ctx context.Context, path string, limit int) (map[string]any, error) {

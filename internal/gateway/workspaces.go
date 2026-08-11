@@ -33,6 +33,24 @@ type WorkspaceService struct {
 	Coordinator *Coordinator
 }
 
+func activeWorkspaceView(client *Client) *WorkspaceView {
+	return &WorkspaceView{
+		Key:             client.Key,
+		DeviceID:        client.DeviceID,
+		DeviceName:      client.DeviceName,
+		WorkspaceID:     client.WorkspaceID,
+		WorkspaceName:   client.WorkspaceName,
+		Status:          "active",
+		RuntimeOnline:   true,
+		Authorized:      true,
+		ClientVersion:   client.ClientVersion,
+		ProtocolVersion: client.ProtocolVersion,
+		ProjectRoot:     client.ProjectRoot,
+		Capabilities:    clientCapabilityMap(client),
+		LastSeenAt:      client.LastSeenAt(),
+	}
+}
+
 func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]WorkspaceView, error) {
 	records, err := s.Store.ListWorkspaceRecords(ctx, userID)
 	if err != nil {
@@ -121,6 +139,14 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 }
 
 func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*WorkspaceView, error) {
+	// The connected client is the freshest source of workspace capabilities and
+	// authorization. Avoid rebuilding the durable catalog (DB + several Redis
+	// lookups) on every tool call when this gateway already owns the connection.
+	if s.Hub != nil {
+		if local := s.Hub.localClient(key); local != nil && local.UserID == userID {
+			return activeWorkspaceView(local), nil
+		}
+	}
 	if owner, _ := s.Coordinator.Owner(ctx, key); owner != "" {
 		catalog, err := s.Catalog(ctx, userID)
 		if err != nil {

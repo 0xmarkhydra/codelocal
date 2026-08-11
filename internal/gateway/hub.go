@@ -114,6 +114,29 @@ func (h *Hub) LocalClientCount() int {
 
 func (c *Client) LastSeenAt() int64 { return c.lastSeenAt.Load() }
 
+func clientCapabilityMap(client *Client) map[string]any {
+	capabilities := map[string]any{
+		"filesystem":           client.Capabilities.Filesystem,
+		"git":                  client.Capabilities.Git,
+		"shell":                client.Capabilities.Shell,
+		"pty":                  client.Capabilities.PTY,
+		"sandbox":              client.Capabilities.Sandbox,
+		"semanticProviders":    client.Capabilities.SemanticProviders,
+		"idempotency":          client.Capabilities.Idempotency,
+		"cancellation":         client.Capabilities.Cancellation,
+		"approvals":            client.Capabilities.Approvals,
+		"approvalMemory":       client.Capabilities.ApprovalMemory,
+		"hostPolicyExecution":  client.Capabilities.HostPolicyExecution,
+		"mcpHub":               client.Capabilities.MCPHub,
+		"terminalChatApproval": client.Capabilities.TerminalChatApproval,
+		"terminalHistory":      client.Capabilities.TerminalHistory,
+	}
+	if client.ClientVersion != "" {
+		capabilities["clientVersion"] = client.ClientVersion
+	}
+	return capabilities
+}
+
 func (c *Client) Send(ctx context.Context, value any) error {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -255,6 +278,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ID           string `json:"id"`
 			OK           bool   `json:"ok"`
 			Result       any    `json:"result"`
+			Metadata     any    `json:"metadata"`
 			ErrorCode    string `json:"errorCode"`
 			ErrorMessage string `json:"errorMessage"`
 			Error        string `json:"error"`
@@ -296,6 +320,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				RequestID:       requestID,
 				OK:              envelope.OK,
 				Result:          envelope.Result,
+				Metadata:        envelope.Metadata,
 				ErrorCode:       envelope.ErrorCode,
 				ErrorMessage:    errMessage,
 			}:
@@ -323,25 +348,7 @@ func (h *Hub) register(ctx context.Context, client *Client) error {
 		_ = old.conn.Close(websocket.StatusCode(4001), "replaced by newer connection")
 	}
 
-	caps := map[string]any{
-		"filesystem":           client.Capabilities.Filesystem,
-		"git":                  client.Capabilities.Git,
-		"shell":                client.Capabilities.Shell,
-		"pty":                  client.Capabilities.PTY,
-		"sandbox":              client.Capabilities.Sandbox,
-		"semanticProviders":    client.Capabilities.SemanticProviders,
-		"idempotency":          client.Capabilities.Idempotency,
-		"cancellation":         client.Capabilities.Cancellation,
-		"approvals":            client.Capabilities.Approvals,
-		"approvalMemory":       client.Capabilities.ApprovalMemory,
-		"hostPolicyExecution":  client.Capabilities.HostPolicyExecution,
-		"mcpHub":               client.Capabilities.MCPHub,
-		"terminalChatApproval": client.Capabilities.TerminalChatApproval,
-		"terminalHistory":      client.Capabilities.TerminalHistory,
-	}
-	if client.ClientVersion != "" {
-		caps["clientVersion"] = client.ClientVersion
-	}
+	caps := clientCapabilityMap(client)
 	if err := h.Store.UpsertWorkspace(ctx, cloud.Workspace{
 		UserID:          client.UserID,
 		DeviceID:        client.DeviceID,
@@ -413,6 +420,7 @@ func (h *Hub) HandleRouted(ctx context.Context, call RoutedCall) RoutedResult {
 		RequestID: call.RequestID,
 		OK:        result.OK,
 		Result:    result.Result,
+		Metadata:  result.Metadata,
 		ErrorCode: result.ErrorCode,
 		Error:     result.ErrorMessage,
 	}
@@ -501,6 +509,11 @@ func (h *Hub) Call(ctx context.Context, userID, clientKey, sessionID, tool strin
 	}
 	if sideEffect {
 		call.IdempotencyKey = requestID
+	}
+	// Keep the hot path on this gateway when it already owns the WebSocket.
+	// Coordinator routing remains the fallback for cross-replica ownership.
+	if h.localClient(clientKey) != nil {
+		return h.HandleRouted(ctx, call), nil
 	}
 	if h.Coordinator == nil {
 		return h.HandleRouted(ctx, call), nil

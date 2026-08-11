@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -17,7 +18,6 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	"github.com/0xmarkhydra/codelocal/internal/oauth"
-	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	usagecalc "github.com/0xmarkhydra/codelocal/internal/usage"
 	"github.com/0xmarkhydra/codelocal/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -176,50 +176,27 @@ func toolDisplayTitle(name, fallback string) string {
 }
 
 func terminalExecutionTool(name string) bool {
-	switch name {
-	case "run_command", "exec_start", "pty_start":
-		return true
-	default:
-		return false
-	}
+	operation, err := operationForLegacyTool(name)
+	return err == nil && operation.TerminalExecution
 }
 
 func toolMutatesState(name string) bool {
-	if protocol.SideEffecting(name) {
-		return true
-	}
-	switch name {
-	case "select_workspace", "revoke_device", "rename_device", "exec_write", "pty_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
-		return true
-	default:
-		return false
-	}
+	operation, err := operationForLegacyTool(name)
+	return err == nil && operation.MutatesState
 }
 
 func toolAnnotations(def toolDef) *mcp.ToolAnnotations {
 	name := def.Name
-	readOnly := !toolMutatesState(name)
-	destructive := false
-	openWorld := false
-	idempotent := false
-	switch name {
-	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call":
-		destructive = true
-	}
-	switch name {
-	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call":
-		openWorld = true
-	}
-	switch name {
-	case "select_workspace", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
-		idempotent = true
+	operation, err := operationForLegacyTool(name)
+	if err != nil {
+		return &mcp.ToolAnnotations{Title: toolDisplayTitle(name, def.Title)}
 	}
 	return &mcp.ToolAnnotations{
 		Title:           toolDisplayTitle(name, def.Title),
-		ReadOnlyHint:    readOnly,
-		DestructiveHint: boolPtr(destructive),
-		IdempotentHint:  idempotent,
-		OpenWorldHint:   boolPtr(openWorld),
+		ReadOnlyHint:    !operation.MutatesState,
+		DestructiveHint: boolPtr(operation.Destructive),
+		IdempotentHint:  operation.Idempotent,
+		OpenWorldHint:   boolPtr(operation.OpenWorld),
 	}
 }
 
@@ -238,47 +215,43 @@ func capabilityBool(capabilities map[string]any, name string) bool {
 }
 
 func toolCapability(name string) string {
-	if strings.HasPrefix(name, "git_") {
-		return "git"
-	}
-	switch name {
-	case "run_command", "exec_start", "exec_poll", "exec_write", "exec_signal", "exec_kill", "exec_cancel", "process_poll", "process_list", "process_write", "process_kill", "terminal_preflight":
-		return "shell"
-	case "terminal_history":
-		return "terminalHistory"
-	case "pty_start", "pty_poll", "pty_write", "pty_resize", "pty_signal", "pty_kill":
-		return "pty"
-	case "mcp_list", "mcp_search_tools", "mcp_tool_info", "mcp_call":
-		return "mcpHub"
-	case "approval_list", "approval_revoke", "approval_reset":
-		return "approvalMemory"
-	default:
+	operation, err := operationForLegacyTool(name)
+	if err != nil {
 		return "filesystem"
 	}
+	return operation.Capability
 }
 
 func ensureToolSupported(def toolDef, workspace *gateway.WorkspaceView) error {
+	operation, err := operationForLegacyTool(def.Name)
+	if err != nil {
+		return err
+	}
+	return ensureOperationSupported(operation, workspace)
+}
+
+func ensureOperationSupported(operation operationInvocation, workspace *gateway.WorkspaceView) error {
 	if workspace == nil {
 		return errors.New("workspace unavailable")
 	}
 	if workspace.ProtocolVersion <= 1 {
-		if !legacyProtocolOneTool(def.Name) {
-			return fmt.Errorf("%s requires a newer CodeLocal client; update the client before using this tool", def.Name)
+		if !legacyProtocolOneTool(operation.RuntimeTool) {
+			return fmt.Errorf("%s requires a newer CodeLocal client; update the client before using this operation", operation.OperationID)
 		}
 		return nil
 	}
-	capability := toolCapability(def.Name)
-	if capability == "filesystem" && (def.Name == "sandbox_info" || def.Name == "sandbox_smoke_test") {
+	capability := operation.Capability
+	if capability == "filesystem" && (operation.RuntimeTool == "sandbox_info" || operation.RuntimeTool == "sandbox_smoke_test") {
 		return nil
 	}
 	if capability == "pty" {
 		if !capabilityBool(workspace.Capabilities, "shell") || !capabilityBool(workspace.Capabilities, "pty") {
-			return fmt.Errorf("%s is unavailable because this CodeLocal client does not advertise PTY support", def.Name)
+			return fmt.Errorf("%s is unavailable because this CodeLocal client does not advertise PTY support", operation.OperationID)
 		}
 		return nil
 	}
 	if !capabilityBool(workspace.Capabilities, capability) {
-		return fmt.Errorf("%s is unavailable because this CodeLocal client does not advertise %s support", def.Name, capability)
+		return fmt.Errorf("%s is unavailable because this CodeLocal client does not advertise %s support", operation.OperationID, capability)
 	}
 	return nil
 }
@@ -424,19 +397,29 @@ func (s *Service) Handler() http.Handler {
 	return legacyMCPCompatibility(stream)
 }
 
+func registerLegacyTools(server *mcp.Server, service *Service, userID string) {
+	for _, def := range toolDefinitions() {
+		definition := def
+		title := toolDisplayTitle(def.Name, def.Title)
+		server.AddTool(&mcp.Tool{Name: def.Name, Title: title, Annotations: toolAnnotations(def), Description: def.Description, InputSchema: def.Schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return service.callTool(ctx, userID, definition, req)
+		})
+	}
+}
+
 func (s *Service) serverFor(userID string) *mcp.Server {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing := s.servers[userID]; existing != nil {
 		return existing
 	}
-	server := mcp.NewServer(&mcp.Implementation{Name: "codelocal", Version: version.Version}, &mcp.ServerOptions{Instructions: orchestrationInstructions})
-	for _, def := range toolDefinitions() {
-		definition := def
-		title := toolDisplayTitle(def.Name, def.Title)
-		server.AddTool(&mcp.Tool{Name: def.Name, Title: title, Annotations: toolAnnotations(def), Description: def.Description, InputSchema: def.Schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return s.callTool(ctx, userID, definition, req)
-		})
+	surface := configuredToolSurface()
+	server := mcp.NewServer(&mcp.Implementation{Name: "codelocal", Version: version.Version}, &mcp.ServerOptions{Instructions: orchestrationInstructionsForSurface(surface)})
+	if surface == toolSurfaceLegacy || surface == toolSurfaceDual {
+		registerLegacyTools(server, s, userID)
+	}
+	if surface == toolSurfaceCompact || surface == toolSurfaceDual {
+		registerCompactTools(server, s, userID)
 	}
 	s.servers[userID] = server
 	return server
@@ -460,15 +443,20 @@ func decodeArgs(req *mcp.CallToolRequest) (map[string]any, error) {
 }
 func textResultWithNotice(value any, isError bool, notice string) *mcp.CallToolResult {
 	var text string
-	if raw, err := json.MarshalIndent(value, "", "  "); err == nil {
+	var structured any
+	if raw, err := json.Marshal(value); err == nil {
 		text = string(raw)
+		// Normalize structs and aliases to plain JSON values before handing them to
+		// MCP clients. Text stays available for compatibility, while clients that
+		// understand structuredContent do not need to parse pretty-printed JSON.
+		_ = json.Unmarshal(raw, &structured)
 	} else {
 		text = fmt.Sprint(value)
 	}
 	if strings.TrimSpace(notice) != "" {
 		text = notice + "\n\n" + text
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}, IsError: isError}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}, StructuredContent: structured, IsError: isError}
 }
 func textResult(value any, isError bool) *mcp.CallToolResult {
 	return textResultWithNotice(value, isError, "")
@@ -520,30 +508,40 @@ func (s *Service) firstUpdateNotice(userID, session string, workspaces []gateway
 	return ""
 }
 
-func (s *Service) callTool(ctx context.Context, userID string, def toolDef, req *mcp.CallToolRequest) (response *mcp.CallToolResult, retErr error) {
+func (s *Service) callTool(ctx context.Context, userID string, def toolDef, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args, err := decodeArgs(req)
 	if err != nil {
 		return errorResult(err), nil
 	}
+	operation, err := operationForLegacyTool(def.Name)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	if operation.Local != def.Local {
+		return errorResult(fmt.Errorf("tool %s operation locality mismatch", def.Name)), nil
+	}
+	return s.callOperation(ctx, userID, def.Name, operation, args, req)
+}
+
+func (s *Service) callOperation(ctx context.Context, userID, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (response *mcp.CallToolResult, retErr error) {
+	startedAt := time.Now()
 	session := sessionID(req)
-	_ = s.Store.TouchUserMCPActive(ctx, userID)
 	inputBytes, inputTokens := usagecalc.EstimateTokens(args)
 	usageDeviceID := ""
 	usageWorkspaceID := ""
 	defer func() {
-		if response == nil {
+		if response == nil || s.Store == nil {
 			return
 		}
 		outputBytes, outputTokens := usagecalc.EstimateTokens(response.Content)
-		event := cloud.MCPUsageEvent{UserID: userID, SessionID: session, DeviceID: usageDeviceID, WorkspaceID: usageWorkspaceID, Tool: def.Name, InputBytes: inputBytes, OutputBytes: outputBytes, InputTokensEst: inputTokens, OutputTokensEst: outputTokens, CreatedAt: time.Now().UnixMilli()}
-		go func() {
-			usageCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			_ = s.Store.RecordMCPUsage(usageCtx, event)
-		}()
+		event := cloud.MCPUsageEvent{UserID: userID, SessionID: session, DeviceID: usageDeviceID, WorkspaceID: usageWorkspaceID, Tool: publicTool, InputBytes: inputBytes, OutputBytes: outputBytes, InputTokensEst: inputTokens, OutputTokensEst: outputTokens, CreatedAt: time.Now().UnixMilli()}
+		// Usage is telemetry, so request latency must never depend on Redis or
+		// PostgreSQL. RecordMCPUsage only offers the event to a bounded local
+		// queue; background workers publish it durably and persist it in order.
+		_ = s.Store.RecordMCPUsage(context.Background(), event)
 	}()
-	if def.Local {
-		return s.callLocal(ctx, userID, session, def.Name, args)
+	if operation.Local {
+		return s.callLocal(ctx, userID, session, operation.RuntimeTool, args)
 	}
 	explicit, _ := args["workspaceKey"].(string)
 	delete(args, "workspaceKey")
@@ -565,9 +563,9 @@ func (s *Service) callTool(ctx context.Context, userID string, def toolDef, req 
 		if len(active) == 1 {
 			key = active[0].Key
 		} else if len(active) == 0 {
-			return errorResult(errors.New("no active workspace; call list_workspaces then select_workspace")), nil
+			return errorResult(workspaceRoutingError(publicTool, operation, false)), nil
 		} else {
-			return errorResult(errors.New("multiple workspaces are active; call list_workspaces then select_workspace, and pass workspaceKey for explicit routing")), nil
+			return errorResult(workspaceRoutingError(publicTool, operation, true)), nil
 		}
 	}
 	workspace, err := s.Workspaces.Activate(ctx, userID, key)
@@ -576,22 +574,63 @@ func (s *Service) callTool(ctx context.Context, userID string, def toolDef, req 
 	}
 	usageDeviceID = workspace.DeviceID
 	usageWorkspaceID = workspace.WorkspaceID
-	if err := ensureToolSupported(def, workspace); err != nil {
+	if err := ensureOperationSupported(operation, workspace); err != nil {
 		return errorResult(err), nil
 	}
 	requestID := cloud.RandomHex(16)
-	result, callErr := s.Hub.Call(ctx, userID, key, session, def.Name, args, protocol.SideEffecting(def.Name), requestID)
+	result, callErr := s.Hub.Call(ctx, userID, key, session, operation.RuntimeTool, args, operation.SideEffecting, requestID)
+	totalDurationMs := time.Since(startedAt).Milliseconds()
+	runtimeDurationMs := metadataInt64(result.Metadata, "runtimeDurationMs")
+	relayDurationMs := totalDurationMs - runtimeDurationMs
+	if relayDurationMs < 0 {
+		relayDurationMs = 0
+	}
+	slog.Debug("MCP gateway operation completed", "requestId", requestID, "publicTool", publicTool, "operationId", operation.OperationID, "runtimeTool", operation.RuntimeTool, "workspace", key, "ok", callErr == nil && result.OK, "durationMs", totalDurationMs, "runtimeDurationMs", runtimeDurationMs, "relayDurationMs", relayDurationMs)
 	if callErr != nil {
 		return errorResult(callErr), nil
 	}
 	if !result.OK {
 		return errorResult(errors.New(firstNonEmpty(result.Error, result.ErrorCode, "tool failed"))), nil
 	}
-	if terminalExecutionTool(def.Name) {
-		s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "terminal.executed", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID, "tool": def.Name}})
+	if operation.TerminalExecution && s.Store != nil {
+		s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "terminal.executed", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID, "tool": publicTool, "runtimeTool": operation.RuntimeTool, "operationId": operation.OperationID}})
 	}
 	notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
 	return textResultWithNotice(result.Result, false, notice), nil
+}
+
+func workspaceRoutingError(publicTool string, operation operationInvocation, multiple bool) error {
+	legacy := publicTool == operation.RuntimeTool
+	if multiple {
+		if legacy {
+			return errors.New("multiple workspaces are active; call list_workspaces then select_workspace, and pass workspaceKey for explicit routing")
+		}
+		return errors.New("multiple workspaces are active; call workspace(action=select), and pass workspaceKey for explicit routing")
+	}
+	if legacy {
+		return errors.New("no active workspace; call list_workspaces then select_workspace")
+	}
+	return errors.New("no active workspace; call workspace(action=list) then workspace(action=select)")
+}
+
+func metadataInt64(metadata any, key string) int64 {
+	values, ok := metadata.(map[string]any)
+	if !ok {
+		return 0
+	}
+	switch value := values[key].(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func firstNonEmpty(values ...string) string {

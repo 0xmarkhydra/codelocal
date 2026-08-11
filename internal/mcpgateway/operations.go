@@ -1,0 +1,221 @@
+package mcpgateway
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/0xmarkhydra/codelocal/internal/protocol"
+)
+
+// operationInvocation is the stable internal operation contract used between
+// model-facing MCP tools and the existing granular CodeLocal runtime tools.
+//
+// RuntimeTool intentionally remains the current protocol-v1/v2 tool name so
+// this migration does not require a client protocol change. OperationID is the
+// durable semantic identity that compact and legacy MCP surfaces can share.
+type operationInvocation struct {
+	OperationID       string
+	RuntimeTool       string
+	Capability        string
+	Local             bool
+	MutatesState      bool
+	Destructive       bool
+	OpenWorld         bool
+	Idempotent        bool
+	TerminalExecution bool
+	SideEffecting     bool
+}
+
+// legacyOperationIDs freezes the semantic meaning of every tool in Tool
+// Surface v1. Compatibility aliases deliberately resolve to the same stable
+// operation ID as their canonical operation.
+var legacyOperationIDs = map[string]string{
+	"list_devices":           "device.list_active",
+	"list_device_identities": "device.list_paired",
+	"revoke_device":          "device.revoke",
+	"rename_device":          "device.rename",
+	"list_workspaces":        "workspace.list",
+	"select_workspace":       "workspace.select",
+	"workspace_info":         "workspace.info",
+
+	"project_info":      "project.info",
+	"project_map":       "project.map",
+	"context_for_task":  "context.task",
+	"read_instructions": "project.instructions",
+	"list_files":        "search.files",
+	"file_info":         "read.info",
+	"read_file":         "read.file",
+	"read_file_range":   "read.range",
+	"read_files":        "read.many",
+	"search_code":       "search.text",
+
+	"inspect_dependency": "dependency.inspect",
+	"read_dependency":    "dependency.read",
+	"search_dependency":  "dependency.search",
+
+	"semantic_info":        "lsp.info",
+	"workspace_symbols":    "lsp.workspace_symbols",
+	"find_symbol":          "lsp.workspace_symbols",
+	"document_symbols":     "lsp.document_symbols",
+	"find_definition":      "lsp.definition",
+	"find_references":      "lsp.references",
+	"find_implementations": "lsp.implementations",
+	"get_hover":            "lsp.hover",
+	"get_diagnostics":      "lsp.diagnostics",
+	"get_callers":          "lsp.callers",
+	"get_callees":          "lsp.callees",
+	"get_import_graph":     "lsp.import_graph",
+
+	"write_file":           "edit.write",
+	"edit_file":            "edit.replace",
+	"apply_patch":          "edit.patch",
+	"apply_edits":          "edit.apply",
+	"format_changed_files": "edit.format",
+	"snapshot_diagnostics": "verify.snapshot",
+	"verify_changes":       "verify.changes",
+
+	"git_status":       "git.status",
+	"git_diff":         "git.diff",
+	"git_log":          "git.log",
+	"git_show":         "git.show",
+	"git_blame":        "git.blame",
+	"git_file_history": "git.file_history",
+	"git_stage":        "git.stage",
+	"git_unstage":      "git.unstage",
+	"git_commit":       "git.commit",
+	"git_push":         "git.push",
+
+	"sandbox_info":       "security.info",
+	"sandbox_smoke_test": "security.smoke_test",
+
+	"terminal_preflight": "terminal.preflight",
+	"terminal_history":   "terminal.history",
+	"run_command":        "terminal.run",
+	"exec_start":         "terminal.start",
+	"pty_start":          "terminal.start_pty",
+
+	"exec_poll":     "process.poll",
+	"pty_poll":      "process.poll",
+	"process_poll":  "process.poll",
+	"exec_write":    "process.write",
+	"pty_write":     "process.write",
+	"process_write": "process.write",
+	"pty_resize":    "process.resize",
+	"exec_signal":   "process.signal",
+	"pty_signal":    "process.signal",
+	"exec_kill":     "process.kill",
+	"pty_kill":      "process.kill",
+	"process_kill":  "process.kill",
+	"exec_cancel":   "process.cancel",
+	"process_list":  "process.list",
+
+	"approval_list":   "approvals.list",
+	"approval_revoke": "approvals.revoke",
+	"approval_reset":  "approvals.reset",
+
+	"mcp_list":         "mcp.list",
+	"mcp_search_tools": "mcp.search",
+	"mcp_tool_info":    "mcp.info",
+	"mcp_call":         "mcp.call",
+}
+
+func operationIDForLegacyTool(name string) (string, bool) {
+	id, ok := legacyOperationIDs[name]
+	return id, ok
+}
+
+func localOperationTool(name string) bool {
+	switch name {
+	case "list_devices", "list_device_identities", "revoke_device", "rename_device", "list_workspaces", "select_workspace", "workspace_info":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyTerminalExecutionTool(name string) bool {
+	switch name {
+	case "run_command", "exec_start", "pty_start":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyToolMutatesState(name string) bool {
+	if protocol.SideEffecting(name) {
+		return true
+	}
+	switch name {
+	case "select_workspace", "revoke_device", "rename_device", "exec_write", "pty_write", "process_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyToolDestructive(name string) bool {
+	switch name {
+	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyToolOpenWorld(name string) bool {
+	switch name {
+	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyToolIdempotent(name string) bool {
+	switch name {
+	case "select_workspace", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyToolCapability(name string) string {
+	if strings.HasPrefix(name, "git_") {
+		return "git"
+	}
+	switch name {
+	case "run_command", "exec_start", "exec_poll", "exec_write", "exec_signal", "exec_kill", "exec_cancel", "process_poll", "process_list", "process_write", "process_kill", "terminal_preflight":
+		return "shell"
+	case "terminal_history":
+		return "terminalHistory"
+	case "pty_start", "pty_poll", "pty_write", "pty_resize", "pty_signal", "pty_kill":
+		return "pty"
+	case "mcp_list", "mcp_search_tools", "mcp_tool_info", "mcp_call":
+		return "mcpHub"
+	case "approval_list", "approval_revoke", "approval_reset":
+		return "approvalMemory"
+	default:
+		return "filesystem"
+	}
+}
+
+func operationForLegacyTool(name string) (operationInvocation, error) {
+	id, ok := operationIDForLegacyTool(name)
+	if !ok {
+		return operationInvocation{}, fmt.Errorf("unregistered CodeLocal operation for tool %s", name)
+	}
+	return operationInvocation{
+		OperationID:       id,
+		RuntimeTool:       name,
+		Capability:        legacyToolCapability(name),
+		Local:             localOperationTool(name),
+		MutatesState:      legacyToolMutatesState(name),
+		Destructive:       legacyToolDestructive(name),
+		OpenWorld:         legacyToolOpenWorld(name),
+		Idempotent:        legacyToolIdempotent(name),
+		TerminalExecution: legacyTerminalExecutionTool(name),
+		SideEffecting:     protocol.SideEffecting(name),
+	}, nil
+}

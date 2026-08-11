@@ -90,3 +90,11 @@ func TestContextForTaskPrefersSymbolsAndCentersSnippets(t *testing.T) {
 		t.Fatalf("expected resolved settings.ts -> profile.ts graph edge, got %v", edges)
 	}
 }
+
+func TestContextTermsSupportsVietnameseAndCapsSearchFanout(t *testing.T) {
+	got := contextTerms("tối ưu hiệu năng CodeLocal và đọc file context_for_task hiệu năng cache redis postgres queue worker")
+	want := []string{"hiệu", "năng", "codelocal", "đọc", "file", "context_for_task", "cache", "redis"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("context terms = %v, want %v", got, want)
+	}
+}

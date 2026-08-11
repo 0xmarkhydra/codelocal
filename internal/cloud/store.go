@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -129,13 +130,21 @@ type AdminUser struct {
 }
 
 type Store struct {
-	DB     *pgxpool.Pool
-	Redis  *redis.Client
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	usageQ chan MCPUsageEvent
+	DB              *pgxpool.Pool
+	Redis           *redis.Client
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	usageQ          chan MCPUsageEvent
+	usageConsumerID string
+	usageDropped    atomic.Uint64
 }
+
+const (
+	usageStreamKey       = "codelocal:mcp-usage:v1"
+	usageStreamGroup     = "codelocal:mcp-usage-db:v1"
+	usageConsumerLockKey = "codelocal:mcp-usage-db:leader"
+)
 
 func New(ctx context.Context) (*Store, error) {
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -176,13 +185,18 @@ func New(ctx context.Context) (*Store, error) {
 		return nil, err
 	}
 	storeCtx, cancel := context.WithCancel(ctx)
-	s := &Store{DB: db, Redis: rdb, ctx: storeCtx, cancel: cancel, usageQ: make(chan MCPUsageEvent, 8192)}
+	s := &Store{DB: db, Redis: rdb, ctx: storeCtx, cancel: cancel, usageQ: make(chan MCPUsageEvent, envInt("CODELOCAL_USAGE_LOCAL_QUEUE_SIZE", 8192)), usageConsumerID: RandomHex(12)}
 	if err := s.Migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
-	s.wg.Add(2)
-	go s.usageWorker()
+	if err := s.ensureUsageStreamGroup(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
+	s.wg.Add(3)
+	go s.usageStreamProducer()
+	go s.usageStreamConsumer()
 	go s.retentionWorker()
 	return s, nil
 }
@@ -387,6 +401,13 @@ BEGIN
  FROM codelocal_referral_short_map map
  WHERE user_row.id=map.user_id;
 END $$;
+`},
+		{10, `
+CREATE TABLE IF NOT EXISTS codelocal_mcp_usage_batches (
+ id TEXT PRIMARY KEY,
+ processed_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_mcp_usage_batches_processed ON codelocal_mcp_usage_batches(processed_at);
 `},
 	}
 	for _, migration := range migrations {
@@ -1047,61 +1068,29 @@ func (s *Store) UserMCPActiveMap(ctx context.Context, userIDs []string) (map[str
 }
 
 func (s *Store) RecordMCPUsage(ctx context.Context, event MCPUsageEvent) error {
+	_ = ctx
+	if strings.TrimSpace(event.UserID) == "" {
+		return nil
+	}
 	if event.CreatedAt == 0 {
 		event.CreatedAt = time.Now().UnixMilli()
 	}
 	if event.Calls <= 0 {
 		event.Calls = 1
 	}
-	_ = s.TouchUserMCPActive(ctx, event.UserID)
 	select {
 	case s.usageQ <- event:
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	default:
-		return s.persistMCPUsage(ctx, event)
-	}
-}
-
-func (s *Store) persistMCPUsage(ctx context.Context, event MCPUsageEvent) error {
-	if event.Calls <= 0 {
-		event.Calls = 1
-	}
-	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_mcp_usage(user_id,calls,input_bytes,output_bytes,input_tokens_est,output_tokens_est,last_used_at)
-VALUES($1,$2,$3,$4,$5,$6,$7)
-ON CONFLICT(user_id) DO UPDATE SET
- calls=codelocal_mcp_usage.calls+EXCLUDED.calls,
- input_bytes=codelocal_mcp_usage.input_bytes+EXCLUDED.input_bytes,
- output_bytes=codelocal_mcp_usage.output_bytes+EXCLUDED.output_bytes,
- input_tokens_est=codelocal_mcp_usage.input_tokens_est+EXCLUDED.input_tokens_est,
- output_tokens_est=codelocal_mcp_usage.output_tokens_est+EXCLUDED.output_tokens_est,
- last_used_at=GREATEST(codelocal_mcp_usage.last_used_at,EXCLUDED.last_used_at)`, event.UserID, event.Calls, event.InputBytes, event.OutputBytes, event.InputTokensEst, event.OutputTokensEst, event.CreatedAt)
-	if err != nil {
-		return err
-	}
-	if err := s.persistMCPUsageWindows(ctx, event); err != nil {
-		slog.Warn("MCP rolling usage update failed", "error", err, "userId", event.UserID)
-	}
-	return nil
-}
-
-func (s *Store) persistMCPUsageWindows(ctx context.Context, event MCPUsageEvent) error {
-	hourKey := usageWindowKey(event.UserID, "h", usageBucketStart(event.CreatedAt))
-	dayKey := usageWindowKey(event.UserID, "d", usageDayStart(event.CreatedAt))
-	_, err := s.Redis.Pipelined(ctx, func(pipe redis.Pipeliner) error {
-		for _, key := range []string{hourKey, dayKey} {
-			pipe.HIncrBy(ctx, key, "calls", event.Calls)
-			pipe.HIncrBy(ctx, key, "input_bytes", int64(event.InputBytes))
-			pipe.HIncrBy(ctx, key, "output_bytes", int64(event.OutputBytes))
-			pipe.HIncrBy(ctx, key, "input_tokens", int64(event.InputTokensEst))
-			pipe.HIncrBy(ctx, key, "output_tokens", int64(event.OutputTokensEst))
+		// Usage is approximate telemetry, never a reason to delay or fail a user
+		// tool call. Keep a visible counter instead of falling back to synchronous
+		// PostgreSQL writes on the request path.
+		dropped := s.usageDropped.Add(1)
+		if dropped == 1 || dropped%1000 == 0 {
+			slog.Warn("MCP usage local queue full; telemetry event dropped", "dropped", dropped)
 		}
-		pipe.Expire(ctx, hourKey, 49*time.Hour)
-		pipe.Expire(ctx, dayKey, 35*24*time.Hour)
 		return nil
-	})
-	return err
+	}
 }
 
 type usageAggregateKey struct {
@@ -1109,11 +1098,45 @@ type usageAggregateKey struct {
 	BucketStart int64
 }
 
-func (s *Store) usageWorker() {
+type queuedUsageAggregate struct {
+	BatchID string
+	Event   MCPUsageEvent
+}
+
+func mergeMCPUsage(target MCPUsageEvent, event MCPUsageEvent) MCPUsageEvent {
+	if target.UserID == "" {
+		target = event
+		target.Calls = 0
+		target.InputBytes = 0
+		target.OutputBytes = 0
+		target.InputTokensEst = 0
+		target.OutputTokensEst = 0
+	}
+	if event.CreatedAt > target.CreatedAt {
+		target.CreatedAt = event.CreatedAt
+	}
+	target.Calls += event.Calls
+	target.InputBytes += event.InputBytes
+	target.OutputBytes += event.OutputBytes
+	target.InputTokensEst += event.InputTokensEst
+	target.OutputTokensEst += event.OutputTokensEst
+	return target
+}
+
+func (s *Store) ensureUsageStreamGroup(ctx context.Context) error {
+	err := s.Redis.XGroupCreateMkStream(ctx, usageStreamKey, usageStreamGroup, "0").Err()
+	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) usageStreamProducer() {
 	defer s.wg.Done()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
-	pending := map[usageAggregateKey]MCPUsageEvent{}
+	pending := map[usageAggregateKey]queuedUsageAggregate{}
+	lastActivityTouch := map[string]time.Time{}
 	add := func(event MCPUsageEvent) {
 		if event.Calls <= 0 {
 			event.Calls = 1
@@ -1121,30 +1144,42 @@ func (s *Store) usageWorker() {
 		bucket := usageBucketStart(event.CreatedAt)
 		key := usageAggregateKey{UserID: event.UserID, BucketStart: bucket}
 		current := pending[key]
-		current.UserID = event.UserID
-		if event.CreatedAt > current.CreatedAt {
-			current.CreatedAt = event.CreatedAt
+		if current.BatchID == "" {
+			current.BatchID = RandomHex(16)
 		}
-		current.Calls += event.Calls
-		current.InputBytes += event.InputBytes
-		current.OutputBytes += event.OutputBytes
-		current.InputTokensEst += event.InputTokensEst
-		current.OutputTokensEst += event.OutputTokensEst
+		current.Event = mergeMCPUsage(current.Event, event)
 		pending[key] = current
 	}
-	flush := func(timeout time.Duration) {
+	flush := func(timeout time.Duration) bool {
 		if len(pending) == 0 {
-			return
+			return true
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		for key, event := range pending {
-			if err := s.persistMCPUsage(ctx, event); err != nil {
-				slog.Error("MCP usage aggregate flush failed", "error", err, "userId", event.UserID)
+		pipe := s.Redis.Pipeline()
+		now := time.Now()
+		touched := []string{}
+		maxLen := int64(envInt("CODELOCAL_USAGE_STREAM_MAXLEN", 1_000_000))
+		for _, aggregate := range pending {
+			raw, err := json.Marshal(aggregate.Event)
+			if err != nil {
 				continue
 			}
-			delete(pending, key)
+			pipe.XAdd(ctx, &redis.XAddArgs{Stream: usageStreamKey, MaxLen: maxLen, Approx: true, Values: map[string]any{"batchId": aggregate.BatchID, "event": string(raw)}})
+			if last := lastActivityTouch[aggregate.Event.UserID]; last.IsZero() || now.Sub(last) >= time.Minute {
+				pipe.Set(ctx, mcpActiveKey(aggregate.Event.UserID), now.UnixMilli(), 5*time.Minute)
+				touched = append(touched, aggregate.Event.UserID)
+			}
 		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			slog.Error("MCP usage Redis stream publish failed", "error", err, "aggregateCount", len(pending))
+			return false
+		}
+		for _, userID := range touched {
+			lastActivityTouch[userID] = now
+		}
+		clear(pending)
+		return true
 	}
 	for {
 		select {
@@ -1154,17 +1189,187 @@ func (s *Store) usageWorker() {
 				case event := <-s.usageQ:
 					add(event)
 				default:
-					flush(3 * time.Second)
+					_ = flush(3 * time.Second)
 					return
 				}
 			}
 		case event := <-s.usageQ:
 			add(event)
 			if len(pending) >= 256 {
-				flush(5 * time.Second)
+				_ = flush(3 * time.Second)
 			}
 		case <-ticker.C:
-			flush(5 * time.Second)
+			_ = flush(3 * time.Second)
+		}
+	}
+}
+
+func (s *Store) refreshUsageConsumerLease(ctx context.Context) (bool, error) {
+	const lease = 15 * time.Second
+	script := `if redis.call('GET',KEYS[1])==ARGV[1] then redis.call('PEXPIRE',KEYS[1],ARGV[2]); return 1 end; if redis.call('SET',KEYS[1],ARGV[1],'NX','PX',ARGV[2]) then return 1 end; return 0`
+	value, err := s.Redis.Eval(ctx, script, []string{usageConsumerLockKey}, s.usageConsumerID, lease.Milliseconds()).Int()
+	return value == 1, err
+}
+
+func (s *Store) releaseUsageConsumerLease() {
+	script := `if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end`
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.Redis.Eval(ctx, script, []string{usageConsumerLockKey}, s.usageConsumerID).Err()
+}
+
+func usageEventFromStream(message redis.XMessage) (string, MCPUsageEvent, error) {
+	batchID := strings.TrimSpace(fmt.Sprint(message.Values["batchId"]))
+	if batchID == "" || batchID == "<nil>" {
+		batchID = message.ID
+	}
+	var event MCPUsageEvent
+	if err := json.Unmarshal([]byte(fmt.Sprint(message.Values["event"])), &event); err != nil {
+		return batchID, event, err
+	}
+	if event.UserID == "" {
+		return batchID, event, errors.New("usage event missing userId")
+	}
+	if event.Calls <= 0 {
+		event.Calls = 1
+	}
+	if event.CreatedAt == 0 {
+		event.CreatedAt = time.Now().UnixMilli()
+	}
+	return batchID, event, nil
+}
+
+func (s *Store) persistMCPUsageMessages(ctx context.Context, messages []redis.XMessage) ([]string, error) {
+	ackIDs := make([]string, 0, len(messages))
+	type queued struct {
+		messageID string
+		batchID   string
+		event     MCPUsageEvent
+	}
+	valid := make([]queued, 0, len(messages))
+	for _, message := range messages {
+		batchID, event, err := usageEventFromStream(message)
+		if err != nil {
+			slog.Warn("discarding invalid MCP usage stream event", "messageId", message.ID, "error", err)
+			ackIDs = append(ackIDs, message.ID)
+			continue
+		}
+		valid = append(valid, queued{messageID: message.ID, batchID: batchID, event: event})
+	}
+	if len(valid) == 0 {
+		return ackIDs, nil
+	}
+
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	dbAggregates := map[string]MCPUsageEvent{}
+	windowAggregates := map[usageAggregateKey]MCPUsageEvent{}
+	for _, item := range valid {
+		tag, err := tx.Exec(ctx, `INSERT INTO codelocal_mcp_usage_batches(id,processed_at) VALUES($1,$2) ON CONFLICT(id) DO NOTHING`, item.batchID, time.Now().UnixMilli())
+		if err != nil {
+			return nil, err
+		}
+		ackIDs = append(ackIDs, item.messageID)
+		if tag.RowsAffected() == 0 {
+			continue
+		}
+		dbAggregates[item.event.UserID] = mergeMCPUsage(dbAggregates[item.event.UserID], item.event)
+		key := usageAggregateKey{UserID: item.event.UserID, BucketStart: usageBucketStart(item.event.CreatedAt)}
+		windowAggregates[key] = mergeMCPUsage(windowAggregates[key], item.event)
+	}
+	for _, event := range dbAggregates {
+		if _, err := tx.Exec(ctx, `INSERT INTO codelocal_mcp_usage(user_id,calls,input_bytes,output_bytes,input_tokens_est,output_tokens_est,last_used_at)
+VALUES($1,$2,$3,$4,$5,$6,$7)
+ON CONFLICT(user_id) DO UPDATE SET
+ calls=codelocal_mcp_usage.calls+EXCLUDED.calls,
+ input_bytes=codelocal_mcp_usage.input_bytes+EXCLUDED.input_bytes,
+ output_bytes=codelocal_mcp_usage.output_bytes+EXCLUDED.output_bytes,
+ input_tokens_est=codelocal_mcp_usage.input_tokens_est+EXCLUDED.input_tokens_est,
+ output_tokens_est=codelocal_mcp_usage.output_tokens_est+EXCLUDED.output_tokens_est,
+ last_used_at=GREATEST(codelocal_mcp_usage.last_used_at,EXCLUDED.last_used_at)`, event.UserID, event.Calls, event.InputBytes, event.OutputBytes, event.InputTokensEst, event.OutputTokensEst, event.CreatedAt); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if len(windowAggregates) > 0 {
+		pipe := s.Redis.Pipeline()
+		for _, event := range windowAggregates {
+			hourKey := usageWindowKey(event.UserID, "h", usageBucketStart(event.CreatedAt))
+			dayKey := usageWindowKey(event.UserID, "d", usageDayStart(event.CreatedAt))
+			for _, key := range []string{hourKey, dayKey} {
+				pipe.HIncrBy(ctx, key, "calls", event.Calls)
+				pipe.HIncrBy(ctx, key, "input_bytes", int64(event.InputBytes))
+				pipe.HIncrBy(ctx, key, "output_bytes", int64(event.OutputBytes))
+				pipe.HIncrBy(ctx, key, "input_tokens", int64(event.InputTokensEst))
+				pipe.HIncrBy(ctx, key, "output_tokens", int64(event.OutputTokensEst))
+			}
+			pipe.Expire(ctx, hourKey, 49*time.Hour)
+			pipe.Expire(ctx, dayKey, 35*24*time.Hour)
+		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			slog.Warn("MCP rolling usage batch update failed", "error", err)
+		}
+	}
+	return ackIDs, nil
+}
+
+func (s *Store) usageStreamConsumer() {
+	defer s.wg.Done()
+	defer s.releaseUsageConsumerLease()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+		}
+		leaseCtx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+		leader, err := s.refreshUsageConsumerLease(leaseCtx)
+		cancel()
+		if err != nil || !leader {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(time.Second):
+				continue
+			}
+		}
+
+		readCtx, readCancel := context.WithTimeout(s.ctx, 3*time.Second)
+		messages, _, claimErr := s.Redis.XAutoClaim(readCtx, &redis.XAutoClaimArgs{Stream: usageStreamKey, Group: usageStreamGroup, Consumer: s.usageConsumerID, MinIdle: 20 * time.Second, Start: "0-0", Count: 128}).Result()
+		if claimErr != nil && !errors.Is(claimErr, redis.Nil) && !errors.Is(claimErr, context.Canceled) {
+			slog.Warn("MCP usage pending claim failed", "error", claimErr)
+		}
+		if len(messages) == 0 && (claimErr == nil || errors.Is(claimErr, redis.Nil)) {
+			streams, readErr := s.Redis.XReadGroup(readCtx, &redis.XReadGroupArgs{Group: usageStreamGroup, Consumer: s.usageConsumerID, Streams: []string{usageStreamKey, ">"}, Count: 128, Block: time.Second}).Result()
+			if readErr != nil && !errors.Is(readErr, redis.Nil) && !errors.Is(readErr, context.Canceled) {
+				slog.Warn("MCP usage stream read failed", "error", readErr)
+			}
+			for _, stream := range streams {
+				messages = append(messages, stream.Messages...)
+			}
+		}
+		readCancel()
+		if len(messages) == 0 {
+			continue
+		}
+		persistCtx, persistCancel := context.WithTimeout(s.ctx, 8*time.Second)
+		ackIDs, persistErr := s.persistMCPUsageMessages(persistCtx, messages)
+		persistCancel()
+		if persistErr != nil {
+			slog.Error("MCP usage stream persistence failed", "error", persistErr, "messageCount", len(messages))
+			continue
+		}
+		if len(ackIDs) > 0 {
+			ackCtx, ackCancel := context.WithTimeout(s.ctx, 2*time.Second)
+			if err := s.Redis.XAck(ackCtx, usageStreamKey, usageStreamGroup, ackIDs...).Err(); err != nil && !errors.Is(err, context.Canceled) {
+				slog.Warn("MCP usage stream ack failed", "error", err, "messageCount", len(ackIDs))
+			}
+			ackCancel()
 		}
 	}
 }
@@ -1343,6 +1548,7 @@ func (s *Store) retentionWorker() {
 			ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_pairings WHERE expires_at < $1 OR (claimed_at IS NOT NULL AND claimed_at < $2)`, time.Now().UnixMilli(), time.Now().Add(-24*time.Hour).UnixMilli())
 			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_oauth_codes WHERE expires_at < $1`, time.Now().UnixMilli())
+			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_mcp_usage_batches WHERE processed_at < $1`, time.Now().Add(-35*24*time.Hour).UnixMilli())
 			if days := envInt("CODELOCAL_AUDIT_RETENTION_DAYS", 90); days > 0 {
 				_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_audit_logs WHERE created_at < $1`, time.Now().Add(-time.Duration(days)*24*time.Hour).UnixMilli())
 			}

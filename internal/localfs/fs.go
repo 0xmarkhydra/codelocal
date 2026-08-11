@@ -21,12 +21,13 @@ import (
 )
 
 type FS struct {
-	Root           string
-	maxReadBytes   int64
-	maxBatchBytes  int64
-	maxListEntries int
-	mu             sync.RWMutex
-	ignore         []ignoreRule
+	Root            string
+	maxReadBytes    int64
+	maxBatchBytes   int64
+	maxListEntries  int
+	readConcurrency int
+	mu              sync.RWMutex
+	ignore          []ignoreRule
 }
 
 type ignoreRule struct {
@@ -40,7 +41,7 @@ func New(root string) (*FS, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := &FS{Root: real, maxReadBytes: int64(envInt("CODELOCAL_MAX_READ_BYTES", 2*1024*1024)), maxBatchBytes: int64(envInt("CODELOCAL_MAX_BATCH_BYTES", 8*1024*1024)), maxListEntries: envInt("CODELOCAL_MAX_LIST_ENTRIES", 10000)}
+	f := &FS{Root: real, maxReadBytes: int64(envInt("CODELOCAL_MAX_READ_BYTES", 2*1024*1024)), maxBatchBytes: int64(envInt("CODELOCAL_MAX_BATCH_BYTES", 8*1024*1024)), maxListEntries: envInt("CODELOCAL_MAX_LIST_ENTRIES", 10000), readConcurrency: envInt("CODELOCAL_READ_CONCURRENCY", 6)}
 	_ = f.ReloadIgnore()
 	return f, nil
 }
@@ -318,20 +319,67 @@ func (f *FS) Read(relative string, startLine, endLine int) (map[string]any, erro
 }
 
 func (f *FS) ReadMany(paths []string) (map[string]any, error) {
-	files := make([]map[string]any, 0, len(paths))
+	files := make([]map[string]any, len(paths))
 	var total int64
+	// Validate the whole batch before doing I/O. The old loop discovered an
+	// oversized batch only after reading the file that crossed the limit.
 	for _, path := range paths {
-		value, err := f.Read(path, 0, 0)
+		absolute, err := f.Existing(path)
 		if err != nil {
 			return nil, err
 		}
-		if size, ok := value["size"].(int64); ok {
-			total += size
+		info, err := os.Stat(absolute)
+		if err != nil {
+			return nil, err
 		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("%s: not a file", path)
+		}
+		total += info.Size()
 		if total > f.maxBatchBytes {
 			return nil, errors.New("batch exceeds configured read limit")
 		}
-		files = append(files, value)
+	}
+	if len(paths) == 0 {
+		return map[string]any{"files": files, "totalBytes": total}, nil
+	}
+
+	workers := f.readConcurrency
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(paths) {
+		workers = len(paths)
+	}
+	type job struct {
+		index int
+		path  string
+	}
+	jobs := make(chan job)
+	var wg sync.WaitGroup
+	var firstErr error
+	var errOnce sync.Once
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range jobs {
+				value, err := f.Read(item.path, 0, 0)
+				if err != nil {
+					errOnce.Do(func() { firstErr = err })
+					continue
+				}
+				files[item.index] = value
+			}
+		}()
+	}
+	for index, path := range paths {
+		jobs <- job{index: index, path: path}
+	}
+	close(jobs)
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	return map[string]any{"files": files, "totalBytes": total}, nil
 }
@@ -405,23 +453,52 @@ func (f *FS) List(start string, maxDepth int, includeIgnored bool) (map[string]a
 	return map[string]any{"entries": entries, "truncated": len(entries) >= f.maxListEntries, "includeIgnored": includeIgnored}, nil
 }
 
-func runDirect(cwd, command string, args ...string) (stdout, stderr string, exitCode int, err error) {
+func runSearch(cwd, command string, args []string, maxResults int, accept func(string) bool) (matches []string, truncated bool, err error) {
 	cmd := exec.Command(command, args...)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "PAGER=cat", "GIT_PAGER=cat", "CI=1")
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &outBuf, &errBuf
-	err = cmd.Run()
-	exitCode = 0
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-	}
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			err = nil
+		return nil, false, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return nil, false, err
+	}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64<<10), 4<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || (accept != nil && !accept(line)) {
+			continue
+		}
+		matches = append(matches, line)
+		if len(matches) > maxResults {
+			truncated = true
+			_ = cmd.Process.Kill()
+			break
 		}
 	}
-	return outBuf.String(), errBuf.String(), exitCode, err
+	scanErr := scanner.Err()
+	waitErr := cmd.Wait()
+	if len(matches) > maxResults {
+		matches = matches[:maxResults]
+	}
+	if scanErr != nil && !truncated {
+		return nil, false, scanErr
+	}
+	if waitErr != nil && !truncated {
+		var exit *exec.ExitError
+		if !errors.As(waitErr, &exit) || exit.ExitCode() != 1 {
+			message := strings.TrimSpace(stderr.String())
+			if message == "" {
+				message = waitErr.Error()
+			}
+			return nil, false, errors.New(message)
+		}
+	}
+	return matches, truncated, nil
 }
 
 func (f *FS) Search(query, start string, maxResults int, fixed, includeIgnored bool) (map[string]any, error) {
@@ -440,27 +517,21 @@ func (f *FS) Search(query, start string, maxResults int, fixed, includeIgnored b
 		args = append(args, "--fixed-strings")
 	}
 	args = append(args, "--glob", "!.git/**", "--", query, ".")
-	stdout, _, _, runErr := runDirect(cwd, "rg", args...)
+	accept := func(line string) bool {
+		filePart := strings.TrimPrefix(strings.SplitN(line, ":", 2)[0], "./")
+		return !security.IsSensitivePath(filePart)
+	}
+	matches, truncated, runErr := runSearch(cwd, "rg", args, maxResults, accept)
 	if runErr != nil {
-		stdout, _, _, runErr = runDirect(cwd, "grep", "-RIn", "--", query, ".")
+		grepArgs := []string{"-RIn", "--exclude-dir=.git"}
+		if fixed {
+			grepArgs = append(grepArgs, "-F")
+		}
+		grepArgs = append(grepArgs, "--", query, ".")
+		matches, truncated, runErr = runSearch(cwd, "grep", grepArgs, maxResults, accept)
 	}
 	if runErr != nil {
 		return nil, runErr
-	}
-	matches := []string{}
-	for _, line := range strings.Split(stdout, "\n") {
-		if line == "" {
-			continue
-		}
-		filePart := strings.TrimPrefix(strings.SplitN(line, ":", 2)[0], "./")
-		if security.IsSensitivePath(filePart) {
-			continue
-		}
-		matches = append(matches, line)
-	}
-	truncated := len(matches) > maxResults
-	if truncated {
-		matches = matches[:maxResults]
 	}
 	return map[string]any{"matches": matches, "truncated": truncated, "includeIgnored": includeIgnored}, nil
 }

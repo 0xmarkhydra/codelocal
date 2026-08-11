@@ -156,6 +156,7 @@ func TestLegacyMCPCompatibilityPassesInitialize(t *testing.T) {
 }
 
 func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
+	t.Setenv("CODELOCAL_MCP_TOOL_SURFACE", toolSurfaceLegacy)
 	s := &Service{
 		servers:      map[string]*mcp.Server{},
 		routes:       map[string]map[string]string{},

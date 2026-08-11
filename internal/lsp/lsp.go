@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -557,13 +558,60 @@ func (m *Manager) DocumentSymbols(ctx context.Context, path string) ([]map[strin
 	return out, nil
 }
 
-func (m *Manager) WorkspaceSymbols(ctx context.Context, query string) ([]map[string]any, error) {
+func (m *Manager) activeClients() []*Client {
 	m.mu.Lock()
 	clients := make([]*Client, 0, len(m.clients))
 	for _, client := range m.clients {
 		clients = append(clients, client)
 	}
 	m.mu.Unlock()
+	return clients
+}
+
+func workspaceSymbolsFromClients(ctx context.Context, clients []*Client, query string) []map[string]any {
+	type providerResult struct {
+		values []map[string]any
+	}
+	results := make(chan providerResult, len(clients))
+	for _, client := range clients {
+		client := client
+		go func() {
+			raw, err := client.request(ctx, "workspace/symbol", map[string]any{"query": query})
+			if err != nil {
+				results <- providerResult{}
+				return
+			}
+			values, _ := decodeAny(raw).([]any)
+			out := make([]map[string]any, 0, len(values))
+			for _, value := range values {
+				if symbol, ok := value.(map[string]any); ok {
+					symbol["provider"] = client.spec.ID
+					out = append(out, symbol)
+				}
+			}
+			results <- providerResult{values: out}
+		}()
+	}
+	out := []map[string]any{}
+	for range clients {
+		out = append(out, (<-results).values...)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := fmt.Sprint(out[i]["provider"], ":", out[i]["name"], ":", out[i]["path"])
+		right := fmt.Sprint(out[j]["provider"], ":", out[j]["name"], ":", out[j]["path"])
+		return left < right
+	})
+	return out
+}
+
+// ActiveWorkspaceSymbols never starts a language server. Context discovery uses
+// it to benefit from warm providers without paying an arbitrary cold-start cost.
+func (m *Manager) ActiveWorkspaceSymbols(ctx context.Context, query string) ([]map[string]any, error) {
+	return workspaceSymbolsFromClients(ctx, m.activeClients(), query), nil
+}
+
+func (m *Manager) WorkspaceSymbols(ctx context.Context, query string) ([]map[string]any, error) {
+	clients := m.activeClients()
 	if len(clients) == 0 {
 		for _, spec := range specs {
 			if _, err := exec.LookPath(spec.Command); err == nil {
@@ -575,21 +623,7 @@ func (m *Manager) WorkspaceSymbols(ctx context.Context, query string) ([]map[str
 			}
 		}
 	}
-	out := []map[string]any{}
-	for _, client := range clients {
-		raw, err := client.request(ctx, "workspace/symbol", map[string]any{"query": query})
-		if err != nil {
-			continue
-		}
-		values, _ := decodeAny(raw).([]any)
-		for _, value := range values {
-			if symbol, ok := value.(map[string]any); ok {
-				symbol["provider"] = client.spec.ID
-				out = append(out, symbol)
-			}
-		}
-	}
-	return out, nil
+	return workspaceSymbolsFromClients(ctx, clients, query), nil
 }
 
 func (m *Manager) Diagnostics(ctx context.Context, path string) ([]map[string]any, error) {

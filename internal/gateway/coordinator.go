@@ -31,6 +31,7 @@ type RoutedResult struct {
 	RequestID string `json:"requestId"`
 	OK        bool   `json:"ok"`
 	Result    any    `json:"result,omitempty"`
+	Metadata  any    `json:"metadata,omitempty"`
 	ErrorCode string `json:"errorCode,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
