@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -326,6 +327,25 @@ func first(values ...string) string {
 	return ""
 }
 
+const (
+	terminalANSIReset   = "\x1b[0m"
+	terminalANSIBold    = "\x1b[1m"
+	terminalANSIGray    = "\x1b[90m"
+	terminalANSICyan    = "\x1b[36m"
+	terminalANSIGreen   = "\x1b[32m"
+	terminalANSIRed     = "\x1b[31m"
+	terminalANSIMagenta = "\x1b[35m"
+)
+
+func terminalTraceColor(code, value string) string {
+	if _, disabled := os.LookupEnv("NO_COLOR"); disabled || os.Getenv("TERM") == "dumb" {
+		return value
+	}
+	return code + value + terminalANSIReset
+}
+
+func terminalTraceDim(value string) string { return terminalTraceColor(terminalANSIGray, value) }
+
 func compactTerminalText(value string, maxRunes int) string {
 	value = strings.Join(strings.Fields(value), " ")
 	runes := []rune(value)
@@ -405,7 +425,17 @@ func (w *WorkspaceWorker) handleCall(parent context.Context, msg struct {
 	}
 	inputBytes, inputTokens := usagecalc.EstimateTokens(msg.Args)
 	contextLabel := terminalToolContext(w.Workspace)
-	fmt.Printf("  ◆ %s › %s%s\n", contextLabel, msg.Tool, terminalToolDetail(msg.Args))
+	detail := terminalToolDetail(msg.Args)
+	if detail != "" {
+		detail = terminalTraceDim(detail)
+	}
+	fmt.Printf("  %s %s %s %s%s\n",
+		terminalTraceColor(terminalANSIMagenta, "◆"),
+		terminalTraceDim(contextLabel),
+		terminalTraceDim("›"),
+		terminalTraceColor(terminalANSICyan+terminalANSIBold, msg.Tool),
+		detail,
+	)
 	slog.Debug("MCP tool received", "requestId", requestID, "sessionId", msg.SessionID, "workspace", w.Workspace.WorkspaceID, "tool", msg.Tool)
 	startedAt := time.Now()
 	result, err := w.Engine.Handle(ctx, msg.Tool, msg.Args, localclient.HandleOptions{RequestID: requestID, SessionID: msg.SessionID, IdempotencyKey: msg.IdempotencyKey})
@@ -418,10 +448,28 @@ func (w *WorkspaceWorker) handleCall(parent context.Context, msg struct {
 	durationMs := time.Since(startedAt).Milliseconds()
 	totalTokens := inputTokens + outputTokens
 	stamp := terminalTimestamp(time.Now())
+	usage := fmt.Sprintf(" - %d token", totalTokens)
 	if err == nil {
-		fmt.Printf("  ✓ %s › %s  %dms - %s - %d token\n", contextLabel, msg.Tool, durationMs, stamp, totalTokens)
+		fmt.Printf("  %s %s %s %s  %s - %s%s\n",
+			terminalTraceColor(terminalANSIGreen, "✓"),
+			terminalTraceDim(contextLabel),
+			terminalTraceDim("›"),
+			terminalTraceColor(terminalANSICyan+terminalANSIBold, msg.Tool),
+			terminalTraceDim(fmt.Sprintf("%dms", durationMs)),
+			terminalTraceDim(stamp),
+			terminalTraceDim(usage),
+		)
 	} else {
-		fmt.Printf("  ✕ %s › %s  %dms - %s - %d token - %s\n", contextLabel, msg.Tool, durationMs, stamp, totalTokens, compactTerminalText(err.Error(), 72))
+		fmt.Printf("  %s %s %s %s  %s - %s%s  %s\n",
+			terminalTraceColor(terminalANSIRed, "✕"),
+			terminalTraceDim(contextLabel),
+			terminalTraceDim("›"),
+			terminalTraceColor(terminalANSICyan+terminalANSIBold, msg.Tool),
+			terminalTraceDim(fmt.Sprintf("%dms", durationMs)),
+			terminalTraceDim(stamp),
+			terminalTraceDim(usage),
+			terminalTraceColor(terminalANSIRed, compactTerminalText(err.Error(), 72)),
+		)
 	}
 	slog.Debug("MCP tool completed", "requestId", requestID, "sessionId", msg.SessionID, "workspace", w.Workspace.WorkspaceID, "tool", msg.Tool, "inputBytes", inputBytes, "outputBytes", outputBytes, "inputTokensEstimated", inputTokens, "outputTokensEstimated", outputTokens, "totalTokensEstimated", totalTokens, "durationMs", durationMs)
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), 10*time.Second)

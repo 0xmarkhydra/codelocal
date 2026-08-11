@@ -27,3 +27,10 @@ func TestTerminalToolDetailRedactsCommandSecrets(t *testing.T) {
 		t.Fatalf("command was not safely rendered: %q", got)
 	}
 }
+
+func TestTerminalTraceColorHonorsNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	if got := terminalTraceColor(terminalANSIGreen, "✓"); got != "✓" {
+		t.Fatalf("NO_COLOR should disable ANSI styling: %q", got)
+	}
+}
