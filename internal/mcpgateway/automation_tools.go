@@ -29,7 +29,7 @@ func automationToolDefinitions() []toolDef {
 		{"browser_close", "Close browser session", "Close the workspace-scoped managed browser session. This never closes the user's normal browser profile.", objectSchema(map[string]any{"approvalToken": approval, "workspaceKey": workspaceKeySchema}), false},
 
 		{"computer_status", "Computer Use status", "Show the detected native Computer Use backend and granular capabilities. A capability is never reported available until the packaged native helper reports it ready.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
-		{"computer_list_windows", "List desktop windows", "List visible application windows through the native accessibility backend.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
+		{"computer_list_windows", "List desktop windows", "List visible application windows through the native backend when the OS exposes them.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
 		{"computer_ui_tree", "Inspect desktop UI", "Read a structured accessibility/UI Automation tree before using coordinate fallback.", objectSchema(map[string]any{"windowId": str("Optional window identifier returned by computer_list_windows."), "workspaceKey": workspaceKeySchema}), false},
 		{"computer_screenshot", "Capture desktop screenshot", "Capture a screen or window through the OS-native helper after local approval.", objectSchema(map[string]any{"windowId": str("Optional window identifier."), "description": description, "approvalToken": approval, "workspaceKey": workspaceKeySchema}), false},
 		{"computer_focus", "Focus desktop window", "Focus a desktop application/window through the native helper.", computerActionSchema(approval, description, map[string]any{"windowId": str("Window identifier.")}, "windowId"), false},
@@ -67,12 +67,12 @@ func capabilityFlag(capability map[string]any, name string) bool {
 
 func requiredComputerCapability(tool string) string {
 	switch tool {
-	case "computer_list_windows", "computer_ui_tree":
+	case "computer_list_windows", "computer_focus":
+		return "windowList"
+	case "computer_ui_tree":
 		return "uiTree"
 	case "computer_screenshot":
 		return "screenCapture"
-	case "computer_focus":
-		return "uiTree"
 	case "computer_click", "computer_scroll", "computer_drag":
 		return "pointer"
 	case "computer_type", "computer_key":
