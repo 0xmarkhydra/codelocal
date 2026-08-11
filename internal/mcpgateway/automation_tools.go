@@ -13,7 +13,7 @@ import (
 
 func automationToolDefinitions() []toolDef {
 	approval := str("One-time approval token returned by the previous approval_required result. Reuse only for the exact action that produced it.")
-	origin := str("Optional current page origin for clearer policy labels, for example https://example.com. CodeLocal does not trust this to downgrade action risk.")
+	origin := str("Optional current page origin for display context only. CodeLocal derives the trusted policy origin from its own browser session.")
 	description := str("Short semantic description of the intended target/action. Used to detect critical actions such as payment, publishing or deletion; never include secrets.")
 	return []toolDef{
 		{"browser_status", "Browser status", "Show whether workspace-scoped Browser Automation is enabled, prepared and available.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
@@ -28,14 +28,14 @@ func automationToolDefinitions() []toolDef {
 		{"browser_requests", "Read browser requests", "Inspect network requests observed by the managed Playwright session.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
 		{"browser_close", "Close browser session", "Close the workspace-scoped managed browser session. This never closes the user's normal browser profile.", objectSchema(map[string]any{"approvalToken": approval, "workspaceKey": workspaceKeySchema}), false},
 
-		{"computer_status", "Computer Use status", "Show the detected native Computer Use backend and granular capabilities. A capability is never reported available until the packaged native helper exists.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
+		{"computer_status", "Computer Use status", "Show the detected native Computer Use backend and granular capabilities. A capability is never reported available until the packaged native helper reports it ready.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
 		{"computer_list_windows", "List desktop windows", "List visible application windows through the native accessibility backend.", objectSchema(map[string]any{"workspaceKey": workspaceKeySchema}), false},
 		{"computer_ui_tree", "Inspect desktop UI", "Read a structured accessibility/UI Automation tree before using coordinate fallback.", objectSchema(map[string]any{"windowId": str("Optional window identifier returned by computer_list_windows."), "workspaceKey": workspaceKeySchema}), false},
 		{"computer_screenshot", "Capture desktop screenshot", "Capture a screen or window through the OS-native helper after local approval.", objectSchema(map[string]any{"windowId": str("Optional window identifier."), "description": description, "approvalToken": approval, "workspaceKey": workspaceKeySchema}), false},
 		{"computer_focus", "Focus desktop window", "Focus a desktop application/window through the native helper.", computerActionSchema(approval, description, map[string]any{"windowId": str("Window identifier.")}, "windowId"), false},
 		{"computer_click", "Click desktop UI", "Invoke/click a structured UI target when possible, otherwise use approved coordinates.", computerActionSchema(approval, description, map[string]any{"windowId": str("Window identifier."), "elementId": str("Accessibility element identifier."), "x": integer("Fallback screen X coordinate.", 0, 0), "y": integer("Fallback screen Y coordinate.", 0, 0)}), false},
 		{"computer_type", "Type desktop text", "Type text into the focused/selected desktop element after local approval.", computerActionSchema(approval, description, map[string]any{"text": str("Text to type."), "elementId": str("Optional accessibility element identifier.")}, "text"), false},
-		{"computer_key", "Press desktop key", "Press an OS-level keyboard key/shortcut after local approval.", computerActionSchema(approval, description, map[string]any{"key": str("Key or shortcut." )}, "key"), false},
+		{"computer_key", "Press desktop key", "Press an OS-level keyboard key/shortcut after local approval.", computerActionSchema(approval, description, map[string]any{"key": str("Key or shortcut.")}, "key"), false},
 		{"computer_scroll", "Scroll desktop UI", "Scroll the selected window/element after local approval.", computerActionSchema(approval, description, map[string]any{"deltaX": integer("Horizontal scroll delta.", 0, 0), "deltaY": integer("Vertical scroll delta.", 0, 0)}), false},
 		{"computer_drag", "Drag desktop UI", "Drag between approved coordinates/elements. Secure desktop and privilege prompts remain out of scope.", computerActionSchema(approval, description, map[string]any{"fromX": integer("Start X coordinate.", 0, 0), "fromY": integer("Start Y coordinate.", 0, 0), "toX": integer("End X coordinate.", 0, 0), "toY": integer("End Y coordinate.", 0, 0)}), false},
 	}
@@ -60,6 +60,28 @@ func nestedMap(value any) map[string]any {
 	return nil
 }
 
+func capabilityFlag(capability map[string]any, name string) bool {
+	value, _ := capability[name].(bool)
+	return value
+}
+
+func requiredComputerCapability(tool string) string {
+	switch tool {
+	case "computer_list_windows", "computer_ui_tree":
+		return "uiTree"
+	case "computer_screenshot":
+		return "screenCapture"
+	case "computer_focus":
+		return "uiTree"
+	case "computer_click", "computer_scroll", "computer_drag":
+		return "pointer"
+	case "computer_type", "computer_key":
+		return "keyboard"
+	default:
+		return ""
+	}
+}
+
 func ensureAutomationToolSupported(def toolDef, workspace *gateway.WorkspaceView) error {
 	if workspace == nil {
 		return errors.New("workspace unavailable")
@@ -77,9 +99,14 @@ func ensureAutomationToolSupported(def toolDef, workspace *gateway.WorkspaceView
 		domain = "computer"
 	}
 	capability := nestedMap(automation[domain])
-	available, _ := capability["available"].(bool)
-	if !available {
+	if !capabilityFlag(capability, "available") {
 		return fmt.Errorf("%s is unavailable because this CodeLocal client does not advertise %s automation support", def.Name, domain)
+	}
+	if domain == "computer" {
+		required := requiredComputerCapability(def.Name)
+		if required != "" && !capabilityFlag(capability, required) {
+			return fmt.Errorf("%s is unavailable because the native Computer Use backend does not advertise %s support", def.Name, required)
+		}
 	}
 	return nil
 }
