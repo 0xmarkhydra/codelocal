@@ -1,6 +1,11 @@
 package cloudserver
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
+)
 
 func TestMainCompactNumber(t *testing.T) {
 	tests := []struct {
@@ -28,5 +33,15 @@ func TestMainExactNumber(t *testing.T) {
 	}
 	if got := mainExactNumber(-12_345); got != "-12,345" {
 		t.Fatalf("mainExactNumber(-12345) = %q, want %q", got, "-12,345")
+	}
+}
+
+func TestMainUsageMetricShowsCompactAndExactUsage(t *testing.T) {
+	html := mainUsageMetric("Last 24 hours", cloud.MCPUsageSummary{Calls: 296, TotalTokensEst: 1_769_792})
+	if !strings.Contains(html, ">1.77M</div>") {
+		t.Fatalf("usage metric must show a compact primary value: %s", html)
+	}
+	if !strings.Contains(html, "~1,769,792 estimated tokens · 296 tool calls") {
+		t.Fatalf("usage metric must keep the exact estimate in supporting copy: %s", html)
 	}
 }
