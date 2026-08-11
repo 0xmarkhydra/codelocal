@@ -9,6 +9,19 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/automation"
 )
 
+// The no-argument `codelocal` command is the runtime entrypoint. Run the
+// one-time capability setup before main reaches runRuntime, so the runtime is
+// never acquired/started while the user is still deciding permissions.
+func init() {
+	if len(os.Args) != 1 {
+		return
+	}
+	if _, _, err := ensureFirstRunSetup(); err != nil {
+		fmt.Fprintf(os.Stderr, "CodeLocal setup failed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func stdinInteractive() bool {
 	info, err := os.Stdin.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
