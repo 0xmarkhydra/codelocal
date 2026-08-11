@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,8 +20,8 @@ type request struct {
 }
 
 type response struct {
-	OK     bool `json:"ok"`
-	Result any  `json:"result,omitempty"`
+	OK     bool   `json:"ok"`
+	Result any    `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
 
@@ -30,9 +31,49 @@ func writeJSON(value any) {
 	_ = encoder.Encode(value)
 }
 
+func execute(input request) response {
+	if input.Version != 1 || input.Operation == "" {
+		return response{OK: false, Error: "unsupported Computer Use request"}
+	}
+	if input.Arguments == nil {
+		input.Arguments = map[string]any{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := platformHandle(ctx, input)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return response{OK: false, Error: "Computer Use operation timed out"}
+		}
+		return response{OK: false, Error: err.Error()}
+	}
+	return response{OK: true, Result: result}
+}
+
+func serve() error {
+	scanner := bufio.NewScanner(os.Stdin)
+	buffer := make([]byte, 64<<10)
+	scanner.Buffer(buffer, 4<<20)
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var input request
+		if err := json.Unmarshal(line, &input); err != nil {
+			_ = encoder.Encode(response{OK: false, Error: "invalid request: " + err.Error()})
+			continue
+		}
+		_ = encoder.Encode(execute(input))
+	}
+	return scanner.Err()
+}
+
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: codelocal-computer --capabilities|--json")
+		fmt.Fprintln(os.Stderr, "usage: codelocal-computer --capabilities|--json|--serve")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -49,25 +90,12 @@ func main() {
 			writeJSON(response{OK: false, Error: "invalid request: " + err.Error()})
 			return
 		}
-		if input.Version != 1 || input.Operation == "" {
-			writeJSON(response{OK: false, Error: "unsupported Computer Use request"})
-			return
+		writeJSON(execute(input))
+	case "--serve":
+		if err := serve(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
-		if input.Arguments == nil {
-			input.Arguments = map[string]any{}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		result, err := platformHandle(ctx, input)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				writeJSON(response{OK: false, Error: "Computer Use operation timed out"})
-				return
-			}
-			writeJSON(response{OK: false, Error: err.Error()})
-			return
-		}
-		writeJSON(response{OK: true, Result: result})
 	default:
 		fmt.Fprintln(os.Stderr, "unknown option")
 		os.Exit(2)
