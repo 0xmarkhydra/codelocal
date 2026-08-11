@@ -36,13 +36,22 @@ func TestMainExactNumber(t *testing.T) {
 	}
 }
 
-func TestMainUsageMetricShowsCompactAndExactUsage(t *testing.T) {
+func TestMainUsageMetricShowsCompactExactAndReferenceValue(t *testing.T) {
 	html := mainUsageMetric("Last 24 hours", cloud.MCPUsageSummary{Calls: 296, TotalTokensEst: 1_769_792})
 	if !strings.Contains(html, ">1.77M</div>") {
 		t.Fatalf("usage metric must show a compact primary value: %s", html)
 	}
 	if !strings.Contains(html, "~1,769,792 estimated tokens · 296 tool calls") {
 		t.Fatalf("usage metric must keep the exact estimate in supporting copy: %s", html)
+	}
+	if !strings.Contains(html, "≈ $31 ref.") {
+		t.Fatalf("usage metric must show the illustrative 50/50 USD reference value: %s", html)
+	}
+}
+
+func TestMainUsageReferenceUSDUsesFiftyFiftyInputOutputMix(t *testing.T) {
+	if got := mainUsageReferenceUSD(18_010_000); got != "≈ $315 ref." {
+		t.Fatalf("mainUsageReferenceUSD() = %q, want %q", got, "≈ $315 ref.")
 	}
 }
 

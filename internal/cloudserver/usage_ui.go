@@ -50,12 +50,28 @@ func mainExactNumber(value int64) string {
 	return raw
 }
 
+const (
+	mainUsageReferenceInputUSDPerMillion  = 5.0
+	mainUsageReferenceOutputUSDPerMillion = 30.0
+	mainUsageReferenceInputShare          = 0.5
+	mainUsageReferenceOutputShare         = 0.5
+)
+
+func mainUsageReferenceUSD(tokens int64) string {
+	blendedPerMillion := mainUsageReferenceInputUSDPerMillion*mainUsageReferenceInputShare + mainUsageReferenceOutputUSDPerMillion*mainUsageReferenceOutputShare
+	value := float64(tokens) / 1_000_000 * blendedPerMillion
+	switch {
+	case value >= 10:
+		return fmt.Sprintf("≈ $%.0f ref.", value)
+	case value >= 1:
+		return fmt.Sprintf("≈ $%.1f ref.", value)
+	default:
+		return fmt.Sprintf("≈ $%.2f ref.", value)
+	}
+}
+
 func mainUsageMetric(label string, value cloud.MCPUsageSummary) string {
-	return ui.MetricCard(
-		label,
-		mainCompactNumber(value.TotalTokensEst),
-		"~"+mainExactNumber(value.TotalTokensEst)+" estimated tokens · "+mainExactNumber(value.Calls)+" tool calls",
-	)
+	return `<div class="card metric-card usage-metric-card span4"><div class="metric-label">` + ui.Escape(label) + `</div><div class="usage-metric-main"><div class="metric">` + ui.Escape(mainCompactNumber(value.TotalTokensEst)) + `</div><div class="usage-reference">` + ui.Escape(mainUsageReferenceUSD(value.TotalTokensEst)) + `</div></div><div class="metric-sub">~` + ui.Escape(mainExactNumber(value.TotalTokensEst)) + ` estimated tokens · ` + ui.Escape(mainExactNumber(value.Calls)) + ` tool calls</div></div>`
 }
 
 type mainUsageLeaderboardEntry struct {
@@ -215,5 +231,5 @@ func (s *Server) mainUsageLeaderboard(ctx context.Context, currentEmail string) 
 	if currentRank > 0 {
 		yourRank = `<span class="badge blue">Your rank #` + strconv.Itoa(currentRank) + ` · ` + mainCompactNumber(currentTokens) + ` tokens</span>`
 	}
-	return podium.String() + `<div class="card span12"><div class="section-head"><div><div class="title">Leaderboard</div><div class="label">Ranks 4–10 by estimated MCP payload during the last 30 days. Emails are masked for privacy.</div></div>` + yourRank + `</div><div class="divider"></div><div class="list">` + rows.String() + `</div><div class="divider"></div><div class="label">This leaderboard reuses existing rolling counters. CodeLocal does not store extra per-tool leaderboard history.</div></div>`
+	return podium.String() + `<div class="card span12"><div class="section-head"><div><div class="title">Leaderboard</div><div class="label">Ranks 4–10 by estimated MCP payload during the last 30 days. Emails are masked for privacy.</div></div>` + yourRank + `</div><div class="divider"></div><div class="list">` + rows.String() + `</div></div>`
 }

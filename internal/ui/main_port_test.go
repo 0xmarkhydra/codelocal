@@ -111,6 +111,32 @@ func TestLandingPageHasMobileSafeLayout(t *testing.T) {
 	}
 }
 
+func TestDashboardOverviewUsesHeroInsteadOfRedundantPageHeader(t *testing.T) {
+	overview := DashboardPage(DashboardOptions{Title: "Overview", Active: "overview", Email: "user@example.com", CSRF: "csrf", Body: `<div class="overview-hero">hero</div>`})
+	if strings.Contains(overview, `<header class="top">`) {
+		t.Fatal("overview must start with the product hero instead of repeating a page header")
+	}
+	leaderboard := DashboardPage(DashboardOptions{Title: "Leaderboard", Active: "leaderboard", Email: "user@example.com", CSRF: "csrf"})
+	if !strings.Contains(leaderboard, `<header class="top">`) {
+		t.Fatal("non-overview dashboard pages must keep their page header")
+	}
+}
+
+func TestDashboardPolishRemovesDecorativeBarsAndKeepsDistinctChatGPTMark(t *testing.T) {
+	if !strings.Contains(iosDashboardTheme, `.dashboard-body .nav a.active:before{display:none}`) {
+		t.Fatal("active navigation must not render the extra left indicator bar")
+	}
+	if !strings.Contains(iosDashboardTheme, `.dashboard-body .metric-card:before{display:none}`) {
+		t.Fatal("dashboard metric cards must not render decorative color bars")
+	}
+	if !strings.Contains(iosDashboardTheme, `.dashboard-body .sidebar .signout-icon{display:none}`) || !strings.Contains(iosDashboardTheme, `.dashboard-body .sidebar .signout-icon{display:grid}`) {
+		t.Fatal("desktop must use a clean sign-out label while the tablet rail keeps an accessible icon")
+	}
+	if strings.TrimSpace(Icon("chatgpt")) == "" || Icon("chatgpt") == Icon("connect") {
+		t.Fatal("ChatGPT must have a distinct visual mark instead of reusing CodeLocal or connection artwork")
+	}
+}
+
 func TestDashboardPageDoesNotRenderStandaloneTokenUsageTab(t *testing.T) {
 	html := DashboardPage(DashboardOptions{
 		Title:  "Overview",
