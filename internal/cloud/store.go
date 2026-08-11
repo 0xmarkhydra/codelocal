@@ -32,14 +32,15 @@ type User struct {
 }
 
 type Device struct {
-	CredentialID string `json:"credentialId"`
-	UserID       string `json:"userId"`
-	DeviceID     string `json:"deviceId"`
-	DeviceName   string `json:"deviceName"`
-	SecretHash   string `json:"-"`
-	CreatedAt    int64  `json:"createdAt"`
-	LastSeenAt   int64  `json:"lastSeenAt"`
-	RevokedAt    int64  `json:"revokedAt,omitempty"`
+	CredentialID         string `json:"credentialId"`
+	PreviousCredentialID string `json:"-"`
+	UserID               string `json:"userId"`
+	DeviceID             string `json:"deviceId"`
+	DeviceName           string `json:"deviceName"`
+	SecretHash           string `json:"-"`
+	CreatedAt            int64  `json:"createdAt"`
+	LastSeenAt           int64  `json:"lastSeenAt"`
+	RevokedAt            int64  `json:"revokedAt,omitempty"`
 }
 
 type Pairing struct {
@@ -433,6 +434,17 @@ func EqualSecretHash(actual, expected string) bool {
 	return errA == nil && errB == nil && len(a) == len(b) && subtle.ConstantTimeCompare(a, b) == 1
 }
 
+func (s *Store) invalidateDeviceCache(keys ...string) {
+	if len(keys) == 0 || s.Redis == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := s.Redis.Del(ctx, keys...).Err(); err != nil {
+		slog.Warn("device cache invalidation failed", "error", err, "keyCount", len(keys))
+	}
+}
+
 func normalizeEmail(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
 
 const defaultAdminEmail = "monglv36@gmail.com"
@@ -708,10 +720,36 @@ func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secret
 	var userID string
 	err = tx.QueryRow(ctx, `SELECT pairing_id,code,device_id,device_name,user_id,created_at,expires_at FROM codelocal_pairings WHERE pairing_id=$1 AND code=$2 AND expires_at>$3 AND approved_at IS NOT NULL AND claimed_at IS NULL FOR UPDATE`, id, code, time.Now().UnixMilli()).Scan(&p.PairingID, &p.Code, &p.DeviceID, &p.DeviceName, &userID, &p.CreatedAt, &p.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		// A claim may have committed even when its HTTP response was lost. Allow a
+		// retry only when the caller presents the exact credential ID and secret
+		// hash that became current for this pairing's device.
+		claimedErr := tx.QueryRow(ctx, `SELECT pairing_id,code,device_id,device_name,user_id,created_at,expires_at FROM codelocal_pairings WHERE pairing_id=$1 AND code=$2 AND approved_at IS NOT NULL AND claimed_at IS NOT NULL`, id, code).Scan(&p.PairingID, &p.Code, &p.DeviceID, &p.DeviceName, &userID, &p.CreatedAt, &p.ExpiresAt)
+		if errors.Is(claimedErr, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		if claimedErr != nil {
+			return nil, claimedErr
+		}
+		var d Device
+		var revoked *int64
+		deviceErr := tx.QueryRow(ctx, `SELECT credential_id,user_id,device_id,device_name,secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE user_id=$1 AND device_id=$2 AND credential_id=$3`, userID, p.DeviceID, credentialID).Scan(&d.CredentialID, &d.UserID, &d.DeviceID, &d.DeviceName, &d.SecretHash, &d.CreatedAt, &d.LastSeenAt, &revoked)
+		if errors.Is(deviceErr, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		if deviceErr != nil {
+			return nil, deviceErr
+		}
+		if revoked != nil || !EqualSecretHash(d.SecretHash, secretHash) {
+			return nil, nil
+		}
+		return &d, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	previousCredentialID := ""
+	if existingErr := tx.QueryRow(ctx, `SELECT credential_id FROM codelocal_devices WHERE user_id=$1 AND device_id=$2 FOR UPDATE`, userID, p.DeviceID).Scan(&previousCredentialID); existingErr != nil && !errors.Is(existingErr, pgx.ErrNoRows) {
+		return nil, existingErr
 	}
 	now := time.Now().UnixMilli()
 	if _, err = tx.Exec(ctx, `UPDATE codelocal_pairings SET claimed_at=$2 WHERE pairing_id=$1`, id, now); err != nil {
@@ -723,8 +761,12 @@ func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secret
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	_ = s.Redis.Del(ctx, "codelocal:device:"+credentialID).Err()
-	return &Device{CredentialID: credentialID, UserID: userID, DeviceID: p.DeviceID, DeviceName: p.DeviceName, SecretHash: secretHash, CreatedAt: now, LastSeenAt: now}, nil
+	keys := []string{"codelocal:device:" + credentialID, "codelocal:device-touch:" + credentialID}
+	if previousCredentialID != "" && previousCredentialID != credentialID {
+		keys = append(keys, "codelocal:device:"+previousCredentialID, "codelocal:device-touch:"+previousCredentialID)
+	}
+	s.invalidateDeviceCache(keys...)
+	return &Device{CredentialID: credentialID, PreviousCredentialID: previousCredentialID, UserID: userID, DeviceID: p.DeviceID, DeviceName: p.DeviceName, SecretHash: secretHash, CreatedAt: now, LastSeenAt: now}, nil
 }
 
 func (s *Store) AuthenticateDevice(ctx context.Context, credentialID, secretHash string) (*Device, error) {
@@ -785,12 +827,32 @@ func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error
 	return out, rows.Err()
 }
 
+func (s *Store) ActiveCredentialIDs(ctx context.Context, credentialIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(credentialIDs))
+	if len(credentialIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.DB.Query(ctx, `SELECT credential_id FROM codelocal_devices WHERE credential_id = ANY($1::text[]) AND revoked_at IS NULL`, credentialIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var credentialID string
+		if err := rows.Scan(&credentialID); err != nil {
+			return nil, err
+		}
+		out[credentialID] = true
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) RevokeDevice(ctx context.Context, userID, credentialID string) (bool, error) {
 	result, err := s.DB.Exec(ctx, `UPDATE codelocal_devices SET revoked_at=$3 WHERE user_id=$1 AND credential_id=$2 AND revoked_at IS NULL`, userID, credentialID, time.Now().UnixMilli())
 	if err != nil {
 		return false, err
 	}
-	_ = s.Redis.Del(ctx, "codelocal:device:"+credentialID).Err()
+	s.invalidateDeviceCache("codelocal:device:"+credentialID, "codelocal:device-touch:"+credentialID)
 	return result.RowsAffected() == 1, nil
 }
 
@@ -799,7 +861,7 @@ func (s *Store) RenameDevice(ctx context.Context, userID, credentialID, name str
 	if err != nil {
 		return false, err
 	}
-	_ = s.Redis.Del(ctx, "codelocal:device:"+credentialID).Err()
+	s.invalidateDeviceCache("codelocal:device:" + credentialID)
 	return result.RowsAffected() == 1, nil
 }
 

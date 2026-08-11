@@ -65,6 +65,8 @@ type pollResponse struct {
 	Now        int64                      `json:"now"`
 }
 
+var ErrDeviceAuthorizationRevoked = errors.New("CodeLocal runtime device authorization was revoked; run `codelocal login` to sign in again")
+
 func New(options Options) *Runtime {
 	if options.LongPoll <= 0 {
 		options.LongPoll = 25 * time.Second
@@ -110,7 +112,7 @@ func (r *Runtime) post(ctx context.Context, path string, input any, output any) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return errors.New("CodeLocal runtime device authorization was revoked")
+		return ErrDeviceAuthorizationRevoked
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("CodeLocal Cloud %s failed (%d)", path, resp.StatusCode)
@@ -583,10 +585,16 @@ func (r *Runtime) Run(ctx context.Context) error {
 			return nil
 		}
 		if _, err := r.SyncRegistry(ctx, false); err != nil {
+			if errors.Is(err, ErrDeviceAuthorizationRevoked) {
+				return err
+			}
 			slog.Warn("workspace sync failed", "error", err)
 		}
 		message, err := r.poll(ctx)
 		if err != nil {
+			if errors.Is(err, ErrDeviceAuthorizationRevoked) {
+				return err
+			}
 			if ctx.Err() != nil {
 				return nil
 			}

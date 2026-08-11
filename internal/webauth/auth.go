@@ -313,11 +313,16 @@ func (m *Manager) Register(mux *http.ServeMux) {
 			http.Error(w, "Invalid security token.", 403)
 			return
 		}
+		next := webutil.SafeNext(r.FormValue("next"))
 		if identity != nil {
 			_ = m.Store.DeleteSession(r.Context(), identity.SessionID)
 			m.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "auth.logout"})
 		}
 		m.setCookie(w, SessionCookie, "", -1, true)
+		if next != "/dashboard" {
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
 }

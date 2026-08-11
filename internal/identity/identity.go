@@ -14,6 +14,7 @@ type Credential struct {
 	CredentialSecret string `json:"credentialSecret"`
 	DeviceID         string `json:"deviceId"`
 	DeviceName       string `json:"deviceName"`
+	Email            string `json:"email,omitempty"`
 	ServerURL        string `json:"serverUrl"`
 	CreatedAt        int64  `json:"createdAt"`
 }

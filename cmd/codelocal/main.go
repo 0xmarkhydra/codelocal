@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,24 +31,56 @@ import (
 
 const defaultCloud = "https://codelocal.cloud"
 
+func randomHex(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+func hashSecret(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
 func usage() {
-	fmt.Print(`CodeLocal CLI (Go native)
+	fmt.Print(`CodeLocal CLI
 
 Usage:
-  codelocal                         Start or attach to the one machine runtime
-  codelocal .                       Authorize current folder locally only
-  codelocal <project-path>          Authorize that folder locally only
-  codelocal grant <project-path>    Authorize a project folder
-  codelocal ungrant <path|id>       Remove local workspace authorization
-  codelocal workspaces              List local authorized workspaces
-  codelocal status                  Show pairing and machine runtime status
-  codelocal stop                    Stop the machine runtime
-  codelocal pair [https://gateway]  Pair this machine explicitly
-  codelocal login [https://gateway] Show MCP/OAuth connection information
-  codelocal doctor [project]        Inspect local development dependencies
-  codelocal approvals list|revoke|reset
-  codelocal mcp ...                 Manage local MCP extensions
-  codelocal --version|-v|version    Print version
+  codelocal [command] [options]
+
+Authentication:
+  codelocal login [gateway]          Sign in and pair this machine
+  codelocal login --force [gateway]  Sign in again / switch account
+  codelocal logout [gateway]         Sign out this machine; keep local workspaces
+  codelocal switch-account [gateway] Switch this machine to another account
+
+Runtime:
+  codelocal                          Start or attach to the machine runtime
+  codelocal status                   Show account, pairing and runtime status
+  codelocal stop                     Stop the machine runtime
+
+Workspaces:
+  codelocal .                        Authorize the current folder locally
+  codelocal <project-path>           Authorize a project folder locally
+  codelocal grant <project-path>     Authorize a project folder
+  codelocal ungrant <path|id>        Remove local workspace authorization
+  codelocal workspaces               List local authorized workspaces
+
+Developer tools:
+  codelocal doctor [project]         Inspect local development dependencies
+  codelocal approvals list           List remembered local approvals
+  codelocal approvals revoke <id>    Revoke one remembered approval
+  codelocal approvals reset          Forget remembered approvals for this workspace
+  codelocal mcp ...                  Manage local MCP extensions
+
+Compatibility / advanced:
+  codelocal pair [gateway]           Re-pair this machine (same as login --force)
+
+Options:
+  codelocal --help, -h               Show this help
+  codelocal --version, -v            Print version
 
 MCP Hub:
   codelocal mcp add <name> -- <command> [args...]
@@ -56,6 +91,13 @@ MCP Hub:
   codelocal mcp probe <name>
   codelocal mcp search <query> [--server <name>]
   codelocal mcp remove <name> [--global|--workspace]
+
+Examples:
+  codelocal login
+  codelocal .
+  codelocal
+  codelocal status
+  codelocal logout
 `)
 }
 
@@ -79,6 +121,20 @@ func baseURL(value string) string {
 	u.Fragment = ""
 	return strings.TrimRight(u.String(), "/")
 }
+
+func authBase(value string) string {
+	if strings.TrimSpace(value) != "" {
+		return baseURL(value)
+	}
+	if configured := first(os.Getenv("CODELOCAL_SERVER"), os.Getenv("SERVER_URL")); strings.TrimSpace(configured) != "" {
+		return baseURL(configured)
+	}
+	if saved, err := identity.Load(""); err == nil && saved != nil && strings.TrimSpace(saved.ServerURL) != "" {
+		return baseURL(saved.ServerURL)
+	}
+	return baseURL(defaultCloud)
+}
+
 func websocketBase(value string) string {
 	u, _ := url.Parse(baseURL(value))
 	if u.Scheme == "https" {
@@ -142,10 +198,11 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 		return identity.Credential{}, fmt.Errorf("pair start failed (%d)", resp.StatusCode)
 	}
 	var pairing struct {
-		PairingID  string `json:"pairingId"`
-		Code       string `json:"code"`
-		ExpiresAt  int64  `json:"expiresAt"`
-		ApproveURL string `json:"approveUrl"`
+		PairingID      string `json:"pairingId"`
+		Code           string `json:"code"`
+		ExpiresAt      int64  `json:"expiresAt"`
+		ApproveURL     string `json:"approveUrl"`
+		RetrySafeClaim bool   `json:"retrySafeClaim"`
 	}
 	if json.NewDecoder(resp.Body).Decode(&pairing) != nil {
 		return identity.Credential{}, errors.New("invalid pairing response")
@@ -155,13 +212,35 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 		fmt.Println("Opened your default browser. Sign in to CodeLocal and approve this device.")
 	}
 	fmt.Println("Waiting for approval…")
-	for time.Now().UnixMilli() < pairing.ExpiresAt {
+	claimInput := map[string]any{"pairingId": pairing.PairingID, "code": pairing.Code}
+	expectedCredentialID := ""
+	expectedCredentialSecret := ""
+	claimDeadline := pairing.ExpiresAt
+	if pairing.RetrySafeClaim {
+		credentialIDHex, idErr := randomHex(16)
+		if idErr != nil {
+			return identity.Credential{}, fmt.Errorf("generate device credential id: %w", idErr)
+		}
+		secret, secretErr := randomHex(40)
+		if secretErr != nil {
+			return identity.Credential{}, fmt.Errorf("generate device credential secret: %w", secretErr)
+		}
+		expectedCredentialID = "cld_" + credentialIDHex
+		expectedCredentialSecret = secret
+		claimInput["credentialId"] = expectedCredentialID
+		claimInput["credentialSecretHash"] = hashSecret(expectedCredentialSecret)
+		// A successful claim may have committed just before the original pairing
+		// expiry while its HTTP response was lost. Give idempotent retries a small
+		// grace window without extending server-side approval validity.
+		claimDeadline += int64((30 * time.Second).Milliseconds())
+	}
+	for time.Now().UnixMilli() < claimDeadline {
 		select {
 		case <-ctx.Done():
 			return identity.Credential{}, ctx.Err()
 		case <-time.After(time.Second):
 		}
-		claim, claimErr := postJSON(ctx, base+"/pair/claim", map[string]any{"pairingId": pairing.PairingID, "code": pairing.Code}, nil)
+		claim, claimErr := postJSON(ctx, base+"/pair/claim", claimInput, nil)
 		if claimErr != nil {
 			continue
 		}
@@ -171,6 +250,12 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 			claim.Body.Close()
 			if decodeErr != nil {
 				return identity.Credential{}, decodeErr
+			}
+			if pairing.RetrySafeClaim {
+				if c.CredentialID != expectedCredentialID {
+					return identity.Credential{}, errors.New("pair claim returned an unexpected credential")
+				}
+				c.CredentialSecret = expectedCredentialSecret
 			}
 			c.ServerURL = websocketBase(base)
 			c.CreatedAt = time.Now().UnixMilli()
@@ -188,20 +273,40 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 	return identity.Credential{}, errors.New("pairing expired before approval")
 }
 
-func validateCredential(ctx context.Context, base string, c identity.Credential) bool {
+func validateCredential(ctx context.Context, base string, c identity.Credential) (bool, string, error) {
 	resp, err := postJSON(ctx, baseURL(base)+"/api/client/auth/check", map[string]any{}, credentialHeaders(c))
 	if err != nil {
-		return false
+		return false, "", fmt.Errorf("unable to verify CodeLocal credential: %w", err)
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var result struct {
+			Email string `json:"email"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		return true, strings.TrimSpace(result.Email), nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+		return false, "", nil
+	}
+	return false, "", fmt.Errorf("CodeLocal credential check failed (%d)", resp.StatusCode)
 }
 func resolveCredential(ctx context.Context, server string, onPhase func(string)) (identity.Credential, string, error) {
-	base := baseURL(server)
+	base := authBase(server)
 	onPhase("checking")
 	saved, _ := identity.Load(websocketBase(base))
-	if saved != nil && validateCredential(ctx, base, *saved) {
-		return *saved, base, nil
+	if saved != nil {
+		valid, email, checkErr := validateCredential(ctx, base, *saved)
+		if checkErr != nil {
+			return identity.Credential{}, base, checkErr
+		}
+		if valid {
+			if email != "" && saved.Email != email {
+				saved.Email = email
+				_ = identity.Save(*saved)
+			}
+			return *saved, base, nil
+		}
 	}
 	if saved != nil {
 		fmt.Println("Stored CodeLocal credential is no longer valid or the gateway is incompatible. Pairing this machine again…")
@@ -210,6 +315,141 @@ func resolveCredential(ctx context.Context, server string, onPhase func(string))
 	onPhase("pairing")
 	credential, err := pair(ctx, base)
 	return credential, base, err
+}
+
+func stopRuntimeBestEffort(ctx context.Context) {
+	stopCtx, cancelStop := context.WithTimeout(ctx, 2*time.Second)
+	_, _ = runtimecontrol.Send(stopCtx, state.Dir(), "shutdown")
+	cancelStop()
+}
+
+func revokeRemoteCredential(ctx context.Context, credential identity.Credential, fallbackServer string) (bool, error) {
+	base := baseURL(credential.ServerURL)
+	if strings.TrimSpace(credential.ServerURL) == "" {
+		base = baseURL(fallbackServer)
+	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		revokeCtx, cancelRevoke := context.WithTimeout(ctx, 3*time.Second)
+		resp, err := postJSON(revokeCtx, base+"/api/client/auth/logout", map[string]any{}, credentialHeaders(credential))
+		if err != nil {
+			cancelRevoke()
+			lastErr = err
+		} else {
+			status := resp.StatusCode
+			resp.Body.Close()
+			cancelRevoke()
+			if (status >= 200 && status < 300) || status == http.StatusUnauthorized || status == http.StatusForbidden {
+				return true, nil
+			}
+			lastErr = fmt.Errorf("CodeLocal device logout failed (%d)", status)
+			if status != http.StatusTooManyRequests && status < 500 {
+				return false, lastErr
+			}
+		}
+		if attempt < 2 {
+			select {
+			case <-ctx.Done():
+				return false, ctx.Err()
+			case <-time.After(time.Duration(attempt+1) * 250 * time.Millisecond):
+			}
+		}
+	}
+	return false, lastErr
+}
+
+func printSignedIn(credential identity.Credential) {
+	if credential.Email != "" {
+		fmt.Printf("✓ Signed in as %s on %s\n", credential.Email, credential.DeviceName)
+		return
+	}
+	fmt.Printf("✓ Signed in to CodeLocal on this machine: %s\n", credential.DeviceName)
+}
+
+func login(ctx context.Context, server string, force bool) error {
+	base := authBase(server)
+	if !force {
+		credential, _, err := resolveCredential(ctx, base, func(string) {})
+		if err != nil {
+			return err
+		}
+		printSignedIn(credential)
+		fmt.Println("Run `codelocal` to start the machine runtime.")
+		fmt.Println("To sign in again or switch accounts, run `codelocal login --force`.")
+		return nil
+	}
+
+	previous, err := identity.Load("")
+	if err != nil {
+		return err
+	}
+	credential, err := pair(ctx, base)
+	if err != nil {
+		return err
+	}
+	stopRuntimeBestEffort(ctx)
+	if previous != nil && previous.CredentialID != "" && previous.CredentialID != credential.CredentialID {
+		if revoked, revokeErr := revokeRemoteCredential(ctx, *previous, server); revokeErr != nil || !revoked {
+			fmt.Println("! New sign-in succeeded, but CodeLocal Cloud could not confirm revocation of the previous device credential. The new credential is active; check the old account dashboard and revoke the previous device if it is still active.")
+		}
+	}
+	printSignedIn(credential)
+	fmt.Println("Run `codelocal` to start the machine runtime.")
+	fmt.Println("If you changed CodeLocal accounts, reconnect the CodeLocal MCP in ChatGPT so ChatGPT OAuth uses the same account.")
+	return nil
+}
+
+func logout(ctx context.Context, server string) error {
+	credential, err := identity.Load("")
+	if err != nil {
+		return err
+	}
+	if credential == nil {
+		fmt.Println("CodeLocal is already signed out on this machine.")
+		return nil
+	}
+
+	stopRuntimeBestEffort(ctx)
+	remoteRevoked, revokeErr := revokeRemoteCredential(ctx, *credential, server)
+	if revokeErr != nil || !remoteRevoked {
+		return fmt.Errorf("logout not completed: CodeLocal Cloud could not confirm device revocation; the runtime was stopped and the local credential was kept so you can retry safely")
+	}
+	if err := identity.Delete(); err != nil {
+		return err
+	}
+	fmt.Println("✓ Signed out of CodeLocal on this machine.")
+	fmt.Println("Authorized workspace folders were kept. Run `codelocal login` to sign in again.")
+	return nil
+}
+
+func optionalGatewayArg(command string, args []string) (string, error) {
+	if len(args) > 1 {
+		return "", fmt.Errorf("%s accepts at most one gateway URL", command)
+	}
+	if len(args) == 0 {
+		return "", nil
+	}
+	if strings.HasPrefix(args[0], "-") {
+		return "", fmt.Errorf("unknown %s option: %s", command, args[0])
+	}
+	return args[0], nil
+}
+
+func loginArgs(args []string) (server string, force bool, err error) {
+	for _, arg := range args {
+		if arg == "--force" || arg == "-f" {
+			force = true
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			return "", false, fmt.Errorf("unknown login option: %s", arg)
+		}
+		if server != "" {
+			return "", false, errors.New("login accepts at most one gateway URL")
+		}
+		server = arg
+	}
+	return server, force, nil
 }
 
 func runRuntime(parent context.Context, server string) error {
@@ -338,6 +578,9 @@ func status() error {
 	result := map[string]any{"version": version.Version, "device": map[string]any{"deviceId": deviceID, "deviceName": deviceName}, "paired": c != nil, "stateDir": state.Dir(), "runtime": runtimecontrol.Summary(context.Background(), state.Dir())}
 	if c != nil {
 		result["credential"] = map[string]any{"credentialId": c.CredentialID, "deviceId": c.DeviceID, "deviceName": c.DeviceName, "serverUrl": c.ServerURL, "createdAt": c.CreatedAt, "credentialSecret": "[REDACTED]"}
+		if c.Email != "" {
+			result["account"] = map[string]any{"email": c.Email}
+		}
 	}
 	raw, _ := json.MarshalIndent(result, "", "  ")
 	fmt.Println(string(raw))
@@ -711,18 +954,33 @@ func main() {
 		case "stop":
 			err = stop()
 		case "pair":
-			server := ""
-			if len(args) > 1 {
-				server = args[1]
+			server, parseErr := optionalGatewayArg("pair", args[1:])
+			if parseErr != nil {
+				err = parseErr
+			} else {
+				err = login(ctx, server, true)
 			}
-			_, err = pair(ctx, server)
 		case "login":
-			server := ""
-			if len(args) > 1 {
-				server = args[1]
+			server, force, parseErr := loginArgs(args[1:])
+			if parseErr != nil {
+				err = parseErr
+			} else {
+				err = login(ctx, server, force)
 			}
-			base := baseURL(server)
-			fmt.Printf("Gateway: %s\nMCP endpoint: %s/mcp\nOAuth authorization happens when you connect this MCP endpoint from ChatGPT.\n", base, base)
+		case "logout", "signout":
+			server, parseErr := optionalGatewayArg("logout", args[1:])
+			if parseErr != nil {
+				err = parseErr
+			} else {
+				err = logout(ctx, server)
+			}
+		case "switch-account", "switch":
+			server, parseErr := optionalGatewayArg("switch-account", args[1:])
+			if parseErr != nil {
+				err = parseErr
+			} else {
+				err = login(ctx, server, true)
+			}
 		case "doctor":
 			path := "."
 			if len(args) > 1 {

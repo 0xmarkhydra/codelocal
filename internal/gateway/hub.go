@@ -517,6 +517,7 @@ func (h *Hub) HeartbeatLoop(ctx context.Context, interval, stale time.Duration) 
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	lastCredentialSweep := time.Time{}
 
 	for {
 		select {
@@ -529,8 +530,43 @@ func (h *Hub) HeartbeatLoop(ctx context.Context, interval, stale time.Duration) 
 				all = append(all, client)
 			}
 			h.mu.RUnlock()
+			revokedThisTick := map[string]struct{}{}
+
+			if lastCredentialSweep.IsZero() || now.Sub(lastCredentialSweep) >= time.Minute {
+				credentialSet := map[string]struct{}{}
+				for _, client := range all {
+					if client.CredentialID != "" {
+						credentialSet[client.CredentialID] = struct{}{}
+					}
+				}
+				credentialIDs := make([]string, 0, len(credentialSet))
+				for credentialID := range credentialSet {
+					credentialIDs = append(credentialIDs, credentialID)
+				}
+				if len(credentialIDs) > 0 {
+					sweepCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					active, err := h.Store.ActiveCredentialIDs(sweepCtx, credentialIDs)
+					cancel()
+					if err != nil {
+						slog.Warn("credential validity sweep failed", "error", err, "gateway", h.InstanceID)
+					} else {
+						for _, client := range all {
+							if client.CredentialID != "" && !active[client.CredentialID] {
+								revokedThisTick[client.CredentialID] = struct{}{}
+								_ = client.conn.Close(websocket.StatusPolicyViolation, "device credential revoked")
+							}
+						}
+						lastCredentialSweep = now
+					}
+				} else {
+					lastCredentialSweep = now
+				}
+			}
 
 			for _, client := range all {
+				if _, revoked := revokedThisTick[client.CredentialID]; revoked {
+					continue
+				}
 				if now.UnixMilli()-client.lastSeenAt.Load() > stale.Milliseconds() {
 					_ = client.conn.Close(websocket.StatusGoingAway, "stale client")
 					continue

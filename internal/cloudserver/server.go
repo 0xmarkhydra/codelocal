@@ -79,6 +79,8 @@ func New(ctx context.Context) (*Server, error) {
 	hub := gateway.NewHub(store, instanceID)
 	coordinator := gateway.NewCoordinator(ctx, store.Redis, instanceID, func(callCtx context.Context, call gateway.RoutedCall) gateway.RoutedResult {
 		return hub.HandleRouted(callCtx, call)
+	}, func(userID, credentialID string) {
+		hub.DisconnectCredential(userID, credentialID)
 	})
 	hub.SetCoordinator(coordinator)
 	workspaceService := &gateway.WorkspaceService{Store: store, Activation: activation, Hub: hub, Coordinator: coordinator}
@@ -189,6 +191,7 @@ func (s *Server) routes() {
 	var claim http.Handler = http.HandlerFunc(s.pairClaim)
 	mux.Handle("POST /pair/claim", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "pair-claim-ip", Limit: 300, Window: time.Minute}, claim))
 	mux.HandleFunc("POST /api/client/auth/check", s.clientAuthCheck)
+	mux.HandleFunc("POST /api/client/auth/logout", s.clientAuthLogout)
 	mux.HandleFunc("POST /api/client/workspaces/sync", s.workspaceSync)
 	mux.HandleFunc("POST /api/client/runtime/poll", s.runtimePoll)
 	mux.HandleFunc("POST /api/client/runtime/revocation-ack", s.revocationAck)
@@ -535,10 +538,11 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request) {
 	}
 	base := strings.TrimRight(s.WebAuth.PublicBaseURL, "/")
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"pairingId":  pairing.PairingID,
-		"code":       pairing.Code,
-		"expiresAt":  pairing.ExpiresAt,
-		"approveUrl": base + "/pair/approve?pairingId=" + url.QueryEscape(pairing.PairingID),
+		"pairingId":      pairing.PairingID,
+		"code":           pairing.Code,
+		"expiresAt":      pairing.ExpiresAt,
+		"approveUrl":     base + "/pair/approve?pairingId=" + url.QueryEscape(pairing.PairingID),
+		"retrySafeClaim": true,
 	})
 }
 
@@ -554,7 +558,7 @@ func (s *Server) pairApproveGet(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 		return
 	}
-	body := `<div class="row"><div class="row-title">` + ui.Escape(pairing.DeviceName) + `</div><div class="row-meta mono">Device ID: ` + ui.Escape(pairing.DeviceID) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/pair/approve">` + ui.Hidden(map[string]string{"csrf": identity.CSRF, "pairingId": pairing.PairingID, "code": pairing.Code}) + `<button class="btn primary" type="submit">Approve device</button></form>`
+	body := `<div class="row"><div class="row-title">` + ui.Escape(pairing.DeviceName) + `</div><div class="row-meta mono">Device ID: ` + ui.Escape(pairing.DeviceID) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/pair/approve">` + ui.Hidden(map[string]string{"csrf": identity.CSRF, "pairingId": pairing.PairingID, "code": pairing.Code}) + `<button class="btn primary" type="submit">Approve device</button></form><div style="height:10px"></div><form method="post" action="/logout">` + ui.Hidden(map[string]string{"csrf": identity.CSRF, "next": r.URL.RequestURI()}) + `<button class="btn" type="submit">Use another account</button></form>`
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(ui.Page("Approve device", "Pair this machine with "+identity.User.Email+".", body)))
 }
@@ -579,18 +583,51 @@ func (s *Server) pairApprovePost(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(ui.Page("Device approved", "Return to your terminal. CodeLocal will claim its credential automatically.", `<a class="btn primary" href="/dashboard/devices">View devices</a>`)))
 }
 
+func (s *Server) disconnectCredentialEverywhere(userID, credentialID string) {
+	if userID == "" || credentialID == "" {
+		return
+	}
+	s.Hub.DisconnectCredential(userID, credentialID)
+	if s.Coordinator != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := s.Coordinator.BroadcastCredentialDisconnect(ctx, userID, credentialID); err != nil {
+			slog.Warn("credential disconnect broadcast failed", "error", err, "credentialId", credentialID)
+		}
+	}
+}
+
 func (s *Server) pairClaim(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		PairingID string `json:"pairingId"`
-		Code      string `json:"code"`
+		PairingID            string `json:"pairingId"`
+		Code                 string `json:"code"`
+		CredentialID         string `json:"credentialId"`
+		CredentialSecretHash string `json:"credentialSecretHash"`
 	}
 	if webutil.DecodeJSON(r, 64<<10, &input) != nil {
 		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
 		return
 	}
-	credentialID := "cld_" + randomID()
-	secret := cloud.RandomHex(40)
-	device, err := s.Store.ClaimPairing(r.Context(), input.PairingID, input.Code, credentialID, cloud.HashSecret(secret))
+	credentialID := strings.TrimSpace(input.CredentialID)
+	secretHash := strings.TrimSpace(input.CredentialSecretHash)
+	secret := ""
+	if (credentialID == "") != (secretHash == "") {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_credential_claim"})
+		return
+	}
+	if credentialID == "" {
+		// Backward compatibility for clients that predate retry-safe claims.
+		credentialID = "cld_" + randomID()
+		secret = cloud.RandomHex(40)
+		secretHash = cloud.HashSecret(secret)
+	} else {
+		decodedHash, hashErr := hex.DecodeString(secretHash)
+		if !strings.HasPrefix(credentialID, "cld_") || len(credentialID) > 128 || hashErr != nil || len(decodedHash) != 32 {
+			webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_credential_claim"})
+			return
+		}
+	}
+	device, err := s.Store.ClaimPairing(r.Context(), input.PairingID, input.Code, credentialID, secretHash)
 	if err != nil {
 		webutil.JSON(w, http.StatusInternalServerError, map[string]any{"error": "pairing_failed"})
 		return
@@ -599,13 +636,22 @@ func (s *Server) pairClaim(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusConflict, map[string]any{"error": "pairing_not_approved_or_expired"})
 		return
 	}
+	if device.PreviousCredentialID != "" && device.PreviousCredentialID != credentialID {
+		s.disconnectCredentialEverywhere(device.UserID, device.PreviousCredentialID)
+	}
 	s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "device.paired", DeviceID: device.DeviceID, Detail: map[string]any{"credentialId": credentialID, "deviceName": device.DeviceName}})
-	webutil.JSON(w, http.StatusOK, map[string]any{
-		"credentialId":     credentialID,
-		"credentialSecret": secret,
-		"deviceId":         device.DeviceID,
-		"deviceName":       device.DeviceName,
-	})
+	output := map[string]any{
+		"credentialId": credentialID,
+		"deviceId":     device.DeviceID,
+		"deviceName":   device.DeviceName,
+	}
+	if user, userErr := s.Store.UserByID(r.Context(), device.UserID); userErr == nil && user != nil {
+		output["email"] = user.Email
+	}
+	if secret != "" {
+		output["credentialSecret"] = secret
+	}
+	webutil.JSON(w, http.StatusOK, output)
 }
 
 func deviceAuth(r *http.Request) (string, string) {
@@ -632,7 +678,31 @@ func (s *Server) clientAuthCheck(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusUnauthorized, map[string]any{"error": "device_auth_failed"})
 		return
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "deviceId": device.DeviceID, "now": time.Now().UnixMilli()})
+	output := map[string]any{"ok": true, "deviceId": device.DeviceID, "now": time.Now().UnixMilli()}
+	if user, userErr := s.Store.UserByID(r.Context(), device.UserID); userErr == nil && user != nil {
+		output["email"] = user.Email
+	}
+	webutil.JSON(w, http.StatusOK, output)
+}
+
+func (s *Server) clientAuthLogout(w http.ResponseWriter, r *http.Request) {
+	device, err := s.authenticateDevice(r)
+	if err != nil || device == nil {
+		webutil.JSON(w, http.StatusUnauthorized, map[string]any{"error": "device_auth_failed"})
+		return
+	}
+	credentialID, _ := deviceAuth(r)
+	revoked, err := s.Store.RevokeDevice(r.Context(), device.UserID, credentialID)
+	if err != nil {
+		webutil.JSON(w, http.StatusInternalServerError, map[string]any{"error": "device_logout_failed"})
+		return
+	}
+	s.disconnectCredentialEverywhere(device.UserID, credentialID)
+	presenceCtx, cancelPresence := context.WithTimeout(context.Background(), 2*time.Second)
+	_ = s.Activation.ClearPresence(presenceCtx, device.UserID, device.DeviceID)
+	cancelPresence()
+	s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "device.logout", DeviceID: device.DeviceID, Detail: map[string]any{"credentialId": credentialID}})
+	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": revoked})
 }
 
 func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {

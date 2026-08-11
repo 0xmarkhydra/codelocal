@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -411,14 +412,28 @@ func (s *Server) mainRevokeDevice(w http.ResponseWriter, r *http.Request, identi
 		http.Redirect(w, r, "/dashboard/devices?error=Invalid%20device.", http.StatusSeeOther)
 		return
 	}
+	deviceID := ""
+	if devices, listErr := s.Store.ListDevices(r.Context(), identity.User.ID); listErr == nil {
+		for _, device := range devices {
+			if device.CredentialID == credentialID {
+				deviceID = device.DeviceID
+				break
+			}
+		}
+	}
 	revoked, err := s.Store.RevokeDevice(r.Context(), identity.User.ID, credentialID)
 	if err != nil {
 		http.Redirect(w, r, "/dashboard/devices?error="+url.QueryEscape("Unable to revoke device."), http.StatusSeeOther)
 		return
 	}
 	if revoked {
-		s.Hub.DisconnectCredential(identity.User.ID, credentialID)
-		s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "device.revoked", Detail: map[string]any{"credentialId": credentialID}})
+		s.disconnectCredentialEverywhere(identity.User.ID, credentialID)
+		if deviceID != "" {
+			presenceCtx, cancelPresence := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = s.Activation.ClearPresence(presenceCtx, identity.User.ID, deviceID)
+			cancelPresence()
+		}
+		s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "device.revoked", DeviceID: deviceID, Detail: map[string]any{"credentialId": credentialID}})
 	}
 	http.Redirect(w, r, "/dashboard/devices?ok="+url.QueryEscape("Device access revoked."), http.StatusSeeOther)
 }

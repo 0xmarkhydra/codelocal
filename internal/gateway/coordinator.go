@@ -36,33 +36,38 @@ type RoutedResult struct {
 }
 
 type Handler func(context.Context, RoutedCall) RoutedResult
+type CredentialDisconnectHandler func(userID, credentialID string)
+
+const credentialDisconnectChannel = "codelocal:gateway:credential-disconnect"
 
 type Coordinator struct {
-	Redis        *redis.Client
-	InstanceID   string
-	ctx          context.Context
-	cancel       context.CancelFunc
-	handler      Handler
-	pubsub       *redis.PubSub
-	mu           sync.Mutex
-	pending      map[string]chan RoutedResult
-	active       map[string]context.CancelFunc
-	ownerWaiters map[string]map[chan struct{}]struct{}
+	Redis                  *redis.Client
+	InstanceID             string
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	handler                Handler
+	onCredentialDisconnect CredentialDisconnectHandler
+	pubsub                 *redis.PubSub
+	mu                     sync.Mutex
+	pending                map[string]chan RoutedResult
+	active                 map[string]context.CancelFunc
+	ownerWaiters           map[string]map[chan struct{}]struct{}
 }
 
-func NewCoordinator(ctx context.Context, rdb *redis.Client, instanceID string, handler Handler) *Coordinator {
+func NewCoordinator(ctx context.Context, rdb *redis.Client, instanceID string, handler Handler, onCredentialDisconnect CredentialDisconnectHandler) *Coordinator {
 	child, cancel := context.WithCancel(ctx)
 	c := &Coordinator{
-		Redis:        rdb,
-		InstanceID:   instanceID,
-		ctx:          child,
-		cancel:       cancel,
-		handler:      handler,
-		pending:      map[string]chan RoutedResult{},
-		active:       map[string]context.CancelFunc{},
-		ownerWaiters: map[string]map[chan struct{}]struct{}{},
+		Redis:                  rdb,
+		InstanceID:             instanceID,
+		ctx:                    child,
+		cancel:                 cancel,
+		handler:                handler,
+		onCredentialDisconnect: onCredentialDisconnect,
+		pending:                map[string]chan RoutedResult{},
+		active:                 map[string]context.CancelFunc{},
+		ownerWaiters:           map[string]map[chan struct{}]struct{}{},
 	}
-	c.pubsub = rdb.Subscribe(child, c.requestChannel(), c.responseChannel(), c.cancelChannel(), "codelocal:gateway:owner-signal")
+	c.pubsub = rdb.Subscribe(child, c.requestChannel(), c.responseChannel(), c.cancelChannel(), "codelocal:gateway:owner-signal", credentialDisconnectChannel)
 	go c.listen()
 	return c
 }
@@ -128,6 +133,14 @@ func (c *Coordinator) listen() {
 				if json.Unmarshal([]byte(message.Payload), &signal) == nil && signal.ClientKey != "" {
 					c.notifyOwner(signal.ClientKey)
 				}
+			case credentialDisconnectChannel:
+				var event struct {
+					UserID       string `json:"userId"`
+					CredentialID string `json:"credentialId"`
+				}
+				if json.Unmarshal([]byte(message.Payload), &event) == nil && event.UserID != "" && event.CredentialID != "" && c.onCredentialDisconnect != nil {
+					c.onCredentialDisconnect(event.UserID, event.CredentialID)
+				}
 			}
 		}
 	}
@@ -157,6 +170,14 @@ func (c *Coordinator) handleRemote(call RoutedCall) {
 	if err := c.Redis.Publish(c.ctx, channel, payload).Err(); err != nil {
 		slog.Error("gateway response publish failed", "error", err, "requestId", call.RequestID)
 	}
+}
+
+func (c *Coordinator) BroadcastCredentialDisconnect(ctx context.Context, userID, credentialID string) error {
+	if userID == "" || credentialID == "" {
+		return nil
+	}
+	payload, _ := json.Marshal(map[string]string{"userId": userID, "credentialId": credentialID})
+	return c.Redis.Publish(ctx, credentialDisconnectChannel, payload).Err()
 }
 
 func (c *Coordinator) notifyOwner(clientKey string) {
