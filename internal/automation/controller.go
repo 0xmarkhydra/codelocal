@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 )
 
 type Controller struct {
@@ -66,6 +67,13 @@ func (c *Controller) authorize(action Action, args map[string]any) (bool, any, e
 	return true, state, nil
 }
 
+func (c *Controller) browserOrigin() string {
+	if c == nil || c.Browser == nil {
+		return ""
+	}
+	return c.Browser.CurrentOrigin()
+}
+
 func (c *Controller) Handle(ctx context.Context, tool string, args map[string]any) (any, error) {
 	if c == nil {
 		return nil, errors.New("automation controller unavailable")
@@ -105,7 +113,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
 		}
 		ref := stringArg(args, "ref")
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "click", Origin: stringArg(args, "origin"), Target: firstNonEmpty(stringArg(args, "description"), ref)}, args)
+		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "click", Origin: c.browserOrigin(), Target: firstNonEmpty(stringArg(args, "description"), ref)}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -116,7 +124,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		}
 		ref := stringArg(args, "ref")
 		text := stringArg(args, "text")
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "fill", Origin: stringArg(args, "origin"), Target: firstNonEmpty(stringArg(args, "description"), ref), Text: text}, args)
+		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "fill", Origin: c.browserOrigin(), Target: firstNonEmpty(stringArg(args, "description"), ref), Text: text}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -126,7 +134,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
 		}
 		key := stringArg(args, "key")
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "press", Origin: stringArg(args, "origin"), Target: stringArg(args, "description"), Text: key}, args)
+		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "press", Origin: c.browserOrigin(), Target: stringArg(args, "description"), Text: key}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -145,7 +153,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
 		}
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "screenshot", Origin: stringArg(args, "origin"), Target: stringArg(args, "description")}, args)
+		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "screenshot", Origin: c.browserOrigin(), Target: stringArg(args, "description")}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -154,7 +162,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if c.Browser == nil {
 			return map[string]any{"closed": true, "alreadyStopped": true}, nil
 		}
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "close"}, args)
+		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "close", Origin: c.browserOrigin()}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -182,7 +190,7 @@ func (c *Controller) Close() {
 		return
 	}
 	if c.Browser != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3_000_000_000)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		_, _ = c.Browser.Close(ctx)
 		cancel()
 	}
