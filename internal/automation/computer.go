@@ -91,6 +91,14 @@ func helperCapabilities(helper string, environment Environment) map[string]any {
 			base[key] = value
 		}
 	}
+	// Current macOS/Windows helpers expose a structured UI tree, so they can
+	// necessarily enumerate target windows. The X11 helper has an explicit
+	// EWMH/QueryTree implementation even though AT-SPI remains a separate flag.
+	if _, explicitlyReported := reported["windowList"]; !explicitlyReported {
+		uiTree, _ := base["uiTree"].(bool)
+		backend, _ := base["backend"].(string)
+		base["windowList"] = uiTree || strings.Contains(strings.ToLower(backend), "x11")
+	}
 	// CodeLocal never automates UAC / secure-desktop style surfaces even if a
 	// helper accidentally claims otherwise.
 	base["secureDesktop"] = false
