@@ -18,7 +18,7 @@ Authorized workspaces       files, Git, terminal, local MCP extensions
 
 ## Version
 
-`1.5.0-beta.5` — native Go migration.
+`1.5.2` — current stable native Go release.
 
 The application runtime and Cloud gateway are implemented in Go. The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 
@@ -28,13 +28,27 @@ The native runtime now uses one compiled process instead of a Node.js applicatio
 
 ## Install
 
-Beta channel:
+Requires Node.js 20+ and npm.
+
+Install the current stable release:
+
+```bash
+npm i -g codelocal
+```
+
+Or install the beta channel:
 
 ```bash
 npm i -g codelocal@beta
 ```
 
-Then authorize one or more projects:
+Verify the installed version:
+
+```bash
+codelocal --version
+```
+
+Authorize one or more projects:
 
 ```bash
 cd /path/to/project-a
@@ -65,6 +79,35 @@ codelocal stop
 codelocal approvals list
 codelocal mcp list
 ```
+
+## Update
+
+Update to the newest stable release:
+
+```bash
+npm i -g codelocal@latest
+```
+
+Short form (same stable channel):
+
+```bash
+npm i -g codelocal
+```
+
+Update to the newest beta release:
+
+```bash
+npm i -g codelocal@beta
+```
+
+After updating, verify and start CodeLocal again:
+
+```bash
+codelocal --version
+codelocal
+```
+
+A normal npm update keeps your existing CodeLocal pairing credentials and authorized workspaces.
 
 ## Connect ChatGPT
 
@@ -193,6 +236,49 @@ docker build -t codelocal-cloud .
 ```
 
 The production container runs `cmd/codelocal-cloud`; Railway is configured through `railway.json`.
+
+## Publishing a new npm release
+
+Maintainers can publish stable or beta with one command:
+
+```bash
+npm run release:npm
+```
+
+The release helper asks for the channel:
+
+```text
+CodeLocal npm release
+
+  1) latest (stable) [default]
+  2) beta
+
+Choose channel [1]:
+```
+
+Press **Enter** to publish `latest`, or choose `2` for `beta`.
+
+The helper automatically:
+
+- checks versions already published on npm
+- chooses the next available version
+- synchronizes `package.json`, `package-lock.json` and `internal/version/version.go`
+- rebuilds `.release/npm`
+- generates the correct install command in the npm README
+- runs tests/vet and package validation
+- publishes with the correct `latest` or `beta` npm dist-tag
+
+For a stable release, the generated npm README contains:
+
+```bash
+npm i -g codelocal
+```
+
+For a beta release:
+
+```bash
+npm i -g codelocal@beta
+```
 
 ## Release model
 
