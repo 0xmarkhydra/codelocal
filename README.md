@@ -2,6 +2,8 @@
 
 CodeLocal lets ChatGPT work on code that stays on your own machine.
 
+Website: [https://codelocal.cloud](https://codelocal.cloud/)
+
 ```text
 You
   ↓

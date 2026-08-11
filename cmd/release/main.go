@@ -132,6 +132,8 @@ process.exit(result.status ?? 1);
 
 Native Go local development runtime for ChatGPT.
 
+Website: [https://codelocal.cloud](https://codelocal.cloud/)
+
 ## Install
 
 ` + "```bash\n" + installCommand + "\n" + "```\n\n" + `## Authorize a project
@@ -149,7 +151,21 @@ Use ` + "`codelocal status`" + ` to inspect it and ` + "`codelocal stop`" + ` to
 
 Use ` + "`codelocal setup`" + ` to change either choice later and ` + "`codelocal doctor`" + ` to inspect Browser/Computer readiness. The user only installs and starts ` + "`codelocal`" + `; Playwright and native Computer Use helpers are internal package details and do not require separate install commands.
 
-Use ` + "`codelocal reset --all`" + ` to stop CodeLocal and remove all local state while keeping the CLI installed. Use ` + "`codelocal uninstall --all`" + ` to remove both local state and the global npm package. Both commands ask for confirmation; add ` + "`--yes`" + ` only for intentional non-interactive cleanup. Operating-system privacy permissions remain controlled by the OS.
+## Reset or uninstall
+
+Return CodeLocal to first-time setup while keeping the CLI installed:
+
+` + "```bash\n" + `codelocal reset --all
+` + "```\n\n" + `This stops the runtime and removes the local login, workspace grants, approvals, indexes, history, managed Chromium browser and Browser/Computer choices. Run ` + "`codelocal`" + ` afterward to start the onboarding flow again.
+
+Remove both the local data and the globally installed npm package:
+
+` + "```bash\n" + `codelocal uninstall --all
+` + "```\n\n" + `Both commands ask for confirmation. For intentional non-interactive cleanup only, add ` + "`--yes`" + `:
+
+` + "```bash\n" + `codelocal reset --all --yes
+codelocal uninstall --all --yes
+` + "```\n\n" + `Operating-system privacy permissions such as macOS Accessibility and Screen Recording remain controlled by the OS and are not silently changed.
 `
 	must(os.WriteFile(filepath.Join(staging, "README.md"), []byte(readme), 0o600))
 	nativeEntries, _ := os.ReadDir(filepath.Join(staging, "bin", "native"))

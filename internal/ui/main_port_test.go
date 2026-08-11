@@ -80,7 +80,10 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 		`Authorize projects, not your whole computer.`,
 		`One lightweight machine runtime.`,
 		`Sensitive actions stay gated.`,
-		`From zero to connected in five steps.`,
+		`Setup and maintenance in six steps.`,
+		`Reset or uninstall CodeLocal`,
+		`codelocal reset --all`,
+		`codelocal uninstall --all`,
 		`Your machine is the security boundary.`,
 		`data-copy-value="https://codelocal.cloud/mcp"`,
 	} {
