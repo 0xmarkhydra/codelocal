@@ -18,7 +18,7 @@ Authorized workspaces       files, Git, terminal, local MCP extensions
 
 ## Version
 
-`1.5.5` — current stable native Go release.
+`1.5.6` — next stable native Go release.
 
 The application runtime and Cloud gateway are implemented in Go. The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 
