@@ -96,6 +96,14 @@ func maskLeaderboardEmail(email string) string {
 	return string(local[:visible]) + "***@" + parts[1]
 }
 
+func mainLeaderboardInitial(email string) string {
+	value := []rune(strings.TrimSpace(email))
+	if len(value) == 0 {
+		return "C"
+	}
+	return strings.ToUpper(string(value[0]))
+}
+
 func (s *Server) mainUsageLeaderboard(ctx context.Context, currentEmail string) string {
 	now := time.Now().UnixMilli()
 	since := time.Now().Add(-30 * 24 * time.Hour).UnixMilli()
@@ -168,15 +176,17 @@ func (s *Server) mainUsageLeaderboard(ctx context.Context, currentEmail string) 
 	podium.WriteString(`<div class="leaderboard-podium">`)
 	for _, index := range podiumOrder {
 		entry := entries[index]
-		className := "podium-card"
+		className := "podium-card rank-" + strconv.Itoa(index+1)
+		medalIcon := ui.Icon("medal")
 		if index == 0 {
 			className += " first"
+			medalIcon = ui.Icon("crown")
 		}
 		name := maskLeaderboardEmail(entry.Email)
 		if strings.EqualFold(entry.Email, currentEmail) {
 			name = "You · " + name
 		}
-		podium.WriteString(`<div class="` + className + `"><div class="podium-rank">#` + strconv.Itoa(index+1) + ` · Top 30 days</div><div class="podium-name">` + ui.Escape(name) + `</div><div class="podium-value">` + mainCompactNumber(entry.Tokens) + `</div><div class="podium-meta">estimated MCP tokens · ` + mainExactNumber(entry.Calls) + ` tool calls</div></div>`)
+		podium.WriteString(`<div class="` + className + `"><div class="podium-top"><div class="podium-medal">` + medalIcon + `</div><div class="podium-avatar">` + ui.Escape(mainLeaderboardInitial(entry.Email)) + `</div></div><div class="podium-rank">#` + strconv.Itoa(index+1) + ` · Top 30 days</div><div class="podium-name">` + ui.Escape(name) + `</div><div class="podium-value">` + mainCompactNumber(entry.Tokens) + `</div><div class="podium-meta">estimated MCP tokens · ` + mainExactNumber(entry.Calls) + ` tool calls</div></div>`)
 	}
 	podium.WriteString(`</div>`)
 

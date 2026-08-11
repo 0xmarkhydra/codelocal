@@ -63,20 +63,44 @@ const landingStyles = `
 @media(max-width:600px){.landing-nav-inner,.landing-main{width:min(100% - 28px,1180px)}.landing-nav-inner{min-height:64px}.landing-links>a:first-child{display:none}.landing-hero{padding:58px 0 62px}.landing-hero h1{font-size:43px}.landing-hero-copy{font-size:15px}.connection-preview{padding:20px;border-radius:24px}.setup-section{padding:62px 0}.landing-footer{flex-direction:column}}
 `
 
+const authStyles = `
+.auth-body{color-scheme:light;height:100dvh;min-height:100svh;overflow:hidden;background:linear-gradient(145deg,#f9fbff 0%,#f2f6ff 48%,#edf3ff 100%);color:#111936}
+.auth-body:before,.auth-body:after{content:"";position:fixed;pointer-events:none;border-radius:50%;z-index:0}.auth-body:before{width:520px;height:520px;right:-210px;top:-260px;background:radial-gradient(circle,rgba(61,119,255,.24),rgba(125,95,255,.08) 48%,transparent 72%)}.auth-body:after{width:420px;height:420px;left:-230px;bottom:-250px;background:radial-gradient(circle,rgba(91,211,255,.16),rgba(99,127,255,.05) 48%,transparent 72%)}
+.auth-body .auth-wrap{position:relative;z-index:1;width:100%;height:100dvh;min-height:100svh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;display:flex;align-items:center;justify-content:center;padding:max(28px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));background:transparent;scroll-padding-block:96px 44px}
+.auth-body .auth{width:min(440px,100%);margin:auto}.auth-body .auth .brand{justify-content:flex-start;gap:11px;padding:0 6px 18px}.auth-body .auth .logo{width:44px;height:44px;flex-basis:44px;border-radius:15px;background:#fff;box-shadow:0 12px 30px rgba(47,83,175,.16),inset 0 0 0 1px rgba(255,255,255,.92)}.auth-body .auth .brand-name{color:#111936;font-size:17px;font-weight:760;letter-spacing:-.035em}
+.auth-body .auth .card{position:relative;overflow:hidden;padding:32px;border:1px solid rgba(255,255,255,.92);border-radius:28px;background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(255,255,255,.72));backdrop-filter:saturate(175%) blur(32px);-webkit-backdrop-filter:saturate(175%) blur(32px);box-shadow:0 30px 90px rgba(57,76,126,.15),0 5px 20px rgba(49,67,108,.06),inset 0 1px 0 #fff}.auth-body .auth .card:before{content:"";position:absolute;right:-105px;top:-130px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(70,124,255,.22),rgba(126,96,255,.06) 50%,transparent 72%);pointer-events:none}.auth-body .auth .card>*{position:relative;z-index:1}
+.auth-body .auth h1{margin:0;color:#101631;font-size:32px;font-weight:790;line-height:1.08;letter-spacing:-.045em}.auth-body .auth p{max-width:360px;margin:9px 0 26px;color:#737e98;font-size:13px;line-height:1.6}.auth-body .form{gap:15px}.auth-body .field{gap:7px}.auth-body .field label{color:#505b76;font-size:11px;font-weight:720}.auth-body .input{height:52px;padding:0 15px;border:1px solid rgba(102,120,160,.16);border-radius:15px;background:rgba(248,250,255,.78);color:#17203c;font-size:16px;box-shadow:inset 0 1px 0 rgba(255,255,255,.84);scroll-margin-block:120px}.auth-body .input::placeholder{color:#a5adc0}.auth-body .input:focus{border-color:rgba(30,111,255,.65);background:#fff;box-shadow:0 0 0 4px rgba(37,116,255,.12),0 8px 24px rgba(47,91,185,.08)}.auth-body .hint{color:#8a94ac;font-size:10.5px}.auth-body .form>.btn.primary{width:100%;min-height:52px;margin-top:3px;border-radius:15px;background:linear-gradient(180deg,#3e8cff 0%,#0a72ed 55%,#0863d5 100%);font-size:13px;font-weight:730;box-shadow:0 13px 28px rgba(22,108,229,.24),inset 0 1px 0 rgba(255,255,255,.40)}.auth-body .auth-switch{margin-top:19px;color:#7b849b;font-size:12px}.auth-body .auth-switch a{color:#0875e8;font-weight:650}.auth-body .alert{margin-bottom:17px;border:1px solid rgba(255,90,107,.12);border-radius:14px;background:rgba(255,79,99,.08);color:#d84357}.auth-body .mono{letter-spacing:.05em}
+@media(max-width:600px){.auth-body .auth-wrap{display:block;padding-top:max(96px,calc(env(safe-area-inset-top) + 54px));padding-right:max(16px,env(safe-area-inset-right));padding-bottom:max(38px,calc(env(safe-area-inset-bottom) + 22px));padding-left:max(16px,env(safe-area-inset-left));scroll-padding-block:110px 52px}.auth-body .auth{width:100%;margin:0 auto}.auth-body .auth .brand{padding:0 5px 16px}.auth-body .auth .logo{width:40px;height:40px;flex-basis:40px;border-radius:14px}.auth-body .auth .brand-name{font-size:16px}.auth-body .auth .card{padding:25px 20px 23px;border-radius:25px}.auth-body .auth h1{font-size:30px}.auth-body .auth p{margin:8px 0 22px;font-size:12.5px}.auth-body .input{height:54px;border-radius:15px}.auth-body .form>.btn.primary{min-height:54px;border-radius:15px}.auth-body .auth-switch{padding-bottom:3px}}
+@media(max-width:600px) and (max-height:620px){.auth-body .auth-wrap{padding-top:max(68px,calc(env(safe-area-inset-top) + 36px))}.auth-body .auth .brand{padding-bottom:12px}.auth-body .auth .card{padding-top:22px}.auth-body .auth p{margin-bottom:18px}}
+`
+
+const authScript = `
+(() => {
+  const wrap = document.querySelector('.auth-wrap');
+  const keepFocusedVisible = () => {
+    const active = document.activeElement;
+    if (!wrap || !(active instanceof HTMLInputElement)) return;
+    window.setTimeout(() => active.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'}), 90);
+  };
+  document.addEventListener('focusin', keepFocusedVisible);
+  window.visualViewport?.addEventListener('resize', keepFocusedVisible);
+})();
+`
+
 func icon(path string) string {
 	return `<svg viewBox="0 0 24 24" aria-hidden="true">` + path + `</svg>`
 }
 
 var navIcons = map[string]string{
-	"overview":    icon(`<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>`),
-	"workspaces":  icon(`<path d="M3.5 7.5h6l2-2h9v13.5H3.5z"/><path d="M3.5 9.5h17"/>`),
-	"devices":     icon(`<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9.5 6h5M11 18h2"/>`),
-	"usage":       icon(`<path d="M4 18V9M10 18V5M16 18v-7M22 18V3"/>`),
-	"connect":     icon(`<path d="M8 12h8M13 9l3 3-3 3"/><path d="M5 5.5h6M5 18.5h6"/>`),
-	"invite":      icon(`<path d="M4 12h16M12 4v16"/><path d="M5 7.5h14v11H5z"/><path d="M5 10h14"/>`),
-	"leaderboard": icon(`<path d="M8 4h8v4a4 4 0 0 1-8 0z"/><path d="M6 5H4v2a4 4 0 0 0 4 4M18 5h2v2a4 4 0 0 1-4 4M12 12v4M8 20h8M9 16h6"/>`),
-	"security":    icon(`<path d="M12 3l7 3v5c0 4.6-2.8 8.3-7 10-4.2-1.7-7-5.4-7-10V6z"/><path d="M9.5 12l1.7 1.7 3.5-4"/>`),
-	"admin":       icon(`<circle cx="12" cy="8" r="3"/><path d="M5 20c.8-4 3.2-6 7-6s6.2 2 7 6"/>`),
+	"overview":    icon(`<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>`),
+	"workspaces":  icon(`<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 10h17"/>`),
+	"devices":     icon(`<rect x="4" y="4" width="16" height="11" rx="2.5"/><path d="M2.5 19h19M9 15v4M15 15v4"/>`),
+	"usage":       icon(`<path d="M4 18V10M9.5 18V6M15 18v-5M20 18V4"/>`),
+	"connect":     icon(`<path d="m9.5 14.5-1 1a4 4 0 0 1-5.7-5.7l3-3a4 4 0 0 1 5.7 0"/><path d="m14.5 9.5 1-1a4 4 0 0 1 5.7 5.7l-3 3a4 4 0 0 1-5.7 0"/><path d="m8.5 15.5 7-7"/>`),
+	"invite":      icon(`<circle cx="9" cy="8" r="3"/><path d="M3.5 20c.6-3.8 2.6-5.7 5.5-5.7 1.6 0 2.9.5 3.8 1.4"/><path d="M17.5 11.5v7M14 15h7"/>`),
+	"leaderboard": icon(`<path d="M8 4h8v3.5a4 4 0 0 1-8 0z"/><path d="M8 6H5v1.5a4 4 0 0 0 4 4M16 6h3v1.5a4 4 0 0 1-4 4M12 11.5V16M8.5 20h7M9 16h6"/>`),
+	"security":    icon(`<path d="M12 3.2 19 6v5c0 4.5-2.7 8-7 9.8C7.7 19 5 15.5 5 11V6z"/><path d="m9 12 2 2 4-4"/>`),
+	"admin":       icon(`<path d="M12 3.2 19 6v5c0 4.5-2.7 8-7 9.8C7.7 19 5 15.5 5 11V6z"/><circle cx="12" cy="9" r="2"/><path d="M8.8 15c.7-1.7 1.8-2.5 3.2-2.5s2.5.8 3.2 2.5"/>`),
 }
 
 func dashboardPage(title, subtitle, body string) string {
@@ -104,7 +128,7 @@ func Page(title, subtitle, body string) string {
 	if title == "CodeLocal" {
 		return landingPage(subtitle, body)
 	}
-	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark">` + brandHead + `<title>` + Escape(title) + ` · CodeLocal</title><style>` + styles + `</style></head><body><div class="auth-wrap"><div class="auth"><div class="brand"><img class="logo" src="/assets/codelocal-icon.png" alt=""><span class="brand-name">CodeLocal</span></div><section class="card glow"><h1>` + Escape(title) + `</h1><p>` + Escape(subtitle) + `</p>` + body + `</section></div></div></body></html>`
+	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light"><meta name="theme-color" content="#f4f7ff">` + brandHead + `<title>` + Escape(title) + ` · CodeLocal</title><style>` + styles + authStyles + `</style></head><body class="auth-body"><div class="auth-wrap"><div class="auth"><div class="brand"><img class="logo" src="/assets/codelocal-icon.png" alt=""><span class="brand-name">CodeLocal</span></div><section class="card"><h1>` + Escape(title) + `</h1><p>` + Escape(subtitle) + `</p>` + body + `</section></div></div><script>` + authScript + `</script></body></html>`
 }
 
 func Hidden(fields map[string]string) string {

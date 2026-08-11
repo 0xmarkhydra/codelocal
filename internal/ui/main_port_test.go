@@ -83,3 +83,21 @@ func TestDashboardPageDoesNotRenderStandaloneTokenUsageTab(t *testing.T) {
 		t.Fatal("leaderboard must render as its own sidebar tab")
 	}
 }
+
+func TestAuthPageUsesKeyboardSafeMobileShell(t *testing.T) {
+	html := Page("Welcome back", "Sign in to CodeLocal.", `<form><input class="input"></form>`)
+	for _, want := range []string{
+		`<body class="auth-body">`,
+		`height:100dvh;min-height:100svh`,
+		`env(safe-area-inset-top)`,
+		`font-size:16px`,
+		`window.visualViewport?.addEventListener('resize'`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("auth page must include keyboard-safe mobile behavior %q", want)
+		}
+	}
+	if strings.Contains(html, `<body class="dashboard-body`) {
+		t.Fatal("auth page must use its own shell instead of dashboard chrome")
+	}
+}

@@ -63,3 +63,16 @@ func TestSignupFormRequiresReferralCode(t *testing.T) {
 		t.Fatal("signup form must prefill a referral code supplied by an invite link")
 	}
 }
+
+func TestAuthFormAvoidsImmediateIOSKeyboardAndUsesEmailInputHints(t *testing.T) {
+	manager := &Manager{}
+	login := manager.form("login", "csrf-token", "/dashboard", "")
+	if strings.Contains(login, "autofocus") {
+		t.Fatal("auth form must not autofocus an input because iOS would open the keyboard before the browser sheet settles")
+	}
+	for _, want := range []string{`inputmode="email"`, `autocapitalize="none"`, `spellcheck="false"`} {
+		if !strings.Contains(login, want) {
+			t.Fatalf("auth email input must include mobile hint %s", want)
+		}
+	}
+}

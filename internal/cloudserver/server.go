@@ -364,7 +364,7 @@ func renderReferralTree(users []adminUserState) string {
 		if depth == 0 {
 			open = " open"
 		}
-		return `<details class="tree-branch"` + open + `><summary class="tree-node">` + node + `<span class="tree-chevron">›</span></summary><div class="tree-children">` + nested.String() + `</div></details>`
+		return `<details class="tree-branch"` + open + `><summary class="tree-node">` + node + `<span class="tree-chevron">` + ui.Icon("chevronRight") + `</span></summary><div class="tree-children">` + nested.String() + `</div></details>`
 	}
 
 	var out strings.Builder
@@ -375,7 +375,7 @@ func renderReferralTree(users []adminUserState) string {
 		for _, child := range children["MMON"] {
 			nested.WriteString(walk(child, 1))
 		}
-		out.WriteString(`<details class="tree-branch" open><summary class="tree-node"><div><strong>MMON</strong> <span class="badge muted">Legacy root</span></div><span class="tree-chevron">›</span></summary><div class="tree-children">` + nested.String() + `</div></details>`)
+		out.WriteString(`<details class="tree-branch" open><summary class="tree-node"><div><strong>MMON</strong> <span class="badge muted">Legacy root</span></div><span class="tree-chevron">` + ui.Icon("chevronRight") + `</span></summary><div class="tree-children">` + nested.String() + `</div></details>`)
 	}
 	for _, user := range users {
 		if !visited[user.ID] {
