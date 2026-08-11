@@ -2,7 +2,11 @@
 
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/godbus/dbus/v5"
+)
 
 func TestLinuxNamedKeysym(t *testing.T) {
 	tests := map[string]uint32{
@@ -51,5 +55,23 @@ func TestFirstPortalUint32FindsStreamNode(t *testing.T) {
 	}{{Node: 42, Meta: map[string]any{"position": "primary"}}}
 	if got := firstPortalUint32(value); got != 42 {
 		t.Fatalf("stream node = %d, want 42", got)
+	}
+}
+
+func TestATSPIOpaqueElementIDRoundTrip(t *testing.T) {
+	input := atspiRef{Bus: ":1.42", Path: dbus.ObjectPath("/org/a11y/atspi/accessible/99")}
+	encoded := encodeATSPID(input)
+	decoded, err := decodeATSPID(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Bus != input.Bus || decoded.Path != input.Path {
+		t.Fatalf("decoded AT-SPI reference = %+v, want %+v", decoded, input)
+	}
+}
+
+func TestATSPIOpaqueElementIDRejectsInvalidPath(t *testing.T) {
+	if _, err := decodeATSPID("atspi:eyJiIjoiOjEuNDIiLCJwIjoibm90L2FuL29iamVjdC9wYXRoIn0"); err == nil {
+		t.Fatal("invalid D-Bus object path should be rejected")
 	}
 }
