@@ -52,6 +52,7 @@ func workspaceAutomationCapabilities(w *WorkspaceWorker) protocol.AutomationCapa
 		Computer: protocol.ComputerCapabilities{
 			Available:         boolValue("available"),
 			Backend:           stringValue("backend"),
+			WindowList:        boolValue("windowList"),
 			ScreenCapture:     boolValue("screenCapture"),
 			UITree:            boolValue("uiTree"),
 			Pointer:           boolValue("pointer"),
