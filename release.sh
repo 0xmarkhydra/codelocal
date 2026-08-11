@@ -98,7 +98,11 @@ if [[ "${CODELOCAL_RELEASE_DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-npm version "$next_version" --no-git-tag-version >/dev/null
+if [[ "$local_version" != "$next_version" ]]; then
+  npm version "$next_version" --no-git-tag-version >/dev/null
+else
+  printf 'Version files already target %s; skipping npm version.\n' "$next_version"
+fi
 
 CODELOCAL_VERSION="$next_version" node <<'NODE'
 const fs = require('node:fs');
