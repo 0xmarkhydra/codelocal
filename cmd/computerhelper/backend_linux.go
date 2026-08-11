@@ -20,16 +20,29 @@ func linuxMode() string {
 	return "headless"
 }
 
+func linuxCapabilitiesWithATSPITree(base map[string]any) map[string]any {
+	if base == nil {
+		base = map[string]any{}
+	}
+	if available, _ := base["available"].(bool); available && atspiAvailable() {
+		base["uiTree"] = true
+		notes, _ := base["notes"].([]string)
+		base["notes"] = append(notes, "AT-SPI semantic UI tree and Action interface are available; CodeLocal prefers semantic actions before coordinate input.")
+	}
+	return base
+}
+
 func platformCapabilities() map[string]any {
 	switch linuxMode() {
 	case "x11":
-		return x11Capabilities()
+		return linuxCapabilitiesWithATSPITree(x11Capabilities())
 	case "wayland":
-		return waylandCapabilities()
+		return linuxCapabilitiesWithATSPITree(waylandCapabilities())
 	default:
 		return map[string]any{
 			"available": false,
 			"backend": "linux-headless",
+			"windowList": false,
 			"screenCapture": false,
 			"uiTree": false,
 			"pointer": false,
@@ -45,6 +58,19 @@ func platformCapabilities() map[string]any {
 func platformHandle(ctx context.Context, input request) (any, error) {
 	if input.Operation == "status" {
 		return platformCapabilities(), nil
+	}
+	if linuxMode() == "headless" {
+		return nil, errors.New("no graphical Linux session is available")
+	}
+	if input.Operation == "ui_tree" {
+		result, err := atspiTree(ctx, 500)
+		return result, atspiError("UI tree", err)
+	}
+	if input.Operation == "click" {
+		if elementID := stringValue(input.Arguments, "elementId"); strings.HasPrefix(elementID, "atspi:") {
+			result, err := atspiDoAction(ctx, elementID)
+			return result, atspiError("action", err)
+		}
 	}
 	switch linuxMode() {
 	case "wayland":
