@@ -159,8 +159,9 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 	usage24h, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-24*time.Hour).UnixMilli())
 	usage30d, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-30*24*time.Hour).UnixMilli())
 	usageAll, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, 0)
-	usageMetric := func(label string, value cloud.MCPUsageSummary) string {
-		return ui.MetricCard(label, "~"+fmt.Sprint(value.TotalTokensEst), fmt.Sprintf("%d tool calls · MCP payload estimate", value.Calls))
+	leaderboard := ""
+	if cloud.IsAdminEmail(identity.User.Email) {
+		leaderboard = s.mainUsageLeaderboard(r.Context())
 	}
 
 	paired := 0
@@ -208,7 +209,8 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 		ui.MetricCard("Machine runtimes", onlineDevices, fmt.Sprintf("%d paired device(s)", paired)) +
 		ui.MetricCard("Active workspaces", activeWorkspaces, "Loaded for a ChatGPT session") +
 		ui.MetricCard("Sleeping workspaces", sleepingWorkspaces, "Authorized, zero heavy runtime") +
-		`<div class="card span12 usage-note" id="token-usage"><div class="section-head"><div><div class="section-kicker">Usage</div><div class="title">Token usage</div><div class="label">Estimated MCP payload passing through CodeLocal — not OpenAI billing or full conversation tokens.</div></div><span class="badge blue">Estimated</span></div><div class="divider"></div><div class="grid">` + usageMetric("Last 24 hours", usage24h) + usageMetric("Last 30 days", usage30d) + usageMetric("All time", usageAll) + `</div><div class="divider"></div><div class="label">CodeLocal keeps lightweight cumulative counters only. Rolling 24-hour and 30-day counters expire automatically; no per-tool or per-workspace usage history is stored.</div></div>` +
+		`<div class="card span12 usage-note" id="token-usage"><div class="section-head"><div><div class="section-kicker">Usage</div><div class="title">Token usage</div><div class="label">Estimated MCP payload passing through CodeLocal — not OpenAI billing or full conversation tokens.</div></div><span class="badge blue">Estimated</span></div><div class="divider"></div><div class="grid">` + mainUsageMetric("Last 24 hours", usage24h) + mainUsageMetric("Last 30 days", usage30d) + mainUsageMetric("All time", usageAll) + `</div><div class="divider"></div><div class="label">CodeLocal keeps lightweight cumulative counters only. Rolling 24-hour and 30-day counters expire automatically; no per-tool or per-workspace usage history is stored.</div></div>` +
+		leaderboard +
 		`<div class="card span12 invite-card"><div><div class="section-kicker">Invite members</div><div class="title">Your referral code</div><div class="label">Share this code with someone you want to invite. They must enter it when creating a CodeLocal account. Invited by: ` + ui.Escape(invitedBy) + `.</div></div><div class="invite-code-wrap"><div class="invite-code mono" id="referral-code">` + ui.Escape(identity.User.ReferralCode) + `</div><button class="btn primary" type="button" data-copy-target="#referral-code">Copy code</button></div></div>` +
 		`<div class="card span12"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">` + workspaceRows.String() + `</div></div></div>`
 
