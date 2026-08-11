@@ -131,7 +131,6 @@ func DashboardPage(options DashboardOptions) string {
 	nav.WriteString(navLink("/dashboard", "overview", "Overview", options.Active == "overview"))
 	nav.WriteString(navLink("/dashboard/workspaces", "workspaces", "Workspaces", options.Active == "workspaces"))
 	nav.WriteString(navLink("/dashboard/devices", "devices", "Devices", options.Active == "devices"))
-	nav.WriteString(navLink("/dashboard/usage", "usage", "Token usage", options.Active == "usage"))
 	nav.WriteString(navLink("/dashboard/connect", "connect", "Connect ChatGPT", options.Active == "connect"))
 	if options.IsAdmin {
 		nav.WriteString(`</nav><div class="nav-label">Administration</div><nav class="nav">`)
