@@ -98,7 +98,8 @@ test("public landing page contains the complete ChatGPT setup flow", () => {
     "Start the machine runtime",
     "Start working from ChatGPT",
   ]) assert.match(html, new RegExp(step));
-  assert.match(html, /npm install -g codelocal@beta/);
+  assert.match(html, /npm install -g codelocal/);
+  assert.doesNotMatch(html, /npm install -g codelocal@beta/);
   assert.match(html, /codelocal \./);
   assert.match(html, /local-only action and does not connect to CodeLocal Cloud/);
   assert.match(html, /reuses the existing machine runtime instead of starting a duplicate/);

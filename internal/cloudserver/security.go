@@ -33,7 +33,7 @@ func (s *Server) connectDashboard(w http.ResponseWriter, r *http.Request) {
   </section>
   <section class="card span6">
     <div class="section-head"><div><div class="section-title">1 · Install CodeLocal</div><div class="section-label">Install the current beta runtime once on your computer.</div></div></div>
-    <div class="row"><div class="row-title mono">npm install -g codelocal@beta</div></div>
+    <div class="row"><div class="row-title mono">npm install -g codelocal</div></div>
   </section>
   <section class="card span6">
     <div class="section-head"><div><div class="section-title">2 · Authorize folders</div><div class="section-label">Grant only projects you want ChatGPT to access.</div></div></div>

@@ -93,6 +93,18 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 			t.Fatalf("landing page must not invent unsupported feature %q", unsupported)
 		}
 	}
+	if !strings.Contains(html, `npm install -g codelocal`) || strings.Contains(html, `npm install -g codelocal@beta`) {
+		t.Fatal("public landing install instructions must use the stable codelocal package")
+	}
+	if strings.Contains(html, `class="cta-icon"`) {
+		t.Fatal("final CTA must not render the decorative sparkle icon")
+	}
+	if !strings.Contains(html, `class="hero-chatgpt-logo"`) || !strings.Contains(html, `data:image/png;base64,`) {
+		t.Fatal("landing hero must use the supplied ChatGPT logo artwork")
+	}
+	if !strings.Contains(html, `class="cta-command"`) || !strings.Contains(html, `data-copy-value="npm install -g codelocal"`) {
+		t.Fatal("final CTA must surface a useful copyable stable install command")
+	}
 }
 
 func TestLandingPageHasMobileSafeLayout(t *testing.T) {
