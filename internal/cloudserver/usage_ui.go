@@ -96,7 +96,6 @@ func (s *Server) mainUsageLeaderboard(ctx context.Context) string {
 	entries := make([]mainUsageLeaderboardEntry, 0, len(users))
 	commands := make([]mainUsageLeaderboardCommand, 0, len(users)*31)
 	pipe := s.Store.Redis.Pipeline()
-	defer pipe.Close()
 
 	for _, user := range users {
 		// The durable all-time counter tells us whether this user has any chance
