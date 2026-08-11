@@ -47,8 +47,6 @@ func (s *Server) MainUIHandler(next http.Handler) http.Handler {
 			s.mainUsage(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/connect":
 			s.mainConnect(w, r, identity)
-		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/security":
-			s.securityDashboard(w, r)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/admin":
 			s.adminDashboard(w, r, identity)
 		default:
@@ -88,41 +86,6 @@ func mainWorkspaceState(status string) (label, badge string) {
 		return "Sleeping", "blue"
 	default:
 		return "Device offline", "muted"
-	}
-}
-
-func mainEventLabel(event string) string {
-	labels := map[string]string{
-		"device.paired":                  "Device paired",
-		"device.pairing_approved":        "Device pairing approved",
-		"device.revoked":                 "Device access revoked",
-		"workspace.activation_requested": "Workspace activation requested",
-		"workspace.activated":            "Workspace activated",
-		"workspace.activation_rejected":  "Workspace activation rejected",
-		"workspace.revocation_requested": "Workspace removal requested",
-		"workspace.revoked":              "Workspace authorization removed",
-		"terminal.executed":              "Terminal command executed",
-	}
-	if label := labels[event]; label != "" {
-		return label
-	}
-	parts := strings.FieldsFunc(event, func(r rune) bool { return r == '.' || r == '_' || r == '-' })
-	for i := range parts {
-		if parts[i] != "" {
-			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-func mainImportantEvent(event string) bool {
-	switch event {
-	case "device.paired", "device.pairing_approved", "device.revoked",
-		"workspace.activation_requested", "workspace.activated", "workspace.activation_rejected",
-		"workspace.revocation_requested", "workspace.revoked", "terminal.executed":
-		return true
-	default:
-		return false
 	}
 }
 
@@ -193,7 +156,6 @@ func mainPager(path, query string, page, totalPages int) string {
 func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	devices, _ := s.Store.ListDevices(r.Context(), identity.User.ID)
 	workspaces, _ := s.Workspaces.Catalog(r.Context(), identity.User.ID)
-	audit, _ := s.Store.RecentAudit(r.Context(), identity.User.ID, 40)
 
 	paired := 0
 	onlineDevices := 0
@@ -232,32 +194,6 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 		workspaceRows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("folder") + `</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`)
 	}
 
-	var activities strings.Builder
-	shown := 0
-	for _, item := range audit {
-		event, _ := item["event"].(string)
-		if !mainImportantEvent(event) {
-			continue
-		}
-		createdAt, _ := item["createdAt"].(int64)
-		if createdAt == 0 {
-			switch value := item["createdAt"].(type) {
-			case float64:
-				createdAt = int64(value)
-			case int:
-				createdAt = int64(value)
-			}
-		}
-		activities.WriteString(`<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">` + ui.Escape(mainEventLabel(event)) + `</div><div class="activity-meta">` + ui.Escape(ui.FormatTime(createdAt)) + `</div></div></div>`)
-		shown++
-		if shown >= 7 {
-			break
-		}
-	}
-	if activities.Len() == 0 {
-		activities.WriteString(`<div class="empty">No security activity yet.</div>`)
-	}
-
 	invitedBy := identity.User.ReferredByCode
 	if invitedBy == "" {
 		invitedBy = "Root account"
@@ -267,8 +203,7 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 		ui.MetricCard("Active workspaces", activeWorkspaces, "Loaded for a ChatGPT session") +
 		ui.MetricCard("Sleeping workspaces", sleepingWorkspaces, "Authorized, zero heavy runtime") +
 		`<div class="card span12 invite-card"><div><div class="section-kicker">Invite members</div><div class="title">Your referral code</div><div class="label">Share this code with someone you want to invite. They must enter it when creating a CodeLocal account. Invited by: ` + ui.Escape(invitedBy) + `.</div></div><div class="invite-code-wrap"><div class="invite-code mono" id="referral-code">` + ui.Escape(identity.User.ReferralCode) + `</div><button class="btn primary" type="button" data-copy-target="#referral-code">Copy code</button></div></div>` +
-		`<div class="card span8"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">` + workspaceRows.String() + `</div></div>` +
-		`<div class="card span4"><div class="section-head"><div><div class="title">Recent activity</div><div class="label">Cloud security metadata only.</div></div><a class="btn small" href="/dashboard/security">View all</a></div><div class="divider"></div>` + activities.String() + `</div></div>`
+		`<div class="card span12"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">` + workspaceRows.String() + `</div></div></div>`
 
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
 		Title: "Overview", Active: "overview", Email: identity.User.Email, CSRF: identity.CSRF,

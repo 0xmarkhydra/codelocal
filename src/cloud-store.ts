@@ -554,12 +554,9 @@ export class CloudStore {
     }
   }
 
-  async audit(userId: string | undefined, event: string, detail: Record<string, unknown> = {}, deviceId?: string, workspaceId?: string) {
-    if (event !== "terminal.executed") return;
-    await this.db().query(
-      "INSERT INTO codelocal_audit_logs(id,user_id,event,device_id,workspace_id,detail,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
-      [randomUUID(), userId ?? null, event, deviceId ?? null, workspaceId ?? null, JSON.stringify(detail), Date.now()],
-    );
+  async audit(_userId: string | undefined, _event: string, _detail: Record<string, unknown> = {}, _deviceId?: string, _workspaceId?: string) {
+    // Cloud audit storage is disabled. Keep this method as a no-op so legacy
+    // server call sites cannot write security/terminal metadata to PostgreSQL.
   }
 
   async recentAudit(userId: string, limit = 50) {

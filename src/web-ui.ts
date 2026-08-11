@@ -222,7 +222,7 @@ export function dashboardPage(options: {
   title: string;
   eyebrow?: string;
   subtitle?: string;
-  active: "overview" | "devices" | "workspaces" | "connect" | "security";
+  active: "overview" | "devices" | "workspaces" | "connect";
   email: string;
   csrf: string;
   body: string;
@@ -233,7 +233,6 @@ export function dashboardPage(options: {
     ["workspaces", "/dashboard/workspaces", "◇", "Workspaces"],
     ["devices", "/dashboard/devices", "◉", "Devices"],
     ["connect", "/dashboard/connect", "↗", "Connect ChatGPT"],
-    ["security", "/dashboard/security", "⌁", "Security"],
   ] as const;
   const initial = options.email.trim().slice(0, 1).toUpperCase() || "U";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark">${brandHead}<title>${escapeHtml(options.title)} · CodeLocal</title><style>${styles}${premiumStyles}</style></head><body><div class="shell"><aside class="sidebar"><div class="brand"><img class="logo" src="/assets/codelocal-icon.png" alt=""><span class="brand-name">CodeLocal</span><span class="brand-tag">CLOUD</span></div><div class="nav-label">Control plane</div><nav class="nav">${nav.map(([key, href, _icon, label]) => `<a class="${options.active === key ? "active" : ""}" href="${href}"><span class="nav-icon">${navIcons[key]}</span><span>${label}</span></a>`).join("")}</nav><div class="sidebar-spacer"></div><div class="sidebar-status"><div class="sidebar-status-title"><span class="status-dot green"></span>Cloud connected</div><div class="sidebar-status-copy">Local source code and secrets stay on your machine.</div></div><div class="sidebar-foot"><div class="avatar">${escapeHtml(initial)}</div><div class="account"><div class="account-email">${escapeHtml(options.email)}</div><div class="account-meta">CodeLocal account</div></div><form method="post" action="/logout"><input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}"><button class="btn ghost small" type="submit">Sign out</button></form></div></aside><main class="main"><header class="top"><div class="top-copy"><div class="eyebrow"><span class="status-dot green"></span>${escapeHtml(options.eyebrow ?? "CodeLocal Cloud")}</div><div class="h1">${escapeHtml(options.title)}</div>${options.subtitle ? `<div class="sub">${escapeHtml(options.subtitle)}</div>` : ""}</div>${options.actions ? `<div class="top-actions">${options.actions}</div>` : ""}</header>${options.body}</main></div><dialog id="confirm-dialog"><div class="modal"><div class="modal-icon">!</div><div class="modal-title" id="confirm-title">Are you sure?</div><div class="modal-copy" id="confirm-copy">This action cannot be undone.</div><div class="modal-actions"><button class="btn" type="button" onclick="this.closest('dialog').close()">Cancel</button><button class="btn danger" id="confirm-submit" type="button">Continue</button></div></div></dialog><script>${dashboardScript}</script></body></html>`;

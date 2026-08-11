@@ -32,25 +32,6 @@ function flash(req: express.Request) {
   return `${ok}${error}`;
 }
 
-function eventLabel(event: string, detail?: Record<string, unknown>) {
-  if (event === "terminal.executed" && typeof detail?.tool === "string" && detail.tool.trim()) {
-    return `ChatGPT used terminal · ${detail.tool.trim()}`;
-  }
-  const labels: Record<string, string> = {
-    "device.paired": "Device paired",
-    "device.pairing_approved": "Device pairing approved",
-    "device.revoked": "Device access revoked",
-    "workspace.activation_requested": "Workspace activation requested",
-    "workspace.activated": "Workspace activated",
-    "workspace.activation_rejected": "Workspace activation rejected",
-    "workspace.revocation_requested": "Workspace removal requested",
-    "workspace.revoked": "Workspace authorization removed",
-    "runtime.workspaces_synced": "Workspace permissions synced",
-    "terminal.executed": "ChatGPT used terminal",
-  };
-  return labels[event] ?? event.split(/[._-]/).filter(Boolean).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
-}
-
 function workspaceState(workspace: CloudWorkspace & { online: boolean }, runtimeOnline: boolean) {
   if (workspace.online) return { label: "Active", badge: "green" };
   if (runtimeOnline) return { label: "Sleeping", badge: "blue" };
@@ -86,10 +67,9 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
 
   router.get("/dashboard", async (_req, res) => {
     const me = identity(res);
-    const [devices, workspaces, audit] = await Promise.all([
+    const [devices, workspaces] = await Promise.all([
       cloudStore.listDevices(me.user.id),
       cloudStore.listWorkspaces(me.user.id),
-      cloudStore.recentAudit(me.user.id, 7),
     ]);
     const deviceOnline = await onlineDeviceMap(me.user.id, devices.filter((device) => !device.revokedAt).map((device) => device.deviceId), hooks);
     const activeWorkspaces = workspaces.filter((workspace) => workspace.online).length;
@@ -103,11 +83,10 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
         <div class="card metric-card span4"><div class="metric-label">Machine runtimes</div><div class="metric">${onlineDevices}</div><div class="metric-sub">${devices.filter((d) => !d.revokedAt).length} paired device${devices.filter((d) => !d.revokedAt).length === 1 ? "" : "s"}</div></div>
         <div class="card metric-card span4"><div class="metric-label">Active workspaces</div><div class="metric">${activeWorkspaces}</div><div class="metric-sub">Loaded for a ChatGPT session</div></div>
         <div class="card metric-card span4"><div class="metric-label">Sleeping workspaces</div><div class="metric">${sleepingWorkspaces}</div><div class="metric-sub">Authorized, zero heavy runtime</div></div>
-        <div class="card span8"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">${workspaces.slice(0, 5).map((workspace) => {
+        <div class="card span12"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">${workspaces.slice(0, 5).map((workspace) => {
           const state = workspaceState(workspace, deviceOnline.get(workspace.deviceId) === true);
           return `<div class="row"><div class="entity"><div class="entity-icon">${uiIcons.folder}</div><div class="entity-copy"><div class="row-title"><span class="row-title-text">${escapeHtml(workspace.workspaceName)}</span></div><div class="row-meta">${escapeHtml(workspace.deviceId)} · ${formatTime(workspace.lastSeenAt)}</div></div></div><span class="badge ${state.badge}">${state.label}</span></div>`;
         }).join("") || `<div class="empty"><div class="empty-icon">${uiIcons.folder}</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`}</div></div>
-        <div class="card span4"><div class="section-head"><div><div class="title">Recent terminal activity</div><div class="label">Successful terminal executions only.</div></div><a class="btn small" href="/dashboard/security">View all</a></div><div class="divider"></div>${audit.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event, item.detail))}</div><div class="activity-meta">${formatTime(item.createdAt)}</div></div></div>`).join("") || `<div class="empty">No terminal activity yet.</div>`}</div>
       </div>`,
     });
   });
@@ -179,20 +158,6 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
       subtitle: "Connect the CodeLocal Cloud MCP once. Workspace choice remains scoped to each ChatGPT MCP session.",
       actions: `<a class="btn" href="/#setup">View full setup guide</a>`,
       body: `<div class="grid"><div class="card span7 glow"><div class="section-head"><div><div class="title">ChatGPT MCP endpoint</div><div class="label">Use this remote MCP URL when adding CodeLocal to ChatGPT.</div></div></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">${escapeHtml(endpoint)}</div><button class="btn" type="button" data-copy-target="#mcp-endpoint">Copy</button></div><div class="divider"></div><div class="label">Authentication: <strong>OAuth</strong>. Sign in with this CodeLocal account and approve the connection when ChatGPT opens the browser.</div></div><div class="card span5"><div class="section-head"><div><div class="title">ChatGPT plugin icon</div><div class="label">256 × 256 PNG · under 10 KB.</div></div><img src="/assets/chatgpt-plugin-icon.png" alt="" style="width:56px;height:56px;border-radius:16px"></div><div class="divider"></div><a class="btn primary" href="/assets/chatgpt-plugin-icon.png" download="codelocal-chatgpt-plugin-icon.png">Download icon</a><div style="height:12px"></div><div class="label">The public setup guide includes every field to enter in ChatGPT and the complete machine pairing flow.</div></div></div>`,
-    });
-  });
-
-  router.get("/dashboard/security", async (req, res) => {
-    const me = identity(res);
-    const requestedPage = Number.parseInt(String(req.query.page ?? "1"), 10);
-    const audit = await cloudStore.auditPage(me.user.id, Number.isFinite(requestedPage) ? requestedPage : 1, 20);
-    const previous = audit.page > 1 ? `<a class="btn small" href="/dashboard/security?page=${audit.page - 1}">← Previous</a>` : "";
-    const next = audit.page < audit.totalPages ? `<a class="btn small" href="/dashboard/security?page=${audit.page + 1}">Next →</a>` : "";
-    const pager = `<div class="divider"></div><div class="section-head"><div class="label">Page ${audit.page} of ${audit.totalPages} · ${audit.total} event${audit.total === 1 ? "" : "s"} · 20 per page</div><div class="actions">${previous}${next}</div></div>`;
-    shell(res, {
-      title: "Security", active: "security", email: me.user.email, csrf: me.csrf,
-      subtitle: "Cloud stores terminal-execution metadata only. Source code, terminal output, command text and local secrets are not stored here.",
-      body: `<div class="card"><div class="section-head"><div><div class="title">Terminal activity</div><div class="label">Only successful terminal executions are stored. Newest events first.</div></div><span class="badge blue">Metadata only</span></div><div class="divider"></div>${audit.items.map((item) => `<div class="activity"><div class="activity-icon">•</div><div><div class="activity-title">${escapeHtml(eventLabel(item.event, item.detail))}</div><div class="activity-meta">${formatTime(item.createdAt)}${item.deviceId ? ` · ${escapeHtml(item.deviceId)}` : ""}${item.workspaceId ? ` · ${escapeHtml(item.workspaceId)}` : ""}</div></div></div>`).join("") || `<div class="empty">No terminal activity yet.</div>`}${pager}</div>`,
     });
   });
 

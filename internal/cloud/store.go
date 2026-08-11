@@ -133,7 +133,6 @@ type Store struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	auditQ chan AuditEvent
 	usageQ chan MCPUsageEvent
 }
 
@@ -176,13 +175,12 @@ func New(ctx context.Context) (*Store, error) {
 		return nil, err
 	}
 	storeCtx, cancel := context.WithCancel(ctx)
-	s := &Store{DB: db, Redis: rdb, ctx: storeCtx, cancel: cancel, auditQ: make(chan AuditEvent, 4096), usageQ: make(chan MCPUsageEvent, 8192)}
+	s := &Store{DB: db, Redis: rdb, ctx: storeCtx, cancel: cancel, usageQ: make(chan MCPUsageEvent, 8192)}
 	if err := s.Migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
-	s.wg.Add(3)
-	go s.auditWorker()
+	s.wg.Add(2)
 	go s.usageWorker()
 	go s.retentionWorker()
 	return s, nil
@@ -878,98 +876,9 @@ func (s *Store) ConsumeOAuthCode(ctx context.Context, code string) (*OAuthCode, 
 	return &out, nil
 }
 
-func (s *Store) Audit(event AuditEvent) {
-	// Cloud audit intentionally stores terminal execution metadata only.
-	// High-volume MCP reads, workspace lifecycle, auth and connection events stay out of the audit table.
-	if event.Event != "terminal.executed" {
-		return
-	}
-	if event.CreatedAt == 0 {
-		event.CreatedAt = time.Now().UnixMilli()
-	}
-	select {
-	case s.auditQ <- event:
-	default:
-		go s.enqueueAudit(context.Background(), event)
-	}
-}
-
-func (s *Store) enqueueAudit(ctx context.Context, event AuditEvent) {
-	data, _ := json.Marshal(event.Detail)
-	values := map[string]any{"id": RandomHex(16), "user_id": event.UserID, "event": event.Event, "device_id": event.DeviceID, "workspace_id": event.WorkspaceID, "detail": string(data), "created_at": event.CreatedAt}
-	if err := s.Redis.XAdd(ctx, &redis.XAddArgs{Stream: "codelocal:audit:v1", MaxLen: 100000, Approx: true, Values: values}).Err(); err != nil {
-		slog.Error("audit enqueue failed", "error", err)
-	}
-}
-
-func (s *Store) auditWorker() {
-	defer s.wg.Done()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	batch := make([]AuditEvent, 0, 64)
-	flush := func() {
-		for _, event := range batch {
-			s.enqueueAudit(s.ctx, event)
-		}
-		batch = batch[:0]
-	}
-	for {
-		select {
-		case <-s.ctx.Done():
-			flush()
-			return
-		case event := <-s.auditQ:
-			batch = append(batch, event)
-			if len(batch) >= 64 {
-				flush()
-			}
-		case <-ticker.C:
-			if len(batch) > 0 {
-				flush()
-			}
-		}
-	}
-}
-
-func (s *Store) FlushAuditStream(ctx context.Context, max int64) (int, error) {
-	if max <= 0 {
-		max = 256
-	}
-	items, err := s.Redis.XRangeN(ctx, "codelocal:audit:v1", "-", "+", max).Result()
-	if err != nil || len(items) == 0 {
-		return 0, err
-	}
-	batch := &pgx.Batch{}
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
-		v := item.Values
-		batch.Queue(`INSERT INTO codelocal_audit_logs(id,user_id,event,device_id,workspace_id,detail,created_at) VALUES($1,NULLIF($2,''),$3,NULLIF($4,''),NULLIF($5,''),$6::jsonb,$7)`, fmt.Sprint(v["id"]), fmt.Sprint(v["user_id"]), fmt.Sprint(v["event"]), fmt.Sprint(v["device_id"]), fmt.Sprint(v["workspace_id"]), fmt.Sprint(v["detail"]), parseInt64(v["created_at"]))
-		ids = append(ids, item.ID)
-	}
-	results := s.DB.SendBatch(ctx, batch)
-	for range items {
-		if _, err := results.Exec(); err != nil {
-			results.Close()
-			return 0, err
-		}
-	}
-	if err := results.Close(); err != nil {
-		return 0, err
-	}
-	if err := s.Redis.XDel(ctx, "codelocal:audit:v1", ids...).Err(); err != nil {
-		return 0, err
-	}
-	return len(items), nil
-}
-
-func parseInt64(value any) int64 {
-	if n, ok := value.(int64); ok {
-		return n
-	}
-	if n, err := strconv.ParseInt(fmt.Sprint(value), 10, 64); err == nil {
-		return n
-	}
-	return time.Now().UnixMilli()
+func (s *Store) Audit(_ AuditEvent) {
+	// Cloud audit storage is disabled. Keep call sites as no-ops so runtime,
+	// auth and workspace behavior stay unchanged without persisting metadata.
 }
 
 func parseUsageInt64(value string) int64 {
@@ -1265,13 +1174,9 @@ func (s *Store) retentionWorker() {
 	for {
 		select {
 		case <-s.ctx.Done():
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_, _ = s.FlushAuditStream(ctx, 2048)
-			cancel()
 			return
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
-			_, _ = s.FlushAuditStream(ctx, 512)
 			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_pairings WHERE expires_at < $1 OR (claimed_at IS NOT NULL AND claimed_at < $2)`, time.Now().UnixMilli(), time.Now().Add(-24*time.Hour).UnixMilli())
 			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_oauth_codes WHERE expires_at < $1`, time.Now().UnixMilli())
 			if days := envInt("CODELOCAL_AUDIT_RETENTION_DAYS", 90); days > 0 {

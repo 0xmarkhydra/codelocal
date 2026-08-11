@@ -1,22 +1,16 @@
 package cloudserver
 
 import (
-	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/ui"
 )
 
-const securityPageSize = 25
-
-// RegisterDashboardExtras restores the polished dashboard-only surfaces that
-// intentionally keep cloud data metadata-only. Source code, terminal output,
-// command text and local secrets never enter these pages.
+// RegisterDashboardExtras keeps the legacy connect surface available behind
+// authenticated dashboard routing. Security/audit history is intentionally not
+// exposed in the cloud dashboard.
 func (s *Server) RegisterDashboardExtras() {
-	s.Mux.Handle("GET /dashboard/security", s.WebAuth.Require(http.HandlerFunc(s.securityDashboard)))
 	s.Mux.Handle("GET /dashboard/connect", s.WebAuth.Require(http.HandlerFunc(s.connectDashboard)))
 }
 
@@ -52,78 +46,4 @@ func (s *Server) connectDashboard(w http.ResponseWriter, r *http.Request) {
 </div>`
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(ui.Page("Connect ChatGPT · CodeLocal Cloud", "Connect ChatGPT to your local projects without a separate OpenAI API key.", body)))
-}
-
-func (s *Server) securityDashboard(w http.ResponseWriter, r *http.Request) {
-	identity, ok := s.identity(r)
-	if !ok {
-		http.Redirect(w, r, "/login", http.StatusFound)
-		return
-	}
-	page := 1
-	if raw := strings.TrimSpace(r.URL.Query().Get("page")); raw != "" {
-		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
-			page = value
-		}
-	}
-	offset := (page - 1) * securityPageSize
-
-	var total int
-	if err := s.Store.DB.QueryRow(r.Context(), `SELECT COUNT(*) FROM codelocal_audit_logs WHERE user_id=$1 AND event='terminal.executed'`, identity.User.ID).Scan(&total); err != nil {
-		http.Error(w, "Unable to load security activity", http.StatusInternalServerError)
-		return
-	}
-	rows, err := s.Store.DB.Query(r.Context(), `
-SELECT event,COALESCE(device_id,''),COALESCE(workspace_id,''),created_at
-FROM codelocal_audit_logs
-WHERE user_id=$1 AND event='terminal.executed'
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3`, identity.User.ID, securityPageSize, offset)
-	if err != nil {
-		http.Error(w, "Unable to load security activity", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	var body strings.Builder
-	body.WriteString(dashboardIdentitySource(identity.User.Email) + dashboardNav(identity))
-	body.WriteString(`<div class="grid"><section class="card glow span12"><div class="section-head"><div><div class="section-title">Terminal activity</div><div class="section-label">Only execution metadata is stored in CodeLocal Cloud. Source code, MCP reads, terminal output, command text and local secrets stay off the server.</div></div><span class="badge blue">Metadata only</span></div><div class="stack">`)
-	count := 0
-	for rows.Next() {
-		var event, deviceID, workspaceID string
-		var createdAt int64
-		if err := rows.Scan(&event, &deviceID, &workspaceID, &createdAt); err != nil {
-			continue
-		}
-		count++
-		meta := []string{time.UnixMilli(createdAt).Format("Jan 2, 2006, 3:04 PM")}
-		if deviceID != "" {
-			meta = append(meta, deviceID)
-		}
-		if workspaceID != "" {
-			meta = append(meta, workspaceID)
-		}
-		body.WriteString(`<div class="row"><div class="row-title">Terminal command executed <span class="badge green">Executed</span></div><div class="row-meta mono">` + ui.Escape(strings.Join(meta, " · ")) + `</div></div>`)
-	}
-	if count == 0 {
-		body.WriteString(`<div class="empty">No terminal execution metadata on this page yet.</div>`)
-	}
-	body.WriteString(`</div></section></div>`)
-
-	pages := (total + securityPageSize - 1) / securityPageSize
-	if pages < 1 {
-		pages = 1
-	}
-	body.WriteString(`<div style="height:16px"></div><div class="actions">`)
-	if page > 1 {
-		body.WriteString(`<a class="btn" href="/dashboard/security?page=` + strconv.Itoa(page-1) + `">Previous</a>`)
-	}
-	body.WriteString(`<span class="btn" style="pointer-events:none">Page ` + strconv.Itoa(page) + ` of ` + strconv.Itoa(pages) + ` · ` + fmt.Sprintf("%d", total) + ` events</span>`)
-	if page < pages {
-		body.WriteString(`<a class="btn" href="/dashboard/security?page=` + strconv.Itoa(page+1) + `">Next</a>`)
-	}
-	body.WriteString(`</div>`)
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("Security · CodeLocal Cloud", "Review terminal execution metadata without storing your code or terminal contents.", body.String())))
 }
