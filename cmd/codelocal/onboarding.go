@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/automation"
 )
@@ -52,63 +53,102 @@ func askYesNo(reader *bufio.Reader, label string, def bool) (bool, error) {
 	}
 }
 
+func prepareBrowser(settings *automation.Settings, environment automation.Environment, verbose bool) {
+	if settings == nil || !settings.Browser.Enabled || settings.Browser.Prepared || !environment.BrowserReady {
+		return
+	}
+	if verbose {
+		fmt.Println("Preparing Browser Automation...")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if err := automation.EnsureBrowserRuntime(ctx); err != nil {
+		if verbose {
+			fmt.Printf("! Browser runtime preparation failed: %v\n", err)
+			fmt.Println("  CodeLocal will retry automatically next time; Coding can still start now.")
+		}
+		return
+	}
+	settings.Browser.Prepared = true
+	if verbose {
+		fmt.Println("✓ Browser Automation ready")
+	}
+}
+
 func ensureFirstRunSetup() (automation.Settings, automation.Environment, error) {
 	existing, err := automation.Load()
 	if err != nil {
 		return automation.Settings{}, automation.Environment{}, err
 	}
 	environment := automation.Detect()
+	interactive := stdinInteractive()
 	if existing != nil {
+		beforePrepared := existing.Browser.Prepared
+		prepareBrowser(existing, environment, interactive)
+		if existing.Browser.Prepared != beforePrepared {
+			if err := automation.Save(*existing); err != nil {
+				return automation.Settings{}, environment, err
+			}
+		}
 		return *existing, environment, nil
 	}
 
 	settings := automation.Default()
+	if !interactive {
+		// A service manager, CI job, SSH pipe or background launcher cannot give
+		// meaningful first-run consent. Do not persist choices and do not trigger
+		// a browser download. Start Coding-only for this process; the next normal
+		// interactive `codelocal` run will still show the setup screen.
+		settings.Browser.Enabled = false
+		settings.Computer.Enabled = false
+		fmt.Println("· Interactive CodeLocal setup has not been completed yet; starting Coding only for this session.")
+		fmt.Println("  Run `codelocal` in a terminal later to choose Browser and Computer permissions.")
+		return settings, environment, nil
+	}
+
 	fmt.Println()
 	fmt.Println("CodeLocal first-time setup")
 	fmt.Println()
-	fmt.Println("CodeLocal lets ChatGPT use capabilities on this computer. You can change local permissions later without reinstalling CodeLocal.")
+	fmt.Println("Choose what ChatGPT may use on this computer. Coding is always available inside workspaces you explicitly authorize.")
 	fmt.Println()
 	fmt.Println("✓ Coding")
-	fmt.Println("  Authorized workspaces, Git and guarded terminal tools")
+	fmt.Println("  Read/edit authorized workspaces, Git and guarded terminal tools")
+	fmt.Println()
 
-	if stdinInteractive() {
-		reader := bufio.NewReader(os.Stdin)
-		settings.Browser.Enabled, err = askYesNo(reader, "Enable Browser Automation?", true)
-		if err != nil {
-			return automation.Settings{}, environment, err
-		}
-		fmt.Println("  Lets ChatGPT inspect and test websites with CodeLocal's bundled Playwright runtime.")
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("Browser Automation")
+	fmt.Println("  Inspect and test websites using CodeLocal's bundled Playwright runtime.")
+	settings.Browser.Enabled, err = askYesNo(reader, "Enable Browser Automation?", true)
+	if err != nil {
+		return automation.Settings{}, environment, err
+	}
+	fmt.Println()
+
+	if environment.ComputerSupported {
+		fmt.Println("Computer Use")
+		fmt.Println("  Allow desktop UI access. Screen, pointer and keyboard actions remain separately policy-controlled.")
 		settings.Computer.Enabled, err = askYesNo(reader, "Enable Computer Use?", false)
 		if err != nil {
 			return automation.Settings{}, environment, err
 		}
-		fmt.Println("  Lets ChatGPT view desktop UI and, when supported, request mouse/keyboard actions.")
 	} else {
-		// Never block CI, remote shells or service managers waiting for stdin.
-		// Use the safest useful defaults: coding + browser, no full desktop control.
-		fmt.Println("· Non-interactive session detected; using safe defaults (Browser on, Computer Use off).")
+		settings.Computer.Enabled = false
+		fmt.Println("Computer Use")
+		fmt.Println("  Not available in this graphical session, so it stays disabled.")
 	}
+	fmt.Println()
 
 	if settings.Browser.Enabled {
 		if !environment.BrowserReady {
-			fmt.Println("! Bundled Playwright CLI was not detected. CodeLocal will still start, but Browser Automation will remain unavailable until the package is repaired or updated.")
+			fmt.Println("! Bundled Playwright CLI was not detected. Coding will still start; update or repair CodeLocal to enable Browser Automation.")
 		} else {
-			fmt.Println("Preparing Browser Automation...")
-			if err := automation.EnsureBrowserRuntime(context.Background()); err != nil {
-				fmt.Printf("! Browser runtime preparation failed: %v\n", err)
-			} else {
-				fmt.Println("✓ Browser Automation ready")
-			}
+			prepareBrowser(&settings, environment, true)
 		}
 	}
 	if settings.Computer.Enabled {
-		if environment.ComputerSupported {
-			fmt.Printf("✓ Computer Use backend detected: %s\n", environment.ComputerBackend)
-			for _, note := range environment.Notes {
-				fmt.Printf("  %s\n", note)
-			}
-		} else {
-			fmt.Println("! Computer Use is enabled in preferences, but this graphical session does not currently expose a supported backend.")
+		fmt.Printf("✓ Computer Use preference enabled for %s\n", environment.ComputerBackend)
+		for _, note := range environment.Notes {
+			fmt.Printf("  %s\n", note)
 		}
 	}
 
