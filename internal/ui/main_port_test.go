@@ -60,8 +60,54 @@ func TestLandingPageKeepsDocumentScroll(t *testing.T) {
 	if strings.Contains(html, `<body class="dashboard-body">`) {
 		t.Fatal("landing page must not inherit the dashboard viewport lock")
 	}
+	if !strings.Contains(html, `<body class="landing-body">`) {
+		t.Fatal("landing page must use its own scoped visual shell")
+	}
+	if strings.Contains(html, mainPortExtras) {
+		t.Fatal("landing page must not load dashboard-only CSS overrides")
+	}
 	if strings.Contains(mainPortExtras, `html,body{height:100%;overflow:hidden}`) {
 		t.Fatal("shared UI styles must not globally disable landing page scrolling")
+	}
+}
+
+func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
+	html := LandingPage(LandingOptions{Endpoint: "https://codelocal.cloud/mcp"})
+	for _, want := range []string{
+		`Give ChatGPT hands on your machine.`,
+		`You keep control.`,
+		`ChatGPT ↔ CodeLocal ↔ your machine`,
+		`Authorize projects, not your whole computer.`,
+		`One lightweight machine runtime.`,
+		`Sensitive actions stay gated.`,
+		`From zero to connected in five steps.`,
+		`Your machine is the security boundary.`,
+		`data-copy-value="https://codelocal.cloud/mcp"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("landing page must include product-aligned section %q", want)
+		}
+	}
+	for _, unsupported := range []string{"Billing", "Upgrade Plan", "Pro Plan", "Unlimited GPT tokens"} {
+		if strings.Contains(html, unsupported) {
+			t.Fatalf("landing page must not invent unsupported feature %q", unsupported)
+		}
+	}
+}
+
+func TestLandingPageHasMobileSafeLayout(t *testing.T) {
+	html := LandingPage(LandingOptions{Endpoint: "https://codelocal.cloud/mcp"})
+	for _, want := range []string{
+		`viewport-fit=cover`,
+		`env(safe-area-inset-top)`,
+		`@media(max-width:700px)`,
+		`.landing-actions{align-items:stretch;flex-direction:column}`,
+		`.product-grid{grid-template-columns:1fr`,
+		`.security-points{grid-template-columns:1fr}`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("landing page must retain mobile-safe behavior %q", want)
+		}
 	}
 }
 
