@@ -22,3 +22,16 @@ func TestDashboardPageWrapsStickySidebarInFullHeightColumn(t *testing.T) {
 		t.Fatal("dashboard styles must keep a full-height sidebar column with sticky viewport content")
 	}
 }
+
+func TestDashboardPageDoesNotRenderStandaloneTokenUsageTab(t *testing.T) {
+	html := DashboardPage(DashboardOptions{
+		Title:  "Overview",
+		Active: "overview",
+		Email:  "user@example.com",
+		CSRF:   "csrf",
+	})
+
+	if strings.Contains(html, `href="/dashboard/usage"`) || strings.Contains(html, `>Token usage</span>`) {
+		t.Fatal("token usage belongs inside Overview and must not render as a standalone sidebar tab")
+	}
+}
