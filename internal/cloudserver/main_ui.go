@@ -201,7 +201,21 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 		workspaceRows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("folder") + `</div>No workspace yet.<br><span class="muted">Run <code>codelocal .</code> once inside a project.</span></div>`)
 	}
 
+	heroTitle := "Your CodeLocal environment is ready."
+	heroPill := `<span class="status-dot green"></span>Runtime connected`
+	heroCopy := fmt.Sprintf("%d of %d paired machine runtime(s) online · %d active workspace(s) · %d sleeping workspace(s).", onlineDevices, paired, activeWorkspaces, sleepingWorkspaces)
+	if paired == 0 {
+		heroTitle = "Pair your first machine to get started."
+		heroPill = `<span class="status-dot"></span>Setup required`
+		heroCopy = "Install CodeLocal, pair this computer, then authorize only the project folders you want ChatGPT to use."
+	} else if onlineDevices == 0 {
+		heroTitle = "Your projects are ready when your runtime is."
+		heroPill = `<span class="status-dot"></span>Runtime offline`
+		heroCopy = fmt.Sprintf("%d paired machine(s) · %d authorized workspace(s). Start codelocal on a paired machine to make them available to ChatGPT.", paired, len(workspaces))
+	}
+
 	body := `<div class="grid">` +
+		`<div class="card span12 overview-hero"><div class="overview-hero-copy"><div class="hero-pill">` + heroPill + `</div><div class="hero-title">` + ui.Escape(heroTitle) + `</div><div class="hero-copy">` + ui.Escape(heroCopy) + `</div><div class="hero-actions"><a class="btn primary" href="/dashboard/connect">Connect ChatGPT <span aria-hidden="true">→</span></a><a class="btn" href="/dashboard/workspaces">View workspaces</a></div></div><div class="hero-visual" aria-hidden="true"><img class="hero-logo" src="/assets/codelocal-icon.png" alt=""></div></div>` +
 		ui.MetricCard("Machine runtimes", onlineDevices, fmt.Sprintf("%d paired device(s)", paired)) +
 		ui.MetricCard("Active workspaces", activeWorkspaces, "Loaded for a ChatGPT session") +
 		ui.MetricCard("Sleeping workspaces", sleepingWorkspaces, "Authorized, zero heavy runtime") +
@@ -211,13 +225,28 @@ func (s *Server) mainOverview(w http.ResponseWriter, r *http.Request, identity *
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
 		Title: "Overview", Active: "overview", Email: identity.User.Email, CSRF: identity.CSRF,
 		Subtitle: "A private control plane for the local machines and project folders you explicitly authorize.",
-		Actions:  `<a class="btn primary" href="/dashboard/connect"><span class="btn-icon">↗</span>Connect ChatGPT</a>`,
 		Body:     body, IsAdmin: cloud.IsAdminEmail(identity.User.Email),
 	}))
 }
 
 func (s *Server) mainDevices(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	devices, _ := s.Store.ListDevices(r.Context(), identity.User.ID)
+	onlineByDevice := make(map[string]bool, len(devices))
+	pairedCount := 0
+	onlineCount := 0
+	revokedCount := 0
+	for _, device := range devices {
+		if device.RevokedAt != 0 {
+			revokedCount++
+			continue
+		}
+		pairedCount++
+		online, _ := s.Activation.IsOnline(r.Context(), identity.User.ID, device.DeviceID)
+		onlineByDevice[device.DeviceID] = online
+		if online {
+			onlineCount++
+		}
+	}
 	query := strings.ToLower(mainQuery(r))
 	filtered := make([]cloud.Device, 0, len(devices))
 	for _, device := range devices {
@@ -229,10 +258,7 @@ func (s *Server) mainDevices(w http.ResponseWriter, r *http.Request, identity *w
 	page, start, end, totalPages := mainPageBounds(r, len(filtered))
 	var rows strings.Builder
 	for _, device := range filtered[start:end] {
-		online := false
-		if device.RevokedAt == 0 {
-			online, _ = s.Activation.IsOnline(r.Context(), identity.User.ID, device.DeviceID)
-		}
+		online := onlineByDevice[device.DeviceID]
 		status, badge := "Offline", "muted"
 		if device.RevokedAt != 0 {
 			status, badge = "Revoked", "red"
@@ -253,12 +279,29 @@ func (s *Server) mainDevices(w http.ResponseWriter, r *http.Request, identity *w
 		rows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("device") + `</div>` + message + `</div>`)
 	}
 	originalQuery := mainQuery(r)
-	body := mainFlash(r) + `<div class="card"><div class="section-head"><div><div class="title">Paired machines</div><div class="label">Online means the lightweight <code>codelocal</code> runtime is reachable now.</div></div></div>` + mainListToolbar("/dashboard/devices", originalQuery, len(filtered)) + `<div class="divider"></div><div class="list">` + rows.String() + `</div>` + mainPager("/dashboard/devices", originalQuery, page, totalPages) + `</div>`
+	body := mainFlash(r) + `<div class="grid">` +
+		ui.MetricCard("Paired devices", pairedCount, "Trusted machine credentials") +
+		ui.MetricCard("Online now", onlineCount, "Machine runtime reachable") +
+		ui.MetricCard("Revoked", revokedCount, "Credentials no longer allowed") +
+		`<div class="card span12"><div class="section-head"><div><div class="title">Paired machines</div><div class="label">Online means the lightweight <code>codelocal</code> runtime is reachable now.</div></div></div>` + mainListToolbar("/dashboard/devices", originalQuery, len(filtered)) + `<div class="divider"></div><div class="list">` + rows.String() + `</div>` + mainPager("/dashboard/devices", originalQuery, page, totalPages) + `</div></div>`
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Devices", Active: "devices", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "A paired device credential lets one CodeLocal machine runtime connect to your account. Revoke anything you no longer trust.", Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
 }
 
 func (s *Server) mainWorkspaces(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	workspaces, _ := s.Workspaces.Catalog(r.Context(), identity.User.ID)
+	activeCount := 0
+	sleepingCount := 0
+	offlineCount := 0
+	for _, workspace := range workspaces {
+		switch workspace.Status {
+		case "active":
+			activeCount++
+		case "sleeping":
+			sleepingCount++
+		default:
+			offlineCount++
+		}
+	}
 	query := strings.ToLower(mainQuery(r))
 	filtered := workspaces[:0]
 	for _, workspace := range workspaces {
@@ -290,7 +333,11 @@ func (s *Server) mainWorkspaces(w http.ResponseWriter, r *http.Request, identity
 		rows.WriteString(`<div class="empty"><div class="empty-icon">` + ui.Icon("folder") + `</div>` + message + `</div>`)
 	}
 	originalQuery := mainQuery(r)
-	body := mainFlash(r) + `<div class="card"><div class="section-head"><div><div class="title">Authorized folders</div><div class="label">Remove access without deleting or modifying the project folder itself.</div></div><div class="badge blue">` + strconv.Itoa(len(workspaces)) + ` authorized</div></div>` + mainListToolbar("/dashboard/workspaces", originalQuery, len(filtered)) + `<div class="divider"></div><div class="list">` + rows.String() + `</div>` + mainPager("/dashboard/workspaces", originalQuery, page, totalPages) + `</div>`
+	body := mainFlash(r) + `<div class="grid">` +
+		ui.MetricCard("Authorized", len(workspaces), "Project folders you explicitly granted") +
+		ui.MetricCard("Active", activeCount, "Loaded for a ChatGPT session") +
+		ui.MetricCard("Sleeping", sleepingCount, fmt.Sprintf("%d device-offline workspace(s)", offlineCount)) +
+		`<div class="card span12"><div class="section-head"><div><div class="title">Authorized folders</div><div class="label">Remove access without deleting or modifying the project folder itself.</div></div><div class="badge blue">` + strconv.Itoa(len(workspaces)) + ` authorized</div></div>` + mainListToolbar("/dashboard/workspaces", originalQuery, len(filtered)) + `<div class="divider"></div><div class="list">` + rows.String() + `</div>` + mainPager("/dashboard/workspaces", originalQuery, page, totalPages) + `</div></div>`
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Workspaces", Active: "workspaces", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "A workspace is a local project folder you granted once. Sleeping workspaces consume no heavy project runtime until ChatGPT selects them.", Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
 }
 
@@ -349,7 +396,7 @@ func (s *Server) mainLeaderboard(w http.ResponseWriter, r *http.Request, identit
 
 func (s *Server) mainConnect(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
 	endpoint := strings.TrimRight(s.WebAuth.PublicBaseURL, "/") + "/mcp"
-	body := `<div class="grid"><div class="card span8"><div class="section-head"><div><div class="title">MCP server URL</div><div class="label">Add this endpoint to ChatGPT and choose OAuth authentication.</div></div><span class="badge green">OAuth</span></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">` + ui.Escape(endpoint) + `</div><button class="btn primary" type="button" data-copy-target="#mcp-endpoint">Copy URL</button></div></div><div class="card span4"><div class="title">Connection flow</div><div class="divider"></div><div class="kv"><div class="kv-key">1</div><div class="kv-value">Add MCP server</div></div><div class="kv"><div class="kv-key">2</div><div class="kv-value">Choose OAuth</div></div><div class="kv"><div class="kv-key">3</div><div class="kv-value">Sign in to CodeLocal</div></div><div class="kv"><div class="kv-key">4</div><div class="kv-value">Approve connection</div></div></div></div>`
+	body := `<div class="grid"><div class="card span8 connect-hero"><div class="section-head"><div><div class="section-kicker">Secure MCP connection</div><div class="title">MCP server URL</div><div class="label">Add this endpoint to ChatGPT and choose OAuth authentication. CodeLocal discovers the OAuth endpoints automatically.</div></div><span class="badge green">OAuth</span></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">` + ui.Escape(endpoint) + `</div><button class="btn primary" type="button" data-copy-target="#mcp-endpoint">Copy URL</button></div></div><div class="card span4 connect-steps"><div class="title">Connection flow</div><div class="label">Four steps, then this account is ready to use from ChatGPT.</div><div class="divider"></div><div class="kv"><div class="kv-key">1</div><div class="kv-value">Add MCP server</div></div><div class="kv"><div class="kv-key">2</div><div class="kv-value">Choose OAuth</div></div><div class="kv"><div class="kv-key">3</div><div class="kv-value">Sign in to CodeLocal</div></div><div class="kv"><div class="kv-key">4</div><div class="kv-value">Approve connection</div></div></div></div>`
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{Title: "Connect ChatGPT", Active: "connect", Email: identity.User.Email, CSRF: identity.CSRF, Subtitle: "Connect CodeLocal to ChatGPT once, then choose the workspace you want inside each chat session.", Actions: `<a class="btn" href="/#setup">Full setup guide</a>`, Body: body, IsAdmin: cloud.IsAdminEmail(identity.User.Email)}))
 }
 

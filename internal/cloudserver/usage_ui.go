@@ -154,30 +154,56 @@ func (s *Server) mainUsageLeaderboard(ctx context.Context, currentEmail string) 
 			break
 		}
 	}
-	visible := entries
-	if len(visible) > 10 {
-		visible = visible[:10]
+	if len(entries) == 0 {
+		return `<div class="card span12"><div class="section-head"><div><div class="title">Top users</div><div class="label">Ranked by estimated MCP payload during the last 30 days. Emails are masked for privacy.</div></div><span class="badge muted">No rank yet</span></div><div class="empty">No MCP usage has been recorded in the last 30 days.</div></div>`
 	}
 
-	var rows strings.Builder
-	for i, entry := range visible {
-		rankClass := "muted"
-		if i == 0 {
-			rankClass = "blue"
+	podiumOrder := []int{0}
+	if len(entries) == 2 {
+		podiumOrder = []int{0, 1}
+	} else if len(entries) >= 3 {
+		podiumOrder = []int{1, 0, 2}
+	}
+	var podium strings.Builder
+	podium.WriteString(`<div class="leaderboard-podium">`)
+	for _, index := range podiumOrder {
+		entry := entries[index]
+		className := "podium-card"
+		if index == 0 {
+			className += " first"
 		}
 		name := maskLeaderboardEmail(entry.Email)
 		if strings.EqualFold(entry.Email, currentEmail) {
 			name = "You · " + name
 		}
-		rows.WriteString(`<div class="row"><div class="entity"><span class="badge ` + rankClass + `">#` + strconv.Itoa(i+1) + `</span><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(name) + `</span></div><div class="row-meta">` + mainExactNumber(entry.Calls) + ` tool calls · last 30 days</div></div></div><div class="actions"><div style="text-align:right"><div class="row-title">` + mainCompactNumber(entry.Tokens) + `</div><div class="row-meta">estimated MCP tokens</div></div></div></div>`)
+		podium.WriteString(`<div class="` + className + `"><div class="podium-rank">#` + strconv.Itoa(index+1) + ` · Top 30 days</div><div class="podium-name">` + ui.Escape(name) + `</div><div class="podium-value">` + mainCompactNumber(entry.Tokens) + `</div><div class="podium-meta">estimated MCP tokens · ` + mainExactNumber(entry.Calls) + ` tool calls</div></div>`)
+	}
+	podium.WriteString(`</div>`)
+
+	listStart := 3
+	if len(entries) < listStart {
+		listStart = len(entries)
+	}
+	listEnd := len(entries)
+	if listEnd > 10 {
+		listEnd = 10
+	}
+	var rows strings.Builder
+	for i := listStart; i < listEnd; i++ {
+		entry := entries[i]
+		name := maskLeaderboardEmail(entry.Email)
+		if strings.EqualFold(entry.Email, currentEmail) {
+			name = "You · " + name
+		}
+		rows.WriteString(`<div class="row"><div class="entity"><span class="badge muted">#` + strconv.Itoa(i+1) + `</span><div class="entity-copy"><div class="row-title"><span class="row-title-text">` + ui.Escape(name) + `</span></div><div class="row-meta">` + mainExactNumber(entry.Calls) + ` tool calls · last 30 days</div></div></div><div class="actions"><div style="text-align:right"><div class="row-title">` + mainCompactNumber(entry.Tokens) + `</div><div class="row-meta">estimated MCP tokens</div></div></div></div>`)
 	}
 	if rows.Len() == 0 {
-		rows.WriteString(`<div class="empty">No MCP usage has been recorded in the last 30 days.</div>`)
+		rows.WriteString(`<div class="empty">No additional ranked users yet.</div>`)
 	}
 
 	yourRank := `<span class="badge muted">No rank yet</span>`
 	if currentRank > 0 {
 		yourRank = `<span class="badge blue">Your rank #` + strconv.Itoa(currentRank) + ` · ` + mainCompactNumber(currentTokens) + ` tokens</span>`
 	}
-	return `<div class="card span12"><div class="section-head"><div><div class="title">Top users</div><div class="label">Ranked by estimated MCP payload during the last 30 days. Emails are masked for privacy.</div></div>` + yourRank + `</div><div class="divider"></div><div class="list">` + rows.String() + `</div><div class="divider"></div><div class="label">This leaderboard reuses existing rolling counters. CodeLocal does not store extra per-tool leaderboard history.</div></div>`
+	return podium.String() + `<div class="card span12"><div class="section-head"><div><div class="title">Leaderboard</div><div class="label">Ranks 4–10 by estimated MCP payload during the last 30 days. Emails are masked for privacy.</div></div>` + yourRank + `</div><div class="divider"></div><div class="list">` + rows.String() + `</div><div class="divider"></div><div class="label">This leaderboard reuses existing rolling counters. CodeLocal does not store extra per-tool leaderboard history.</div></div>`
 }

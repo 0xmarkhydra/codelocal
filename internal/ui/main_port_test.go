@@ -15,8 +15,16 @@ func TestDashboardPagePinsSidebarOnDesktop(t *testing.T) {
 		IsAdmin: true,
 	})
 
-	if !strings.Contains(html, `<body class="dashboard-body"><div class="shell"><div class="sidebar-column"><aside class="sidebar">`) {
-		t.Fatal("dashboard must scope its viewport lock to the dashboard body and keep a reserved sidebar column")
+	if !strings.Contains(html, `<body class="dashboard-body page-admin"><div class="shell"><div class="sidebar-column"><aside class="sidebar">`) {
+		t.Fatal("dashboard must scope its viewport lock and page styling to the dashboard body while keeping a reserved sidebar column")
+	}
+	if !strings.Contains(html, iosDashboardTheme) || !strings.Contains(iosDashboardTheme, `.dashboard-body .overview-hero`) || !strings.Contains(iosDashboardTheme, `backdrop-filter:saturate(175%) blur(30px)`) {
+		t.Fatal("dashboard must include the scoped iOS glass design system")
+	}
+	for _, fakeFeature := range []string{"Pro Plan", "Upgrade Plan", "Billing", "Notifications"} {
+		if strings.Contains(html, fakeFeature) {
+			t.Fatalf("dashboard must not invent unsupported product feature %q", fakeFeature)
+		}
 	}
 	if !strings.Contains(mainPortExtras, `height:100dvh;min-height:0;grid-template-columns:256px minmax(0,1fr);overflow:hidden`) {
 		t.Fatal("dashboard shell must be locked to the viewport")
