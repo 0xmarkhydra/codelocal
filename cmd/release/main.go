@@ -61,8 +61,15 @@ if (!file) {
   console.error('CodeLocal does not have a native binary for ' + key + '.');
   process.exit(1);
 }
+const packageRoot = path.resolve(__dirname, '..');
+const playwrightCli = path.join(packageRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'playwright-cli.cmd' : 'playwright-cli');
 const binary = path.join(__dirname, 'native', file);
-const result = spawnSync(binary, process.argv.slice(2), { stdio: 'inherit', env: process.env });
+const env = {
+  ...process.env,
+  CODELOCAL_PACKAGE_ROOT: packageRoot,
+  CODELOCAL_PLAYWRIGHT_CLI: process.env.CODELOCAL_PLAYWRIGHT_CLI || playwrightCli
+};
+const result = spawnSync(binary, process.argv.slice(2), { stdio: 'inherit', env });
 if (result.error) {
   console.error(result.error.message);
   process.exit(1);
@@ -73,7 +80,19 @@ if (result.signal) {
 process.exit(result.status ?? 1);
 `
 	must(os.WriteFile(filepath.Join(staging, "bin", "codelocal.js"), []byte(launcher), 0o755))
-	public := map[string]any{"name": "codelocal", "version": manifest.Version, "description": "Native Go runtime that securely connects ChatGPT to local development workspaces.", "license": "UNLICENSED", "bin": map[string]string{"codelocal": "bin/codelocal.js"}, "files": []string{"bin/", "README.md"}, "engines": map[string]string{"node": ">=20"}, "keywords": []string{"chatgpt", "mcp", "coding", "local", "go"}}
+	public := map[string]any{
+		"name":        "codelocal",
+		"version":     manifest.Version,
+		"description": "Native Go runtime that securely connects ChatGPT to local development workspaces.",
+		"license":     "UNLICENSED",
+		"bin":         map[string]string{"codelocal": "bin/codelocal.js"},
+		"files":       []string{"bin/", "README.md"},
+		"engines":     map[string]string{"node": ">=20"},
+		"dependencies": map[string]string{
+			"@playwright/cli": "0.1.17",
+		},
+		"keywords": []string{"chatgpt", "mcp", "coding", "local", "go", "playwright", "browser-automation"},
+	}
 	publicRaw, _ := json.MarshalIndent(public, "", "  ")
 	must(os.WriteFile(filepath.Join(staging, "package.json"), append(publicRaw, '\n'), 0o600))
 	releaseChannel := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_RELEASE_CHANNEL")))
@@ -94,11 +113,13 @@ codelocal .
 ` + "```\n\n" + "`codelocal .` only authorizes that folder locally. It does not pair the machine or connect to CodeLocal Cloud.\n\n" + `## Start CodeLocal
 
 ` + "```bash\n" + `codelocal
-` + "```\n\n" + `The Go runtime pairs this machine on first use, syncs authorized workspaces, then waits for ChatGPT. One machine runs one runtime; multiple workspaces activate lazily inside it.
+` + "```\n\n" + `On first start, CodeLocal asks which local capabilities ChatGPT may use. Browser Automation is powered by the Playwright CLI dependency that ships with CodeLocal; if enabled, CodeLocal prepares its managed browser automatically before starting the runtime. Computer Use remains a separate opt-in capability.
+
+The Go runtime then pairs this machine if needed, syncs authorized workspaces, and waits for ChatGPT. One machine runs one runtime; multiple workspaces activate lazily inside it.
 
 Use ` + "`codelocal status`" + ` to inspect it and ` + "`codelocal stop`" + ` to stop it.
 
-This npm package contains compiled native binaries only. CodeLocal source code and the Cloud backend are not distributed in the package.
+The user only installs and starts ` + "`codelocal`" + `; Playwright is an internal dependency and does not require a separate global install command.
 `
 	must(os.WriteFile(filepath.Join(staging, "README.md"), []byte(readme), 0o600))
 	entries, _ := os.ReadDir(filepath.Join(staging, "bin", "native"))
