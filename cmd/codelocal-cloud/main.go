@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloudserver"
+	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
 )
 
 func main() {
@@ -25,6 +26,9 @@ func main() {
 		os.Exit(1)
 	}
 	server.RegisterDashboardExtras()
+	// Keep old per-thread ChatGPT MCP schemas functional after the compact tool
+	// migration without re-exposing the legacy granular tools in tools/list.
+	server.HTTP.Handler = mcpgateway.LegacyToolCallCompatibility(server.HTTP.Handler)
 	// Keep the Go backend/runtime while rendering the public landing page and
 	// dashboard surfaces from the completed UI language on main.
 	server.HTTP.Handler = server.MainUIHandler(server.HTTP.Handler)
