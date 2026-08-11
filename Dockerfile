@@ -4,10 +4,11 @@ ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
-# Compile/test the full Go tree so npm/client regressions cannot ride along with
-# an otherwise healthy cloud-only build.
-RUN go test ./...
+# Railway deploys only the Go cloud runtime. Keep the image build scoped to Go
+# sources so docs/legacy TypeScript changes do not invalidate the compile layer.
+# Full cross-platform tests already run in .github/workflows/ci.yml before merge.
+COPY cmd ./cmd
+COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/codelocal-cloud ./cmd/codelocal-cloud
 
 FROM debian:bookworm-slim

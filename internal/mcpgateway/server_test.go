@@ -1,11 +1,15 @@
 package mcpgateway
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/clientupdate"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestUpdateNoticeShownOncePerWorkspaceReleaseAndSession(t *testing.T) {
@@ -100,5 +104,81 @@ func TestToolCompatibilityGating(t *testing.T) {
 	}
 	if err := ensureToolSupported(definitionNamed(t, "mcp_call"), modern); err == nil {
 		t.Fatal("mcp_call must be gated when MCP Hub is not advertised")
+	}
+}
+
+func TestLegacyMCPCompatibilityForcesModernProbeToFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		body       string
+		setVersion bool
+	}{
+		{name: "protocol header", body: `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`, setVersion: true},
+		{name: "discover method", body: `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			handler := legacyMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tc.body))
+			if tc.setVersion {
+				req.Header.Set("Mcp-Protocol-Version", modernMCPProtocolVersion)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("modern probe status = %d, want 400", rec.Code)
+			}
+			if called {
+				t.Fatal("modern probe must not reach the stateful Go transport")
+			}
+			if !strings.Contains(rec.Body.String(), "Invalid or missing MCP session") {
+				t.Fatalf("unexpected fallback response: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestLegacyMCPCompatibilityPassesInitialize(t *testing.T) {
+	called := false
+	handler := legacyMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if !called || rec.Code != http.StatusNoContent {
+		t.Fatalf("legacy initialize should pass through: called=%v status=%d", called, rec.Code)
+	}
+}
+
+func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
+	s := &Service{
+		servers:      map[string]*mcp.Server{},
+		routes:       map[string]map[string]string{},
+		shownUpdates: map[string]map[string]struct{}{},
+	}
+	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return s.serverFor("test-user")
+	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
+	httpServer := httptest.NewServer(legacyMCPCompatibility(stream))
+	defer httpServer.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-test", Version: "1"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatalf("connect streamable MCP client: %v", err)
+	}
+	defer session.Close()
+
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("tools/list failed: %v", err)
+	}
+	if len(result.Tools) != len(toolDefinitions()) {
+		t.Fatalf("tools/list returned %d tools, want %d", len(result.Tools), len(toolDefinitions()))
 	}
 }

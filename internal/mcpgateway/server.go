@@ -1,10 +1,12 @@
 package mcpgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -371,6 +373,46 @@ func signalSchema() json.RawMessage {
 	return objectSchema(map[string]any{"processId": str("Process ID."), "signal": map[string]any{"type": "string", "enum": []string{"SIGTERM", "SIGINT", "SIGKILL"}}, "workspaceKey": workspaceKeySchema}, "processId")
 }
 
+const modernMCPProtocolVersion = "2026-07-28"
+
+func isModernMCPProtocolVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	return len(version) == len(modernMCPProtocolVersion) && version >= modernMCPProtocolVersion
+}
+
+func legacyMCPCompatibility(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.TrimSpace(r.Header.Get("Mcp-Session-Id")) == "" {
+			modernProbe := isModernMCPProtocolVersion(r.Header.Get("Mcp-Protocol-Version"))
+			if !modernProbe && r.ContentLength > 0 && r.ContentLength <= 64<<10 {
+				raw, err := io.ReadAll(r.Body)
+				if err == nil {
+					_ = r.Body.Close()
+					r.Body = io.NopCloser(bytes.NewReader(raw))
+					var envelope struct {
+						Method string `json:"method"`
+					}
+					if json.Unmarshal(raw, &envelope) == nil && envelope.Method == "server/discover" {
+						modernProbe = true
+					}
+				}
+			}
+			if modernProbe {
+				// Keep the proven 2025-era stateful handshake used by the previous
+				// TypeScript gateway. CodeLocal still relies on MCP session IDs to
+				// isolate workspace selection between ChatGPT threads. The Go SDK's
+				// 2026-07-28 HTTP era is stateless, so reject the modern probe and let
+				// auto-negotiating clients fall back to legacy initialize/tools/list.
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":-32000,"message":"Invalid or missing MCP session."},"id":null}`))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Service) Handler() http.Handler {
 	stream := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		claims, ok := oauth.ClaimsFrom(r.Context())
@@ -379,7 +421,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		return s.serverFor(claims.Subject)
 	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true, MaxRequestBodyBytes: 4 << 20})
-	return stream
+	return legacyMCPCompatibility(stream)
 }
 
 func (s *Service) serverFor(userID string) *mcp.Server {
