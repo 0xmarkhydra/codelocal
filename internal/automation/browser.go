@@ -28,6 +28,8 @@ type BrowserController struct {
 	OutputDir    string
 	CLI          string
 	mu           sync.Mutex
+	stateMu      sync.RWMutex
+	currentOrigin string
 }
 
 func NewBrowserController(workspaceID, workspaceKey, root string) (*BrowserController, error) {
@@ -68,6 +70,21 @@ func BrowserConfigured() (enabled, prepared bool) {
 	return settings.Browser.Enabled, settings.Browser.Prepared
 }
 
+func (b *BrowserController) CurrentOrigin() string {
+	if b == nil {
+		return ""
+	}
+	b.stateMu.RLock()
+	defer b.stateMu.RUnlock()
+	return b.currentOrigin
+}
+
+func (b *BrowserController) setCurrentOrigin(origin string) {
+	b.stateMu.Lock()
+	b.currentOrigin = origin
+	b.stateMu.Unlock()
+}
+
 func (b *BrowserController) Status() map[string]any {
 	enabled, prepared := BrowserConfigured()
 	return map[string]any{
@@ -79,6 +96,7 @@ func (b *BrowserController) Status() map[string]any {
 		"workspaceScoped": true,
 		"isolatedProfile": true,
 		"outputDir":       b.OutputDir,
+		"currentOrigin":   b.CurrentOrigin(),
 		"elevatedAttach":  false,
 		"arbitraryJS":     false,
 	}
@@ -162,6 +180,9 @@ func (b *BrowserController) Open(ctx context.Context, rawURL string, headed bool
 		args = append(args, "--headed")
 	}
 	output, err := b.run(ctx, true, args...)
+	if err == nil {
+		b.setCurrentOrigin(BrowserOrigin(target))
+	}
 	return map[string]any{"url": target, "origin": BrowserOrigin(target), "headed": headed, "session": b.Session, "output": output}, err
 }
 
@@ -209,7 +230,7 @@ func (b *BrowserController) Press(ctx context.Context, key string) (map[string]a
 func (b *BrowserController) Console(ctx context.Context, level string) (map[string]any, error) {
 	args := []string{"console"}
 	if level = strings.TrimSpace(level); level != "" {
-		args = append(args, "--level="+level)
+		args = append(args, level)
 	}
 	output, err := b.run(ctx, true, args...)
 	return map[string]any{"session": b.Session, "console": output}, err
@@ -222,16 +243,16 @@ func (b *BrowserController) Requests(ctx context.Context) (map[string]any, error
 
 func (b *BrowserController) Screenshot(ctx context.Context, ref string) (map[string]any, error) {
 	filename := "shot-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".png"
+	path := filepath.Join(b.OutputDir, filename)
 	args := []string{"screenshot"}
 	if strings.TrimSpace(ref) != "" {
 		args = append(args, strings.TrimSpace(ref))
 	}
-	args = append(args, "--filename="+filename)
+	args = append(args, "--filename="+path)
 	output, err := b.run(ctx, true, args...)
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(b.OutputDir, filename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read Playwright screenshot: %w", err)
@@ -249,5 +270,8 @@ func (b *BrowserController) Screenshot(ctx context.Context, ref string) (map[str
 
 func (b *BrowserController) Close(ctx context.Context) (map[string]any, error) {
 	output, err := b.run(ctx, true, "close")
+	if err == nil {
+		b.setCurrentOrigin("")
+	}
 	return map[string]any{"session": b.Session, "closed": err == nil, "output": output}, err
 }
