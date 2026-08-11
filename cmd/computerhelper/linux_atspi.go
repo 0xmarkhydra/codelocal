@@ -94,10 +94,15 @@ func decodeATSPID(value string) (atspiRef, error) {
 		return atspiRef{}, errors.New("invalid AT-SPI elementId")
 	}
 	var payload atspiElementID
-	if json.Unmarshal(raw, &payload) != nil || strings.TrimSpace(payload.Bus) == "" || !dbus.ObjectPath(payload.Path).IsValid() {
+	path := dbus.ObjectPath(payload.Path)
+	if json.Unmarshal(raw, &payload) != nil {
 		return atspiRef{}, errors.New("invalid AT-SPI elementId")
 	}
-	return atspiRef{Bus: payload.Bus, Path: dbus.ObjectPath(payload.Path)}, nil
+	path = dbus.ObjectPath(payload.Path)
+	if strings.TrimSpace(payload.Bus) == "" || !path.IsValid() {
+		return atspiRef{}, errors.New("invalid AT-SPI elementId")
+	}
+	return atspiRef{Bus: payload.Bus, Path: path}, nil
 }
 
 func atspiPropertyString(object dbus.BusObject, property string) string {
@@ -143,7 +148,7 @@ func atspiWalk(ctx context.Context, conn *dbus.Conn, ref atspiRef, count *int, l
 		return nil
 	}
 	seen[key] = true
-	*count++
+	(*count)++
 	object := conn.Object(ref.Bus, ref.Path)
 	interfaces := atspiInterfaces(ctx, object)
 	node := map[string]any{
