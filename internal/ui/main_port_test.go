@@ -15,17 +15,53 @@ func TestDashboardPagePinsSidebarOnDesktop(t *testing.T) {
 		IsAdmin: true,
 	})
 
-	if !strings.Contains(html, `<div class="shell"><div class="sidebar-column"><aside class="sidebar">`) {
-		t.Fatal("dashboard sidebar must keep a reserved sidebar column next to page content")
+	if !strings.Contains(html, `<body class="dashboard-body page-admin"><div class="shell"><div class="sidebar-column"><aside class="sidebar">`) {
+		t.Fatal("dashboard must scope its viewport lock and page styling to the dashboard body while keeping a reserved sidebar column")
 	}
-	if !strings.Contains(styles, `.sidebar{position:fixed;z-index:20;top:0;left:0;width:264px;height:100dvh`) {
-		t.Fatal("desktop dashboard sidebar must stay fixed to the viewport while main content scrolls")
+	if !strings.Contains(html, iosDashboardTheme) || !strings.Contains(iosDashboardTheme, `.dashboard-body .overview-hero`) || !strings.Contains(iosDashboardTheme, `backdrop-filter:saturate(175%) blur(30px)`) {
+		t.Fatal("dashboard must include the scoped iOS glass design system")
 	}
-	if !strings.Contains(styles, `@media(max-width:980px){.shell{grid-template-columns:230px minmax(0,1fr)}.sidebar{width:230px}`) {
-		t.Fatal("fixed sidebar width must stay aligned with the responsive desktop grid column")
+	for _, fakeFeature := range []string{"Pro Plan", "Upgrade Plan", "Billing", "Notifications"} {
+		if strings.Contains(html, fakeFeature) {
+			t.Fatalf("dashboard must not invent unsupported product feature %q", fakeFeature)
+		}
 	}
-	if !strings.Contains(styles, `@media(max-width:760px){.shell{display:block}`) || !strings.Contains(styles, `.sidebar{position:static;z-index:auto;left:auto;width:auto;height:auto`) {
-		t.Fatal("mobile dashboard must return the sidebar to normal document flow")
+	if !strings.Contains(mainPortExtras, `height:100dvh;min-height:0;grid-template-columns:256px minmax(0,1fr);overflow:hidden`) {
+		t.Fatal("dashboard shell must be locked to the viewport")
+	}
+	if !strings.Contains(mainPortExtras, `.sidebar-column{height:100dvh;overflow:hidden`) {
+		t.Fatal("sidebar column must remain pinned inside the viewport")
+	}
+	if !strings.Contains(mainPortExtras, `.main{height:100dvh;max-width:none;margin:0;padding:38px 44px 72px;overflow-y:auto`) {
+		t.Fatal("main content must own vertical scrolling independently of the sidebar")
+	}
+	if !strings.Contains(mainPortExtras, `@media(max-width:1100px) and (min-width:761px){.shell{grid-template-columns:78px minmax(0,1fr)}`) {
+		t.Fatal("tablet dashboard must collapse into an icon rail")
+	}
+	if strings.Contains(mainPortExtras, `.sidebar-foot form{display:none}`) || !strings.Contains(mainPortExtras, `.sidebar-foot form{display:block}`) {
+		t.Fatal("tablet icon rail must keep a compact sign-out action available")
+	}
+	if !strings.Contains(html, `aria-label="Sign out"`) || !strings.Contains(html, `title="Leaderboard"`) {
+		t.Fatal("tablet icon controls must remain discoverable and accessible")
+	}
+	if !strings.Contains(mainPortExtras, `.sidebar.nav-open{height:100dvh;overflow-y:auto}`) || !strings.Contains(html, `data-nav-toggle`) {
+		t.Fatal("mobile dashboard must use a drawer instead of scrolling the desktop sidebar with page content")
+	}
+	if !strings.Contains(mainPortExtras, `.shell.nav-open .main{overflow:hidden}`) || !strings.Contains(dashboardScript, `shell?.classList.toggle('nav-open', open)`) {
+		t.Fatal("open mobile navigation must lock the underlying content scroll")
+	}
+	if !strings.Contains(dashboardScript, `if (event.key === 'Escape') setNavOpen(false)`) {
+		t.Fatal("mobile navigation must close with Escape")
+	}
+}
+
+func TestLandingPageKeepsDocumentScroll(t *testing.T) {
+	html := LandingPage(LandingOptions{Endpoint: "https://codelocal.cloud/mcp"})
+	if strings.Contains(html, `<body class="dashboard-body">`) {
+		t.Fatal("landing page must not inherit the dashboard viewport lock")
+	}
+	if strings.Contains(mainPortExtras, `html,body{height:100%;overflow:hidden}`) {
+		t.Fatal("shared UI styles must not globally disable landing page scrolling")
 	}
 }
 
@@ -39,5 +75,29 @@ func TestDashboardPageDoesNotRenderStandaloneTokenUsageTab(t *testing.T) {
 
 	if strings.Contains(html, `href="/dashboard/usage"`) || strings.Contains(html, `>Token usage</span>`) {
 		t.Fatal("token usage belongs inside Overview and must not render as a standalone sidebar tab")
+	}
+	if !strings.Contains(html, `href="/dashboard/invite"`) || !strings.Contains(html, `>Invite</span>`) {
+		t.Fatal("invite must render as its own sidebar tab")
+	}
+	if !strings.Contains(html, `href="/dashboard/leaderboard"`) || !strings.Contains(html, `>Leaderboard</span>`) {
+		t.Fatal("leaderboard must render as its own sidebar tab")
+	}
+}
+
+func TestAuthPageUsesKeyboardSafeMobileShell(t *testing.T) {
+	html := Page("Welcome back", "Sign in to CodeLocal.", `<form><input class="input"></form>`)
+	for _, want := range []string{
+		`<body class="auth-body">`,
+		`height:100dvh;min-height:100svh`,
+		`env(safe-area-inset-top)`,
+		`font-size:16px`,
+		`window.visualViewport?.addEventListener('resize'`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("auth page must include keyboard-safe mobile behavior %q", want)
+		}
+	}
+	if strings.Contains(html, `<body class="dashboard-body`) {
+		t.Fatal("auth page must use its own shell instead of dashboard chrome")
 	}
 }

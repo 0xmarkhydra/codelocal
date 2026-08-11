@@ -46,12 +46,27 @@ func TestTokenRejectsWrongTypeResourceAndExpiry(t *testing.T) {
 }
 
 func TestRedirectPolicy(t *testing.T) {
-	for _, allowed := range []string{"https://chatgpt.com/oauth/callback", "http://localhost:1234/callback", "http://127.0.0.1/callback", "http://[::1]:8080/callback"} {
+	for _, allowed := range []string{
+		"https://chatgpt.com/oauth/callback",
+		"http://localhost:1234/callback",
+		"http://127.0.0.1/callback",
+		"http://[::1]:8080/callback",
+		"chatgpt://oauth/callback",
+		"com.openai.chatgpt:/oauth/callback",
+	} {
 		if !validRedirect(allowed) {
 			t.Fatalf("allowed redirect rejected: %s", allowed)
 		}
 	}
-	for _, blocked := range []string{"http://example.com/callback", "ftp://example.com/callback", "javascript:alert(1)", "/relative"} {
+	for _, blocked := range []string{
+		"http://example.com/callback",
+		"javascript:alert(1)",
+		"data:text/plain,hello",
+		"file:///tmp/callback",
+		"https://user:pass@example.com/callback",
+		"https://example.com/callback#fragment",
+		"/relative",
+	} {
 		if validRedirect(blocked) {
 			t.Fatalf("unsafe redirect accepted: %s", blocked)
 		}

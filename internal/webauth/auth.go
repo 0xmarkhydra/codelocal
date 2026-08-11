@@ -152,8 +152,12 @@ func (m *Manager) Require(next http.Handler) http.Handler {
 }
 
 func validEmail(value string) bool { return len(value) <= 254 && emailRE.MatchString(value) }
-func (m *Manager) form(mode, csrf, next, errorMessage string) string {
+func (m *Manager) form(mode, csrf, next, errorMessage string, referralCodes ...string) string {
 	signup := mode == "signup"
+	referralCode := ""
+	if len(referralCodes) > 0 {
+		referralCode = cloud.NormalizeReferralCode(referralCodes[0])
+	}
 	title := "Welcome back"
 	subtitle := "Sign in to manage your devices, workspaces and MCP extensions."
 	button := "Sign in"
@@ -172,9 +176,9 @@ func (m *Manager) form(mode, csrf, next, errorMessage string) string {
 	}
 	referralField := ""
 	if signup {
-		referralField = `<div class="field"><label>Referral code</label><input class="input mono" type="text" name="referralCode" autocomplete="off" minlength="4" maxlength="6" pattern="[A-Za-z0-9]+" required></div><div class="hint">Enter the 6-character invite code from an existing CodeLocal member.</div>`
+		referralField = `<div class="field"><label>Referral code</label><input class="input mono" type="text" name="referralCode" value="` + ui.Escape(referralCode) + `" autocomplete="off" minlength="4" maxlength="6" pattern="[A-Za-z0-9]+" required></div><div class="hint">Enter the 6-character invite code from an existing CodeLocal member.</div>`
 	}
-	body := alert + `<form class="form" method="post" action="/` + mode + `"><input type="hidden" name="csrf" value="` + ui.Escape(csrf) + `"><input type="hidden" name="next" value="` + ui.Escape(next) + `"><div class="field"><label>Email</label><input class="input" type="email" name="email" autocomplete="email" maxlength="254" required autofocus></div><div class="field"><label>Password</label><input class="input" type="password" name="password" autocomplete="` + autocomplete + `" minlength="10" maxlength="256" required></div>` + referralField + `<button class="btn primary" type="submit">` + button + `</button></form><div class="auth-switch">` + switcher + `</div>`
+	body := alert + `<form class="form" method="post" action="/` + mode + `"><input type="hidden" name="csrf" value="` + ui.Escape(csrf) + `"><input type="hidden" name="next" value="` + ui.Escape(next) + `"><div class="field"><label>Email</label><input class="input" type="email" name="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required></div><div class="field"><label>Password</label><input class="input" type="password" name="password" autocomplete="` + autocomplete + `" minlength="10" maxlength="256" required></div>` + referralField + `<button class="btn primary" type="submit">` + button + `</button></form><div class="auth-switch">` + switcher + `</div>`
 	return ui.Page(title, subtitle, body)
 }
 
@@ -231,7 +235,12 @@ func (m *Manager) Register(mux *http.ServeMux) {
 		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
 	}}, login)))
 	mux.HandleFunc("GET /register", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/signup?next="+url.QueryEscape(webutil.SafeNext(r.URL.Query().Get("next"))), http.StatusFound)
+		params := url.Values{}
+		params.Set("next", webutil.SafeNext(r.URL.Query().Get("next")))
+		if ref := cloud.NormalizeReferralCode(r.URL.Query().Get("ref")); cloud.ValidReferralCode(ref) {
+			params.Set("ref", ref)
+		}
+		http.Redirect(w, r, "/signup?"+params.Encode(), http.StatusFound)
 	})
 	mux.HandleFunc("GET /signup", func(w http.ResponseWriter, r *http.Request) {
 		identity, _ := m.Identity(r)
@@ -241,33 +250,33 @@ func (m *Manager) Register(mux *http.ServeMux) {
 		}
 		csrf := m.EnsureCSRF(w, r)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(m.form("signup", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "")))
+		_, _ = w.Write([]byte(m.form("signup", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "", r.URL.Query().Get("ref"))))
 	})
 	signup := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		csrf := m.EnsureCSRF(w, r)
 		next := webutil.SafeNext(r.FormValue("next"))
+		referralCode := cloud.NormalizeReferralCode(r.FormValue("referralCode"))
 		if !m.VerifyCSRF(r) {
 			w.WriteHeader(403)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Security token expired. Please try again.")))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Security token expired. Please try again.", referralCode)))
 			return
 		}
 		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		password := r.FormValue("password")
-		referralCode := cloud.NormalizeReferralCode(r.FormValue("referralCode"))
 		if !validEmail(email) {
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid email address.")))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid email address.", referralCode)))
 			return
 		}
 		if !cloud.ValidReferralCode(referralCode) {
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid referral code from an existing member.")))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid referral code from an existing member.", referralCode)))
 			return
 		}
 		hash, salt, err := HashPassword(password)
 		if err != nil {
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, err.Error())))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, err.Error(), referralCode)))
 			return
 		}
 		user, err := m.Store.CreateUser(r.Context(), email, hash, salt, referralCode)
@@ -282,7 +291,7 @@ func (m *Manager) Register(mux *http.ServeMux) {
 				message = "Unable to allocate a referral code. Please try again."
 			}
 			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, message)))
+			_, _ = w.Write([]byte(m.form("signup", csrf, next, message, referralCode)))
 			return
 		}
 		sessionID, err := m.Store.CreateSession(r.Context(), user.ID, csrf, m.SessionTTL)

@@ -1154,6 +1154,33 @@ func (s *Store) MCPUsageSummary(ctx context.Context, userID string, since int64)
 	return out, nil
 }
 
+type UsageLeaderboardUser struct {
+	ID    string
+	Email string
+}
+
+func (s *Store) ListUsageLeaderboardUsers(ctx context.Context, since int64) ([]UsageLeaderboardUser, error) {
+	rows, err := s.DB.Query(ctx, `
+SELECT u.id,u.email
+FROM codelocal_users u
+JOIN codelocal_mcp_usage m ON m.user_id=u.id
+WHERE m.last_used_at >= $1
+ORDER BY m.last_used_at DESC,u.id ASC`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []UsageLeaderboardUser{}
+	for rows.Next() {
+		var item UsageLeaderboardUser
+		if err := rows.Scan(&item.ID, &item.Email); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 	rows, err := s.DB.Query(ctx, `
 SELECT
@@ -1162,7 +1189,7 @@ SELECT
  u.referral_code,
  COALESCE(u.referred_by_code,''),
  u.created_at,
- (SELECT COUNT(*) FROM codelocal_users child WHERE UPPER(COALESCE(child.referred_by_code,''))=UPPER(u.referral_code)) AS invite_count,
+ (SELECT COUNT(*) FROM codelocal_users child WHERE UPPER(child.referred_by_code)=UPPER(u.referral_code)) AS invite_count,
  COALESCE((SELECT MAX(d.last_seen_at) FROM codelocal_devices d WHERE d.user_id=u.id AND d.revoked_at IS NULL),0) AS last_device_seen_at,
  COALESCE((SELECT m.last_used_at FROM codelocal_mcp_usage m WHERE m.user_id=u.id),0) AS last_mcp_used_at
 FROM codelocal_users u
@@ -1175,6 +1202,31 @@ ORDER BY u.created_at ASC,u.email ASC`)
 	for rows.Next() {
 		var item AdminUser
 		if err := rows.Scan(&item.ID, &item.Email, &item.ReferralCode, &item.ReferredByCode, &item.CreatedAt, &item.InviteCount, &item.LastDeviceSeenAt, &item.LastMCPUsedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListInvitedUsers(ctx context.Context, referralCode string) ([]AdminUser, error) {
+	referralCode = NormalizeReferralCode(referralCode)
+	if !ValidReferralCode(referralCode) {
+		return []AdminUser{}, nil
+	}
+	rows, err := s.DB.Query(ctx, `
+SELECT u.id,u.email,u.created_at
+FROM codelocal_users u
+WHERE UPPER(u.referred_by_code)=UPPER($1)
+ORDER BY u.created_at DESC,u.email ASC`, referralCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AdminUser{}
+	for rows.Next() {
+		var item AdminUser
+		if err := rows.Scan(&item.ID, &item.Email, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
