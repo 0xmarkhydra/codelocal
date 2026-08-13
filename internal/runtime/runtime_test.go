@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,5 +57,56 @@ func TestPostReturnsDeviceAuthorizationRevokedSentinel(t *testing.T) {
 	err := runtime.post(context.Background(), "/api/client/runtime/poll", map[string]any{}, nil)
 	if !errors.Is(err, ErrDeviceAuthorizationRevoked) {
 		t.Fatalf("expected ErrDeviceAuthorizationRevoked, got %v", err)
+	}
+}
+
+func TestPostReturnsJSONMarshalError(t *testing.T) {
+	runtime := New(Options{BaseURL: "http://127.0.0.1"})
+	err := runtime.post(context.Background(), "/unused", map[string]any{"invalid": make(chan struct{})}, nil)
+	if err == nil {
+		t.Fatal("expected JSON marshal error")
+	}
+}
+
+func TestRegistrySignatureIgnoresWorkspaceOrder(t *testing.T) {
+	first := []workspace.Workspace{
+		{WorkspaceID: "b", WorkspaceName: "Beta", LocalPath: "/tmp/b"},
+		{WorkspaceID: "a", WorkspaceName: "Alpha", LocalPath: "/tmp/a"},
+	}
+	second := []workspace.Workspace{first[1], first[0]}
+	if registrySignature(first) != registrySignature(second) {
+		t.Fatal("registry signature should be stable regardless of workspace order")
+	}
+}
+
+func TestWorkspaceWorkerStopIsConcurrentSafe(t *testing.T) {
+	runtime := New(Options{})
+	worker := &WorkspaceWorker{
+		Runtime:   runtime,
+		Workspace: workspace.Workspace{WorkspaceID: "test-workspace"},
+		done:      make(chan struct{}),
+		calls:     map[string]context.CancelFunc{},
+	}
+	runtime.workers[worker.Workspace.WorkspaceID] = worker
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			worker.Stop("concurrent stop")
+		}()
+	}
+	wg.Wait()
+
+	select {
+	case <-worker.done:
+	default:
+		t.Fatal("worker done channel was not closed")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.workers[worker.Workspace.WorkspaceID] != nil {
+		t.Fatal("worker was not removed from runtime")
 	}
 }
