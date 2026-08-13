@@ -11,7 +11,7 @@
     "ci": "go test ./... && go vet ./...",
     "build:npm": "go run ./cmd/release",
     "release:prepare": "npm run ci && go run ./cmd/release && npm pack --dry-run ./.release/npm",
-    "release:npm": "bash ./release.sh"
+    "release:npm": "(npm whoami --registry=https://registry.npmjs.org/ >/dev/null 2>&1 || npm login --registry=https://registry.npmjs.org/) && npm whoami --registry=https://registry.npmjs.org/ && bash ./release.sh"
   },
   "engines": {
     "node": ">=20"
