@@ -1,6 +1,9 @@
 package taskstate
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestStoreKeepsOperationalContext(t *testing.T) {
 	store := New(8)
@@ -54,5 +57,14 @@ func TestReplaceErrorsClearsResolvedFailure(t *testing.T) {
 	state := store.Update("u", "s", "w", Patch{ReplaceErrors: true})
 	if len(state.RecentErrors) != 0 {
 		t.Fatalf("expected resolved errors to clear: %#v", state.RecentErrors)
+	}
+}
+
+func TestStoreExpiresStaleTaskMemory(t *testing.T) {
+	store := NewWithTTL(8, time.Millisecond)
+	store.Update("u", "s", "w", Patch{Task: "stale task"})
+	time.Sleep(3 * time.Millisecond)
+	if state, ok := store.Get("u", "s", "w"); ok || state.Task != "" {
+		t.Fatalf("expected stale state to expire, got %#v", state)
 	}
 }
