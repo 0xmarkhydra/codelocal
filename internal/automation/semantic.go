@@ -12,8 +12,8 @@ import (
 // screenshot so ChatGPT can reason about the UI without paying the latency and
 // token cost of vision on every step.
 type ComputerObservation struct {
-	Windows  any `json:"windows"`
-	UITree   any `json:"uiTree,omitempty"`
+	Windows  any    `json:"windows"`
+	UITree   any    `json:"uiTree,omitempty"`
 	WindowID string `json:"windowId,omitempty"`
 }
 
@@ -91,7 +91,8 @@ func semanticScore(target string, node map[string]any) int {
 			score += 10
 		}
 		if enabled, ok := node["enabled"].(bool); ok && !enabled {
-			score -= 30
+			// A disabled exact label must not beat an enabled near-match.
+			score -= 60
 		}
 	}
 	return score
@@ -130,10 +131,9 @@ func walkSemanticNodes(value any, target string, best *semanticCandidate) {
 	}
 }
 
-// FindComputerElement resolves human wording such as "Continue" or
-// "Skip Ads" to the best accessibility element in a fresh UI tree. This is a
-// deterministic local fast-path; vision remains a fallback for interfaces that
-// expose no useful accessibility metadata.
+// FindComputerElement resolves human wording to the best accessibility element
+// in a fresh UI tree. This is a deterministic local fast-path; vision remains a
+// fallback for interfaces that expose no useful accessibility metadata.
 func FindComputerElement(ctx context.Context, computer *ComputerController, windowID, target string) (map[string]any, error) {
 	windowID = strings.TrimSpace(windowID)
 	target = strings.TrimSpace(target)
@@ -153,11 +153,11 @@ func FindComputerElement(ctx context.Context, computer *ComputerController, wind
 		return nil, fmt.Errorf("no accessible UI element matched %q", target)
 	}
 	return map[string]any{
-		"elementId": best.ElementID,
-		"role":      best.Role,
-		"name":      best.Name,
+		"elementId":   best.ElementID,
+		"role":        best.Role,
+		"name":        best.Name,
 		"description": best.Desc,
-		"value":     best.Value,
-		"score":     best.Score,
+		"value":       best.Value,
+		"score":       best.Score,
 	}, nil
 }
