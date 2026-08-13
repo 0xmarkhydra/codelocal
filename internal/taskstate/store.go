@@ -40,13 +40,21 @@ type Store struct {
 	mu     sync.RWMutex
 	states map[string]State
 	limit  int
+	ttl    time.Duration
 }
 
 func New(limit int) *Store {
+	return NewWithTTL(limit, 24*time.Hour)
+}
+
+func NewWithTTL(limit int, ttl time.Duration) *Store {
 	if limit <= 0 {
 		limit = 256
 	}
-	return &Store{states: map[string]State{}, limit: limit}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	return &Store{states: map[string]State{}, limit: limit, ttl: ttl}
 }
 
 func stateKey(userID, sessionID, workspaceKey string) string {
@@ -78,14 +86,28 @@ func mergeRecent(existing, added []string, max int) []string {
 	return normalizeList(combined, max)
 }
 
+func (s *Store) expired(state State, now time.Time) bool {
+	return !state.UpdatedAt.IsZero() && s.ttl > 0 && now.Sub(state.UpdatedAt) > s.ttl
+}
+
 func (s *Store) Get(userID, sessionID, workspaceKey string) (State, bool) {
 	if s == nil {
 		return State{}, false
 	}
+	key := stateKey(userID, sessionID, workspaceKey)
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	state, ok := s.states[stateKey(userID, sessionID, workspaceKey)]
-	return state, ok
+	state, ok := s.states[key]
+	expired := ok && s.expired(state, time.Now().UTC())
+	s.mu.RUnlock()
+	if !expired {
+		return state, ok
+	}
+	s.mu.Lock()
+	if current, exists := s.states[key]; exists && s.expired(current, time.Now().UTC()) {
+		delete(s.states, key)
+	}
+	s.mu.Unlock()
+	return State{}, false
 }
 
 func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) State {
@@ -95,7 +117,11 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 	key := stateKey(userID, sessionID, workspaceKey)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now().UTC()
 	state := s.states[key]
+	if s.expired(state, now) {
+		state = State{}
+	}
 	state.UserID = strings.TrimSpace(userID)
 	state.SessionID = strings.TrimSpace(sessionID)
 	state.WorkspaceKey = strings.TrimSpace(workspaceKey)
@@ -115,9 +141,9 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 	if value := strings.TrimSpace(patch.LastAction); value != "" {
 		state.LastAction = value
 	}
-	state.UpdatedAt = time.Now().UTC()
+	state.UpdatedAt = now
 	s.states[key] = state
-	s.compactLocked()
+	s.compactLocked(now)
 	return state
 }
 
@@ -130,7 +156,12 @@ func (s *Store) Delete(userID, sessionID, workspaceKey string) {
 	s.mu.Unlock()
 }
 
-func (s *Store) compactLocked() {
+func (s *Store) compactLocked(now time.Time) {
+	for key, state := range s.states {
+		if s.expired(state, now) {
+			delete(s.states, key)
+		}
+	}
 	if len(s.states) <= s.limit {
 		return
 	}
