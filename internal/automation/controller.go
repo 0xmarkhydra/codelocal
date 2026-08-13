@@ -169,17 +169,51 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		return c.Browser.Close(ctx)
 	case "computer_status":
 		return ComputerCapabilities(), nil
+	case "computer_observe":
+		if c.Computer == nil {
+			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
+		}
+		approved, state, err := c.authorize(Action{Domain: "computer", Operation: "observe", Target: stringArg(args, "description")}, args)
+		if err != nil || !approved {
+			return state, err
+		}
+		return ObserveComputer(ctx, c.Computer, stringArg(args, "windowId"))
 	case "computer_list_windows", "computer_ui_tree", "computer_screenshot", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag":
 		if c.Computer == nil {
 			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
 		}
 		op := strings.TrimPrefix(tool, "computer_")
-		action := Action{Domain: "computer", Operation: op, Target: stringArg(args, "description"), Text: stringArg(args, "text")}
+		target := firstNonEmpty(stringArg(args, "target"), stringArg(args, "description"))
+		action := Action{Domain: "computer", Operation: op, Target: target, Text: stringArg(args, "text")}
 		approved, state, err := c.authorize(action, args)
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Computer.Call(ctx, op, args)
+
+		resolved := map[string]any(nil)
+		if op == "click" && stringArg(args, "elementId") == "" && target != "" {
+			resolved, err = FindComputerElement(ctx, c.Computer, stringArg(args, "windowId"), target)
+			if err != nil {
+				return nil, err
+			}
+			args["elementId"] = resolved["elementId"]
+		}
+
+		result, err := c.Computer.Call(ctx, op, args)
+		if err != nil {
+			return nil, err
+		}
+		if !boolArg(args, "verify", false) {
+			if resolved == nil {
+				return result, nil
+			}
+			return map[string]any{"result": result, "resolvedTarget": resolved}, nil
+		}
+		observation, observeErr := ObserveComputer(ctx, c.Computer, stringArg(args, "windowId"))
+		if observeErr != nil {
+			return map[string]any{"result": result, "resolvedTarget": resolved, "verificationError": observeErr.Error()}, nil
+		}
+		return map[string]any{"result": result, "resolvedTarget": resolved, "observation": observation}, nil
 	default:
 		return nil, errors.New("unsupported automation tool: " + tool)
 	}
