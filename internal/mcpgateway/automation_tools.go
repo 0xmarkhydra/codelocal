@@ -20,7 +20,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 		"console": "browser_console", "requests": "browser_requests", "close": "browser_close",
 	}
 	computerActions := map[string]string{
-		"status": "computer_status", "list_windows": "computer_list_windows", "ui_tree": "computer_ui_tree",
+		"status": "computer_status", "observe": "computer_observe", "list_windows": "computer_list_windows", "ui_tree": "computer_ui_tree",
 		"screenshot": "computer_screenshot", "focus": "computer_focus", "click": "computer_click", "type": "computer_type",
 		"key": "computer_key", "scroll": "computer_scroll", "drag": "computer_drag",
 	}
@@ -54,12 +54,14 @@ func compactAutomationToolDefinitions() []compactToolDef {
 		{
 			Name:        "computer",
 			Title:       "Use desktop apps",
-			Description: "Inspect desktop windows/UI, capture a fresh screenshot, focus a window, or perform approval-controlled pointer and keyboard actions. Prefer elementId over coordinates and re-inspect after UI changes.",
+			Description: "Observe desktop windows/UI and interact with native apps. Prefer action=observe, then semantic target text for click. CodeLocal resolves accessibility elements locally; use raw coordinates only as a fallback. Set verify=true when the result should include a fresh post-action observation.",
 			Schema: actionSchema(
-				[]string{"status", "list_windows", "ui_tree", "screenshot", "focus", "click", "type", "key", "scroll", "drag"},
+				[]string{"status", "observe", "list_windows", "ui_tree", "screenshot", "focus", "click", "type", "key", "scroll", "drag"},
 				map[string]any{
-					"windowId":      str("Window identifier returned by action=list_windows."),
-					"elementId":     str("Accessibility element identifier returned by action=ui_tree."),
+					"windowId":      str("Window identifier returned by action=observe or action=list_windows."),
+					"elementId":     str("Accessibility element identifier returned by action=ui_tree. Usually omit this and provide target instead."),
+					"target":        str("Semantic UI target such as Continue or Save. For click, CodeLocal resolves this against a fresh accessibility tree when elementId is omitted."),
+					"verify":        boolean("After an input action, return a fresh native observation in the same MCP call. Defaults to false."),
 					"x":             integer("Fallback screen X coordinate.", 0, 0),
 					"y":             integer("Fallback screen Y coordinate.", 0, 0),
 					"text":          str("Text to type into the focused/selected element."),
@@ -86,16 +88,34 @@ func compactAutomationToolDefinitions() []compactToolDef {
 				action, _ := args["action"].(string)
 				if action == "click" {
 					elementID, _ := forward["elementId"].(string)
+					target, _ := forward["target"].(string)
+					description, _ := forward["description"].(string)
 					_, hasX := forward["x"]
 					_, hasY := forward["y"]
-					if strings.TrimSpace(elementID) == "" && (!hasX || !hasY) {
-						return operationInvocation{}, nil, errors.New("click requires elementId or both x and y")
+					semantic := strings.TrimSpace(firstNonEmptyString(target, description))
+					if strings.TrimSpace(elementID) == "" && semantic == "" && (!hasX || !hasY) {
+						return operationInvocation{}, nil, errors.New("click requires target, elementId, or both x and y")
+					}
+					if strings.TrimSpace(elementID) == "" && semantic != "" {
+						windowID, _ := forward["windowId"].(string)
+						if strings.TrimSpace(windowID) == "" {
+							return operationInvocation{}, nil, errors.New("semantic click requires windowId from computer action=observe or list_windows")
+						}
 					}
 				}
 				return operation, forward, nil
 			},
 		},
 	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func automationRuntimeTool(name string) bool {
@@ -116,7 +136,7 @@ func capabilityFlag(capability map[string]any, name string) bool {
 
 func requiredComputerCapability(tool string) string {
 	switch tool {
-	case "computer_list_windows", "computer_focus":
+	case "computer_observe", "computer_list_windows", "computer_focus":
 		return "windowList"
 	case "computer_ui_tree":
 		return "uiTree"
@@ -138,7 +158,6 @@ func ensureAutomationOperationSupported(runtimeTool string, workspace *gateway.W
 	if workspace.ProtocolVersion < 3 {
 		return fmt.Errorf("%s requires CodeLocal automation protocol v3; update the local codelocal package", runtimeTool)
 	}
-	// Status remains callable so ChatGPT can explain why a capability is unavailable.
 	if runtimeTool == "browser_status" || runtimeTool == "computer_status" {
 		return nil
 	}
