@@ -28,3 +28,10 @@ func TestRouteUsesComputerForNativeDesktopTask(t *testing.T) {
 		t.Fatalf("expected computer lane, got %#v", decision)
 	}
 }
+
+func TestRouteReportsUnavailableWhenNoCapabilityExists(t *testing.T) {
+	decision := Route("continue task", Capabilities{})
+	if decision.Primary != LaneNone {
+		t.Fatalf("expected no available lane, got %#v", decision)
+	}
+}
