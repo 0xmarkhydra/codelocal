@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +55,7 @@ type WorkspaceWorker struct {
 	sideMu    sync.Mutex
 	cancel    context.CancelFunc
 	done      chan struct{}
+	stopOnce  sync.Once
 	lastUsed  atomic.Int64
 	callsMu   sync.Mutex
 	calls     map[string]context.CancelFunc
@@ -100,7 +102,10 @@ func (r *Runtime) headers(req *http.Request) {
 	req.Header.Set("Authorization", "Device "+r.Options.Credential.CredentialSecret)
 }
 func (r *Runtime) post(ctx context.Context, path string, input any, output any) error {
-	raw, _ := json.Marshal(input)
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeBase(r.Options.BaseURL)+path, bytes.NewReader(raw))
 	if err != nil {
 		return err
@@ -128,15 +133,8 @@ func registrySignature(items []workspace.Workspace) string {
 	for _, w := range items {
 		parts = append(parts, w.WorkspaceID+"\x00"+w.WorkspaceName+"\x00"+w.LocalPath)
 	}
-	sortStrings(parts)
+	sort.Strings(parts)
 	return strings.Join(parts, "\n")
-}
-func sortStrings(v []string) {
-	for i := 1; i < len(v); i++ {
-		for j := i; j > 0 && v[j] < v[j-1]; j-- {
-			v[j], v[j-1] = v[j-1], v[j]
-		}
-	}
 }
 
 func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Workspace, error) {
@@ -145,31 +143,30 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 		return nil, err
 	}
 	signature := registrySignature(items)
+	authorized := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		authorized[item.WorkspaceID] = struct{}{}
+	}
+	staleWorkers := make([]*WorkspaceWorker, 0)
 	r.mu.Lock()
 	for id, worker := range r.workers {
-		found := false
-		for _, w := range items {
-			if w.WorkspaceID == id {
-				found = true
-				break
-			}
-		}
-		if !found {
-			go worker.Stop("workspace authorization removed")
+		if _, ok := authorized[id]; !ok {
+			staleWorkers = append(staleWorkers, worker)
 		}
 	}
 	unchanged := signature == r.syncedSignature
 	r.mu.Unlock()
+	for _, worker := range staleWorkers {
+		go worker.Stop("workspace authorization removed")
+	}
 	if !force && unchanged {
 		return items, nil
 	}
-	payload := map[string]any{"clientVersion": version.Version, "workspaces": func() []map[string]any {
-		out := make([]map[string]any, 0, len(items))
-		for _, w := range items {
-			out = append(out, map[string]any{"workspaceId": w.WorkspaceID, "workspaceName": w.WorkspaceName})
-		}
-		return out
-	}()}
+	workspaces := make([]map[string]any, 0, len(items))
+	for _, w := range items {
+		workspaces = append(workspaces, map[string]any{"workspaceId": w.WorkspaceID, "workspaceName": w.WorkspaceName})
+	}
+	payload := map[string]any{"clientVersion": version.Version, "workspaces": workspaces}
 	if err := r.post(ctx, "/api/client/workspaces/sync", payload, &map[string]any{}); err != nil {
 		return nil, err
 	}
@@ -522,32 +519,30 @@ func (w *WorkspaceWorker) idleLoop(ctx context.Context) {
 	}
 }
 func (w *WorkspaceWorker) Stop(reason string) {
-	if w.cancel != nil {
-		w.cancel()
-	}
-	w.callsMu.Lock()
-	for _, cancel := range w.calls {
-		cancel()
-	}
-	w.calls = map[string]context.CancelFunc{}
-	w.callsMu.Unlock()
-	if w.conn != nil {
-		_ = w.conn.Close(websocket.StatusNormalClosure, reason)
-	}
-	closeWorkspaceAutomation(w)
-	if w.Engine != nil {
-		w.Engine.Close()
-	}
-	select {
-	case <-w.done:
-	default:
+	w.stopOnce.Do(func() {
+		if w.cancel != nil {
+			w.cancel()
+		}
+		w.callsMu.Lock()
+		for _, cancel := range w.calls {
+			cancel()
+		}
+		w.calls = map[string]context.CancelFunc{}
+		w.callsMu.Unlock()
+		if w.conn != nil {
+			_ = w.conn.Close(websocket.StatusNormalClosure, reason)
+		}
+		closeWorkspaceAutomation(w)
+		if w.Engine != nil {
+			w.Engine.Close()
+		}
 		close(w.done)
-	}
-	w.Runtime.mu.Lock()
-	if w.Runtime.workers[w.Workspace.WorkspaceID] == w {
-		delete(w.Runtime.workers, w.Workspace.WorkspaceID)
-	}
-	w.Runtime.mu.Unlock()
+		w.Runtime.mu.Lock()
+		if w.Runtime.workers[w.Workspace.WorkspaceID] == w {
+			delete(w.Runtime.workers, w.Workspace.WorkspaceID)
+		}
+		w.Runtime.mu.Unlock()
+	})
 }
 
 func (r *Runtime) poll(ctx context.Context) (pollResponse, error) {
