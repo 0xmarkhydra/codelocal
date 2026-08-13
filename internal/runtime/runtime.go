@@ -571,73 +571,7 @@ func (r *Runtime) ackRevocation(ctx context.Context, requestID, workspaceID stri
 }
 
 func (r *Runtime) Run(ctx context.Context) error {
-	items, err := r.SyncRegistry(ctx, true)
-	if err != nil {
-		return err
-	}
-	slog.Info("CodeLocal runtime connected", "device", r.Options.Credential.DeviceName, "workspaces", len(items))
-	if r.Options.OnReady != nil {
-		r.Options.OnReady()
-	}
-	for {
-		r.mu.Lock()
-		stopped := r.stopped
-		r.mu.Unlock()
-		if stopped {
-			return nil
-		}
-		if _, err := r.SyncRegistry(ctx, false); err != nil {
-			if errors.Is(err, ErrDeviceAuthorizationRevoked) {
-				return err
-			}
-			slog.Warn("workspace sync failed", "error", err)
-		}
-		message, err := r.poll(ctx)
-		if err != nil {
-			if errors.Is(err, ErrDeviceAuthorizationRevoked) {
-				return err
-			}
-			if ctx.Err() != nil {
-				return nil
-			}
-			r.mu.Lock()
-			stopped = r.stopped
-			r.mu.Unlock()
-			if stopped {
-				return nil
-			}
-			slog.Warn("runtime long-poll failed", "error", err)
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(2 * time.Second):
-			}
-			continue
-		}
-		if message.Revocation != nil {
-			rev := message.Revocation
-			removed, revokeErr := r.Registry.Revoke(rev.WorkspaceID)
-			if revokeErr != nil {
-				slog.Warn("workspace revoke failed", "error", revokeErr)
-			}
-			r.mu.Lock()
-			worker := r.workers[rev.WorkspaceID]
-			r.mu.Unlock()
-			if worker != nil {
-				worker.Stop("workspace revoked")
-			}
-			if removed {
-				_, _ = r.SyncRegistry(ctx, true)
-			}
-			r.ackRevocation(ctx, rev.RequestID, rev.WorkspaceID)
-			continue
-		}
-		if message.Activation != nil {
-			if _, err := r.Activate(ctx, message.Activation.WorkspaceID); err != nil {
-				slog.Warn("workspace activation failed", "workspaceId", message.Activation.WorkspaceID, "error", err)
-			}
-		}
-	}
+	return r.runRealtime(ctx)
 }
 
 func (r *Runtime) Stop() {
