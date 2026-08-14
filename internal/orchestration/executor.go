@@ -20,14 +20,14 @@ type ExecutionTraceStep struct {
 }
 
 type EfficiencyEvaluation struct {
-	Score                  int      `json:"score"`
-	Grade                  string   `json:"grade"`
-	StructuredStepRatio    float64  `json:"structuredStepRatio"`
-	RepeatedOperations     int      `json:"repeatedOperations"`
-	RouteSwitches          int      `json:"routeSwitches"`
-	FallbackSteps          int      `json:"fallbackSteps"`
-	ModelRoundTripsAvoided int      `json:"modelRoundTripsAvoided"`
-	Signals                []string `json:"signals,omitempty"`
+	Score                           int      `json:"score"`
+	Grade                           string   `json:"grade"`
+	StructuredStepRatio             float64  `json:"structuredStepRatio"`
+	RepeatedOperations              int      `json:"repeatedOperations"`
+	RouteSwitches                   int      `json:"routeSwitches"`
+	FallbackSteps                   int      `json:"fallbackSteps"`
+	EstimatedModelRoundTripsAvoided int      `json:"estimatedModelRoundTripsAvoided"`
+	Signals                         []string `json:"signals,omitempty"`
 }
 
 type ExecutionTraceSummary struct {
@@ -175,13 +175,13 @@ func EvaluateExecutionEfficiency(plan AgentPlan, trace []ExecutionTraceStep) Eff
 		avoided = meaningful - 1
 	}
 	return EfficiencyEvaluation{
-		Score:                  score,
-		Grade:                  grade,
-		StructuredStepRatio:    ratio,
-		RepeatedOperations:     repeated,
-		RouteSwitches:          routeSwitches,
-		FallbackSteps:          fallbacks,
-		ModelRoundTripsAvoided: avoided,
-		Signals:                signals,
+		Score:                           score,
+		Grade:                           grade,
+		StructuredStepRatio:             ratio,
+		RepeatedOperations:              repeated,
+		RouteSwitches:                   routeSwitches,
+		FallbackSteps:                   fallbacks,
+		EstimatedModelRoundTripsAvoided: avoided,
+		Signals:                         signals,
 	}
 }

@@ -587,9 +587,9 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 		"completionAllowed": state.AgentPhase == "finalize" && state.QualityStatus == "ready",
 		"traceSummary":      traceSummary,
 		"efficiency": map[string]any{
-			"score":                  efficiency.Score,
-			"grade":                  efficiency.Grade,
-			"modelRoundTripsAvoided": efficiency.ModelRoundTripsAvoided,
+			"score":                           efficiency.Score,
+			"grade":                           efficiency.Grade,
+			"estimatedModelRoundTripsAvoided": efficiency.EstimatedModelRoundTripsAvoided,
 		},
 	}
 	if responseMode == "full" {

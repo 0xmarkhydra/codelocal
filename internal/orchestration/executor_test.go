@@ -14,8 +14,8 @@ func TestEvaluateExecutionEfficiencyRewardsStructuredBoundedFlow(t *testing.T) {
 	if efficiency.Score < 90 || efficiency.Grade != "excellent" {
 		t.Fatalf("expected efficient bounded flow, got %#v", efficiency)
 	}
-	if efficiency.ModelRoundTripsAvoided != 3 {
-		t.Fatalf("expected three avoided model round trips, got %#v", efficiency)
+	if efficiency.EstimatedModelRoundTripsAvoided != 3 {
+		t.Fatalf("expected estimate of three avoided model round trips, got %#v", efficiency)
 	}
 }
 
