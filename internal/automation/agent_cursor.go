@@ -5,15 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func (c *ComputerController) AgentCursorSupported() bool {
-	if c == nil || c.Helper == "" {
+	if c == nil || c.Helper == "" || runtime.GOOS != "darwin" || !strings.Contains(strings.ToLower(c.Backend), "macos") {
 		return false
 	}
-	return runtime.GOOS == "darwin" && strings.Contains(strings.ToLower(c.Backend), "macos")
+	uiTree, _ := c.Capabilities["uiTree"].(bool)
+	if !uiTree {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/osascript", "-l", "JavaScript", "-e", `ObjC.import('Cocoa'); function run(){return String(Number($.NSScreen.screens.count)===1);}`)
+	output, err := cmd.Output()
+	return err == nil && strings.EqualFold(strings.TrimSpace(string(output)), "true")
 }
 
 // AgentCursor asks the native helper to render a visual-only cursor. It is an
