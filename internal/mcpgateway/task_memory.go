@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	"github.com/0xmarkhydra/codelocal/internal/orchestration"
 	"github.com/0xmarkhydra/codelocal/internal/taskstate"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -89,7 +91,24 @@ func memoryWorkspaceKey(s *Service, userID, session string, args map[string]any)
 	return strings.TrimSpace(s.route(userID, session))
 }
 
-func attachTaskMemory(result *mcp.CallToolResult, state taskstate.State) {
+func executionCapabilities(workspace *gateway.WorkspaceView) orchestration.Capabilities {
+	if workspace == nil {
+		return orchestration.Capabilities{}
+	}
+	filesystem := workspace.ProtocolVersion <= 1 || capabilityBool(workspace.Capabilities, "filesystem")
+	automation := nestedMap(workspace.Capabilities["automation"])
+	browser := nestedMap(automation["browser"])
+	computer := nestedMap(automation["computer"])
+	return orchestration.Capabilities{
+		Filesystem: filesystem,
+		LSP:        filesystem,
+		Shell:      capabilityBool(workspace.Capabilities, "shell"),
+		Browser:    capabilityFlag(browser, "available"),
+		Computer:   capabilityFlag(computer, "available"),
+	}
+}
+
+func attachTaskContext(result *mcp.CallToolResult, state taskstate.State, decision orchestration.Decision) {
 	if result == nil {
 		return
 	}
@@ -108,7 +127,15 @@ func attachTaskMemory(result *mcp.CallToolResult, state taskstate.State) {
 		"recentErrors": state.RecentErrors,
 		"lastAction":   state.LastAction,
 	}
+	root["routeHint"] = decision
 	result.StructuredContent = root
+}
+
+func attachTaskMemory(result *mcp.CallToolResult, state taskstate.State) {
+	attachTaskContext(result, state, orchestration.Decision{})
+	if root, ok := result.StructuredContent.(map[string]any); ok {
+		delete(root, "routeHint")
+	}
 }
 
 func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -123,7 +150,11 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 	}
 	state := workingMemory.Update(userID, session, workspaceKey, taskPatchForOperation(publicTool, operation, args, result))
 	if publicTool == "context" && err == nil && result != nil && !result.IsError {
-		attachTaskMemory(result, state)
+		decision := orchestration.Decision{Primary: orchestration.LaneNone, Reason: "workspace capabilities unavailable"}
+		if workspace, activateErr := s.Workspaces.Activate(ctx, userID, workspaceKey); activateErr == nil {
+			decision = orchestration.Route(state.Task, executionCapabilities(workspace))
+		}
+		attachTaskContext(result, state, decision)
 	}
 	return result, err
 }
