@@ -51,6 +51,20 @@ func TestStoreSeparatesSessionsAndWorkspaces(t *testing.T) {
 	}
 }
 
+func TestStoreReturnsDefensiveSliceCopies(t *testing.T) {
+	store := New(8)
+	state := store.Update("u", "s", "w", Patch{TouchedFiles: []string{"a.go"}, RecentChecks: []string{"verify.changes"}})
+	state.TouchedFiles[0] = "mutated.go"
+	state.RecentChecks[0] = "mutated.check"
+	fresh, ok := store.Get("u", "s", "w")
+	if !ok {
+		t.Fatal("expected stored state")
+	}
+	if fresh.TouchedFiles[0] != "a.go" || fresh.RecentChecks[0] != "verify.changes" {
+		t.Fatalf("caller mutation leaked into store: %#v", fresh)
+	}
+}
+
 func TestReplaceErrorsClearsResolvedFailure(t *testing.T) {
 	store := New(8)
 	store.Update("u", "s", "w", Patch{RecentErrors: []string{"old failure"}})
