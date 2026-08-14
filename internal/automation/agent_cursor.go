@@ -26,12 +26,12 @@ func (c *ComputerController) AgentCursorSupported() bool {
 	return err == nil && strings.EqualFold(strings.TrimSpace(string(output)), "true")
 }
 
-// AgentCursor asks the native helper to render a visual-only cursor. It is an
-// internal UX operation, not an MCP capability: all approved input still flows
-// through the normal computer operations and authorizer.
-func (c *ComputerController) AgentCursor(ctx context.Context, args map[string]any) (any, error) {
-	if !c.AgentCursorSupported() {
-		return map[string]any{"visible": false, "independent": false}, nil
+// agentCursor asks the native helper to render visual-only feedback after the
+// caller has checked AgentCursorSupported. It is deliberately package-private
+// so unsupported callers cannot bypass that capability gate.
+func (c *ComputerController) agentCursor(ctx context.Context, args map[string]any) (any, error) {
+	if c == nil || c.Helper == "" {
+		return nil, errors.New("Computer Use helper unavailable")
 	}
 	request := map[string]any{
 		"version":       1,
