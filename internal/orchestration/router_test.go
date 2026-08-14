@@ -12,6 +12,13 @@ func TestRoutePrefersCodeForCodeTask(t *testing.T) {
 	}
 }
 
+func TestRouteRecognizesVietnameseCodeIntent(t *testing.T) {
+	decision := Route("sửa lỗi đăng nhập và chạy kiểm thử", Capabilities{Filesystem: true, LSP: true, Shell: true})
+	if decision.Primary != LaneCode {
+		t.Fatalf("expected Vietnamese code task to use code lane, got %#v", decision)
+	}
+}
+
 func TestRoutePrefersBrowserBeforeComputer(t *testing.T) {
 	decision := Route("open browser website and fill form", Capabilities{Browser: true, Computer: true})
 	if decision.Primary != LaneBrowser {
@@ -22,10 +29,24 @@ func TestRoutePrefersBrowserBeforeComputer(t *testing.T) {
 	}
 }
 
+func TestRouteRecognizesVietnameseBrowserIntent(t *testing.T) {
+	decision := Route("mở trình duyệt vào trang web và điền biểu mẫu", Capabilities{Browser: true, Computer: true})
+	if decision.Primary != LaneBrowser {
+		t.Fatalf("expected Vietnamese browser task to use browser lane, got %#v", decision)
+	}
+}
+
 func TestRouteUsesComputerForNativeDesktopTask(t *testing.T) {
 	decision := Route("click a window in desktop application", Capabilities{Computer: true})
 	if decision.Primary != LaneComputer {
 		t.Fatalf("expected computer lane, got %#v", decision)
+	}
+}
+
+func TestRouteRecognizesVietnameseDesktopIntent(t *testing.T) {
+	decision := Route("bấm nút trong cửa sổ ứng dụng", Capabilities{Computer: true})
+	if decision.Primary != LaneComputer {
+		t.Fatalf("expected Vietnamese desktop task to use computer lane, got %#v", decision)
 	}
 }
 
