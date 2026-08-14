@@ -5,14 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
+	"strings"
 )
+
+func (c *ComputerController) AgentCursorSupported() bool {
+	if c == nil || c.Helper == "" {
+		return false
+	}
+	return runtime.GOOS == "darwin" && strings.Contains(strings.ToLower(c.Backend), "macos")
+}
 
 // AgentCursor asks the native helper to render a visual-only cursor. It is an
 // internal UX operation, not an MCP capability: all approved input still flows
 // through the normal computer operations and authorizer.
 func (c *ComputerController) AgentCursor(ctx context.Context, args map[string]any) (any, error) {
-	if c == nil || c.Helper == "" {
-		return nil, errors.New("Computer Use helper unavailable")
+	if !c.AgentCursorSupported() {
+		return map[string]any{"visible": false, "independent": false}, nil
 	}
 	request := map[string]any{
 		"version":       1,
