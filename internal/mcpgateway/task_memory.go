@@ -132,16 +132,36 @@ func attachTaskContext(result *mcp.CallToolResult, state taskstate.State, decisi
 }
 
 func attachTaskMemory(result *mcp.CallToolResult, state taskstate.State) {
+	if result == nil {
+		return
+	}
 	attachTaskContext(result, state, orchestration.Decision{})
 	if root, ok := result.StructuredContent.(map[string]any); ok {
 		delete(root, "routeHint")
 	}
 }
 
+func attachRecoveryHint(result *mcp.CallToolResult) {
+	if result == nil || !result.IsError {
+		return
+	}
+	root, ok := result.StructuredContent.(map[string]any)
+	if !ok || root == nil {
+		return
+	}
+	message, _ := root["error"].(string)
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+	root["recovery"] = orchestration.ClassifyFailure(message)
+	result.StructuredContent = root
+}
+
 func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	session := sessionID(req)
 	workspaceKey := memoryWorkspaceKey(s, userID, session, args)
 	result, err := s.callOperation(ctx, userID, publicTool, operation, args, req)
+	attachRecoveryHint(result)
 	if workspaceKey == "" {
 		workspaceKey = strings.TrimSpace(s.route(userID, session))
 	}
