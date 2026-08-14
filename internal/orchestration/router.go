@@ -39,10 +39,22 @@ func containsAny(text string, words ...string) bool {
 // actions or bypasses approval; existing CodeLocal policy remains authoritative.
 func Route(task string, caps Capabilities) Decision {
 	text := strings.ToLower(strings.TrimSpace(task))
-	codeIntent := containsAny(text, "code", "bug", "fix", "refactor", "test", "build", "file", "function", "class", "dependency", "git")
-	browserIntent := containsAny(text, "browser", "website", "web page", "chrome", "safari", "firefox", "form", "dom")
-	desktopIntent := containsAny(text, "desktop", "window", "finder", "explorer", "paint", "settings", "application", "click", "drag", "screen")
-	shellIntent := containsAny(text, "terminal", "command", "cli", "script", "package manager")
+	codeIntent := containsAny(text,
+		"code", "bug", "fix", "refactor", "test", "build", "file", "function", "class", "dependency", "git",
+		"mã nguồn", "sửa code", "sửa lỗi", "tối ưu", "kiểm thử", "tệp", "hàm", "phụ thuộc", "xây dựng",
+	)
+	browserIntent := containsAny(text,
+		"browser", "website", "web page", "chrome", "safari", "firefox", "form", "dom",
+		"trình duyệt", "trang web", "biểu mẫu", "điền form", "mở web",
+	)
+	desktopIntent := containsAny(text,
+		"desktop", "window", "finder", "explorer", "paint", "settings", "application", "click", "drag", "screen",
+		"máy tính", "cửa sổ", "ứng dụng", "nhấp", "bấm", "kéo", "màn hình", "cài đặt",
+	)
+	shellIntent := containsAny(text,
+		"terminal", "command", "cli", "script", "package manager",
+		"dòng lệnh", "chạy lệnh", "lệnh shell", "trình quản lý gói",
+	)
 
 	if codeIntent && (caps.LSP || caps.Filesystem) {
 		fallbacks := []Lane{}
