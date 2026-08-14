@@ -40,6 +40,26 @@ func TestAutomationCapabilityGateUsesNestedProtocolV3Capabilities(t *testing.T) 
 	}
 }
 
+func TestCompactBrowserForwardsVerify(t *testing.T) {
+	var browser compactToolDef
+	for _, tool := range compactAutomationToolDefinitions() {
+		if tool.Name == "browser" {
+			browser = tool
+			break
+		}
+	}
+	if browser.Resolve == nil {
+		t.Fatal("browser compact tool not registered")
+	}
+	operation, forwarded, err := browser.Resolve(map[string]any{"action": "click", "ref": "e12", "verify": true})
+	if err != nil || operation.RuntimeTool != "browser_click" {
+		t.Fatalf("browser click did not resolve: %#v %v", operation, err)
+	}
+	if forwarded["verify"] != true {
+		t.Fatalf("browser verify was not forwarded: %#v", forwarded)
+	}
+}
+
 func TestCompactComputerSupportsSemanticTargetAndObserve(t *testing.T) {
 	var computer compactToolDef
 	for _, tool := range compactAutomationToolDefinitions() {
