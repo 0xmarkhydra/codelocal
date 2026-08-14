@@ -61,9 +61,14 @@ func TestReplaceErrorsClearsResolvedFailure(t *testing.T) {
 }
 
 func TestStoreExpiresStaleTaskMemory(t *testing.T) {
-	store := NewWithTTL(8, time.Millisecond)
+	store := NewWithTTL(8, time.Minute)
 	store.Update("u", "s", "w", Patch{Task: "stale task"})
-	time.Sleep(3 * time.Millisecond)
+	key := stateKey("u", "s", "w")
+	store.mu.Lock()
+	state := store.states[key]
+	state.UpdatedAt = time.Now().UTC().Add(-2 * time.Minute)
+	store.states[key] = state
+	store.mu.Unlock()
 	if state, ok := store.Get("u", "s", "w"); ok || state.Task != "" {
 		t.Fatalf("expected stale state to expire, got %#v", state)
 	}
