@@ -41,6 +41,33 @@ func TestWalkSemanticNodesPenalizesDisabledElement(t *testing.T) {
 	}
 }
 
+func TestWalkSemanticNodesTraversesWindowsStyleNodeAndKeepsBounds(t *testing.T) {
+	bounds := map[string]any{"x": 10.0, "y": 20.0, "width": 100.0, "height": 40.0}
+	tree := map[string]any{
+		"node": map[string]any{
+			"elementId": "uia-root",
+			"role":      "window",
+			"children": []any{
+				map[string]any{
+					"elementId": "uia-save",
+					"role":      "button",
+					"name":      "Save",
+					"enabled":   true,
+					"bounds":    bounds,
+				},
+			},
+		},
+	}
+	best := semanticCandidate{}
+	walkSemanticNodes(tree, "save", &best)
+	if best.ElementID != "uia-save" {
+		t.Fatalf("expected Windows-style nested target, got %#v", best)
+	}
+	if best.Bounds == nil {
+		t.Fatal("expected semantic target bounds to be retained")
+	}
+}
+
 func TestNormalizeSemanticText(t *testing.T) {
 	if got := normalizeSemanticText("  Save   Changes  "); got != "save changes" {
 		t.Fatalf("unexpected normalization: %q", got)
