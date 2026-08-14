@@ -40,7 +40,18 @@ func execute(input request) response {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	result, err := platformHandle(ctx, input)
+	var (
+		result any
+		err    error
+	)
+	if input.Operation == "cursor" {
+		// The agent cursor is visual-only and intentionally bypasses platform
+		// input dispatch. It must never synthesize clicks, keys, or permission
+		// changes; those remain in the normal approved Computer Use path.
+		result, err = platformCursor(ctx, input)
+	} else {
+		result, err = platformHandle(ctx, input)
+	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return response{OK: false, Error: "Computer Use operation timed out"}
