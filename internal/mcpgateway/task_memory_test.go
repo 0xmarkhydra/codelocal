@@ -1,6 +1,7 @@
 package mcpgateway
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
@@ -34,6 +35,19 @@ func TestTaskPatchDoesNotPersistRawTerminalCommand(t *testing.T) {
 	}, nil)
 	if len(patch.RecentChecks) != 1 || patch.RecentChecks[0] != "terminal.run" {
 		t.Fatalf("expected only stable operation identity, got %#v", patch.RecentChecks)
+	}
+}
+
+func TestTaskHintRedactsSecretLikeAssignments(t *testing.T) {
+	op := operationInvocation{OperationID: "context.task"}
+	patch := taskPatchForOperation("context", op, map[string]any{
+		"taskHint": "Fix deploy api_key=super-secret-value then retry with Bearer abc.def.ghi",
+	}, nil)
+	if strings.Contains(patch.Task, "super-secret-value") || strings.Contains(patch.Task, "abc.def.ghi") {
+		t.Fatalf("secret-like task content leaked into memory: %q", patch.Task)
+	}
+	if !strings.Contains(patch.Task, "[REDACTED]") {
+		t.Fatalf("expected visible redaction marker, got %q", patch.Task)
 	}
 }
 
