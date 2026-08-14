@@ -446,13 +446,17 @@ func macElementClick(ctx context.Context, elementID string) (any, error) {
 	return out, nil
 }
 
+// JXA wraps Core Foundation objects returned by CGEventCreate*. Calling
+// CFRelease on those bridged values can double-release them and crash
+// osascript. Every pointer call runs in a short-lived osascript process, so
+// process teardown safely releases the temporary events.
 const macPointerScript = `ObjC.import('ApplicationServices');
-function post(type,x,y,button){var p=$.CGPointMake(Number(x),Number(y));var e=$.CGEventCreateMouseEvent(null,type,p,button);$.CGEventPost($.kCGHIDEventTap,e);$.CFRelease(e)}
+function post(type,x,y,button){var p=$.CGPointMake(Number(x),Number(y));var e=$.CGEventCreateMouseEvent(null,type,p,button);$.CGEventPost($.kCGHIDEventTap,e)}
 function run(argv){
  var op=argv[0];
  if(op==='click'){var x=Number(argv[1]),y=Number(argv[2]);post($.kCGEventMouseMoved,x,y,$.kCGMouseButtonLeft);post($.kCGEventLeftMouseDown,x,y,$.kCGMouseButtonLeft);post($.kCGEventLeftMouseUp,x,y,$.kCGMouseButtonLeft);return JSON.stringify({clicked:true,x:x,y:y})}
  if(op==='drag'){var x1=Number(argv[1]),y1=Number(argv[2]),x2=Number(argv[3]),y2=Number(argv[4]);post($.kCGEventMouseMoved,x1,y1,$.kCGMouseButtonLeft);post($.kCGEventLeftMouseDown,x1,y1,$.kCGMouseButtonLeft);post($.kCGEventLeftMouseDragged,x2,y2,$.kCGMouseButtonLeft);post($.kCGEventLeftMouseUp,x2,y2,$.kCGMouseButtonLeft);return JSON.stringify({dragged:true,from:{x:x1,y:y1},to:{x:x2,y:y2}})}
- if(op==='scroll'){var dy=Number(argv[1]),dx=Number(argv[2]);var e=$.CGEventCreateScrollWheelEvent(null,$.kCGScrollEventUnitPixel,2,dy,dx);$.CGEventPost($.kCGHIDEventTap,e);$.CFRelease(e);return JSON.stringify({scrolled:true,deltaX:dx,deltaY:dy})}
+ if(op==='scroll'){var dy=Number(argv[1]),dx=Number(argv[2]);var e=$.CGEventCreateScrollWheelEvent(null,$.kCGScrollEventUnitPixel,2,dy,dx);$.CGEventPost($.kCGHIDEventTap,e);return JSON.stringify({scrolled:true,deltaX:dx,deltaY:dy})}
  throw new Error('unknown pointer operation')
 }`
 

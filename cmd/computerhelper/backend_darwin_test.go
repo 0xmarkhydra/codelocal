@@ -2,7 +2,10 @@
 
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMacTreeDegradedForWindowOnly(t *testing.T) {
 	tree := map[string]any{"nodes": []any{map[string]any{"role": "AXWindow", "name": "Telegram"}}}
@@ -27,5 +30,11 @@ func TestMacVisionPoint(t *testing.T) {
 	}
 	if _, _, ok := macVisionPoint("vision:screen:main:1:2"); ok {
 		t.Fatal("malformed Vision element ID should be rejected")
+	}
+}
+
+func TestMacPointerScriptDoesNotManuallyReleaseJXAEvents(t *testing.T) {
+	if strings.Contains(macPointerScript, "CFRelease") {
+		t.Fatal("JXA-managed CGEvent objects must not be manually CFReleased")
 	}
 }
