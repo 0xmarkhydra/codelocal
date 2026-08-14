@@ -27,6 +27,7 @@ type Service struct {
 	Store        *cloud.Store
 	Hub          *gateway.Hub
 	Workspaces   *gateway.WorkspaceService
+	Memory       longTermMemoryStore
 	Release      clientupdate.Manifest
 	mu           sync.Mutex
 	servers      map[string]*mcp.Server
@@ -34,11 +35,16 @@ type Service struct {
 	shownUpdates map[string]map[string]struct{}
 }
 
-func New(store *cloud.Store, hub *gateway.Hub, workspaces *gateway.WorkspaceService) *Service {
+func New(store *cloud.Store, hub *gateway.Hub, workspaces *gateway.WorkspaceService, memories ...longTermMemoryStore) *Service {
+	var memoryStore longTermMemoryStore
+	if len(memories) > 0 {
+		memoryStore = memories[0]
+	}
 	return &Service{
 		Store:        store,
 		Hub:          hub,
 		Workspaces:   workspaces,
+		Memory:       memoryStore,
 		Release:      clientupdate.ManifestFromEnv(),
 		servers:      map[string]*mcp.Server{},
 		routes:       map[string]map[string]string{},

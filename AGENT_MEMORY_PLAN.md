@@ -1,6 +1,6 @@
 # CodeLocal Agent Memory Plan
 
-Status: implementation in progress
+Status: production integration implemented; validation in progress
 Base: `feat/smart-computer-runtime` @ `dacb0fe`
 Branch: `feat/agent-memory`
 
@@ -81,10 +81,11 @@ Interface first. Initial provider: Gemini embedding using server environment cre
 
 Expected configuration:
 
-- `CODELOCAL_MEMORY_ENABLED=1`
+- memory is enabled by default; set `CODELOCAL_MEMORY_ENABLED=0` for an immediate rollback
 - `CODELOCAL_EMBEDDING_PROVIDER=gemini`
-- `GEMINI_API_KEY=...`
-- optional `CODELOCAL_EMBEDDING_MODEL=...`
+- `GEMINI_API_KEY=...` (optional; without it memory remains lexical/full-text)
+- optional `CODELOCAL_EMBEDDING_MODEL=...`; default is `gemini-embedding-2`
+- Gemini output is fixed to 768 dimensions so pgvector HNSW indexing stays within its `vector` dimension limit
 
 No key, quota failure or provider outage MUST NOT break CodeLocal. In those cases memory falls back to PostgreSQL full-text/metadata and vector indexing can be backfilled later.
 
@@ -115,8 +116,8 @@ Provider interface must allow adding OpenRouter, Voyage, OpenAI or local embeddi
 
 ## M4 — Smart-runtime integration
 
-- Project current `taskstate` into safe L1/L2 memory records at useful boundaries, not every tool call.
-- Recall relevant workspace memories during `context`/task setup.
+- Project current `taskstate` into safe L1/L2 memory records at useful boundaries, not every tool call. Implemented for successful edits, verified tasks and stable error events.
+- Recall relevant workspace memories during `context`/task setup. Implemented with bounded hybrid recall and compact structured content.
 - Do not increase the public MCP tool count unless progressive inspection truly requires it.
 - Keep ChatGPT as planner; memory is context, not an autonomous planner.
 

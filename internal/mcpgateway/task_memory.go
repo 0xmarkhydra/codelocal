@@ -3,14 +3,22 @@ package mcpgateway
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	longmemory "github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/orchestration"
 	"github.com/0xmarkhydra/codelocal/internal/taskstate"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type longTermMemoryStore interface {
+	Ingest(context.Context, longmemory.IngestInput) (longmemory.Record, error)
+	Recall(context.Context, longmemory.RecallInput) ([]longmemory.Record, error)
+}
 
 var (
 	workingMemory      = taskstate.New(512)
@@ -169,6 +177,103 @@ func attachRecoveryHint(result *mcp.CallToolResult) {
 	result.StructuredContent = root
 }
 
+func attachLongTermMemory(result *mcp.CallToolResult, records []longmemory.Record) {
+	if result == nil || len(records) == 0 {
+		return
+	}
+	root, ok := result.StructuredContent.(map[string]any)
+	if !ok || root == nil {
+		return
+	}
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, map[string]any{
+			"id":        record.ID,
+			"level":     record.Level,
+			"summary":   record.Summary,
+			"branch":    record.Branch,
+			"files":     record.Files,
+			"score":     record.Score,
+			"createdAt": record.CreatedAt,
+		})
+	}
+	root["longTermMemory"] = items
+	result.StructuredContent = root
+}
+
+func longTermMemoryInput(userID, session, workspaceID, publicTool string, operation operationInvocation, state taskstate.State, result *mcp.CallToolResult) *longmemory.IngestInput {
+	if strings.TrimSpace(state.Task) == "" || strings.TrimSpace(workspaceID) == "" {
+		return nil
+	}
+	level := longmemory.LevelEvent
+	importance := 0.55
+	var summary string
+	switch {
+	case publicTool == "verify" && result != nil && !result.IsError:
+		level = longmemory.LevelScenario
+		importance = 0.85
+		summary = "Task verified successfully: " + state.Task
+		if len(state.RecentChecks) > 0 {
+			summary += ". Checks: " + strings.Join(state.RecentChecks, ", ")
+		}
+	case publicTool == "edit" && result != nil && !result.IsError:
+		summary = "Files edited for task: " + state.Task
+	case result != nil && result.IsError:
+		summary = operation.OperationID + " failed while working on task: " + state.Task
+	default:
+		return nil
+	}
+	return &longmemory.IngestInput{
+		UserID:         userID,
+		WorkspaceID:    workspaceID,
+		TaskID:         session,
+		Level:          level,
+		Summary:        summary,
+		Branch:         state.Branch,
+		Files:          append([]string(nil), state.TouchedFiles...),
+		Confidence:     0.8,
+		Importance:     importance,
+		IdempotencyKey: longmemory.IdempotencyKey(session, workspaceID, operation.OperationID, summary),
+	}
+}
+
+func (s *Service) recallLongTermMemory(ctx context.Context, userID, workspaceID string, state taskstate.State) []longmemory.Record {
+	if s.Memory == nil || strings.TrimSpace(state.Task) == "" || strings.TrimSpace(workspaceID) == "" {
+		return nil
+	}
+	recallCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+	defer cancel()
+	records, err := s.Memory.Recall(recallCtx, longmemory.RecallInput{
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		Query:       state.Task,
+		Limit:       6,
+		Files:       append([]string(nil), state.TouchedFiles...),
+	})
+	if err != nil {
+		slog.Warn("long-term memory recall failed; continuing without cloud memory", "error", err)
+		return nil
+	}
+	return records
+}
+
+func (s *Service) ingestLongTermMemoryAsync(userID, session, workspaceID, publicTool string, operation operationInvocation, state taskstate.State, result *mcp.CallToolResult) {
+	if s.Memory == nil {
+		return
+	}
+	input := longTermMemoryInput(userID, session, workspaceID, publicTool, operation, state, result)
+	if input == nil {
+		return
+	}
+	go func(value longmemory.IngestInput) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := s.Memory.Ingest(ctx, value); err != nil {
+			slog.Warn("long-term memory ingest failed; tool result remains valid", "level", value.Level, "error", err)
+		}
+	}(*input)
+}
+
 func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	session := sessionID(req)
 	workspaceKey := memoryWorkspaceKey(s, userID, session, args)
@@ -181,12 +286,24 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		return result, err
 	}
 	state := workingMemory.Update(userID, session, workspaceKey, taskPatchForOperation(publicTool, operation, args, result))
+	logicalWorkspaceID := workspaceKey
+	var workspace *gateway.WorkspaceView
+	if s.Workspaces != nil && (publicTool == "context" || s.Memory != nil) {
+		if activated, activateErr := s.Workspaces.Activate(ctx, userID, workspaceKey); activateErr == nil {
+			workspace = activated
+			if strings.TrimSpace(activated.WorkspaceID) != "" {
+				logicalWorkspaceID = strings.TrimSpace(activated.WorkspaceID)
+			}
+		}
+	}
 	if publicTool == "context" && err == nil && result != nil && !result.IsError {
 		decision := orchestration.Decision{Primary: orchestration.LaneNone, Reason: "workspace capabilities unavailable"}
-		if workspace, activateErr := s.Workspaces.Activate(ctx, userID, workspaceKey); activateErr == nil {
+		if workspace != nil {
 			decision = orchestration.Route(state.Task, executionCapabilities(workspace))
 		}
 		attachTaskContext(result, state, decision)
+		attachLongTermMemory(result, s.recallLongTermMemory(ctx, userID, logicalWorkspaceID, state))
 	}
+	s.ingestLongTermMemoryAsync(userID, session, logicalWorkspaceID, publicTool, operation, state, result)
 	return result, err
 }

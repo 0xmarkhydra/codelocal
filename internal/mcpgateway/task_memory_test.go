@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	longmemory "github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/orchestration"
 	"github.com/0xmarkhydra/codelocal/internal/taskstate"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -96,5 +97,30 @@ func TestAttachRecoveryHintIsConservative(t *testing.T) {
 	advice, ok := root["recovery"].(orchestration.RecoveryAdvice)
 	if !ok || advice.Kind != orchestration.FailurePermission || advice.Retryable {
 		t.Fatalf("unexpected recovery advice: %#v", root["recovery"])
+	}
+}
+
+func TestLongTermMemoryInputPersistsOnlyCompactTaskFacts(t *testing.T) {
+	input := longTermMemoryInput("user", "session", "workspace", "verify", operationInvocation{OperationID: "verify.changes"}, taskstate.State{
+		Task:         "Fix login",
+		Branch:       "feat/login",
+		TouchedFiles: []string{"a.go"},
+		RecentChecks: []string{"verify.changes"},
+	}, &mcp.CallToolResult{})
+	if input == nil || input.Level != longmemory.LevelScenario || input.WorkspaceID != "workspace" {
+		t.Fatalf("unexpected long-term memory input: %#v", input)
+	}
+	if len(input.Files) != 1 || input.Files[0] != "a.go" || !strings.Contains(input.Summary, "Fix login") {
+		t.Fatalf("expected compact task facts only, got %#v", input)
+	}
+}
+
+func TestAttachLongTermMemoryUsesCompactStructuredContent(t *testing.T) {
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{"results": []any{}}}
+	attachLongTermMemory(result, []longmemory.Record{{ID: "mem-1", Level: longmemory.LevelScenario, Summary: "OAuth fix verified", Files: []string{"oauth.go"}, Score: .9}})
+	root := result.StructuredContent.(map[string]any)
+	items, ok := root["longTermMemory"].([]map[string]any)
+	if !ok || len(items) != 1 || items[0]["summary"] != "OAuth fix verified" {
+		t.Fatalf("unexpected long-term memory projection: %#v", root["longTermMemory"])
 	}
 }

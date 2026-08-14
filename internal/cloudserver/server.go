@@ -24,6 +24,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
+	"github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/oauth"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/ui"
@@ -41,6 +42,7 @@ type Server struct {
 	WebAuth     *webauth.Manager
 	OAuth       *oauth.Server
 	MCP         *mcpgateway.Service
+	Memory      *memory.Store
 	Mux         *http.ServeMux
 	HTTP        *http.Server
 	InstanceID  string
@@ -92,7 +94,15 @@ func New(ctx context.Context) (*Server, error) {
 		store.Close()
 		return nil, err
 	}
-	mcpService := mcpgateway.New(store, hub, workspaceService)
+	var memoryStore *memory.Store
+	memoryFlag := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_MEMORY_ENABLED")))
+	if memoryFlag != "0" && memoryFlag != "false" && memoryFlag != "off" {
+		memoryStore = memory.NewStore(store.DB, memory.EmbedderFromEnv())
+		probeCtx, probeCancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = memoryStore.ProbeVector(probeCtx)
+		probeCancel()
+	}
+	mcpService := mcpgateway.New(store, hub, workspaceService, memoryStore)
 
 	s := &Server{
 		Store:       store,
@@ -103,6 +113,7 @@ func New(ctx context.Context) (*Server, error) {
 		WebAuth:     auth,
 		OAuth:       oauthServer,
 		MCP:         mcpService,
+		Memory:      memoryStore,
 		Mux:         http.NewServeMux(),
 		InstanceID:  instanceID,
 		startedAt:   time.Now(),
@@ -497,6 +508,13 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
+	agentMemory := map[string]any{"enabled": s.Memory != nil}
+	if s.Memory != nil {
+		agentMemory["vectorAvailable"] = s.Memory.VectorAvailable()
+		agentMemory["vectorDimension"] = s.Memory.VectorDimension()
+		agentMemory["embeddingProvider"] = s.Memory.EmbeddingProvider()
+		agentMemory["embeddingModel"] = s.Memory.EmbeddingModel()
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
 		"ok":                    true,
 		"version":               version.Version,
@@ -512,7 +530,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 			"sysBytes":       mem.Sys,
 			"gcCycles":       mem.NumGC,
 		},
-		"goroutines": runtime.NumGoroutine(),
+		"goroutines":  runtime.NumGoroutine(),
+		"agentMemory": agentMemory,
 	})
 }
 

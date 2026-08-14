@@ -25,6 +25,20 @@ type Store struct {
 func NewStore(db *pgxpool.Pool, embedder Embedder) *Store { return &Store{db: db, embedder: embedder} }
 func (s *Store) Enabled() bool                            { return s != nil && s.db != nil }
 
+func (s *Store) EmbeddingProvider() string {
+	if s == nil || s.embedder == nil {
+		return ""
+	}
+	return s.embedder.Name()
+}
+
+func (s *Store) EmbeddingModel() string {
+	if s == nil || s.embedder == nil {
+		return ""
+	}
+	return s.embedder.Model()
+}
+
 func (s *Store) VectorAvailable() bool {
 	if s == nil {
 		return false
@@ -226,15 +240,25 @@ LIMIT $4`, input.UserID, input.WorkspaceID, input.Query, candidateLimit)
 		return nil, err
 	}
 	if s.embedder != nil && s.VectorAvailable() && s.VectorDimension() > 0 {
-		vectors, err := s.embedder.Embed(ctx, []string{input.Query})
-		if err == nil && len(vectors) == 1 && len(vectors[0]) == s.VectorDimension() {
+		var queryVector []float32
+		var embedErr error
+		if queryEmbedder, ok := s.embedder.(QueryEmbedder); ok {
+			queryVector, embedErr = queryEmbedder.EmbedQuery(ctx, input.Query)
+		} else {
+			var vectors [][]float32
+			vectors, embedErr = s.embedder.Embed(ctx, []string{input.Query})
+			if embedErr == nil && len(vectors) == 1 {
+				queryVector = vectors[0]
+			}
+		}
+		if embedErr == nil && len(queryVector) == s.VectorDimension() {
 			semantic, queryErr := s.db.Query(ctx, `
 SELECT id,user_id,workspace_id,COALESCE(task_id,''),level,summary,COALESCE(branch,''),files,symbols,confidence,importance,created_at,last_used_at,
        1-(embedding <=> $3::vector) AS vector_score
 FROM codelocal_memories
 WHERE user_id=$1 AND workspace_id=$2 AND embedding IS NOT NULL
 ORDER BY embedding <=> $3::vector
-LIMIT $4`, input.UserID, input.WorkspaceID, vectorLiteral(vectors[0]), candidateLimit)
+LIMIT $4`, input.UserID, input.WorkspaceID, vectorLiteral(queryVector), candidateLimit)
 			if queryErr == nil {
 				for semantic.Next() {
 					var record Record
@@ -270,4 +294,3 @@ LIMIT $4`, input.UserID, input.WorkspaceID, vectorLiteral(vectors[0]), candidate
 	}
 	return ranked, nil
 }
-var _ = time.Now

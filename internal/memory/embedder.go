@@ -19,6 +19,10 @@ type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
 
+type QueryEmbedder interface {
+	EmbedQuery(ctx context.Context, text string) ([]float32, error)
+}
+
 type GeminiEmbedder struct {
 	apiKey string
 	model  string
@@ -31,7 +35,7 @@ func NewGeminiEmbedder(apiKey, model string, timeout time.Duration) (*GeminiEmbe
 		return nil, errors.New("gemini api key is required")
 	}
 	if strings.TrimSpace(model) == "" {
-		model = "gemini-embedding-001"
+		model = "gemini-embedding-2"
 	}
 	if timeout <= 0 {
 		timeout = 12 * time.Second
@@ -43,6 +47,18 @@ func (e *GeminiEmbedder) Name() string  { return "gemini" }
 func (e *GeminiEmbedder) Model() string { return e.model }
 
 func (e *GeminiEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	return e.embedWithTaskType(ctx, texts, "RETRIEVAL_DOCUMENT")
+}
+
+func (e *GeminiEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	vectors, err := e.embedWithTaskType(ctx, []string{text}, "RETRIEVAL_QUERY")
+	if err != nil || len(vectors) == 0 {
+		return nil, err
+	}
+	return vectors[0], nil
+}
+
+func (e *GeminiEmbedder) embedWithTaskType(ctx context.Context, texts []string, taskType string) ([][]float32, error) {
 	cleaned := make([]string, 0, len(texts))
 	for _, text := range texts {
 		if value := SanitizeText(text, 8000); value != "" {
@@ -59,15 +75,21 @@ func (e *GeminiEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 		Parts []part `json:"parts"`
 	}
 	type requestItem struct {
-		Model    string  `json:"model"`
-		Content  content `json:"content"`
-		TaskType string  `json:"taskType"`
+		Model                string  `json:"model"`
+		Content              content `json:"content"`
+		TaskType             string  `json:"taskType"`
+		OutputDimensionality int     `json:"outputDimensionality"`
 	}
 	body := struct {
 		Requests []requestItem `json:"requests"`
 	}{Requests: make([]requestItem, 0, len(cleaned))}
 	for _, text := range cleaned {
-		body.Requests = append(body.Requests, requestItem{Model: "models/" + e.model, Content: content{Parts: []part{{Text: text}}}, TaskType: "RETRIEVAL_DOCUMENT"})
+		body.Requests = append(body.Requests, requestItem{
+			Model:                "models/" + e.model,
+			Content:              content{Parts: []part{{Text: text}}},
+			TaskType:             taskType,
+			OutputDimensionality: 768,
+		})
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -109,9 +131,6 @@ func (e *GeminiEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 }
 
 func EmbedderFromEnv() Embedder {
-	if strings.TrimSpace(os.Getenv("CODELOCAL_MEMORY_ENABLED")) != "1" {
-		return nil
-	}
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_EMBEDDING_PROVIDER")))
 	if provider == "" {
 		provider = "gemini"
