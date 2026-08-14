@@ -2,9 +2,12 @@ package mcpgateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -467,6 +470,120 @@ func attachLongTermMemory(result *mcp.CallToolResult, records []longmemory.Recor
 	result.StructuredContent = root
 }
 
+const agentCheckpointMarker = "codelocal-agent:v1"
+
+func agentTaskFingerprint(task string) string {
+	text := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(task)), " "))
+	if text == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:6])
+}
+
+func agentCheckpointSymbols(state taskstate.State) []string {
+	fingerprint := agentTaskFingerprint(state.Task)
+	if fingerprint == "" {
+		return nil
+	}
+	phase := strings.ToLower(strings.TrimSpace(state.AgentPhase))
+	if phase == "" {
+		phase = "plan"
+	}
+	out := []string{
+		agentCheckpointMarker,
+		"task:" + fingerprint,
+		"phase:" + phase,
+		"iteration:" + strconv.Itoa(max(0, state.AgentIteration)),
+		"recovery:" + strconv.Itoa(max(0, min(2, state.RecoveryAttempts))),
+	}
+	if outcome := strings.ToLower(strings.TrimSpace(state.LastOutcome)); outcome == "succeeded" || outcome == "failed" {
+		out = append(out, "outcome:"+outcome)
+	}
+	return out
+}
+
+func agentCheckpointPatch(state taskstate.State, records []longmemory.Record, now time.Time) (taskstate.Patch, bool) {
+	if strings.TrimSpace(state.Task) == "" || state.AgentIteration > 0 || state.RecoveryAttempts > 0 || state.VerificationSeen || len(state.PassedChecks) > 0 || len(state.TouchedFiles) > 0 {
+		return taskstate.Patch{}, false
+	}
+	fingerprint := agentTaskFingerprint(state.Task)
+	if fingerprint == "" {
+		return taskstate.Patch{}, false
+	}
+	for _, record := range records {
+		if record.CreatedAt <= 0 || now.Sub(time.UnixMilli(record.CreatedAt)) > 7*24*time.Hour {
+			continue
+		}
+		markers := map[string]string{}
+		hasVersion := false
+		matchesTask := false
+		for _, symbol := range record.Symbols {
+			symbol = strings.TrimSpace(symbol)
+			if symbol == agentCheckpointMarker {
+				hasVersion = true
+				continue
+			}
+			parts := strings.SplitN(symbol, ":", 2)
+			if len(parts) == 2 {
+				markers[parts[0]] = parts[1]
+				if parts[0] == "task" && parts[1] == fingerprint {
+					matchesTask = true
+				}
+			}
+		}
+		if !hasVersion || !matchesTask {
+			continue
+		}
+		iteration, _ := strconv.Atoi(markers["iteration"])
+		recovery, _ := strconv.Atoi(markers["recovery"])
+		iteration = max(0, min(1000, iteration))
+		recovery = max(0, min(2, recovery))
+		phase := strings.ToLower(strings.TrimSpace(markers["phase"]))
+		nextAction := "refresh task context after restored runtime checkpoint"
+		switch phase {
+		case "finalize", "verify":
+			phase = "verify"
+			nextAction = "refresh verify.changes and required checks after restored runtime checkpoint"
+		case "recover":
+			nextAction = "refresh diagnostics and causal evidence before any retry after restored runtime checkpoint"
+		case "plan":
+			nextAction = "rebuild capability-aware plan from fresh repository evidence"
+		default:
+			phase = "inspect"
+			nextAction = "refresh ranked context and repository relationships before continuing"
+		}
+		outcome := strings.ToLower(strings.TrimSpace(markers["outcome"]))
+		if outcome != "succeeded" && outcome != "failed" {
+			outcome = ""
+		}
+		// Deliberately do not restore passed checks, verification evidence or a
+		// previous ready quality score. Files may have changed while CodeLocal was
+		// offline; a restored checkpoint must earn fresh completion evidence.
+		return taskstate.Patch{
+			Branch:                record.Branch,
+			TouchedFiles:          append([]string(nil), record.Files...),
+			RecentErrors:          nil,
+			ReplaceErrors:         true,
+			AgentPhase:            phase,
+			AgentIteration:        intPointer(iteration),
+			RecoveryAttempts:      intPointer(recovery),
+			LastOutcome:           outcome,
+			NextAction:            nextAction,
+			PassedChecks:          nil,
+			ReplacePassedChecks:   true,
+			RequiredChecks:        nil,
+			ReplaceRequiredChecks: true,
+			VerificationSeen:      boolPointer(false),
+			DiagnosticRegression:  intPointer(0),
+			DiffObserved:          boolPointer(false),
+			QualityScore:          intPointer(0),
+			QualityStatus:         "verifying",
+		}, true
+	}
+	return taskstate.Patch{}, false
+}
+
 func longTermMemoryInput(userID, session, workspaceID, publicTool string, operation operationInvocation, state taskstate.State, result *mcp.CallToolResult) *longmemory.IngestInput {
 	if strings.TrimSpace(state.Task) == "" || strings.TrimSpace(workspaceID) == "" {
 		return nil
@@ -475,17 +592,21 @@ func longTermMemoryInput(userID, session, workspaceID, publicTool string, operat
 	importance := 0.55
 	var summary string
 	switch {
-	case publicTool == "verify" && result != nil && !result.IsError:
+	case publicTool == "verify" && result != nil && !result.IsError && state.QualityStatus == "ready":
 		level = longmemory.LevelScenario
-		importance = 0.85
-		summary = "Task verified successfully: " + state.Task
-		if len(state.RecentChecks) > 0 {
-			summary += ". Checks: " + strings.Join(state.RecentChecks, ", ")
-		}
+		importance = 0.9
+		summary = "Fresh verification evidence reached the ready quality gate for task: " + state.Task
+	case publicTool == "verify" && result != nil && !result.IsError:
+		importance = 0.7
+		summary = "Verification evidence refreshed; more checks may still be required for task: " + state.Task
 	case publicTool == "edit" && result != nil && !result.IsError:
 		summary = "Files edited for task: " + state.Task
 	case result != nil && result.IsError:
 		summary = operation.OperationID + " failed while working on task: " + state.Task
+	case operation.OperationID == "terminal.run" && result != nil && !result.IsError && state.QualityStatus == "ready":
+		level = longmemory.LevelScenario
+		importance = 0.9
+		summary = "Agent quality gate reached ready state for task: " + state.Task
 	default:
 		return nil
 	}
@@ -497,6 +618,7 @@ func longTermMemoryInput(userID, session, workspaceID, publicTool string, operat
 		Summary:        summary,
 		Branch:         state.Branch,
 		Files:          append([]string(nil), state.TouchedFiles...),
+		Symbols:        agentCheckpointSymbols(state),
 		Confidence:     0.8,
 		Importance:     importance,
 		IdempotencyKey: longmemory.IdempotencyKey(session, workspaceID, operation.OperationID, summary),
@@ -574,6 +696,10 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		}
 	}
 	if publicTool == "context" && err == nil && result != nil && !result.IsError {
+		recalled := s.recallLongTermMemory(ctx, userID, logicalWorkspaceID, state)
+		if checkpoint, ok := agentCheckpointPatch(state, recalled, time.Now()); ok {
+			state = workingMemory.Update(userID, session, workspaceKey, checkpoint)
+		}
 		caps := orchestration.Capabilities{}
 		if workspace != nil {
 			caps = executionCapabilities(workspace)
@@ -588,7 +714,7 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 			QualityStatus:         plan.Quality.Status,
 		})
 		attachTaskContext(result, state, plan)
-		attachLongTermMemory(result, s.recallLongTermMemory(ctx, userID, logicalWorkspaceID, state))
+		attachLongTermMemory(result, recalled)
 	}
 	attachAgentLoop(result, state)
 	s.ingestLongTermMemoryAsync(userID, session, logicalWorkspaceID, publicTool, operation, state, result)

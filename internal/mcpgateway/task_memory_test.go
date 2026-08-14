@@ -3,6 +3,7 @@ package mcpgateway
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	longmemory "github.com/0xmarkhydra/codelocal/internal/memory"
@@ -198,6 +199,64 @@ func TestQualityPatchDoesNotDeclareReadyWithoutVerificationPlan(t *testing.T) {
 	}
 }
 
+func TestAgentCheckpointRestoresProgressButInvalidatesCompletionEvidence(t *testing.T) {
+	now := time.Now()
+	checkpointState := taskstate.State{
+		Task: "Fix planner", AgentPhase: "finalize", AgentIteration: 4, RecoveryAttempts: 0,
+		LastOutcome: "succeeded", TouchedFiles: []string{"internal/orchestration/planner.go"},
+		PassedChecks: []string{"test", "diff-check"}, VerificationSeen: true,
+		QualityScore: 100, QualityStatus: "ready",
+	}
+	record := longmemory.Record{
+		CreatedAt: now.UnixMilli(), Branch: "feat/planner",
+		Files:   append([]string(nil), checkpointState.TouchedFiles...),
+		Symbols: agentCheckpointSymbols(checkpointState),
+	}
+	patch, ok := agentCheckpointPatch(taskstate.State{Task: "Fix planner", AgentPhase: "inspect"}, []longmemory.Record{record}, now)
+	if !ok {
+		t.Fatal("expected matching checkpoint to restore")
+	}
+	if patch.AgentPhase != "verify" || patch.AgentIteration == nil || *patch.AgentIteration != 4 {
+		t.Fatalf("checkpoint should resume at fresh verification: %#v", patch)
+	}
+	if !patch.ReplacePassedChecks || len(patch.PassedChecks) != 0 || patch.VerificationSeen == nil || *patch.VerificationSeen {
+		t.Fatalf("stale completion evidence must not survive runtime restore: %#v", patch)
+	}
+	if patch.QualityScore == nil || *patch.QualityScore != 0 || patch.QualityStatus == "ready" {
+		t.Fatalf("restored checkpoint must re-earn quality: %#v", patch)
+	}
+}
+
+func TestAgentCheckpointRequiresExactTaskFingerprintAndFreshRecord(t *testing.T) {
+	now := time.Now()
+	state := taskstate.State{Task: "Task A", AgentPhase: "verify", AgentIteration: 2}
+	record := longmemory.Record{CreatedAt: now.UnixMilli(), Symbols: agentCheckpointSymbols(state)}
+	if _, ok := agentCheckpointPatch(taskstate.State{Task: "Task B"}, []longmemory.Record{record}, now); ok {
+		t.Fatal("semantic recall from another task must not restore agent state")
+	}
+	record.CreatedAt = now.Add(-8 * 24 * time.Hour).UnixMilli()
+	if _, ok := agentCheckpointPatch(taskstate.State{Task: "Task A"}, []longmemory.Record{record}, now); ok {
+		t.Fatal("stale checkpoint must not restore agent state")
+	}
+}
+
+func TestAgentCheckpointSymbolsDoNotPersistRawTaskOrVerificationClaims(t *testing.T) {
+	state := taskstate.State{
+		Task: "Fix secret customer flow", AgentPhase: "finalize", AgentIteration: 3,
+		PassedChecks: []string{"test"}, QualityStatus: "ready", QualityScore: 100,
+	}
+	symbols := agentCheckpointSymbols(state)
+	joined := strings.Join(symbols, " ")
+	if !strings.Contains(joined, agentCheckpointMarker) || !strings.Contains(joined, "task:") {
+		t.Fatalf("checkpoint markers missing: %#v", symbols)
+	}
+	for _, forbidden := range []string{"secret customer flow", "ready", "passed", "test"} {
+		if strings.Contains(strings.ToLower(joined), forbidden) {
+			t.Fatalf("checkpoint leaked unsafe/stale completion data %q: %#v", forbidden, symbols)
+		}
+	}
+}
+
 func TestAttachRecoveryHintIsConservative(t *testing.T) {
 	result := &mcp.CallToolResult{IsError: true, StructuredContent: map[string]any{"error": "approval required for desktop action"}}
 	attachRecoveryHint(result)
@@ -210,16 +269,32 @@ func TestAttachRecoveryHintIsConservative(t *testing.T) {
 
 func TestLongTermMemoryInputPersistsOnlyCompactTaskFacts(t *testing.T) {
 	input := longTermMemoryInput("user", "session", "workspace", "verify", operationInvocation{OperationID: "verify.changes"}, taskstate.State{
-		Task:         "Fix login",
-		Branch:       "feat/login",
-		TouchedFiles: []string{"a.go"},
-		RecentChecks: []string{"verify.changes"},
+		Task:          "Fix login",
+		Branch:        "feat/login",
+		TouchedFiles:  []string{"a.go"},
+		RecentChecks:  []string{"verify.changes"},
+		QualityStatus: "ready",
 	}, &mcp.CallToolResult{})
 	if input == nil || input.Level != longmemory.LevelScenario || input.WorkspaceID != "workspace" {
 		t.Fatalf("unexpected long-term memory input: %#v", input)
 	}
 	if len(input.Files) != 1 || input.Files[0] != "a.go" || !strings.Contains(input.Summary, "Fix login") {
 		t.Fatalf("expected compact task facts only, got %#v", input)
+	}
+	if len(input.Symbols) == 0 || input.Symbols[0] != agentCheckpointMarker {
+		t.Fatalf("expected compact agent checkpoint markers, got %#v", input.Symbols)
+	}
+}
+
+func TestLongTermMemoryDoesNotCallIncompleteVerificationReady(t *testing.T) {
+	input := longTermMemoryInput("user", "session", "workspace", "verify", operationInvocation{OperationID: "verify.changes"}, taskstate.State{
+		Task: "Fix login", AgentPhase: "verify", QualityStatus: "verifying",
+	}, &mcp.CallToolResult{})
+	if input == nil || input.Level != longmemory.LevelEvent {
+		t.Fatalf("incomplete verification should remain an event: %#v", input)
+	}
+	if strings.Contains(strings.ToLower(input.Summary), "ready") || strings.Contains(strings.ToLower(input.Summary), "success") {
+		t.Fatalf("incomplete verification summary overclaims readiness: %q", input.Summary)
 	}
 }
 
