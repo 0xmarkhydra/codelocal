@@ -12,15 +12,15 @@ import (
 // screenshot so ChatGPT can reason about the UI without paying the latency and
 // token cost of vision on every step.
 type ComputerObservation struct {
-	Windows  any    `json:"windows"`
-	UITree   any    `json:"uiTree,omitempty"`
-	WindowID string `json:"windowId,omitempty"`
+	Windows     any    `json:"windows"`
+	UITree      any    `json:"uiTree,omitempty"`
+	UITreeError string `json:"uiTreeError,omitempty"`
+	WindowID    string `json:"windowId,omitempty"`
 }
 
-// ObserveComputer batches the two most common inspection operations into a
-// single runtime request. A windowId is optional: without it the caller gets a
-// fresh window list; with it CodeLocal also returns the native accessibility
-// tree for that window.
+// ObserveComputer always preserves a successful window observation. When a
+// windowId is supplied but the accessibility tree is unavailable, CodeLocal
+// returns uiTreeError instead of discarding the useful window state.
 func ObserveComputer(ctx context.Context, computer *ComputerController, windowID string) (ComputerObservation, error) {
 	if computer == nil {
 		return ComputerObservation{}, errors.New("Computer Use helper unavailable")
@@ -35,7 +35,8 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 	}
 	uiTree, err := computer.Call(ctx, "ui_tree", map[string]any{"windowId": observation.WindowID})
 	if err != nil {
-		return ComputerObservation{}, err
+		observation.UITreeError = err.Error()
+		return observation, nil
 	}
 	observation.UITree = uiTree
 	return observation, nil
