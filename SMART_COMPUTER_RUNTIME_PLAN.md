@@ -1,27 +1,28 @@
-# CodeLocal Smart Computer Runtime Plan
+# CodeLocal Smart Computer Runtime
 
 ## Objective
 
-Make ChatGPT + CodeLocal feel much closer to Codex Computer Use while preserving the existing user flow:
+Make ChatGPT + CodeLocal feel much closer to Codex Computer Use while preserving the user flow:
 
 ```bash
 npm install -g codelocal
 codelocal
 ```
 
-The model remains responsible for intent, reasoning and planning. CodeLocal becomes a persistent local agent runtime that keeps workspace state warm and chooses the fastest execution backend for each action.
+ChatGPT remains responsible for intent, reasoning, and task-level decisions. CodeLocal provides compact state, execution hints, fast structured automation, guarded local input, and verification/recovery metadata.
 
 ## Product principles
 
 1. Do not turn every task into GUI automation.
-2. Prefer structured interfaces before vision: DOM/CDP -> Accessibility/UI Automation -> visual grounding -> raw coordinates.
-3. Reduce MCP round-trips by batching inspection, execution and verification locally.
-4. Keep browser, computer, shell and filesystem as separate permission domains.
-5. Keep all privileged desktop execution local on the paired user device.
-6. Preserve the one-command CLI experience and package native helpers with the npm release.
-7. Never make broad desktop control permanent by default.
+2. Prefer structured interfaces before visual coordinates: code/LSP/files -> shell/process -> browser DOM/Playwright -> Accessibility/UIA/AT-SPI -> screenshot/visual fallback -> raw coordinates.
+3. Reduce MCP round-trips by batching observation, action, and verification where safe.
+4. Browser, computer, shell, filesystem, Git, and extension calls keep their existing permission boundaries.
+5. Privileged desktop execution stays on the paired user device.
+6. Do not persist source contents, screenshots, raw terminal commands, or secrets in task memory.
+7. Unsupported platform capabilities must be reported honestly; never emulate an independent cursor by stealing the user's physical pointer.
+8. Preserve npm packaging and avoid requiring Python for the normal runtime.
 
-## Target architecture
+## Architecture
 
 ```text
 ChatGPT
@@ -30,316 +31,170 @@ ChatGPT
   v
 Smart MCP Layer
   |
-  v
-CodeLocal Orchestrator
-  |-- Workspace/Task State
-  |-- Execution Router
-  |-- Verification/Recovery
+  +-- bounded task memory
+  +-- routeHint
+  +-- recovery advice
   |
-  +-- Code: context/LSP/edit/verify
-  +-- Shell: terminal/process
-  +-- Browser: DOM/CDP/Playwright
-  +-- Computer: Accessibility/UIA/AT-SPI + vision fallback
-  +-- Git
+  v
+CodeLocal Runtime
+  |-- Code / LSP / Files / Git
+  |-- Shell / Process
+  |-- Persistent Browser Session
+  |-- Native Computer Controller
+  |     |-- macOS Accessibility + CoreGraphics
+  |     |-- Windows UIA + native input
+  |     `-- Linux AT-SPI + session backend
+  `-- Verification
 ```
 
-## Phase S0 - Foundation and safety
+## Review scope implemented on `feat/smart-computer-runtime`
 
-Status: mostly existing on dev.
+### S1 — Smart desktop observation and semantic actions
 
-- existing native helpers for macOS, Windows and Linux
-- separate Computer Use opt-in
-- browser and computer capability advertisement
-- action-level authorization
-- compact MCP surface
-- persistent native ComputerController helper process
-- browser session reuse
+Implemented:
 
-Release gate:
+- `computer(action=observe)` batches window metadata and optional accessibility tree retrieval.
+- semantic desktop clicks accept human target text such as `Continue`.
+- target resolution uses fresh accessibility data before coordinate fallback.
+- target matching prefers exact accessible names and interactive controls, and penalizes disabled controls.
+- Windows-style `node` roots and nested `children` are handled.
+- `verify=true` returns a fresh post-action desktop observation in the same MCP call.
+- semantic target geometry is retained when the backend provides bounds.
 
-- no permission broadening
-- no secrets in UI target logs
-- secure desktop remains unsupported
-- destructive actions still use existing authorizer
+### S2 — Bounded ChatGPT-session working memory
 
-## Phase S1 - Smart native observation and semantic actions
-
-Status: in progress on `feat/smart-computer-runtime`.
-
-Deliverables:
-
-- `computer action=observe`
-  - one MCP action for fresh windows metadata
-  - optional accessibility tree when `windowId` is supplied
-- semantic click target
-  - ChatGPT can send `target="Continue"`
-  - CodeLocal resolves target locally against a fresh UI tree
-  - raw `elementId` and coordinates remain fallback paths
-- `verify=true`
-  - execute an input action
-  - immediately return a fresh post-action observation
-  - removes a common extra MCP call
-- deterministic semantic ranking
-  - exact accessible name > description > value > role
-  - interactive controls receive preference
-  - disabled controls receive strong penalty
-- tests for semantic ranking and compact MCP dispatch
-
-Success criteria:
-
-- common native UI click requires at most observe -> click+verify
-- ChatGPT no longer has to manually traverse the full accessibility tree for obvious labels
-- coordinates are not the default interaction path
-
-## Phase S2 - Persistent task/workspace state
-
-Goal: Chat conversations must not be the only working memory.
-
-Add a local state store keyed by workspace + MCP session/task identity.
-
-Suggested state:
+Implemented as gateway working memory keyed by:
 
 ```text
-workspaceKey
-sessionKey
-taskSummary
-activeBranch
+user + MCP session + workspace
+```
+
+Stored fields are deliberately small:
+
+```text
+task
+branch
 touchedFiles
-relevantSymbols
-recentDiagnostics
-recentCommands
-recentTests
-recentFailures
-recentPatches
-browserSession
-computerWindow
-lastObservationRevision
+recentChecks (stable operation IDs only)
+recentErrors (stable operation IDs only)
+lastAction
 updatedAt
 ```
 
-Requirements:
+Properties:
 
-- bounded storage
-- TTL for stale sessions
-- no file contents or screenshots persisted by default
-- no secrets
-- cheap restore on a new MCP request
-- state survives model context compression
-- session state must not leak across ChatGPT conversations
+- bounded entry count
+- 24-hour TTL
+- session/workspace isolation
+- no source contents
+- no screenshots
+- no raw terminal commands
+- no secret-bearing command text
+- survives model context compression while the gateway session remains alive
 
-Model-facing behavior:
+Non-goal for this PR: durable continuation across a cloud process restart or an unrelated new MCP session. Cross-thread handoff can build on this state model later without weakening session isolation.
 
-- `context` should include a compact previous-task continuation hint when relevant
-- repeated reads/searches should be avoided when source hashes have not changed
-- test failures and patch attempts should remain available to verification/recovery logic
+### S3 — Hybrid execution hinting
 
-## Phase S3 - Hybrid execution router
+Implemented:
 
-Goal: choose the fastest backend instead of simulating a human for everything.
-
-Decision priority:
+- task intent is mapped to the cheapest reliable lane:
 
 ```text
-code/LSP/file operation
-  -> shell/process
-  -> browser DOM/CDP
-  -> accessibility/UI automation
-  -> visual grounding
-  -> raw coordinate fallback
+code -> shell -> browser -> computer
 ```
 
-Examples:
+- actual workspace capabilities constrain the recommendation.
+- no available capability returns `none`; CodeLocal does not pretend Computer Use is available.
+- `context` returns `routeHint` alongside task memory.
+- the router recommends only; it never executes an action or crosses an approval boundary.
 
-- rename downloaded file -> filesystem, not Finder clicks
-- inspect frontend console -> browser devtools, not visual browser interaction
-- click native modal -> accessibility target
-- canvas/drawing app -> visual/coordinate computer use
+### S4 — Bounded recovery guidance
 
-Router requirements:
+Implemented:
 
-- deterministic local fast paths for obvious cases
-- model keeps final task-level decision authority
-- local router must not silently cross permission domains
-- return backend used and compact verification metadata
+- classify compile, type, test, runtime, environment, permission, stale-UI, and unknown failures.
+- permission failures never auto-retry.
+- unknown failures never blind-retry.
+- stale UI requires re-observation before bounded retry.
+- compile/type/test recovery is capped at two attempts; runtime recovery at one.
+- MCP error structured content receives conservative recovery advice.
 
-## Phase S4 - Faster coding loop
+This PR does not introduce an autonomous unbounded repair loop.
 
-Goal: reduce tool calls and repeated repository work.
+### S5 — Browser action + verification batching
 
-Work items:
+The existing BrowserController already reuses a workspace-scoped Playwright session. This PR adds:
 
-- keep project index/LSP/session hot
-- incremental context cache keyed by file hash
-- dependency-neighborhood cache
-- diagnostic snapshot reuse
-- targeted test recommendation based on changed files/import graph
-- run independent checks concurrently where safe
-- classify failures: compile/type/test/runtime/environment/unrelated
-- bounded auto-repair loop for mechanical failures
+- `verify=true` for browser click/fill/press.
+- post-action browser snapshot in the same MCP call.
+- verification failure is returned as metadata instead of hiding a successfully completed primary action.
 
-Target flow:
+### S7 — Independent agent cursor foundation
 
-```text
-context -> edit -> targeted verify/checks -> repair if mechanical -> broader verify
-```
+Implemented on supported macOS sessions:
 
-KPIs:
+- visual cursor is a separate transparent Cocoa overlay.
+- overlay ignores mouse events and does not become the input mechanism.
+- semantic click still executes through Accessibility after authorization.
+- local easing and click pulse avoid model round-trips for animation.
+- cursor rendering is best-effort: overlay failure cannot fail an otherwise valid approved click.
+- capability is enabled only for a usable single-display macOS Accessibility session.
 
-- 50%+ fewer MCP round-trips for common bug fixes
-- no full repository rescan when workspace is unchanged
-- targeted checks before full test suite
-- no repeated read of unchanged files unless model explicitly asks
+Windows and Linux currently report the independent cursor as unavailable rather than moving the user's real pointer and calling it a virtual cursor. Their existing native automation paths remain unchanged.
 
-## Phase S5 - Browser runtime upgrade
+## Safety invariants
 
-- persistent Playwright/CDP session
-- reuse real/managed browser profile according to policy
-- DOM-first semantic action API
-- observe/action/verify batching similar to Computer Use
-- console/network state returned with relevant actions when requested
-- screenshot only when structured browser state is insufficient
+These are release blockers:
 
-Potential reference implementations:
+- existing Computer Use opt-in stays intact.
+- action-level authorization stays intact.
+- cursor rendering never grants permissions or synthesizes its own input action.
+- secure desktop / UAC-style protected surfaces remain unsupported.
+- task memory must not store raw terminal commands or source contents.
+- semantic lookup always refreshes the UI tree before acting on a human target.
+- verification and recovery metadata never silently re-execute destructive actions.
 
-- OpenAI CUA sample app execution loop
-- browser-use session/browser patterns
+## Testing added in this review scope
 
-Do not embed an external Python agent runtime into the default npm UX.
+Unit coverage includes:
 
-## Phase S6 - Visual grounding fallback
+- semantic target scoring
+- disabled-control preference
+- Windows-style semantic tree traversal
+- semantic target bounds retention
+- automation protocol/capability gates
+- browser `verify` forwarding
+- computer semantic-target/observe forwarding
+- task-state session/workspace isolation
+- deterministic TTL expiry
+- task-memory command secrecy
+- route capability projection
+- no-capability `LaneNone`
+- conservative recovery classification and retry bounds
+- MCP image transport marker handling
 
-Only used when DOM/accessibility data cannot resolve the task.
+## Validation status
 
-Observation pipeline:
+GitHub Actions is configured to run Go tests/vet/build on Ubuntu, macOS, and Windows plus npm packaging and cloud-image smoke builds.
 
-```text
-structured tree available? -> use it
-otherwise screenshot -> grounding -> target bounding box -> action -> verify
-```
+At the time of this review branch, GitHub is not starting runners because the repository account has a Billing/spending-limit problem. Jobs terminate with `runner_id=0` and no steps. Therefore this branch must not be merged to `dev` solely on the basis of CI status; CI needs to be rerun after Billing is restored.
 
-Requirements:
+## Remaining roadmap after this review scope
 
-- normalized coordinate system
-- display/window geometry revision
-- stale-coordinate protection
-- bounded screenshot resolution
-- no screenshot persistence by default
-- allow future pluggable grounding providers/models
+These are intentionally not claimed as complete by PR #11:
 
-Potential references:
+- durable cross-thread/task handoff across unrelated MCP sessions
+- source-hash/dependency-neighborhood caches for deeper coding-speed gains
+- automatic targeted-test selection and safe parallel verification
+- visual grounding model/provider fallback when accessibility/DOM cannot resolve a target
+- multi-display macOS agent-cursor coordinate normalization
+- independent Windows layered-window cursor overlay with DPI-safe coordinates
+- Linux/X11 overlay where supported; Wayland remains compositor/policy dependent
+- broader platform GUI smoke tests
 
-- Agent-S architecture
-- OpenCUA grounding/data concepts
+## Integration strategy
 
-## Phase S7 - Virtual Agent Cursor UX
+PR #11 is a **Draft integration/review branch**, not a recommendation to merge all roadmap phases as one production change. It collects the tightly coupled foundation so reviewers can inspect the end-to-end contracts together.
 
-Goal: Codex-like visible agent interaction without making the user's physical pointer the only feedback mechanism.
-
-Add a local overlay state stream:
-
-```text
-agent cursor position
-target bounds
-action label
-click pulse
-drag path
-typing/wait state
-```
-
-Design:
-
-- overlay is visual state owned by CodeLocal
-- interpolate cursor animation locally for smoothness
-- actual OS input remains separate
-- hide/disable overlay on request
-- visible active Computer Use indicator and emergency stop remain mandatory
-
-Important: a virtual cursor is UX, not the grounding source.
-
-## Phase S8 - Cross-platform hardening
-
-macOS:
-
-- Accessibility
-- CoreGraphics/window capture
-- permission doctor
-- multi-display geometry
-
-Windows:
-
-- UI Automation
-- SendInput/input backend
-- DPI scaling
-- elevation/secure-desktop boundaries
-
-Linux:
-
-- AT-SPI
-- X11 supported path
-- Wayland portal/session-specific restrictions
-- report unsupported capabilities honestly
-
-## Phase S9 - Packaging and release
-
-User experience remains:
-
-```bash
-npm install -g codelocal
-codelocal
-```
-
-Packaging requirements:
-
-- native helper for target OS/arch bundled into npm release
-- no Python requirement for normal users
-- optional heavy grounding components are not bundled by default
-- `codelocal doctor` reports missing OS permissions and unsupported backend
-- safe feature flag rollout before making Smart Computer Runtime default
-
-## Testing strategy
-
-Unit:
-
-- semantic target ranking
-- capability gates
-- compact MCP schema/resolution
-- state TTL/isolation
-- router decisions
-- failure classification
-
-Integration:
-
-- fake ComputerController fixtures
-- browser local deterministic pages
-- workspace continuation across MCP sessions
-- edit -> verify -> targeted test flow
-
-Platform smoke:
-
-- macOS Chrome/Finder/basic dialog
-- Windows Chrome/Explorer/basic dialog
-- supported Linux desktop session
-
-Regression:
-
-- existing coding tools unchanged
-- npm entry point unchanged
-- automation disabled behavior unchanged
-- existing approval behavior unchanged
-
-## Merge strategy
-
-Do not merge all phases as one giant change.
-
-Recommended PR sequence:
-
-1. S1 semantic observation/actions
-2. S2 task state
-3. S3 execution router
-4. S4 coding speed improvements
-5. S5 browser batching
-6. S6 visual fallback
-7. S7 agent cursor
-8. S8/S9 hardening and packaging
-
-Each PR should be independently testable and backward compatible with the current compact MCP surface where possible.
+Before production merge, the implementation may be squash-merged as one coherent foundation or split into smaller merge units if review identifies independent risk boundaries. In either case, `dev` must not receive the change until build/test validation is available and reviewer findings are resolved.
