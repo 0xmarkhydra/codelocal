@@ -3,6 +3,7 @@ package mcpgateway
 import (
 	"testing"
 
+	"github.com/0xmarkhydra/codelocal/internal/orchestration"
 	"github.com/0xmarkhydra/codelocal/internal/taskstate"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -35,13 +36,15 @@ func TestAgentLifecycleContextEditVerifyChecksFinalize(t *testing.T) {
 		t.Fatalf("edit should enter verification with touched-file evidence: %#v", state)
 	}
 
+	diffCheckID := orchestration.CheckID("git diff --check")
+	testCheckID := orchestration.CheckID("go test ./internal/orchestration")
 	verifyResult := &mcp.CallToolResult{StructuredContent: map[string]any{
 		"diagnosticRegression": 0,
 		"verificationScope":    []string{"internal/orchestration/planner.go"},
 		"gitDiff":              "diff --git a/internal/orchestration/planner.go b/internal/orchestration/planner.go",
 		"verificationPlan": map[string]any{"checks": []any{
-			map[string]any{"key": "diff-check", "required": true},
-			map[string]any{"key": "test", "required": true},
+			map[string]any{"key": diffCheckID, "required": true},
+			map[string]any{"key": testCheckID, "required": true},
 		}},
 	}}
 	state = applyAgentEvent(store, user, session, workspace, "verify", operationInvocation{OperationID: "verify.changes"}, nil, verifyResult)

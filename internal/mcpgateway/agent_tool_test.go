@@ -84,14 +84,15 @@ func TestVerificationCheckOutcomeWaitsForProcessCompletion(t *testing.T) {
 	key, completed, success, _ := verificationCheckOutcome(operation, args, &mcp.CallToolResult{StructuredContent: map[string]any{
 		"processId": "p1", "running": true, "status": "running",
 	}})
-	if key != "test" || completed || success {
+	wantID := orchestration.CheckID("go test ./internal/foo")
+	if key != wantID || completed || success {
 		t.Fatalf("running verification must not count as pass: key=%q completed=%v success=%v", key, completed, success)
 	}
 
 	key, completed, success, failure := verificationCheckOutcome(operation, args, &mcp.CallToolResult{StructuredContent: map[string]any{
 		"processId": "p1", "running": false, "status": "exited", "exitCode": 1,
 	}})
-	if key != "test" || !completed || success || failure == "" {
+	if key != wantID || !completed || success || failure == "" {
 		t.Fatalf("failed process must become failed verification evidence: key=%q completed=%v success=%v failure=%q", key, completed, success, failure)
 	}
 }
@@ -102,8 +103,8 @@ func TestProcessPollCanCompleteVerificationEvidence(t *testing.T) {
 		"command": "go test ./internal/foo", "running": false, "status": "exited", "exitCode": 0,
 	}}
 	patch := agentPatchForOperation(operation, map[string]any{"processId": "p1"}, result, taskstate.State{AgentPhase: "verify"})
-	if len(patch.PassedChecks) != 1 || patch.PassedChecks[0] != "test" {
-		t.Fatalf("completed poll should contribute verification evidence: %#v", patch)
+	if len(patch.PassedChecks) != 1 || patch.PassedChecks[0] != orchestration.CheckID("go test ./internal/foo") {
+		t.Fatalf("completed poll should contribute command-specific verification evidence: %#v", patch)
 	}
 	if !shouldRefreshQuality(operation, map[string]any{"processId": "p1"}, result) {
 		t.Fatal("completed verification poll should refresh quality")
@@ -118,6 +119,17 @@ func TestApprovalRequiredVerificationNeverConsumesRecoveryBudget(t *testing.T) {
 	patch := agentPatchForOperation(operation, map[string]any{"command": "go test ./..."}, result, taskstate.State{AgentPhase: "verify"})
 	if patch.AgentPhase != "recover" || patch.RecoveryAttempts == nil || *patch.RecoveryAttempts != 0 {
 		t.Fatalf("approval-required verification must stop without automatic retry: %#v", patch)
+	}
+}
+
+func TestDuplicateMutationPolicySeparatesMutationFromVerification(t *testing.T) {
+	edit := mustRuntimeOperation(t, "edit_file")
+	if !duplicateMutationMustHalt(edit) {
+		t.Fatal("duplicate workspace mutation must hard-stop bounded execution")
+	}
+	verification := mustRuntimeOperation(t, "run_command")
+	if duplicateMutationMustHalt(verification) {
+		t.Fatal("verification process should be repeatable after intervening state changes")
 	}
 }
 

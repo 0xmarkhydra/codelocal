@@ -1,6 +1,8 @@
 package orchestration
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -120,8 +122,15 @@ func taskKind(task string, input PlanInput) TaskKind {
 	}
 }
 
+func normalizeCheckCommand(command string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(command)), " "))
+}
+
+// CheckKey classifies a recognized verification command. It intentionally
+// remains category-level for routing/policy decisions; durable quality evidence
+// must use CheckID so two different test commands cannot satisfy each other.
 func CheckKey(command string) string {
-	text := strings.ToLower(strings.TrimSpace(command))
+	text := normalizeCheckCommand(command)
 	switch {
 	case text == "":
 		return ""
@@ -138,6 +147,19 @@ func CheckKey(command string) string {
 	default:
 		return ""
 	}
+}
+
+// CheckID is a secret-safe command-specific verification identity. The command
+// itself is never persisted in task memory, while normalized equivalent forms
+// (for example repeated whitespace/case changes) map to the same ID.
+func CheckID(command string) string {
+	category := CheckKey(command)
+	if category == "" {
+		return ""
+	}
+	normalized := normalizeCheckCommand(command)
+	sum := sha256.Sum256([]byte(normalized))
+	return category + ":" + hex.EncodeToString(sum[:6])
 }
 
 func hasExtension(paths []string, extensions ...string) bool {
@@ -187,7 +209,7 @@ func appendCheck(checks []VerificationCheck, seen map[string]struct{}, command, 
 		return checks
 	}
 	seen[identity] = struct{}{}
-	key := CheckKey(command)
+	key := CheckID(command)
 	if key == "" {
 		key = "project-check"
 	}

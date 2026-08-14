@@ -1,6 +1,9 @@
 package orchestration
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuildPlanUsesRepositoryEvidenceAndTargetedGoVerification(t *testing.T) {
 	plan := BuildPlan(PlanInput{
@@ -93,7 +96,7 @@ func TestReviewPlanDoesNotDefaultToMutation(t *testing.T) {
 
 func TestBuildVerificationPlanUsesDocsOnlyFastPath(t *testing.T) {
 	plan := BuildVerificationPlan(PlanInput{TouchedFiles: []string{"README.md", "ROADMAP.md"}})
-	if plan.Mode != "docs-only" || len(plan.Checks) != 1 || plan.Checks[0].Key != "diff-check" {
+	if plan.Mode != "docs-only" || len(plan.Checks) != 1 || plan.Checks[0].Key != CheckID("git diff --check") {
 		t.Fatalf("unexpected docs-only plan: %#v", plan)
 	}
 }
@@ -107,13 +110,13 @@ func TestBuildVerificationPlanWidensForManifestChanges(t *testing.T) {
 			BuildCommands:     []string{"npm run build"},
 		},
 	})
-	keys := map[string]bool{}
+	categories := map[string]bool{}
 	for _, check := range plan.Checks {
-		keys[check.Key] = true
+		categories[CheckKey(check.Command)] = true
 	}
-	for _, key := range []string{"diff-check", "typecheck", "test", "build"} {
-		if !keys[key] {
-			t.Fatalf("manifest-aware plan missing %s: %#v", key, plan.Checks)
+	for _, category := range []string{"diff-check", "typecheck", "test", "build"} {
+		if !categories[category] {
+			t.Fatalf("manifest-aware plan missing %s: %#v", category, plan.Checks)
 		}
 	}
 }
@@ -146,7 +149,7 @@ func TestQualityGateRequiresFreshVerificationAndRequiredChecks(t *testing.T) {
 	}
 }
 
-func TestCheckKeyNeverStoresRawTerminalCommand(t *testing.T) {
+func TestCheckIdentityIsCommandSpecificAndSecretSafe(t *testing.T) {
 	cases := map[string]string{
 		"go test ./internal/foo": "test",
 		"go vet ./...":           "lint",
@@ -158,8 +161,35 @@ func TestCheckKeyNeverStoresRawTerminalCommand(t *testing.T) {
 		if got := CheckKey(command); got != want {
 			t.Fatalf("CheckKey(%q)=%q want %q", command, got, want)
 		}
+		id := CheckID(command)
+		if id == "" || !strings.HasPrefix(id, want+":") || strings.Contains(id, command) {
+			t.Fatalf("CheckID(%q) must be category-prefixed and opaque, got %q", command, id)
+		}
 	}
 	if got := CheckKey("curl https://example.com?token=secret"); got != "" {
 		t.Fatalf("unknown command must not become durable verification state: %q", got)
+	}
+	if CheckID("go test ./internal/foo") == CheckID("go test ./internal/bar") {
+		t.Fatal("different test commands must produce different durable check IDs")
+	}
+	if CheckID(" GO   TEST   ./internal/foo ") != CheckID("go test ./internal/foo") {
+		t.Fatal("normalized equivalent commands must produce the same durable check ID")
+	}
+}
+
+func TestQualityGateRequiresEveryDistinctTestCommand(t *testing.T) {
+	first := CheckID("go test ./internal/foo")
+	second := CheckID("go test ./internal/bar")
+	verification := VerificationPlan{Checks: []VerificationCheck{
+		{Key: first, Command: "go test ./internal/foo", Required: true},
+		{Key: second, Command: "go test ./internal/bar", Required: true},
+	}}
+	quality := EvaluateQuality(PlanInput{
+		VerificationSeen: true,
+		DiffObserved:     true,
+		PassedChecks:     []string{first},
+	}, verification)
+	if quality.Status == "ready" || len(quality.MissingChecks) != 1 || quality.MissingChecks[0] != second {
+		t.Fatalf("passing one test command must not satisfy another: %#v", quality)
 	}
 }

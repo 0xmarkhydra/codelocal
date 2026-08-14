@@ -1,6 +1,8 @@
 package automation
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -34,6 +36,33 @@ func TestParseComputerSequenceRejectsPhysicalOrCrossWindowSteps(t *testing.T) {
 		if _, _, err := parseComputerSequence(args); err == nil {
 			t.Fatalf("unsafe sequence accepted: %+v", args)
 		}
+	}
+}
+
+func TestExecuteComputerSequenceDoesNotBlindRetryFailedStep(t *testing.T) {
+	steps := []computerSequenceStep{
+		{Operation: "click", Target: "Save"},
+		{Operation: "type", Target: "Name", Text: "CodeLocal"},
+	}
+	calls := 0
+	results, err := executeComputerSequence(context.Background(), "ax:1:0", steps, func(_ context.Context, step computerSequenceStep, _ string) (any, error) {
+		calls++
+		if step.Operation == "click" {
+			return nil, errors.New("stale target")
+		}
+		return map[string]any{"ok": true}, nil
+	})
+	if err == nil {
+		t.Fatal("failed semantic step must return a non-nil error")
+	}
+	if calls != 1 {
+		t.Fatalf("failed semantic step must not be retried blindly, calls=%d", calls)
+	}
+	if len(results) != 0 {
+		t.Fatalf("no later steps should execute after failure: %#v", results)
+	}
+	if !strings.Contains(err.Error(), "step 1") || !strings.Contains(err.Error(), "Save") {
+		t.Fatalf("batch failure should preserve step context: %v", err)
 	}
 }
 

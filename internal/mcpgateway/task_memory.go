@@ -291,7 +291,7 @@ func verificationCheckOutcome(operation operationInvocation, args map[string]any
 	default:
 		return "", true, true, ""
 	}
-	checkKey = orchestration.CheckKey(command)
+	checkKey = orchestration.CheckID(command)
 	if checkKey == "" {
 		return "", true, true, ""
 	}

@@ -8,11 +8,7 @@ import (
 	"time"
 )
 
-const (
-	maxComputerSequenceSteps = 12
-	computerStepRetryWindow  = 2 * time.Second
-	computerStepRetryDelay   = 50 * time.Millisecond
-)
+const maxComputerSequenceSteps = 12
 
 type computerSequenceStep struct {
 	Operation string
@@ -84,24 +80,18 @@ func sequenceApprovalAction(windowID string, steps []computerSequenceStep) Actio
 	}
 }
 
-func retrySemanticAction(ctx context.Context, computer *ComputerController, step computerSequenceStep, windowID string) (any, error) {
-	deadline := time.Now().Add(computerStepRetryWindow)
-	var lastErr error
-	for {
-		result, err := computer.SemanticAction(ctx, step.Operation, windowID, step.Target, step.Text)
-		if err == nil {
-			return result, nil
+type computerSequenceAction func(context.Context, computerSequenceStep, string) (any, error)
+
+func executeComputerSequence(ctx context.Context, windowID string, steps []computerSequenceStep, action computerSequenceAction) ([]any, error) {
+	results := make([]any, 0, len(steps))
+	for index, step := range steps {
+		result, err := action(ctx, step, windowID)
+		if err != nil {
+			return results, fmt.Errorf("computer run step %d %s target %q failed after %d completed step(s): %w", index+1, step.Operation, step.Target, index, err)
 		}
-		lastErr = err
-		if time.Now().After(deadline) {
-			return nil, lastErr
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(computerStepRetryDelay):
-		}
+		results = append(results, result)
 	}
+	return results, nil
 }
 
 func (c *Controller) runComputerSequence(ctx context.Context, args map[string]any) (any, error) {
@@ -117,24 +107,12 @@ func (c *Controller) runComputerSequence(ctx context.Context, args map[string]an
 		return state, err
 	}
 
-	results := make([]any, 0, len(steps))
 	started := time.Now()
-	for index, step := range steps {
-		result, stepErr := retrySemanticAction(ctx, c.Computer, step, windowID)
-		if stepErr != nil {
-			return map[string]any{
-				"ok":            false,
-				"background":    true,
-				"physicalInput": false,
-				"windowId":      windowID,
-				"completed":     index,
-				"failedStep":    index + 1,
-				"error":         stepErr.Error(),
-				"results":       results,
-				"durationMs":    time.Since(started).Milliseconds(),
-			}, nil
-		}
-		results = append(results, result)
+	results, stepErr := executeComputerSequence(ctx, windowID, steps, func(ctx context.Context, step computerSequenceStep, windowID string) (any, error) {
+		return c.Computer.SemanticAction(ctx, step.Operation, windowID, step.Target, step.Text)
+	})
+	if stepErr != nil {
+		return nil, stepErr
 	}
 
 	envelope := map[string]any{

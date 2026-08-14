@@ -246,6 +246,18 @@ func argsFingerprint(args map[string]any) string {
 	return hex.EncodeToString(sum[:6])
 }
 
+func duplicateMutationMustHalt(operation operationInvocation) bool {
+	if !operation.MutatesState {
+		return false
+	}
+	// Verification commands create a process but are logically observational:
+	// repeating the exact command after a new code mutation can be meaningful.
+	if operation.OperationID == "terminal.run" {
+		return false
+	}
+	return true
+}
+
 func agentPlanFromResult(result *mcp.CallToolResult) (orchestration.AgentPlan, bool) {
 	root := resultRoot(result)
 	if root == nil {
@@ -407,7 +419,9 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	dirtySinceVerify := false
 	haltReason := ""
 	var lastResult *mcp.CallToolResult = contextResult
-	seenFingerprints := map[string]struct{}{}
+	seenFingerprints := map[string]int{}
+	seenMutations := map[string]struct{}{}
+	mutationEpoch := 0
 	replans := 0
 
 	execute := func(source string, step boundedAgentStep) bool {
@@ -440,11 +454,22 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 			return false
 		}
 		fingerprint := operation.OperationID + ":" + argsFingerprint(forward)
-		_, repeated := seenFingerprints[fingerprint]
-		seenFingerprints[fingerprint] = struct{}{}
-		if repeated {
-			item.ReplanReason = "duplicate operation+arguments observed"
+		if duplicateMutationMustHalt(operation) {
+			if _, repeated := seenMutations[fingerprint]; repeated {
+				item.Status = "halted"
+				item.ReplanReason = "duplicate mutation blocked"
+				trace = append(trace, item)
+				haltReason = "duplicate mutation with identical arguments is not safe to replay autonomously"
+				return false
+			}
+			seenMutations[fingerprint] = struct{}{}
+		} else if previousEpoch, repeated := seenFingerprints[fingerprint]; repeated && previousEpoch == mutationEpoch {
+			item.Status = "skipped"
+			item.ReplanReason = "duplicate observation/check skipped because no intervening mutation changed state"
+			trace = append(trace, item)
+			return true
 		}
+		seenFingerprints[fingerprint] = mutationEpoch
 
 		before := plan
 		started := time.Now()
@@ -471,6 +496,9 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 			replans++
 		}
 		trace = append(trace, item)
+		if duplicateMutationMustHalt(operation) {
+			mutationEpoch++
+		}
 		if strings.HasPrefix(operation.OperationID, "edit.") {
 			dirtySinceVerify = true
 		}

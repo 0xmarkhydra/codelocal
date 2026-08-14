@@ -108,15 +108,17 @@ func TestAttachTaskContextProjectsMemoryRouteAndAgentPlan(t *testing.T) {
 	}
 }
 
-func TestAgentPatchPersistsOnlyVerificationCheckCategory(t *testing.T) {
+func TestAgentPatchPersistsCommandSpecificOpaqueVerificationID(t *testing.T) {
 	result := &mcp.CallToolResult{StructuredContent: map[string]any{"ok": true}}
+	command := "go test ./internal/foo --token super-secret-value"
 	patch := agentPatchForOperation(operationInvocation{OperationID: "terminal.run"}, map[string]any{
-		"command": "go test ./internal/foo --token super-secret-value",
+		"command": command,
 	}, result, taskstate.State{AgentPhase: "verify"})
-	if len(patch.PassedChecks) != 1 || patch.PassedChecks[0] != "test" {
-		t.Fatalf("expected safe check category only, got %#v", patch.PassedChecks)
+	want := orchestration.CheckID(command)
+	if len(patch.PassedChecks) != 1 || patch.PassedChecks[0] != want {
+		t.Fatalf("expected command-specific opaque check ID, got %#v", patch.PassedChecks)
 	}
-	if strings.Contains(strings.Join(patch.PassedChecks, " "), "secret") {
+	if strings.Contains(strings.Join(patch.PassedChecks, " "), "secret") || strings.Contains(strings.Join(patch.PassedChecks, " "), "./internal/foo") {
 		t.Fatalf("terminal command leaked into durable agent state: %#v", patch.PassedChecks)
 	}
 }
