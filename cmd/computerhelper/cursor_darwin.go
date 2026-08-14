@@ -23,11 +23,6 @@ var macCursorState struct {
 	process     *exec.Cmd
 }
 
-func macAgentCursorAvailable(ctx context.Context) bool {
-	text, err := runOSA(ctx, "JavaScript", `ObjC.import('Cocoa'); function run(){return String(Number($.NSScreen.screens.count)===1);}`)
-	return err == nil && strings.EqualFold(strings.TrimSpace(text), "true")
-}
-
 const macElementCenterScript = `function run(argv){
  var pid=Number(argv[0]);
  var path=String(argv[1]||'').split('.').filter(function(x){return x!==''}).map(Number);
@@ -121,12 +116,9 @@ func startMacCursorOverlay(startX, startY, targetX, targetY float64, duration ti
 }
 
 func platformCursor(ctx context.Context, input request) (any, error) {
-	if !macAgentCursorAvailable(ctx) {
-		return map[string]any{"visible": false, "independent": false, "reason": "agent cursor requires a single-display macOS session"}, nil
-	}
-	if !macAccessibilityTrusted(ctx) {
-		return map[string]any{"visible": false, "independent": false, "reason": "macOS Accessibility permission is required"}, nil
-	}
+	// Controller-side capability gating already verifies a single-display macOS
+	// Accessibility session and caches that probe. The overlay script repeats the
+	// display-count guard itself, so no extra process-level probe is needed here.
 	var targetX, targetY float64
 	if elementID := stringValue(input.Arguments, "elementId"); strings.TrimSpace(elementID) != "" {
 		center, err := macElementCenter(ctx, elementID)
