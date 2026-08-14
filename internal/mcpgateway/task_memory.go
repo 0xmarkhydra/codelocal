@@ -131,16 +131,6 @@ func attachTaskContext(result *mcp.CallToolResult, state taskstate.State, decisi
 	result.StructuredContent = root
 }
 
-func attachTaskMemory(result *mcp.CallToolResult, state taskstate.State) {
-	if result == nil {
-		return
-	}
-	attachTaskContext(result, state, orchestration.Decision{})
-	if root, ok := result.StructuredContent.(map[string]any); ok {
-		delete(root, "routeHint")
-	}
-}
-
 func attachRecoveryHint(result *mcp.CallToolResult) {
 	if result == nil || !result.IsError {
 		return
