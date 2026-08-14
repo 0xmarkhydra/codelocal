@@ -142,8 +142,6 @@ func platformCursor(ctx context.Context, input request) (any, error) {
 		startX, startY = macCursorState.x, macCursorState.y
 	}
 	if macCursorState.process != nil && macCursorState.process.Process != nil {
-		// Reaping belongs to the goroutine that called Cmd.Wait. Killing here is
-		// enough to prevent overlapping overlays without racing a second Wait.
 		_ = macCursorState.process.Process.Kill()
 		macCursorState.process = nil
 	}
@@ -157,21 +155,31 @@ func platformCursor(ctx context.Context, input request) (any, error) {
 	macCursorState.x, macCursorState.y = targetX, targetY
 	macCursorState.Unlock()
 
+	done := make(chan error, 1)
 	go func(process *exec.Cmd) {
-		_ = process.Wait()
+		err := process.Wait()
 		macCursorState.Lock()
 		if macCursorState.process == process {
 			macCursorState.process = nil
 		}
 		macCursorState.Unlock()
+		done <- err
 	}(cmd)
 
-	// Let the overlay reach the semantic target before the approved input action
-	// fires. The overlay remains visible briefly afterwards for click feedback.
+	// A script that exits before the animation window means the overlay was not
+	// actually visible (for example multi-display guard or a JXA/AppKit error).
+	timer := time.NewTimer(duration + 30*time.Millisecond)
+	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return map[string]any{"visible": false, "reason": ctx.Err().Error()}, nil
-	case <-time.After(duration + 30*time.Millisecond):
+	case err := <-done:
+		reason := "agent cursor overlay exited before animation completed"
+		if err != nil {
+			reason = err.Error()
+		}
+		return map[string]any{"visible": false, "reason": reason}, nil
+	case <-timer.C:
+		return map[string]any{"visible": true, "x": targetX, "y": targetY, "independent": true}, nil
 	}
-	return map[string]any{"visible": true, "x": targetX, "y": targetY, "independent": true}, nil
 }
