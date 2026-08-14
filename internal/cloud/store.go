@@ -409,6 +409,30 @@ CREATE TABLE IF NOT EXISTS codelocal_mcp_usage_batches (
 );
 CREATE INDEX IF NOT EXISTS idx_codelocal_mcp_usage_batches_processed ON codelocal_mcp_usage_batches(processed_at);
 `},
+		{11, `
+CREATE TABLE IF NOT EXISTS codelocal_memories (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ workspace_id TEXT NOT NULL,
+ task_id TEXT,
+ level TEXT NOT NULL CHECK (level IN ('event','scenario','workspace')),
+ summary TEXT NOT NULL,
+ branch TEXT,
+ files JSONB NOT NULL DEFAULT '[]'::jsonb,
+ symbols JSONB NOT NULL DEFAULT '[]'::jsonb,
+ confidence DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+ importance DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+ idempotency_key TEXT,
+ embedding_model TEXT,
+ embedding_dimension INTEGER,
+ created_at BIGINT NOT NULL,
+ last_used_at BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codelocal_memories_idempotency ON codelocal_memories(user_id,workspace_id,idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_codelocal_memories_scope ON codelocal_memories(user_id,workspace_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memories_task ON codelocal_memories(user_id,workspace_id,task_id);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memories_fts ON codelocal_memories USING GIN (to_tsvector('simple',summary));
+`},
 	}
 	for _, migration := range migrations {
 		var exists bool
