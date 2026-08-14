@@ -31,6 +31,25 @@ func stringSliceArg(args map[string]any, key string) []string {
 	}
 }
 
+func structuredFilePaths(args map[string]any, key string) []string {
+	items, ok := args[key].([]any)
+	if !ok {
+		return nil
+	}
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		path, _ := entry["path"].(string)
+		if path = strings.TrimSpace(path); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
 func taskPatchForOperation(publicTool string, operation operationInvocation, args map[string]any, result *mcp.CallToolResult) taskstate.Patch {
 	patch := taskstate.Patch{LastAction: operation.OperationID}
 	if publicTool == "context" {
@@ -41,15 +60,21 @@ func taskPatchForOperation(publicTool string, operation operationInvocation, arg
 			patch.TouchedFiles = append(patch.TouchedFiles, path)
 		}
 		patch.TouchedFiles = append(patch.TouchedFiles, stringSliceArg(args, "paths")...)
+		patch.TouchedFiles = append(patch.TouchedFiles, structuredFilePaths(args, "files")...)
 	}
-	if publicTool == "verify" {
-		patch.RecentChecks = []string{operation.OperationID}
-		patch.ReplaceErrors = true
-	}
-	if publicTool == "terminal" {
-		if command, _ := args["command"].(string); strings.TrimSpace(command) != "" {
-			patch.RecentChecks = []string{command}
+	if publicTool == "git" {
+		if branch, _ := args["branch"].(string); strings.TrimSpace(branch) != "" {
+			patch.Branch = branch
 		}
+	}
+	if publicTool == "verify" || publicTool == "terminal" {
+		// Never persist raw terminal commands: they may contain credentials,
+		// tokens, private paths or other sensitive arguments. The stable
+		// operation identity is enough for continuation/recovery hints.
+		patch.RecentChecks = []string{operation.OperationID}
+	}
+	if publicTool == "verify" && result != nil && !result.IsError {
+		patch.ReplaceErrors = true
 	}
 	if result != nil && result.IsError {
 		patch.RecentErrors = []string{operation.OperationID + " failed"}
@@ -72,13 +97,16 @@ func attachTaskMemory(result *mcp.CallToolResult, state taskstate.State) {
 	if !ok || root == nil {
 		return
 	}
+	// StructuredContent is intentionally the only projection path. Duplicating
+	// the same memory into TextContent would increase model tokens on every
+	// context call while modern MCP clients already consume structured content.
 	root["taskMemory"] = map[string]any{
-		"task": state.Task,
-		"branch": state.Branch,
+		"task":         state.Task,
+		"branch":       state.Branch,
 		"touchedFiles": state.TouchedFiles,
 		"recentChecks": state.RecentChecks,
 		"recentErrors": state.RecentErrors,
-		"lastAction": state.LastAction,
+		"lastAction":   state.LastAction,
 	}
 	result.StructuredContent = root
 }
