@@ -23,6 +23,11 @@ var macCursorState struct {
 	process     *exec.Cmd
 }
 
+func macAgentCursorAvailable(ctx context.Context) bool {
+	text, err := runOSA(ctx, "JavaScript", `ObjC.import('Cocoa'); function run(){return String(Number($.NSScreen.screens.count)===1);}`)
+	return err == nil && strings.EqualFold(strings.TrimSpace(text), "true")
+}
+
 const macElementCenterScript = `function run(argv){
  var pid=Number(argv[0]);
  var path=String(argv[1]||'').split('.').filter(function(x){return x!==''}).map(Number);
@@ -116,14 +121,17 @@ func startMacCursorOverlay(startX, startY, targetX, targetY float64, duration ti
 }
 
 func platformCursor(ctx context.Context, input request) (any, error) {
+	if !macAgentCursorAvailable(ctx) {
+		return map[string]any{"visible": false, "independent": false, "reason": "agent cursor requires a single-display macOS session"}, nil
+	}
 	if !macAccessibilityTrusted(ctx) {
-		return map[string]any{"visible": false, "reason": "macOS Accessibility permission is required"}, nil
+		return map[string]any{"visible": false, "independent": false, "reason": "macOS Accessibility permission is required"}, nil
 	}
 	var targetX, targetY float64
 	if elementID := stringValue(input.Arguments, "elementId"); strings.TrimSpace(elementID) != "" {
 		center, err := macElementCenter(ctx, elementID)
 		if err != nil {
-			return map[string]any{"visible": false, "reason": err.Error()}, nil
+			return map[string]any{"visible": false, "independent": false, "reason": err.Error()}, nil
 		}
 		targetX, targetY = center.X, center.Y
 	} else {
@@ -148,11 +156,9 @@ func platformCursor(ctx context.Context, input request) (any, error) {
 	cmd, err := startMacCursorOverlay(startX, startY, targetX, targetY, duration)
 	if err != nil {
 		macCursorState.Unlock()
-		return map[string]any{"visible": false, "reason": err.Error()}, nil
+		return map[string]any{"visible": false, "independent": false, "reason": err.Error()}, nil
 	}
 	macCursorState.process = cmd
-	macCursorState.hasPosition = true
-	macCursorState.x, macCursorState.y = targetX, targetY
 	macCursorState.Unlock()
 
 	done := make(chan error, 1)
@@ -166,20 +172,22 @@ func platformCursor(ctx context.Context, input request) (any, error) {
 		done <- err
 	}(cmd)
 
-	// A script that exits before the animation window means the overlay was not
-	// actually visible (for example multi-display guard or a JXA/AppKit error).
 	timer := time.NewTimer(duration + 30*time.Millisecond)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return map[string]any{"visible": false, "reason": ctx.Err().Error()}, nil
+		return map[string]any{"visible": false, "independent": false, "reason": ctx.Err().Error()}, nil
 	case err := <-done:
 		reason := "agent cursor overlay exited before animation completed"
 		if err != nil {
 			reason = err.Error()
 		}
-		return map[string]any{"visible": false, "reason": reason}, nil
+		return map[string]any{"visible": false, "independent": false, "reason": reason}, nil
 	case <-timer.C:
+		macCursorState.Lock()
+		macCursorState.hasPosition = true
+		macCursorState.x, macCursorState.y = targetX, targetY
+		macCursorState.Unlock()
 		return map[string]any{"visible": true, "x": targetX, "y": targetY, "independent": true}, nil
 	}
 }
