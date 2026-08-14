@@ -47,6 +47,7 @@ type semanticCandidate struct {
 	Name      string
 	Desc      string
 	Value     string
+	Bounds    any
 	Score     int
 }
 
@@ -120,10 +121,11 @@ func walkSemanticNodes(value any, target string, best *semanticCandidate) {
 				best.Name = strings.TrimSpace(fmt.Sprint(typed["name"]))
 				best.Desc = strings.TrimSpace(fmt.Sprint(typed["description"]))
 				best.Value = strings.TrimSpace(fmt.Sprint(typed["value"]))
+				best.Bounds = typed["bounds"]
 				best.Score = score
 			}
 		}
-		for _, key := range []string{"nodes", "children"} {
+		for _, key := range []string{"nodes", "node", "children"} {
 			if child, ok := typed[key]; ok {
 				walkSemanticNodes(child, target, best)
 			}
@@ -152,12 +154,16 @@ func FindComputerElement(ctx context.Context, computer *ComputerController, wind
 	if best.ElementID == "" || best.Score < 35 {
 		return nil, fmt.Errorf("no accessible UI element matched %q", target)
 	}
-	return map[string]any{
+	result := map[string]any{
 		"elementId":   best.ElementID,
 		"role":        best.Role,
 		"name":        best.Name,
 		"description": best.Desc,
 		"value":       best.Value,
 		"score":       best.Score,
-	}, nil
+	}
+	if best.Bounds != nil {
+		result["bounds"] = best.Bounds
+	}
+	return result, nil
 }
