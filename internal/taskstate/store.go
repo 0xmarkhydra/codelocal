@@ -12,28 +12,54 @@ import (
 // model remains responsible for reasoning while CodeLocal remembers the facts
 // that are expensive to rediscover on every turn.
 type State struct {
-	UserID       string    `json:"-"`
-	SessionID    string    `json:"sessionId"`
-	WorkspaceKey string    `json:"workspaceKey"`
-	Task         string    `json:"task,omitempty"`
-	Branch       string    `json:"branch,omitempty"`
-	TouchedFiles []string  `json:"touchedFiles,omitempty"`
-	RecentChecks []string  `json:"recentChecks,omitempty"`
-	RecentErrors []string  `json:"recentErrors,omitempty"`
-	LastAction   string    `json:"lastAction,omitempty"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	UserID               string    `json:"-"`
+	SessionID            string    `json:"sessionId"`
+	WorkspaceKey         string    `json:"workspaceKey"`
+	Task                 string    `json:"task,omitempty"`
+	Branch               string    `json:"branch,omitempty"`
+	TouchedFiles         []string  `json:"touchedFiles,omitempty"`
+	RecentChecks         []string  `json:"recentChecks,omitempty"`
+	RecentErrors         []string  `json:"recentErrors,omitempty"`
+	LastAction           string    `json:"lastAction,omitempty"`
+	AgentPhase           string    `json:"agentPhase,omitempty"`
+	AgentIteration       int       `json:"agentIteration,omitempty"`
+	RecoveryAttempts     int       `json:"recoveryAttempts,omitempty"`
+	LastOutcome          string    `json:"lastOutcome,omitempty"`
+	NextAction           string    `json:"nextAction,omitempty"`
+	PassedChecks         []string  `json:"passedChecks,omitempty"`
+	RequiredChecks       []string  `json:"requiredChecks,omitempty"`
+	VerificationSeen     bool      `json:"verificationSeen,omitempty"`
+	DiagnosticRegression int       `json:"diagnosticRegression,omitempty"`
+	DiffObserved         bool      `json:"diffObserved,omitempty"`
+	QualityScore         int       `json:"qualityScore,omitempty"`
+	QualityStatus        string    `json:"qualityStatus,omitempty"`
+	UpdatedAt            time.Time `json:"updatedAt"`
 }
 
 // Patch updates only fields that are meaningful for working memory. Empty
 // scalar values are ignored so an incidental tool call cannot erase context.
 type Patch struct {
-	Task          string
-	Branch        string
-	TouchedFiles  []string
-	RecentChecks  []string
-	RecentErrors  []string
-	LastAction    string
-	ReplaceErrors bool
+	Task                  string
+	Branch                string
+	TouchedFiles          []string
+	RecentChecks          []string
+	RecentErrors          []string
+	LastAction            string
+	ReplaceErrors         bool
+	AgentPhase            string
+	AgentIteration        *int
+	RecoveryAttempts      *int
+	LastOutcome           string
+	NextAction            string
+	PassedChecks          []string
+	ReplacePassedChecks   bool
+	RequiredChecks        []string
+	ReplaceRequiredChecks bool
+	VerificationSeen      *bool
+	DiagnosticRegression  *int
+	DiffObserved          *bool
+	QualityScore          *int
+	QualityStatus         string
 }
 
 type Store struct {
@@ -65,6 +91,8 @@ func cloneState(state State) State {
 	state.TouchedFiles = append([]string(nil), state.TouchedFiles...)
 	state.RecentChecks = append([]string(nil), state.RecentChecks...)
 	state.RecentErrors = append([]string(nil), state.RecentErrors...)
+	state.PassedChecks = append([]string(nil), state.PassedChecks...)
+	state.RequiredChecks = append([]string(nil), state.RequiredChecks...)
 	return state
 }
 
@@ -152,6 +180,28 @@ func (s *Store) LatestTask(userID, workspaceKey string, maxAge time.Duration) (S
 	return cloneState(latest), true
 }
 
+func resetAgentState(state *State) {
+	if state == nil {
+		return
+	}
+	state.TouchedFiles = nil
+	state.RecentChecks = nil
+	state.RecentErrors = nil
+	state.LastAction = ""
+	state.AgentPhase = "plan"
+	state.AgentIteration = 0
+	state.RecoveryAttempts = 0
+	state.LastOutcome = ""
+	state.NextAction = ""
+	state.PassedChecks = nil
+	state.RequiredChecks = nil
+	state.VerificationSeen = false
+	state.DiagnosticRegression = 0
+	state.DiffObserved = false
+	state.QualityScore = 0
+	state.QualityStatus = ""
+}
+
 func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) State {
 	if s == nil {
 		return State{}
@@ -168,6 +218,9 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 	state.SessionID = strings.TrimSpace(sessionID)
 	state.WorkspaceKey = strings.TrimSpace(workspaceKey)
 	if value := strings.TrimSpace(patch.Task); value != "" {
+		if state.Task != "" && state.Task != value {
+			resetAgentState(&state)
+		}
 		state.Task = value
 	}
 	if value := strings.TrimSpace(patch.Branch); value != "" {
@@ -182,6 +235,46 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 	}
 	if value := strings.TrimSpace(patch.LastAction); value != "" {
 		state.LastAction = value
+	}
+	if value := strings.TrimSpace(patch.AgentPhase); value != "" {
+		state.AgentPhase = value
+	}
+	if patch.AgentIteration != nil {
+		state.AgentIteration = max(0, *patch.AgentIteration)
+	}
+	if patch.RecoveryAttempts != nil {
+		state.RecoveryAttempts = max(0, *patch.RecoveryAttempts)
+	}
+	if value := strings.TrimSpace(patch.LastOutcome); value != "" {
+		state.LastOutcome = value
+	}
+	if value := strings.TrimSpace(patch.NextAction); value != "" {
+		state.NextAction = value
+	}
+	if patch.ReplacePassedChecks {
+		state.PassedChecks = normalizeList(patch.PassedChecks, 12)
+	} else {
+		state.PassedChecks = mergeRecent(state.PassedChecks, patch.PassedChecks, 12)
+	}
+	if patch.ReplaceRequiredChecks {
+		state.RequiredChecks = normalizeList(patch.RequiredChecks, 12)
+	} else {
+		state.RequiredChecks = mergeRecent(state.RequiredChecks, patch.RequiredChecks, 12)
+	}
+	if patch.VerificationSeen != nil {
+		state.VerificationSeen = *patch.VerificationSeen
+	}
+	if patch.DiagnosticRegression != nil {
+		state.DiagnosticRegression = *patch.DiagnosticRegression
+	}
+	if patch.DiffObserved != nil {
+		state.DiffObserved = *patch.DiffObserved
+	}
+	if patch.QualityScore != nil {
+		state.QualityScore = max(0, min(100, *patch.QualityScore))
+	}
+	if value := strings.TrimSpace(patch.QualityStatus); value != "" {
+		state.QualityStatus = value
 	}
 	state.UpdatedAt = now
 	s.states[key] = state

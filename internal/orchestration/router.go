@@ -21,9 +21,12 @@ type Capabilities struct {
 }
 
 type Decision struct {
-	Primary   Lane   `json:"primary"`
-	Fallbacks []Lane `json:"fallbacks,omitempty"`
-	Reason    string `json:"reason"`
+	Primary    Lane         `json:"primary"`
+	Fallbacks  []Lane       `json:"fallbacks,omitempty"`
+	Reason     string       `json:"reason"`
+	Confidence float64      `json:"confidence,omitempty"`
+	Evidence   []string     `json:"evidence,omitempty"`
+	Scores     map[Lane]int `json:"scores,omitempty"`
 }
 
 func containsAny(text string, words ...string) bool {

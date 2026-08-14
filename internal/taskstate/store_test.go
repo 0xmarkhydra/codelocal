@@ -104,6 +104,45 @@ func TestLatestTaskHonorsMaxAgeAndWorkspaceIsolation(t *testing.T) {
 	}
 }
 
+func TestStorePersistsAgentLoopAndQualityState(t *testing.T) {
+	store := New(8)
+	iteration, recovery, regression, score := 3, 1, 0, 92
+	seen, diff := true, true
+	state := store.Update("u", "s", "w", Patch{
+		Task:                  "Fix planner",
+		AgentPhase:            "verify",
+		AgentIteration:        &iteration,
+		RecoveryAttempts:      &recovery,
+		LastOutcome:           "succeeded",
+		NextAction:            "run targeted tests",
+		PassedChecks:          []string{"diff-check", "test"},
+		RequiredChecks:        []string{"diff-check", "test"},
+		ReplaceRequiredChecks: true,
+		VerificationSeen:      &seen,
+		DiagnosticRegression:  &regression,
+		DiffObserved:          &diff,
+		QualityScore:          &score,
+		QualityStatus:         "ready",
+	})
+	if state.AgentPhase != "verify" || state.AgentIteration != 3 || state.RecoveryAttempts != 1 {
+		t.Fatalf("agent loop state was not persisted: %#v", state)
+	}
+	if state.QualityStatus != "ready" || state.QualityScore != 92 || len(state.PassedChecks) != 2 || len(state.RequiredChecks) != 2 {
+		t.Fatalf("quality evidence was not persisted: %#v", state)
+	}
+}
+
+func TestNewTaskResetsAgentLoopEvidence(t *testing.T) {
+	store := New(8)
+	iteration, score := 4, 95
+	seen := true
+	store.Update("u", "s", "w", Patch{Task: "Task A", AgentPhase: "verify", AgentIteration: &iteration, PassedChecks: []string{"test"}, VerificationSeen: &seen, QualityScore: &score, QualityStatus: "ready"})
+	state := store.Update("u", "s", "w", Patch{Task: "Task B"})
+	if state.Task != "Task B" || state.AgentPhase != "plan" || state.AgentIteration != 0 || len(state.PassedChecks) != 0 || state.VerificationSeen || state.QualityScore != 0 {
+		t.Fatalf("new task inherited stale agent evidence: %#v", state)
+	}
+}
+
 func TestStoreExpiresStaleTaskMemory(t *testing.T) {
 	store := NewWithTTL(8, time.Minute)
 	store.Update("u", "s", "w", Patch{Task: "stale task"})

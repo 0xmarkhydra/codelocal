@@ -67,26 +67,134 @@ func TestExecutionCapabilitiesUseAdvertisedAutomation(t *testing.T) {
 	}
 }
 
-func TestAttachTaskContextProjectsMemoryAndRoute(t *testing.T) {
+func TestAttachTaskContextProjectsMemoryRouteAndAgentPlan(t *testing.T) {
 	result := &mcp.CallToolResult{StructuredContent: map[string]any{"results": []any{}}}
+	plan := orchestration.AgentPlan{
+		Version:    1,
+		Route:      orchestration.Decision{Primary: orchestration.LaneCode, Reason: "test"},
+		Phase:      "finalize",
+		NextAction: "finalize result",
+		Quality:    orchestration.QualityEvaluation{Score: 94, Status: "ready"},
+	}
 	attachTaskContext(result, taskstate.State{
-		Task:         "Fix login",
-		Branch:       "feat/login",
-		TouchedFiles: []string{"a.go"},
-		RecentChecks: []string{"verify.changes"},
-		LastAction:   "verify.changes",
-	}, orchestration.Decision{Primary: orchestration.LaneCode, Reason: "test"})
+		Task:             "Fix login",
+		Branch:           "feat/login",
+		TouchedFiles:     []string{"a.go"},
+		RecentChecks:     []string{"verify.changes"},
+		LastAction:       "verify.changes",
+		AgentPhase:       "finalize",
+		AgentIteration:   2,
+		PassedChecks:     []string{"test"},
+		QualityScore:     94,
+		QualityStatus:    "ready",
+		VerificationSeen: true,
+	}, plan)
 	root, ok := result.StructuredContent.(map[string]any)
 	if !ok {
 		t.Fatalf("expected map structured content, got %#v", result.StructuredContent)
 	}
 	memory, ok := root["taskMemory"].(map[string]any)
-	if !ok || memory["task"] != "Fix login" || memory["branch"] != "feat/login" {
+	if !ok || memory["task"] != "Fix login" || memory["branch"] != "feat/login" || memory["agentPhase"] != "finalize" {
 		t.Fatalf("unexpected task memory: %#v", root["taskMemory"])
 	}
 	decision, ok := root["routeHint"].(orchestration.Decision)
 	if !ok || decision.Primary != orchestration.LaneCode {
 		t.Fatalf("unexpected route hint: %#v", root["routeHint"])
+	}
+	attachedPlan, ok := root["agentPlan"].(orchestration.AgentPlan)
+	if !ok || attachedPlan.Quality.Status != "ready" || attachedPlan.Phase != "finalize" {
+		t.Fatalf("unexpected agent plan: %#v", root["agentPlan"])
+	}
+}
+
+func TestAgentPatchPersistsOnlyVerificationCheckCategory(t *testing.T) {
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{"ok": true}}
+	patch := agentPatchForOperation(operationInvocation{OperationID: "terminal.run"}, map[string]any{
+		"command": "go test ./internal/foo --token super-secret-value",
+	}, result, taskstate.State{AgentPhase: "verify"})
+	if len(patch.PassedChecks) != 1 || patch.PassedChecks[0] != "test" {
+		t.Fatalf("expected safe check category only, got %#v", patch.PassedChecks)
+	}
+	if strings.Contains(strings.Join(patch.PassedChecks, " "), "secret") {
+		t.Fatalf("terminal command leaked into durable agent state: %#v", patch.PassedChecks)
+	}
+}
+
+func TestAgentPatchCapturesVerifyEvidence(t *testing.T) {
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{
+		"diagnosticRegression": 0,
+		"verificationScope":    []string{"internal/foo/foo.go"},
+		"gitDiff":              "diff --git a/internal/foo/foo.go b/internal/foo/foo.go",
+		"verificationPlan": map[string]any{"checks": []any{
+			map[string]any{"key": "diff-check", "required": true},
+			map[string]any{"key": "test", "required": true},
+			map[string]any{"key": "lint", "required": false},
+		}},
+	}}
+	patch := agentPatchForOperation(operationInvocation{OperationID: "verify.changes"}, nil, result, taskstate.State{AgentPhase: "verify"})
+	if patch.VerificationSeen == nil || !*patch.VerificationSeen || patch.DiagnosticRegression == nil || *patch.DiagnosticRegression != 0 {
+		t.Fatalf("verify evidence missing: %#v", patch)
+	}
+	if patch.DiffObserved == nil || !*patch.DiffObserved {
+		t.Fatalf("diff evidence missing: %#v", patch)
+	}
+	if !patch.ReplaceRequiredChecks || len(patch.RequiredChecks) != 2 || patch.RequiredChecks[0] != "diff-check" || patch.RequiredChecks[1] != "test" {
+		t.Fatalf("verify result did not refresh required checks: %#v", patch)
+	}
+}
+
+func TestCarryTaskStatePatchPreservesAgentState(t *testing.T) {
+	state := taskstate.State{
+		Task: "Fix planner", Branch: "feat/planner", TouchedFiles: []string{"planner.go"},
+		AgentPhase: "verify", AgentIteration: 3, RecoveryAttempts: 1,
+		PassedChecks: []string{"test", "diff-check"}, VerificationSeen: true,
+		QualityScore: 90, QualityStatus: "ready",
+	}
+	patch := carryTaskStatePatch(state)
+	if patch.AgentIteration == nil || *patch.AgentIteration != 3 || patch.RecoveryAttempts == nil || *patch.RecoveryAttempts != 1 {
+		t.Fatalf("agent counters not carried: %#v", patch)
+	}
+	if !patch.ReplacePassedChecks || len(patch.PassedChecks) != 2 || patch.QualityStatus != "ready" {
+		t.Fatalf("agent evidence not carried: %#v", patch)
+	}
+}
+
+func TestAttachAgentLoopProjectsCompactState(t *testing.T) {
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{"ok": true}}
+	attachAgentLoop(result, taskstate.State{
+		Task: "Fix planner", AgentPhase: "verify", AgentIteration: 2, RecoveryAttempts: 0,
+		NextAction: "run tests", PassedChecks: []string{"diff-check"}, QualityScore: 70, QualityStatus: "verifying",
+	})
+	root := result.StructuredContent.(map[string]any)
+	loop, ok := root["agentLoop"].(map[string]any)
+	if !ok || loop["phase"] != "verify" || loop["nextAction"] != "run tests" {
+		t.Fatalf("unexpected agent loop projection: %#v", root["agentLoop"])
+	}
+}
+
+func TestQualityPatchPromotesVerifiedTaskToFinalize(t *testing.T) {
+	patch := qualityPatchForState(taskstate.State{
+		TouchedFiles:     []string{"internal/foo/foo.go"},
+		AgentPhase:       "verify",
+		RequiredChecks:   []string{"diff-check", "test"},
+		PassedChecks:     []string{"diff-check", "test"},
+		VerificationSeen: true,
+		DiffObserved:     true,
+	})
+	if patch.QualityStatus != "ready" || patch.AgentPhase != "finalize" {
+		t.Fatalf("verified task should finalize: %#v", patch)
+	}
+}
+
+func TestQualityPatchDoesNotDeclareReadyWithoutVerificationPlan(t *testing.T) {
+	patch := qualityPatchForState(taskstate.State{
+		TouchedFiles:     []string{"internal/foo/foo.go"},
+		AgentPhase:       "verify",
+		VerificationSeen: true,
+		DiffObserved:     true,
+	})
+	if patch.QualityStatus == "ready" || patch.AgentPhase == "finalize" {
+		t.Fatalf("task without required-check plan must not finalize: %#v", patch)
 	}
 }
 

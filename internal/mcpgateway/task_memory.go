@@ -61,6 +61,144 @@ func stringSliceArg(args map[string]any, key string) []string {
 	}
 }
 
+func stringSliceValue(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := strings.TrimSpace(fmt.Sprint(item)); text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func intValue(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return 0
+	}
+}
+
+func resultRoot(result *mcp.CallToolResult) map[string]any {
+	if result == nil {
+		return nil
+	}
+	root, _ := result.StructuredContent.(map[string]any)
+	return root
+}
+
+func projectProfileFromResult(result *mcp.CallToolResult) orchestration.ProjectProfile {
+	root := resultRoot(result)
+	project := nestedMap(root["project"])
+	return orchestration.ProjectProfile{
+		Languages:         stringSliceValue(project["languages"]),
+		Frameworks:        stringSliceValue(project["frameworks"]),
+		BuildCommands:     stringSliceValue(project["buildCommands"]),
+		TestCommands:      stringSliceValue(project["testCommands"]),
+		TypecheckCommands: stringSliceValue(project["typecheckCommands"]),
+		LintCommands:      stringSliceValue(project["lintCommands"]),
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
+func intPointer(value int) *int    { return &value }
+
+func requiredCheckKeys(plan orchestration.VerificationPlan) []string {
+	seen := map[string]struct{}{}
+	keys := []string{}
+	for _, check := range plan.Checks {
+		if !check.Required || strings.TrimSpace(check.Key) == "" || check.Key == "project-check" {
+			continue
+		}
+		if _, ok := seen[check.Key]; ok {
+			continue
+		}
+		seen[check.Key] = struct{}{}
+		keys = append(keys, check.Key)
+	}
+	return keys
+}
+
+func requiredCheckKeysFromResult(result *mcp.CallToolResult) []string {
+	root := resultRoot(result)
+	if root == nil {
+		return nil
+	}
+	if plan, ok := root["verificationPlan"].(orchestration.VerificationPlan); ok {
+		return requiredCheckKeys(plan)
+	}
+	plan := nestedMap(root["verificationPlan"])
+	items, _ := plan["checks"].([]any)
+	seen := map[string]struct{}{}
+	keys := []string{}
+	for _, item := range items {
+		entry := nestedMap(item)
+		required, _ := entry["required"].(bool)
+		key, _ := entry["key"].(string)
+		key = strings.TrimSpace(key)
+		if !required || key == "" || key == "project-check" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func storedVerificationPlan(state taskstate.State) orchestration.VerificationPlan {
+	checks := make([]orchestration.VerificationCheck, 0, len(state.RequiredChecks))
+	for _, key := range state.RequiredChecks {
+		if key = strings.TrimSpace(key); key != "" {
+			checks = append(checks, orchestration.VerificationCheck{Key: key, Required: true, Scope: "stored-agent-plan", Reason: "required by the latest capability-aware plan"})
+		}
+	}
+	return orchestration.VerificationPlan{Mode: "stored-agent-plan", Checks: checks}
+}
+
+func qualityPatchForState(state taskstate.State) taskstate.Patch {
+	quality := orchestration.EvaluateQuality(planInputFromState(state, orchestration.Capabilities{}, orchestration.ProjectProfile{}), storedVerificationPlan(state))
+	if len(state.TouchedFiles) > 0 && len(state.RequiredChecks) == 0 {
+		quality.Status = "verifying"
+		quality.MissingChecks = append(quality.MissingChecks, "verification-plan")
+		if quality.Score > 75 {
+			quality.Score = 75
+		}
+	}
+	phase := state.AgentPhase
+	nextAction := state.NextAction
+	switch {
+	case state.DiagnosticRegression > 0 || len(state.RecentErrors) > 0:
+		phase = "recover"
+		nextAction = "inspect fresh diagnostics and causal diff, repair the regression, then re-verify"
+	case quality.Status == "ready" && phase == "verify":
+		phase = "finalize"
+		nextAction = "finalize result; perform Git/release action only when requested"
+	case phase == "verify":
+		nextAction = "run missing required verification checks and refresh verify.changes evidence"
+	}
+	return taskstate.Patch{
+		AgentPhase:    phase,
+		NextAction:    nextAction,
+		QualityScore:  intPointer(quality.Score),
+		QualityStatus: quality.Status,
+	}
+}
+
 func structuredFilePaths(args map[string]any, key string) []string {
 	items, ok := args[key].([]any)
 	if !ok {
@@ -114,6 +252,94 @@ func taskPatchForOperation(publicTool string, operation operationInvocation, arg
 	return patch
 }
 
+func agentPatchForOperation(operation operationInvocation, args map[string]any, result *mcp.CallToolResult, state taskstate.State) taskstate.Patch {
+	checkKey := ""
+	if operation.OperationID == "terminal.run" {
+		if command, _ := args["command"].(string); command != "" {
+			checkKey = orchestration.CheckKey(command)
+		}
+	}
+	failure := ""
+	if root := resultRoot(result); root != nil {
+		failure, _ = root["error"].(string)
+	}
+	success := result != nil && !result.IsError
+	loop := orchestration.AdvanceLoop(orchestration.LoopState{
+		Phase:            state.AgentPhase,
+		Iteration:        state.AgentIteration,
+		RecoveryAttempts: state.RecoveryAttempts,
+		LastOutcome:      state.LastOutcome,
+		NextAction:       state.NextAction,
+	}, orchestration.LoopEvent{Operation: operation.OperationID, Success: success, Failure: failure, CheckKey: checkKey})
+	patch := taskstate.Patch{
+		AgentPhase:       loop.Phase,
+		AgentIteration:   intPointer(loop.Iteration),
+		RecoveryAttempts: intPointer(loop.RecoveryAttempts),
+		LastOutcome:      loop.LastOutcome,
+		NextAction:       loop.NextAction,
+	}
+	if success && checkKey != "" {
+		patch.PassedChecks = []string{checkKey}
+	}
+	if success && operation.OperationID == "verify.changes" {
+		root := resultRoot(result)
+		regression := intValue(root["diagnosticRegression"])
+		diffObserved := strings.TrimSpace(fmt.Sprint(root["gitDiff"])) != "" || len(stringSliceValue(root["verificationScope"])) > 0
+		patch.VerificationSeen = boolPointer(true)
+		patch.DiagnosticRegression = intPointer(regression)
+		patch.DiffObserved = boolPointer(diffObserved)
+		if required := requiredCheckKeysFromResult(result); len(required) > 0 {
+			patch.RequiredChecks = required
+			patch.ReplaceRequiredChecks = true
+		}
+	}
+	return patch
+}
+
+func planInputFromState(state taskstate.State, caps orchestration.Capabilities, project orchestration.ProjectProfile) orchestration.PlanInput {
+	return orchestration.PlanInput{
+		Task:             state.Task,
+		Capabilities:     caps,
+		Project:          project,
+		TouchedFiles:     append([]string(nil), state.TouchedFiles...),
+		LastAction:       state.LastAction,
+		RecentErrors:     append([]string(nil), state.RecentErrors...),
+		RecentChecks:     append([]string(nil), state.RecentChecks...),
+		AgentPhase:       state.AgentPhase,
+		Iteration:        state.AgentIteration,
+		RecoveryAttempts: state.RecoveryAttempts,
+		PassedChecks:     append([]string(nil), state.PassedChecks...),
+		VerificationSeen: state.VerificationSeen,
+		DiagnosticDelta:  state.DiagnosticRegression,
+		DiffObserved:     state.DiffObserved,
+	}
+}
+
+func carryTaskStatePatch(state taskstate.State) taskstate.Patch {
+	return taskstate.Patch{
+		Task:                  state.Task,
+		Branch:                state.Branch,
+		TouchedFiles:          append([]string(nil), state.TouchedFiles...),
+		RecentChecks:          append([]string(nil), state.RecentChecks...),
+		RecentErrors:          append([]string(nil), state.RecentErrors...),
+		LastAction:            state.LastAction,
+		AgentPhase:            state.AgentPhase,
+		AgentIteration:        intPointer(state.AgentIteration),
+		RecoveryAttempts:      intPointer(state.RecoveryAttempts),
+		LastOutcome:           state.LastOutcome,
+		NextAction:            state.NextAction,
+		PassedChecks:          append([]string(nil), state.PassedChecks...),
+		ReplacePassedChecks:   true,
+		RequiredChecks:        append([]string(nil), state.RequiredChecks...),
+		ReplaceRequiredChecks: true,
+		VerificationSeen:      boolPointer(state.VerificationSeen),
+		DiagnosticRegression:  intPointer(state.DiagnosticRegression),
+		DiffObserved:          boolPointer(state.DiffObserved),
+		QualityScore:          intPointer(state.QualityScore),
+		QualityStatus:         state.QualityStatus,
+	}
+}
+
 func memoryWorkspaceKey(s *Service, userID, session string, args map[string]any) string {
 	if explicit, _ := args["workspaceKey"].(string); strings.TrimSpace(explicit) != "" {
 		return strings.TrimSpace(explicit)
@@ -138,7 +364,7 @@ func executionCapabilities(workspace *gateway.WorkspaceView) orchestration.Capab
 	}
 }
 
-func attachTaskContext(result *mcp.CallToolResult, state taskstate.State, decision orchestration.Decision) {
+func attachTaskContext(result *mcp.CallToolResult, state taskstate.State, plan orchestration.AgentPlan) {
 	if result == nil {
 		return
 	}
@@ -150,14 +376,54 @@ func attachTaskContext(result *mcp.CallToolResult, state taskstate.State, decisi
 	// the same memory into TextContent would increase model tokens on every
 	// context call while modern MCP clients already consume structured content.
 	root["taskMemory"] = map[string]any{
-		"task":         state.Task,
-		"branch":       state.Branch,
-		"touchedFiles": state.TouchedFiles,
-		"recentChecks": state.RecentChecks,
-		"recentErrors": state.RecentErrors,
-		"lastAction":   state.LastAction,
+		"task":                 state.Task,
+		"branch":               state.Branch,
+		"touchedFiles":         state.TouchedFiles,
+		"recentChecks":         state.RecentChecks,
+		"recentErrors":         state.RecentErrors,
+		"lastAction":           state.LastAction,
+		"agentPhase":           state.AgentPhase,
+		"agentIteration":       state.AgentIteration,
+		"recoveryAttempts":     state.RecoveryAttempts,
+		"lastOutcome":          state.LastOutcome,
+		"nextAction":           state.NextAction,
+		"passedChecks":         state.PassedChecks,
+		"requiredChecks":       state.RequiredChecks,
+		"verificationSeen":     state.VerificationSeen,
+		"diagnosticRegression": state.DiagnosticRegression,
+		"diffObserved":         state.DiffObserved,
+		"qualityScore":         state.QualityScore,
+		"qualityStatus":        state.QualityStatus,
 	}
-	root["routeHint"] = decision
+	root["routeHint"] = plan.Route
+	root["agentPlan"] = plan
+	result.StructuredContent = root
+}
+
+func attachAgentLoop(result *mcp.CallToolResult, state taskstate.State) {
+	if strings.TrimSpace(state.Task) == "" {
+		return
+	}
+	root := resultRoot(result)
+	if root == nil {
+		return
+	}
+	remainingRepairs := max(0, 2-state.RecoveryAttempts)
+	root["agentLoop"] = map[string]any{
+		"phase":             state.AgentPhase,
+		"iteration":         state.AgentIteration,
+		"recoveryAttempts":  state.RecoveryAttempts,
+		"repairBudgetLeft":  remainingRepairs,
+		"lastOutcome":       state.LastOutcome,
+		"nextAction":        state.NextAction,
+		"passedChecks":      state.PassedChecks,
+		"requiredChecks":    state.RequiredChecks,
+		"completionAllowed": state.AgentPhase == "finalize" && state.QualityStatus == "ready",
+		"quality": map[string]any{
+			"score":  state.QualityScore,
+			"status": state.QualityStatus,
+		},
+	}
 	result.StructuredContent = root
 }
 
@@ -285,16 +551,18 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 	if workspaceKey == "" {
 		return result, err
 	}
+
 	state := workingMemory.Update(userID, session, workspaceKey, taskPatchForOperation(publicTool, operation, args, result))
 	if strings.TrimSpace(state.Task) == "" {
 		if latest, ok := workingMemory.LatestTask(userID, workspaceKey, 30*time.Minute); ok {
-			state = workingMemory.Update(userID, session, workspaceKey, taskstate.Patch{
-				Task:         latest.Task,
-				Branch:       latest.Branch,
-				TouchedFiles: latest.TouchedFiles,
-			})
+			state = workingMemory.Update(userID, session, workspaceKey, carryTaskStatePatch(latest))
 		}
 	}
+	state = workingMemory.Update(userID, session, workspaceKey, agentPatchForOperation(operation, args, result, state))
+	if operation.OperationID == "verify.changes" || (operation.OperationID == "terminal.run" && orchestration.CheckKey(fmt.Sprint(args["command"])) != "") {
+		state = workingMemory.Update(userID, session, workspaceKey, qualityPatchForState(state))
+	}
+
 	logicalWorkspaceID := workspaceKey
 	var workspace *gateway.WorkspaceView
 	if s.Workspaces != nil && (publicTool == "context" || s.Memory != nil) {
@@ -306,13 +574,23 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		}
 	}
 	if publicTool == "context" && err == nil && result != nil && !result.IsError {
-		decision := orchestration.Decision{Primary: orchestration.LaneNone, Reason: "workspace capabilities unavailable"}
+		caps := orchestration.Capabilities{}
 		if workspace != nil {
-			decision = orchestration.Route(state.Task, executionCapabilities(workspace))
+			caps = executionCapabilities(workspace)
 		}
-		attachTaskContext(result, state, decision)
+		plan := orchestration.BuildPlan(planInputFromState(state, caps, projectProfileFromResult(result)))
+		state = workingMemory.Update(userID, session, workspaceKey, taskstate.Patch{
+			AgentPhase:            plan.Phase,
+			NextAction:            plan.NextAction,
+			RequiredChecks:        requiredCheckKeys(plan.Verification),
+			ReplaceRequiredChecks: true,
+			QualityScore:          intPointer(plan.Quality.Score),
+			QualityStatus:         plan.Quality.Status,
+		})
+		attachTaskContext(result, state, plan)
 		attachLongTermMemory(result, s.recallLongTermMemory(ctx, userID, logicalWorkspaceID, state))
 	}
+	attachAgentLoop(result, state)
 	s.ingestLongTermMemoryAsync(userID, session, logicalWorkspaceID, publicTool, operation, state, result)
 	return result, err
 }

@@ -1100,10 +1100,14 @@ func (e *Engine) verifyChanges(ctx context.Context, paths []string, baselineID s
 	baseline := e.baselines[baselineID]
 	e.mu.Unlock()
 
+	effectivePaths := append([]string(nil), paths...)
+	if len(effectivePaths) == 0 {
+		effectivePaths = changedPathsFromGitStatus(e.Root)
+	}
 	gitArgs := []string{"diff", "--no-ext-diff", "--unified=2"}
-	if len(paths) > 0 {
+	if len(effectivePaths) > 0 {
 		gitArgs = append(gitArgs, "--")
-		for _, path := range paths {
+		for _, path := range effectivePaths {
 			if _, err := e.FS.Existing(path); err != nil {
 				return nil, err
 			}
@@ -1113,22 +1117,21 @@ func (e *Engine) verifyChanges(ctx context.Context, paths []string, baselineID s
 	diff, _ := runGit(e.Root, gitArgs...)
 
 	projectMap, _ := e.Project.Map(false)
-	checks := []string{}
-	for _, key := range []string{"typecheckCommands", "lintCommands", "testCommands"} {
-		if values, ok := projectMap[key].([]string); ok {
-			checks = append(checks, values...)
-		} else if values, ok := projectMap[key].([]any); ok {
-			for _, value := range values {
-				if command, ok := value.(string); ok && command != "" {
-					checks = append(checks, command)
-				}
-			}
-		}
-	}
+	verificationPlan := verificationPlanForChanges(projectMap, effectivePaths)
+	checks := recommendedChecksForChanges(projectMap, effectivePaths)
 	if len(checks) > 8 {
 		checks = checks[:8]
 	}
-	return map[string]any{"baselineId": baselineID, "beforeDiagnostics": baseline, "diagnostics": current, "diagnosticRegression": len(current) - len(baseline), "recommendedChecks": checks, "gitDiff": diff}, nil
+	return map[string]any{
+		"baselineId":           baselineID,
+		"beforeDiagnostics":    baseline,
+		"diagnostics":          current,
+		"diagnosticRegression": len(current) - len(baseline),
+		"verificationScope":    effectivePaths,
+		"verificationPlan":     verificationPlan,
+		"recommendedChecks":    checks,
+		"gitDiff":              diff,
+	}, nil
 }
 
 var nonWord = regexp.MustCompile(`[^A-Za-z0-9_$]+`)
