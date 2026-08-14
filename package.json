@@ -1,6 +1,6 @@
 {
   "name": "codex-mcp",
-  "version": "1.5.9",
+  "version": "1.5.11",
   "private": true,
   "description": "CodeLocal native Go runtime and horizontally scalable MCP gateway for ChatGPT.",
   "license": "UNLICENSED",
