@@ -142,8 +142,9 @@ func platformCursor(ctx context.Context, input request) (any, error) {
 		startX, startY = macCursorState.x, macCursorState.y
 	}
 	if macCursorState.process != nil && macCursorState.process.Process != nil {
+		// Reaping belongs to the goroutine that called Cmd.Wait. Killing here is
+		// enough to prevent overlapping overlays without racing a second Wait.
 		_ = macCursorState.process.Process.Kill()
-		_, _ = macCursorState.process.Process.Wait()
 		macCursorState.process = nil
 	}
 	cmd, err := startMacCursorOverlay(startX, startY, targetX, targetY, duration)
