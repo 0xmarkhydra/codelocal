@@ -74,6 +74,17 @@ func (c *Controller) browserOrigin() string {
 	return c.Browser.CurrentOrigin()
 }
 
+func (c *Controller) browserActionResult(ctx context.Context, result any, verify bool) (any, error) {
+	if !verify {
+		return result, nil
+	}
+	observation, err := c.Browser.Snapshot(ctx)
+	if err != nil {
+		return map[string]any{"result": result, "verificationError": err.Error()}, nil
+	}
+	return map[string]any{"result": result, "observation": observation}, nil
+}
+
 func (c *Controller) Handle(ctx context.Context, tool string, args map[string]any) (any, error) {
 	if c == nil {
 		return nil, errors.New("automation controller unavailable")
@@ -117,7 +128,11 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Browser.Click(ctx, ref)
+		result, err := c.Browser.Click(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		return c.browserActionResult(ctx, result, boolArg(args, "verify", false))
 	case "browser_fill":
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
@@ -128,7 +143,11 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Browser.Fill(ctx, ref, text)
+		result, err := c.Browser.Fill(ctx, ref, text)
+		if err != nil {
+			return nil, err
+		}
+		return c.browserActionResult(ctx, result, boolArg(args, "verify", false))
 	case "browser_press":
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
@@ -138,7 +157,11 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Browser.Press(ctx, key)
+		result, err := c.Browser.Press(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return c.browserActionResult(ctx, result, boolArg(args, "verify", false))
 	case "browser_console":
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
