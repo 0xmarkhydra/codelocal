@@ -9,7 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const compactOrchestrationInstructions = `CodeLocal connects ChatGPT to explicitly authorized local workspaces. Reuse the selected workspace and prior results. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. For websites, inspect with browser snapshot/find before interacting. For desktop apps, inspect computer windows/UI tree or a fresh screenshot before input; prefer semantic element IDs over coordinates. Browser and Computer Use are separate opt-in domains, and first-run consent never replaces action-level approval. Avoid repeated inspection unless state changed. Local security policy and ChatGPT approvals remain authoritative for side effects.`
+const compactOrchestrationInstructions = `CodeLocal connects ChatGPT to explicitly authorized local workspaces. Reuse the selected workspace and prior results. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. For websites, inspect with browser snapshot/find before interacting. For desktop apps, prefer computer observe and semantic targets; use raw element IDs or coordinates only as fallbacks. Browser and Computer Use are separate opt-in domains, and first-run consent never replaces action-level approval. Avoid repeated inspection unless state changed. Local security policy and ChatGPT approvals remain authoritative for side effects.`
 
 type compactToolDef struct {
 	Name        string
@@ -142,7 +142,7 @@ func compactToolDefinitions() []compactToolDef {
 			},
 		},
 		{
-			Name: "context", Title: "Find task context", Description: "Primary semantic-first retrieval step for coding/debug/review/refactor. Returns ranked symbols, graph neighbors and bounded source snippets; call before broad scans.",
+			Name: "context", Title: "Find task context", Description: "Primary semantic-first retrieval step for coding/debug/review/refactor. Returns ranked symbols, graph neighbors, bounded source snippets and compact prior task memory; call before broad scans.",
 			Schema:      objectSchema(map[string]any{"taskHint": str("Concrete coding task."), "limit": integer("Maximum ranked results.", 1, 100), "workspaceKey": workspaceKeySchema}, "taskHint"),
 			Annotations: compactAnnotations("Find task context", true, false, false), Resolve: singleOperationResolver("context_for_task", "taskHint"),
 		},
@@ -263,7 +263,7 @@ func registerCompactTools(server *mcp.Server, service *Service, userID string) {
 			if err != nil {
 				return errorResult(err), nil
 			}
-			return service.callOperation(ctx, userID, definition.Name, operation, forward, req)
+			return service.callOperationRemembering(ctx, userID, definition.Name, operation, forward, req)
 		})
 	}
 }
