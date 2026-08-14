@@ -3,6 +3,7 @@ package mcpgateway
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
@@ -11,7 +12,25 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var workingMemory = taskstate.New(512)
+var (
+	workingMemory      = taskstate.New(512)
+	memorySecretAssign = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|passwd)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)`)
+	memoryBearer       = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+`)
+)
+
+func sanitizeTaskMemoryText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = memorySecretAssign.ReplaceAllString(value, "$1=[REDACTED]")
+	value = memoryBearer.ReplaceAllString(value, "Bearer [REDACTED]")
+	runes := []rune(value)
+	if len(runes) > 360 {
+		value = string(runes[:360]) + "…"
+	}
+	return value
+}
 
 func stringSliceArg(args map[string]any, key string) []string {
 	value, ok := args[key]
@@ -55,7 +74,9 @@ func structuredFilePaths(args map[string]any, key string) []string {
 func taskPatchForOperation(publicTool string, operation operationInvocation, args map[string]any, result *mcp.CallToolResult) taskstate.Patch {
 	patch := taskstate.Patch{LastAction: operation.OperationID}
 	if publicTool == "context" {
-		patch.Task, _ = args["taskHint"].(string)
+		if task, _ := args["taskHint"].(string); task != "" {
+			patch.Task = sanitizeTaskMemoryText(task)
+		}
 	}
 	if publicTool == "edit" {
 		if path, _ := args["path"].(string); strings.TrimSpace(path) != "" {
