@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +56,7 @@ func platformCapabilities() map[string]any {
 		"backend":           "macos-accessibility+coregraphics",
 		"screenCapture":     true,
 		"uiTree":            trusted,
+		"visionFallback":    true,
 		"pointer":           trusted,
 		"keyboard":          trusted,
 		"clipboard":         false,
@@ -85,16 +87,44 @@ function run(){
   return JSON.stringify(out);
 }`
 
-func macWindows(ctx context.Context) (any, error) {
-	text, err := runOSA(ctx, "JavaScript", macWindowScript)
+const macMainScreenScript = `ObjC.import('AppKit');
+function run(){var s=$.NSScreen.mainScreen,f=s.frame;return JSON.stringify({x:0,y:0,width:Number(f.size.width),height:Number(f.size.height)})}`
+
+func macMainScreenBounds(ctx context.Context) (map[string]float64, error) {
+	text, err := runOSA(ctx, "JavaScript", macMainScreenScript)
 	if err != nil {
 		return nil, err
 	}
-	var out any
+	var out map[string]float64
 	if err := json.Unmarshal([]byte(text), &out); err != nil {
-		return nil, fmt.Errorf("decode macOS window list: %w", err)
+		return nil, err
+	}
+	if out["width"] <= 0 || out["height"] <= 0 {
+		return nil, errors.New("main screen bounds unavailable")
 	}
 	return out, nil
+}
+
+func macWindows(ctx context.Context) (any, error) {
+	text, err := runOSA(ctx, "JavaScript", macWindowScript)
+	if err == nil {
+		var out []any
+		if json.Unmarshal([]byte(text), &out) == nil && len(out) > 0 {
+			return out, nil
+		}
+	}
+	bounds, boundsErr := macMainScreenBounds(ctx)
+	if boundsErr != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, boundsErr
+	}
+	return []any{map[string]any{
+		"windowId": "screen:main", "pid": float64(0), "app": "Desktop", "title": "Main Screen",
+		"bounds":   map[string]any{"x": bounds["x"], "y": bounds["y"], "width": bounds["width"], "height": bounds["height"]},
+		"fallback": true,
+	}}, nil
 }
 
 const macTreeScript = `function safe(fn,fb){try{return fn()}catch(e){return fb}}
@@ -133,7 +163,158 @@ func macWindowPID(ctx context.Context, windowID string) (int, error) {
 	return 0, errors.New("window not found")
 }
 
+func macWindowBounds(ctx context.Context, windowID string) (map[string]float64, error) {
+	if windowID == "screen:main" {
+		return macMainScreenBounds(ctx)
+	}
+	windows, err := macWindows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, _ := windows.([]any)
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		if fmt.Sprint(item["windowId"]) != windowID {
+			continue
+		}
+		bounds, _ := item["bounds"].(map[string]any)
+		result := map[string]float64{}
+		for _, key := range []string{"x", "y", "width", "height"} {
+			value, ok := bounds[key].(float64)
+			if !ok {
+				return nil, errors.New("window bounds unavailable")
+			}
+			result[key] = value
+		}
+		if result["width"] <= 0 || result["height"] <= 0 {
+			return nil, errors.New("window bounds are empty")
+		}
+		return result, nil
+	}
+	return nil, errors.New("window not found")
+}
+
+func macTreeQuality(value any) (informative int, actionable int) {
+	switch typed := value.(type) {
+	case []any:
+		for _, child := range typed {
+			i, a := macTreeQuality(child)
+			informative += i
+			actionable += a
+		}
+	case map[string]any:
+		role := strings.ToLower(strings.TrimSpace(fmt.Sprint(typed["role"])))
+		name := strings.TrimSpace(fmt.Sprint(typed["name"]))
+		desc := strings.TrimSpace(fmt.Sprint(typed["description"]))
+		nodeValue := strings.TrimSpace(fmt.Sprint(typed["value"]))
+		if role != "" && role != "axwindow" {
+			if (name != "" && name != "<nil>") || (desc != "" && desc != "<nil>") || (nodeValue != "" && nodeValue != "<nil>") {
+				informative++
+			}
+			for _, marker := range []string{"button", "link", "menu", "checkbox", "radio", "textfield", "text field", "combobox", "pop up", "popup"} {
+				if strings.Contains(role, marker) {
+					actionable++
+					break
+				}
+			}
+		}
+		for _, key := range []string{"nodes", "node", "children"} {
+			if child, ok := typed[key]; ok {
+				i, a := macTreeQuality(child)
+				informative += i
+				actionable += a
+			}
+		}
+	}
+	return informative, actionable
+}
+
+func macTreeDegraded(value any) bool {
+	informative, actionable := macTreeQuality(value)
+	return informative == 0 || (actionable == 0 && informative < 3)
+}
+
+const macVisionScript = `ObjC.import('Vision'); ObjC.import('Foundation');
+function run(argv){
+  var path=String(argv[0]||''), windowId=String(argv[1]||'');
+  var wx=Number(argv[2]||0), wy=Number(argv[3]||0), ww=Number(argv[4]||0), wh=Number(argv[5]||0);
+  var url=$.NSURL.fileURLWithPath(path);
+  var handler=$.VNImageRequestHandler.alloc.initWithURLOptions(url,$({}));
+  var request=$.VNRecognizeTextRequest.alloc.init;
+  request.recognitionLevel=$.VNRequestTextRecognitionLevelAccurate;
+  request.usesLanguageCorrection=true;
+  var error=Ref();
+  if(!handler.performRequestsError($([request]),error)) {
+    var message='Vision OCR failed'; try { message=ObjC.unwrap(error[0].localizedDescription); } catch(e) {}
+    throw new Error(message);
+  }
+  var results=request.results, out=[], count=Number(results.count||0);
+  for(var i=0;i<count && out.length<300;i++) {
+    var observation=results.objectAtIndex(i), candidates=observation.topCandidates(1);
+    if(Number(candidates.count||0)<1) continue;
+    var candidate=candidates.objectAtIndex(0), text=String(ObjC.unwrap(candidate.string)||'').trim();
+    var confidence=Number(candidate.confidence||0);
+    if(!text || confidence<0.25) continue;
+    var box=observation.boundingBox;
+    var x=wx+Number(box.origin.x)*ww;
+    var y=wy+(1-(Number(box.origin.y)+Number(box.size.height)))*wh;
+    var w=Number(box.size.width)*ww, h=Number(box.size.height)*wh;
+    var cx=x+w/2, cy=y+h/2;
+    out.push({elementId:'vision:'+cx.toFixed(2)+':'+cy.toFixed(2), windowId:windowId, role:'visionText', name:text,
+      description:'Vision OCR text', value:text, enabled:true, source:'vision', confidence:confidence,
+      bounds:{x:x,y:y,width:w,height:h}});
+  }
+  return JSON.stringify(out);
+}`
+
+func macVisionTree(ctx context.Context, windowID string) ([]any, error) {
+	bounds, err := macWindowBounds(ctx, windowID)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp("", "codelocal-vision-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "window.png")
+	x, y := int(math.Round(bounds["x"])), int(math.Round(bounds["y"]))
+	w, h := int(math.Round(bounds["width"])), int(math.Round(bounds["height"]))
+	args := []string{"-x", "-t", "png"}
+	if windowID != "screen:main" {
+		region := fmt.Sprintf("%d,%d,%d,%d", x, y, w, h)
+		args = append(args, "-R"+region)
+	}
+	args = append(args, path)
+	cmd := exec.CommandContext(ctx, "/usr/sbin/screencapture", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = "macOS Screen Recording permission may be required"
+		}
+		return nil, errors.New(message)
+	}
+	text, err := runOSA(ctx, "JavaScript", macVisionScript, path, windowID,
+		strconv.FormatFloat(bounds["x"], 'f', -1, 64), strconv.FormatFloat(bounds["y"], 'f', -1, 64),
+		strconv.FormatFloat(bounds["width"], 'f', -1, 64), strconv.FormatFloat(bounds["height"], 'f', -1, 64))
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		return nil, fmt.Errorf("decode macOS Vision OCR: %w", err)
+	}
+	return out, nil
+}
+
 func macUITree(ctx context.Context, windowID string) (any, error) {
+	if windowID == "screen:main" {
+		vision, err := macVisionTree(ctx, windowID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"nodes": vision, "source": "vision", "accessibilityDegraded": true, "visionFallback": true, "visionElementCount": len(vision)}, nil
+	}
 	if !macAccessibilityTrusted(ctx) {
 		return nil, errors.New("macOS Accessibility permission is required")
 	}
@@ -145,10 +326,27 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out any
+	var out map[string]any
 	if err := json.Unmarshal([]byte(text), &out); err != nil {
 		return nil, err
 	}
+	if !macTreeDegraded(out) {
+		out["source"] = "accessibility"
+		out["accessibilityDegraded"] = false
+		return out, nil
+	}
+	out["accessibilityDegraded"] = true
+	vision, visionErr := macVisionTree(ctx, windowID)
+	if visionErr != nil {
+		out["source"] = "accessibility"
+		out["visionError"] = visionErr.Error()
+		return out, nil
+	}
+	nodes, _ := out["nodes"].([]any)
+	out["nodes"] = append(nodes, vision...)
+	out["source"] = "accessibility+vision"
+	out["visionFallback"] = true
+	out["visionElementCount"] = len(vision)
 	return out, nil
 }
 
@@ -160,11 +358,13 @@ func macScreenshot(ctx context.Context, windowID string) (any, error) {
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "screen.png")
 	args := []string{"-x", "-t", "png"}
-	if strings.TrimSpace(windowID) != "" {
-		if _, err := strconv.ParseUint(windowID, 10, 32); err != nil {
-			return nil, errors.New("invalid windowId")
+	if strings.TrimSpace(windowID) != "" && windowID != "screen:main" {
+		bounds, err := macWindowBounds(ctx, windowID)
+		if err != nil {
+			return nil, err
 		}
-		args = append(args, "-l", windowID)
+		region := fmt.Sprintf("%d,%d,%d,%d", int(math.Round(bounds["x"])), int(math.Round(bounds["y"])), int(math.Round(bounds["width"])), int(math.Round(bounds["height"])))
+		args = append(args, "-R"+region)
 	}
 	args = append(args, path)
 	cmd := exec.CommandContext(ctx, "/usr/sbin/screencapture", args...)
@@ -183,6 +383,9 @@ func macScreenshot(ctx context.Context, windowID string) (any, error) {
 }
 
 func macFocus(ctx context.Context, windowID string) (any, error) {
+	if windowID == "screen:main" {
+		return map[string]any{"focused": true, "windowId": windowID, "fallback": true}, nil
+	}
 	if !macAccessibilityTrusted(ctx) {
 		return nil, errors.New("macOS Accessibility permission is required")
 	}
@@ -200,7 +403,30 @@ func macFocus(ctx context.Context, windowID string) (any, error) {
 	return out, nil
 }
 
+func macVisionPoint(elementID string) (float64, float64, bool) {
+	if !strings.HasPrefix(elementID, "vision:") {
+		return 0, 0, false
+	}
+	parts := strings.Split(elementID, ":")
+	if len(parts) != 3 {
+		return 0, 0, false
+	}
+	x, errX := strconv.ParseFloat(parts[1], 64)
+	y, errY := strconv.ParseFloat(parts[2], 64)
+	if errX != nil || errY != nil {
+		return 0, 0, false
+	}
+	return x, y, true
+}
+
 func macElementClick(ctx context.Context, elementID string) (any, error) {
+	if strings.HasPrefix(elementID, "vision:") {
+		x, y, ok := macVisionPoint(elementID)
+		if !ok {
+			return nil, errors.New("invalid Vision elementId")
+		}
+		return macPointer(ctx, "click", x, y)
+	}
 	parts := strings.SplitN(elementID, ":", 2)
 	if len(parts) != 2 {
 		return nil, errors.New("invalid elementId")

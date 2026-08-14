@@ -12,10 +12,13 @@ import (
 // screenshot so ChatGPT can reason about the UI without paying the latency and
 // token cost of vision on every step.
 type ComputerObservation struct {
-	Windows     any    `json:"windows"`
-	UITree      any    `json:"uiTree,omitempty"`
-	UITreeError string `json:"uiTreeError,omitempty"`
-	WindowID    string `json:"windowId,omitempty"`
+	Windows         any    `json:"windows"`
+	UITree          any    `json:"uiTree,omitempty"`
+	UITreeError     string `json:"uiTreeError,omitempty"`
+	ScreenshotError string `json:"screenshotError,omitempty"`
+	WindowID        string `json:"windowId,omitempty"`
+	VisionFallback  bool   `json:"visionFallback,omitempty"`
+	MCPImage        any    `json:"__mcpImage,omitempty"`
 }
 
 // ObserveComputer always preserves a successful window observation. When a
@@ -39,6 +42,17 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 		return observation, nil
 	}
 	observation.UITree = uiTree
+	if tree, ok := uiTree.(map[string]any); ok {
+		observation.VisionFallback, _ = tree["visionFallback"].(bool)
+	}
+	if observation.VisionFallback {
+		screenshot, screenshotErr := computer.Call(ctx, "screenshot", map[string]any{"windowId": observation.WindowID})
+		if screenshotErr != nil {
+			observation.ScreenshotError = screenshotErr.Error()
+		} else if root, ok := screenshot.(map[string]any); ok {
+			observation.MCPImage = root["__mcpImage"]
+		}
+	}
 	return observation, nil
 }
 

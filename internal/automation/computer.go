@@ -86,7 +86,7 @@ func helperCapabilities(helper string, environment Environment) map[string]any {
 	if json.Unmarshal(output, &reported) != nil {
 		return base
 	}
-	for _, key := range []string{"available", "backend", "windowList", "screenCapture", "uiTree", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
+	for _, key := range []string{"available", "backend", "windowList", "screenCapture", "uiTree", "visionFallback", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
 		if value, ok := reported[key]; ok {
 			base[key] = value
 		}
