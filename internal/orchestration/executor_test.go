@@ -34,6 +34,22 @@ func TestEvaluateExecutionEfficiencyPenalizesRepeatedFallbacks(t *testing.T) {
 	}
 }
 
+func TestSummarizeExecutionTraceKeepsCompactDecisionEvidence(t *testing.T) {
+	trace := []ExecutionTraceStep{
+		{Operation: "context.task", Status: "succeeded", DurationMS: 4},
+		{Operation: "edit.apply", Status: "succeeded", DurationMS: 6, Replanned: true},
+		{Operation: "verify.changes", Status: "skipped", DurationMS: 1, Verification: true},
+		{Operation: "terminal.run", Status: "halted", DurationMS: 9, Verification: true, Fallback: true},
+	}
+	summary := SummarizeExecutionTrace(trace)
+	if summary.Operations != 4 || summary.Succeeded != 2 || summary.Skipped != 1 || summary.Halted != 1 {
+		t.Fatalf("unexpected status summary: %#v", summary)
+	}
+	if summary.Verifications != 2 || summary.Replans != 1 || summary.Fallbacks != 1 || summary.DurationMS != 20 || summary.LastOperation != "terminal.run" {
+		t.Fatalf("unexpected trace summary evidence: %#v", summary)
+	}
+}
+
 func TestLaneForOperation(t *testing.T) {
 	cases := map[string]Lane{
 		"edit.apply":       LaneCode,

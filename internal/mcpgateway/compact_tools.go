@@ -163,6 +163,7 @@ func compactToolDefinitions() []compactToolDef {
 				"steps":         map[string]any{"type": "array", "minItems": 1, "maxItems": 12, "items": agentStep, "description": "Model-authored action program. Later steps must not depend on unseen output from earlier steps."},
 				"autoVerify":    boolean("After successful edits, automatically run verify.changes and missing recognized verification checks. Defaults to true."),
 				"stopWhenReady": boolean("Stop once the quality gate reaches ready. Defaults to true."),
+				"responseMode":  map[string]any{"type": "string", "enum": []string{"compact", "full"}, "description": "Response verbosity. Defaults to compact; use full for debugging/review to include the full plan and execution trace."},
 				"workspaceKey":  workspaceKeySchema,
 			}, "objective", "steps"),
 			Annotations: compactAnnotations("Run bounded agent plan", false, true, false),

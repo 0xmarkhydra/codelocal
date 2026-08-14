@@ -31,6 +31,18 @@ type autonomousStepDecision struct {
 	Reason  string
 }
 
+func boundedAgentResponseMode(args map[string]any) (string, error) {
+	mode, _ := args["responseMode"].(string)
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return "compact", nil
+	}
+	if mode != "compact" && mode != "full" {
+		return "", fmt.Errorf("unsupported agent responseMode %q", mode)
+	}
+	return mode, nil
+}
+
 func parseBoundedAgentSteps(value any) ([]boundedAgentStep, error) {
 	raw, ok := value.([]any)
 	if !ok || len(raw) == 0 {
@@ -378,6 +390,10 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	if value, ok := args["stopWhenReady"].(bool); ok {
 		stopWhenReady = value
 	}
+	responseMode, err := boundedAgentResponseMode(args)
+	if err != nil {
+		return errorResult(err), nil
+	}
 
 	session := sessionID(req)
 	workspaceKey, err := resolveAgentWorkspaceKey(ctx, s, userID, session, args)
@@ -407,7 +423,18 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	trace = append(trace, orchestration.ExecutionTraceStep{Index: ops, Source: "auto-context", Tool: "context", Operation: contextOperation.OperationID, Lane: orchestration.LaneCode, Status: "succeeded", DurationMS: time.Since(start).Milliseconds()})
 	if halt, reason := resultNeedsAgentHalt(contextResult); halt {
 		trace[len(trace)-1].Status = "halted"
-		return textResult(map[string]any{"status": "halted", "objective": objective, "haltReason": reason, "trace": trace, "lastResult": agentResultStructured(contextResult)}, false), nil
+		payload := map[string]any{
+			"status":       "halted",
+			"objective":    objective,
+			"workspaceKey": workspaceKey,
+			"haltReason":   reason,
+			"traceSummary": orchestration.SummarizeExecutionTrace(trace),
+		}
+		if responseMode == "full" {
+			payload["trace"] = trace
+			payload["lastResult"] = agentResultStructured(contextResult)
+		}
+		return textResult(payload, false), nil
 	}
 
 	project := projectProfileFromResult(contextResult)
@@ -550,26 +577,40 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 		status = "ready"
 	}
 	efficiency := orchestration.EvaluateExecutionEfficiency(initialPlan, trace)
+	traceSummary := orchestration.SummarizeExecutionTrace(trace)
 	payload := map[string]any{
-		"status":       status,
-		"objective":    objective,
-		"workspaceKey": workspaceKey,
-		"plan":         plan,
-		"agentLoop": map[string]any{
+		"status":            status,
+		"objective":         objective,
+		"workspaceKey":      workspaceKey,
+		"nextAction":        state.NextAction,
+		"quality":           map[string]any{"score": state.QualityScore, "status": state.QualityStatus},
+		"completionAllowed": state.AgentPhase == "finalize" && state.QualityStatus == "ready",
+		"traceSummary":      traceSummary,
+		"efficiency": map[string]any{
+			"score":                  efficiency.Score,
+			"grade":                  efficiency.Grade,
+			"modelRoundTripsAvoided": efficiency.ModelRoundTripsAvoided,
+		},
+	}
+	if responseMode == "full" {
+		payload["plan"] = plan
+		payload["efficiency"] = efficiency
+		payload["agentLoop"] = map[string]any{
 			"phase":             state.AgentPhase,
 			"iteration":         state.AgentIteration,
 			"recoveryAttempts":  state.RecoveryAttempts,
 			"nextAction":        state.NextAction,
 			"completionAllowed": state.AgentPhase == "finalize" && state.QualityStatus == "ready",
 			"quality":           map[string]any{"score": state.QualityScore, "status": state.QualityStatus},
-		},
-		"replans":    replans,
-		"trace":      trace,
-		"efficiency": efficiency,
+		}
+		payload["replans"] = replans
+		payload["trace"] = trace
 	}
 	if haltReason != "" {
 		payload["haltReason"] = haltReason
-		payload["lastResult"] = agentResultStructured(lastResult)
+		if responseMode == "full" {
+			payload["lastResult"] = agentResultStructured(lastResult)
+		}
 	}
 	return textResult(payload, false), nil
 }

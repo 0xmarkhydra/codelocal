@@ -30,6 +30,44 @@ type EfficiencyEvaluation struct {
 	Signals                []string `json:"signals,omitempty"`
 }
 
+type ExecutionTraceSummary struct {
+	Operations    int    `json:"operations"`
+	Succeeded     int    `json:"succeeded"`
+	Skipped       int    `json:"skipped,omitempty"`
+	Halted        int    `json:"halted,omitempty"`
+	Verifications int    `json:"verifications,omitempty"`
+	Replans       int    `json:"replans,omitempty"`
+	Fallbacks     int    `json:"fallbacks,omitempty"`
+	DurationMS    int64  `json:"durationMs"`
+	LastOperation string `json:"lastOperation,omitempty"`
+}
+
+func SummarizeExecutionTrace(trace []ExecutionTraceStep) ExecutionTraceSummary {
+	summary := ExecutionTraceSummary{Operations: len(trace)}
+	for _, step := range trace {
+		summary.DurationMS += step.DurationMS
+		summary.LastOperation = step.Operation
+		switch step.Status {
+		case "succeeded":
+			summary.Succeeded++
+		case "skipped":
+			summary.Skipped++
+		case "halted":
+			summary.Halted++
+		}
+		if step.Verification {
+			summary.Verifications++
+		}
+		if step.Replanned {
+			summary.Replans++
+		}
+		if step.Fallback {
+			summary.Fallbacks++
+		}
+	}
+	return summary
+}
+
 func LaneForOperation(operation string) Lane {
 	op := strings.ToLower(strings.TrimSpace(operation))
 	switch {

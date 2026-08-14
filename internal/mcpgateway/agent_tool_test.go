@@ -133,6 +133,20 @@ func TestDuplicateMutationPolicySeparatesMutationFromVerification(t *testing.T) 
 	}
 }
 
+func TestBoundedAgentResponseModeDefaultsCompactAndValidates(t *testing.T) {
+	mode, err := boundedAgentResponseMode(map[string]any{})
+	if err != nil || mode != "compact" {
+		t.Fatalf("default response mode = %q err=%v, want compact", mode, err)
+	}
+	mode, err = boundedAgentResponseMode(map[string]any{"responseMode": "FULL"})
+	if err != nil || mode != "full" {
+		t.Fatalf("full response mode = %q err=%v", mode, err)
+	}
+	if _, err := boundedAgentResponseMode(map[string]any{"responseMode": "verbose"}); err == nil {
+		t.Fatal("unknown response mode must be rejected")
+	}
+}
+
 func TestAgentToolIsPresentAndHasSpecialExecutor(t *testing.T) {
 	definitions := compactDefinitionsByName()
 	agent, ok := definitions["agent"]
