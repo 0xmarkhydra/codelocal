@@ -29,7 +29,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 		{
 			Name:        "browser",
 			Title:       "Automate websites",
-			Description: "Open and inspect an isolated Chromium session, then find/click/fill/press elements, capture screenshots, read console/network activity, or close the session. Prefer snapshot/find before interaction.",
+			Description: "Open and inspect an isolated Chromium session, then find/click/fill/press elements, capture screenshots, read console/network activity, or close the session. Prefer snapshot/find before interaction. Set verify=true on click/fill/press to return a fresh post-action snapshot in the same call.",
 			Schema: actionSchema(
 				[]string{"status", "open", "snapshot", "find", "click", "fill", "press", "screenshot", "console", "requests", "close"},
 				map[string]any{
@@ -40,6 +40,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 					"text":          str("Text to enter."),
 					"key":           str("Playwright key name such as Enter, Escape or ArrowDown."),
 					"level":         str("Optional console level filter."),
+					"verify":        boolean("After click/fill/press, include a fresh browser snapshot in the same MCP call."),
 					"description":   description,
 					"approvalToken": approval,
 				},
