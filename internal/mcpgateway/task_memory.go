@@ -46,6 +46,7 @@ func stringSliceArg(args map[string]any, key string) []string {
 			if text := strings.TrimSpace(fmt.Sprint(item)); text != "" {
 				out = append(out, text)
 			}
+		}
 		return out
 	default:
 		return nil
