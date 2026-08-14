@@ -18,6 +18,7 @@ type compactToolDef struct {
 	Schema      json.RawMessage
 	Annotations *mcp.ToolAnnotations
 	Resolve     func(map[string]any) (operationInvocation, map[string]any, error)
+	Execute     func(context.Context, *Service, string, map[string]any, *mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
 func compactAnnotations(title string, readOnly, destructive, openWorld bool) *mcp.ToolAnnotations {
@@ -92,6 +93,15 @@ func compactToolDefinitions() []compactToolDef {
 	approval := str("One-time approval token returned by an approval-required result.")
 	processID := str("CodeLocal process ID.")
 	limit := integer("Maximum results.", 1, 2000)
+	agentStep := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"tool": map[string]any{"type": "string", "enum": []string{"project", "context", "read", "search", "dependency", "lsp", "edit", "verify", "git", "terminal", "browser", "computer"}, "description": "Compact CodeLocal tool to execute inside this bounded run."},
+			"args": anyObject("Arguments for the compact tool, including its action discriminator when required."),
+		},
+		"required":             []string{"tool"},
+		"additionalProperties": false,
+	}
 
 	deviceActions := map[string]string{"active": "list_devices", "paired": "list_device_identities", "rename": "rename_device", "revoke": "revoke_device"}
 	workspaceActions := map[string]string{"list": "list_workspaces", "select": "select_workspace", "info": "workspace_info"}
@@ -145,6 +155,20 @@ func compactToolDefinitions() []compactToolDef {
 			Name: "context", Title: "Find task context", Description: "Primary semantic-first retrieval and planning step for coding/debug/review/refactor. Returns ranked symbols, graph neighbors, bounded snippets, durable task memory, a capability-aware agent plan, verification strategy and next action; call before broad scans and refresh after recovery when evidence becomes stale.",
 			Schema:      objectSchema(map[string]any{"taskHint": str("Concrete coding task."), "limit": integer("Maximum ranked results.", 1, 100), "workspaceKey": workspaceKeySchema}, "taskHint"),
 			Annotations: compactAnnotations("Find task context", true, false, false), Resolve: singleOperationResolver("context_for_task", "taskHint"),
+		},
+		{
+			Name: "agent", Title: "Run bounded agent plan", Description: "Execute a bounded multi-step CodeLocal action program in one MCP call. CodeLocal automatically grounds the objective with context, validates every step against a conservative autonomous policy, replans from fresh task state, and can run context-aware verification after edits. It never auto-confirms approvals, Git writes/pushes, open-world actions, physical input, or other unbounded side effects.",
+			Schema: objectSchema(map[string]any{
+				"objective":     str("Concrete objective for this bounded execution run."),
+				"steps":         map[string]any{"type": "array", "minItems": 1, "maxItems": 12, "items": agentStep, "description": "Model-authored action program. Later steps must not depend on unseen output from earlier steps."},
+				"autoVerify":    boolean("After successful edits, automatically run verify.changes and missing recognized verification checks. Defaults to true."),
+				"stopWhenReady": boolean("Stop once the quality gate reaches ready. Defaults to true."),
+				"workspaceKey":  workspaceKeySchema,
+			}, "objective", "steps"),
+			Annotations: compactAnnotations("Run bounded agent plan", false, true, false),
+			Execute: func(ctx context.Context, service *Service, userID string, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return service.runBoundedAgent(ctx, userID, args, req)
+			},
 		},
 		{
 			Name: "read", Title: "Read project files", Description: "Read file metadata, one file, a line range, or a targeted batch. Prefer paths selected by context/LSP rather than broad source dumping.",
@@ -258,6 +282,12 @@ func registerCompactTools(server *mcp.Server, service *Service, userID string) {
 			args, err := decodeArgs(req)
 			if err != nil {
 				return errorResult(err), nil
+			}
+			if definition.Execute != nil {
+				return definition.Execute(ctx, service, userID, args, req)
+			}
+			if definition.Resolve == nil {
+				return errorResult(fmt.Errorf("compact tool %s has no resolver", definition.Name)), nil
 			}
 			operation, forward, err := definition.Resolve(args)
 			if err != nil {

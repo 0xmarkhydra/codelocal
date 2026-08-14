@@ -255,18 +255,69 @@ func taskPatchForOperation(publicTool string, operation operationInvocation, arg
 	return patch
 }
 
-func agentPatchForOperation(operation operationInvocation, args map[string]any, result *mcp.CallToolResult, state taskstate.State) taskstate.Patch {
-	checkKey := ""
-	if operation.OperationID == "terminal.run" {
-		if command, _ := args["command"].(string); command != "" {
-			checkKey = orchestration.CheckKey(command)
+func verificationCheckOutcome(operation operationInvocation, args map[string]any, result *mcp.CallToolResult) (checkKey string, completed bool, success bool, failure string) {
+	if result == nil {
+		return "", true, false, "missing tool result"
+	}
+	root := resultRoot(result)
+	status := strings.ToLower(strings.TrimSpace(fmt.Sprint(root["status"])))
+	if status == "approval_required" || status == "blocked" {
+		reason := strings.TrimSpace(fmt.Sprint(root["reason"]))
+		if status == "approval_required" {
+			if reason != "" {
+				reason = "approval required: " + reason
+			} else {
+				reason = "approval required"
+			}
+		} else if reason == "" {
+			reason = status
+		}
+		return "", true, false, reason
+	}
+	if result.IsError {
+		failure, _ = root["error"].(string)
+		if strings.TrimSpace(failure) == "" {
+			failure = "tool failed"
+		}
+		return "", true, false, failure
+	}
+
+	command := ""
+	switch operation.OperationID {
+	case "terminal.run":
+		command, _ = args["command"].(string)
+	case "process.poll":
+		command, _ = root["command"].(string)
+	default:
+		return "", true, true, ""
+	}
+	checkKey = orchestration.CheckKey(command)
+	if checkKey == "" {
+		return "", true, true, ""
+	}
+	if running, _ := root["running"].(bool); running {
+		return checkKey, false, false, ""
+	}
+	if rawExit, exists := root["exitCode"]; exists && rawExit != nil {
+		exitCode := intValue(rawExit)
+		if exitCode != 0 {
+			return checkKey, true, false, fmt.Sprintf("%s exited with code %d", checkKey, exitCode)
 		}
 	}
-	failure := ""
-	if root := resultRoot(result); root != nil {
-		failure, _ = root["error"].(string)
+	return checkKey, true, true, ""
+}
+
+func agentPatchForOperation(operation operationInvocation, args map[string]any, result *mcp.CallToolResult, state taskstate.State) taskstate.Patch {
+	checkKey, completed, success, failure := verificationCheckOutcome(operation, args, result)
+	if !completed {
+		return taskstate.Patch{
+			AgentPhase:       "verify",
+			AgentIteration:   intPointer(state.AgentIteration),
+			RecoveryAttempts: intPointer(state.RecoveryAttempts),
+			LastOutcome:      "running",
+			NextAction:       "poll the running verification process before evaluating the quality gate",
+		}
 	}
-	success := result != nil && !result.IsError
 	loop := orchestration.AdvanceLoop(orchestration.LoopState{
 		Phase:            state.AgentPhase,
 		Iteration:        state.AgentIteration,
@@ -284,6 +335,9 @@ func agentPatchForOperation(operation operationInvocation, args map[string]any, 
 	if success && checkKey != "" {
 		patch.PassedChecks = []string{checkKey}
 	}
+	if !success {
+		patch.RecentErrors = []string{operation.OperationID + " failed"}
+	}
 	if success && operation.OperationID == "verify.changes" {
 		root := resultRoot(result)
 		regression := intValue(root["diagnosticRegression"])
@@ -297,6 +351,14 @@ func agentPatchForOperation(operation operationInvocation, args map[string]any, 
 		}
 	}
 	return patch
+}
+
+func shouldRefreshQuality(operation operationInvocation, args map[string]any, result *mcp.CallToolResult) bool {
+	if operation.OperationID == "verify.changes" {
+		return result != nil && !result.IsError
+	}
+	checkKey, completed, _, _ := verificationCheckOutcome(operation, args, result)
+	return completed && checkKey != ""
 }
 
 func planInputFromState(state taskstate.State, caps orchestration.Capabilities, project orchestration.ProjectProfile) orchestration.PlanInput {
@@ -681,7 +743,7 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		}
 	}
 	state = workingMemory.Update(userID, session, workspaceKey, agentPatchForOperation(operation, args, result, state))
-	if operation.OperationID == "verify.changes" || (operation.OperationID == "terminal.run" && orchestration.CheckKey(fmt.Sprint(args["command"])) != "") {
+	if shouldRefreshQuality(operation, args, result) {
 		state = workingMemory.Update(userID, session, workspaceKey, qualityPatchForState(state))
 	}
 
