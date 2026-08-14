@@ -73,3 +73,18 @@ func TestNormalizeSemanticText(t *testing.T) {
 		t.Fatalf("unexpected normalization: %q", got)
 	}
 }
+
+func TestWalkSemanticNodesMatchesVisionFallbackText(t *testing.T) {
+	tree := map[string]any{"nodes": []any{
+		map[string]any{"elementId": "vision:120.5:220.5", "role": "visionText", "name": "New Channel", "enabled": true,
+			"bounds": map[string]any{"x": 80.0, "y": 200.0, "width": 81.0, "height": 41.0}},
+	}}
+	best := semanticCandidate{}
+	walkSemanticNodes(tree, "New Channel", &best)
+	if best.ElementID != "vision:120.5:220.5" {
+		t.Fatalf("expected Vision target, got %#v", best)
+	}
+	if best.Score < 100 {
+		t.Fatalf("expected exact Vision semantic score, got %d", best.Score)
+	}
+}
