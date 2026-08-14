@@ -102,6 +102,66 @@ func TestGeminiEmbedderQueryUsesRetrievalQuery(t *testing.T) {
 	}
 }
 
+func TestOpenRouterEmbedderUsesGeminiEmbeddingAndSearchTypes(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if got := r.Header.Get("Authorization"); got != "Bearer test-openrouter-key" {
+			t.Fatalf("unexpected auth header")
+		}
+		var payload struct {
+			Model      string   `json:"model"`
+			Input      []string `json:"input"`
+			Dimensions int      `json:"dimensions"`
+			InputType  string   `json:"input_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		wantType := "search_document"
+		if calls == 2 {
+			wantType = "search_query"
+		}
+		if payload.Model != "google/gemini-embedding-2" || payload.Dimensions != 768 || payload.InputType != wantType {
+			t.Fatalf("unexpected openrouter payload: %#v", payload)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1,0.2],"index":0}]}`))
+	}))
+	defer server.Close()
+
+	embedder, err := NewOpenRouterEmbedder("test-openrouter-key", "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseTransport := server.Client().Transport
+	embedder.client.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		clone.URL.Scheme = "http"
+		clone.URL.Host = strings.TrimPrefix(server.URL, "http://")
+		return baseTransport.RoundTrip(clone)
+	})
+	vectors, err := embedder.Embed(context.Background(), []string{"memory document"})
+	if err != nil || len(vectors) != 1 || vectors[0][1] != 0.2 {
+		t.Fatalf("unexpected document vectors=%#v err=%v", vectors, err)
+	}
+	vector, err := embedder.EmbedQuery(context.Background(), "memory query")
+	if err != nil || len(vector) != 2 || vector[0] != 0.1 {
+		t.Fatalf("unexpected query vector=%#v err=%v", vector, err)
+	}
+}
+
+func TestEmbedderFromEnvAutoDetectsOpenRouterBeforeGemini(t *testing.T) {
+	t.Setenv("CODELOCAL_EMBEDDING_PROVIDER", "")
+	t.Setenv("OPENROUTER_API_KEY", "router-key")
+	t.Setenv("GEMINI_API_KEY", "gemini-key")
+	t.Setenv("CODELOCAL_EMBEDDING_MODEL", "")
+	embedder := EmbedderFromEnv()
+	if embedder == nil || embedder.Name() != "openrouter" || embedder.Model() != "google/gemini-embedding-2" {
+		t.Fatalf("unexpected auto-detected embedder: %#v", embedder)
+	}
+}
+
 func TestGeminiEmbedderErrorDoesNotExposeAPIKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

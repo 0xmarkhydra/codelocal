@@ -82,10 +82,10 @@ Interface first. Initial provider: Gemini embedding using server environment cre
 Expected configuration:
 
 - memory is enabled by default; set `CODELOCAL_MEMORY_ENABLED=0` for an immediate rollback
-- `CODELOCAL_EMBEDDING_PROVIDER=gemini`
-- `GEMINI_API_KEY=...` (optional; without it memory remains lexical/full-text)
-- optional `CODELOCAL_EMBEDDING_MODEL=...`; default is `gemini-embedding-2`
-- Gemini output is fixed to 768 dimensions so pgvector HNSW indexing stays within its `vector` dimension limit
+- `CODELOCAL_EMBEDDING_PROVIDER=gemini|openrouter` (optional; when omitted CodeLocal auto-detects OpenRouter first, then Gemini)
+- `OPENROUTER_API_KEY=...` or `GEMINI_API_KEY=...`; without either key memory remains lexical/full-text
+- optional `CODELOCAL_EMBEDDING_MODEL=...`; defaults are `google/gemini-embedding-2` through OpenRouter or `gemini-embedding-2` direct
+- embedding output is fixed to 768 dimensions so pgvector HNSW indexing stays within its `vector` dimension limit
 
 No key, quota failure or provider outage MUST NOT break CodeLocal. In those cases memory falls back to PostgreSQL full-text/metadata and vector indexing can be backfilled later.
 
