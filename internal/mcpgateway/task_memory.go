@@ -286,6 +286,15 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		return result, err
 	}
 	state := workingMemory.Update(userID, session, workspaceKey, taskPatchForOperation(publicTool, operation, args, result))
+	if strings.TrimSpace(state.Task) == "" {
+		if latest, ok := workingMemory.LatestTask(userID, workspaceKey, 30*time.Minute); ok {
+			state = workingMemory.Update(userID, session, workspaceKey, taskstate.Patch{
+				Task:         latest.Task,
+				Branch:       latest.Branch,
+				TouchedFiles: latest.TouchedFiles,
+			})
+		}
+	}
 	logicalWorkspaceID := workspaceKey
 	var workspace *gateway.WorkspaceView
 	if s.Workspaces != nil && (publicTool == "context" || s.Memory != nil) {

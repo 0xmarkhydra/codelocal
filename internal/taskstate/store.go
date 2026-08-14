@@ -120,6 +120,38 @@ func (s *Store) Get(userID, sessionID, workspaceKey string) (State, bool) {
 	return State{}, false
 }
 
+// LatestTask returns the most recently updated non-expired state with a task for
+// the user/workspace, regardless of MCP session. maxAge bounds session-rotation
+// recovery so unrelated work much later cannot inherit a stale task.
+func (s *Store) LatestTask(userID, workspaceKey string, maxAge time.Duration) (State, bool) {
+	if s == nil {
+		return State{}, false
+	}
+	userID = strings.TrimSpace(userID)
+	workspaceKey = strings.TrimSpace(workspaceKey)
+	now := time.Now().UTC()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var latest State
+	found := false
+	for _, state := range s.states {
+		if state.UserID != userID || state.WorkspaceKey != workspaceKey || strings.TrimSpace(state.Task) == "" || s.expired(state, now) {
+			continue
+		}
+		if maxAge > 0 && (state.UpdatedAt.IsZero() || now.Sub(state.UpdatedAt) > maxAge) {
+			continue
+		}
+		if !found || state.UpdatedAt.After(latest.UpdatedAt) {
+			latest = state
+			found = true
+		}
+	}
+	if !found {
+		return State{}, false
+	}
+	return cloneState(latest), true
+}
+
 func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) State {
 	if s == nil {
 		return State{}

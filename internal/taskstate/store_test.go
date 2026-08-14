@@ -74,6 +74,36 @@ func TestReplaceErrorsClearsResolvedFailure(t *testing.T) {
 	}
 }
 
+func TestLatestTaskRecoversAcrossSessionRotation(t *testing.T) {
+	store := New(8)
+	store.Update("u", "old-session", "w", Patch{Task: "Fix OAuth", Branch: "feat/oauth", TouchedFiles: []string{"oauth.go"}})
+	store.Update("u", "new-session", "w", Patch{LastAction: "verify.changes"})
+	latest, ok := store.LatestTask("u", "w", 30*time.Minute)
+	if !ok || latest.Task != "Fix OAuth" || latest.SessionID != "old-session" {
+		t.Fatalf("expected cross-session task recovery, got %#v ok=%v", latest, ok)
+	}
+	if len(latest.TouchedFiles) != 1 || latest.TouchedFiles[0] != "oauth.go" {
+		t.Fatalf("expected task context copy, got %#v", latest.TouchedFiles)
+	}
+}
+
+func TestLatestTaskHonorsMaxAgeAndWorkspaceIsolation(t *testing.T) {
+	store := New(8)
+	store.Update("u", "s", "w", Patch{Task: "stale"})
+	key := stateKey("u", "s", "w")
+	store.mu.Lock()
+	state := store.states[key]
+	state.UpdatedAt = time.Now().UTC().Add(-45 * time.Minute)
+	store.states[key] = state
+	store.mu.Unlock()
+	if state, ok := store.LatestTask("u", "w", 30*time.Minute); ok || state.Task != "" {
+		t.Fatalf("expected stale latest task to be ignored, got %#v", state)
+	}
+	if _, ok := store.LatestTask("u", "other", time.Hour); ok {
+		t.Fatal("latest task leaked across workspace")
+	}
+}
+
 func TestStoreExpiresStaleTaskMemory(t *testing.T) {
 	store := NewWithTTL(8, time.Minute)
 	store.Update("u", "s", "w", Patch{Task: "stale task"})
