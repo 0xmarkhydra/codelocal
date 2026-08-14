@@ -43,6 +43,11 @@ func (c *Controller) Capabilities() map[string]any {
 		"attachExisting":  false,
 	}
 	computer := ComputerCapabilities()
+	if c != nil && c.Computer != nil {
+		computer["agentCursor"] = c.Computer.AgentCursorSupported()
+	} else {
+		computer["agentCursor"] = false
+	}
 	return map[string]any{"browser": browser, "computer": computer}
 }
 
@@ -72,6 +77,26 @@ func (c *Controller) browserOrigin() string {
 		return ""
 	}
 	return c.Browser.CurrentOrigin()
+}
+
+func (c *Controller) browserActionResult(ctx context.Context, result any, verify bool) (any, error) {
+	if !verify {
+		return result, nil
+	}
+	observation, err := c.Browser.Snapshot(ctx)
+	if err != nil {
+		return map[string]any{"result": result, "verificationError": err.Error()}, nil
+	}
+	return map[string]any{"result": result, "observation": observation}, nil
+}
+
+func cursorVisible(value any) bool {
+	entry, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	visible, _ := entry["visible"].(bool)
+	return visible
 }
 
 func (c *Controller) Handle(ctx context.Context, tool string, args map[string]any) (any, error) {
@@ -117,7 +142,11 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Browser.Click(ctx, ref)
+		result, err := c.Browser.Click(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		return c.browserActionResult(ctx, result, boolArg(args, "verify", false))
 	case "browser_fill":
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
@@ -128,7 +157,11 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Browser.Fill(ctx, ref, text)
+		result, err := c.Browser.Fill(ctx, ref, text)
+		if err != nil {
+			return nil, err
+		}
+		return c.browserActionResult(ctx, result, boolArg(args, "verify", false))
 	case "browser_press":
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
@@ -138,7 +171,11 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Browser.Press(ctx, key)
+		result, err := c.Browser.Press(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return c.browserActionResult(ctx, result, boolArg(args, "verify", false))
 	case "browser_console":
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
@@ -168,18 +205,83 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		}
 		return c.Browser.Close(ctx)
 	case "computer_status":
-		return ComputerCapabilities(), nil
+		status := ComputerCapabilities()
+		if c.Computer != nil {
+			status["agentCursor"] = c.Computer.AgentCursorSupported()
+		} else {
+			status["agentCursor"] = false
+		}
+		return status, nil
+	case "computer_observe":
+		if c.Computer == nil {
+			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
+		}
+		approved, state, err := c.authorize(Action{Domain: "computer", Operation: "observe", Target: stringArg(args, "description")}, args)
+		if err != nil || !approved {
+			return state, err
+		}
+		return ObserveComputer(ctx, c.Computer, stringArg(args, "windowId"))
 	case "computer_list_windows", "computer_ui_tree", "computer_screenshot", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag":
 		if c.Computer == nil {
 			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
 		}
 		op := strings.TrimPrefix(tool, "computer_")
-		action := Action{Domain: "computer", Operation: op, Target: stringArg(args, "description"), Text: stringArg(args, "text")}
+		target := firstNonEmpty(stringArg(args, "target"), stringArg(args, "description"))
+		action := Action{Domain: "computer", Operation: op, Target: target, Text: stringArg(args, "text")}
 		approved, state, err := c.authorize(action, args)
 		if err != nil || !approved {
 			return state, err
 		}
-		return c.Computer.Call(ctx, op, args)
+
+		resolved := map[string]any(nil)
+		if op == "click" && stringArg(args, "elementId") == "" && target != "" {
+			resolved, err = FindComputerElement(ctx, c.Computer, stringArg(args, "windowId"), target)
+			if err != nil {
+				return nil, err
+			}
+			args["elementId"] = resolved["elementId"]
+		}
+
+		var agentCursor any
+		if op == "click" && c.Computer.AgentCursorSupported() {
+			if elementID := stringArg(args, "elementId"); elementID != "" {
+				// Visual feedback is best-effort. Cursor rendering must never turn a
+				// valid approved input action into a failure.
+				agentCursor, _ = c.Computer.AgentCursor(ctx, map[string]any{"elementId": elementID})
+			}
+		}
+
+		result, err := c.Computer.Call(ctx, op, args)
+		if err != nil {
+			return nil, err
+		}
+		verify := boolArg(args, "verify", false)
+		if !verify {
+			if resolved == nil && !cursorVisible(agentCursor) {
+				return result, nil
+			}
+			envelope := map[string]any{"result": result}
+			if resolved != nil {
+				envelope["resolvedTarget"] = resolved
+			}
+			if cursorVisible(agentCursor) {
+				envelope["agentCursor"] = agentCursor
+			}
+			return envelope, nil
+		}
+		observation, observeErr := ObserveComputer(ctx, c.Computer, stringArg(args, "windowId"))
+		envelope := map[string]any{"result": result, "observation": observation}
+		if resolved != nil {
+			envelope["resolvedTarget"] = resolved
+		}
+		if cursorVisible(agentCursor) {
+			envelope["agentCursor"] = agentCursor
+		}
+		if observeErr != nil {
+			delete(envelope, "observation")
+			envelope["verificationError"] = observeErr.Error()
+		}
+		return envelope, nil
 	default:
 		return nil, errors.New("unsupported automation tool: " + tool)
 	}

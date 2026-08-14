@@ -28,12 +28,62 @@ func TestAutomationCapabilityGateUsesNestedProtocolV3Capabilities(t *testing.T) 
 	if err := ensureAutomationOperationSupported("browser_open", workspace); err != nil {
 		t.Fatalf("advertised browser capability should pass: %v", err)
 	}
+	if err := ensureAutomationOperationSupported("computer_observe", workspace); err != nil {
+		t.Fatalf("computer_observe should require only window metadata: %v", err)
+	}
 	if err := ensureAutomationOperationSupported("computer_click", workspace); err == nil || !strings.Contains(err.Error(), "pointer") {
 		t.Fatalf("computer_click should honor granular pointer capability: %v", err)
 	}
 	workspace.Capabilities["automation"].(map[string]any)["computer"].(map[string]any)["pointer"] = true
 	if err := ensureAutomationOperationSupported("computer_click", workspace); err != nil {
 		t.Fatalf("advertised pointer capability should pass: %v", err)
+	}
+}
+
+func TestCompactBrowserForwardsVerify(t *testing.T) {
+	var browser compactToolDef
+	for _, tool := range compactAutomationToolDefinitions() {
+		if tool.Name == "browser" {
+			browser = tool
+			break
+		}
+	}
+	if browser.Resolve == nil {
+		t.Fatal("browser compact tool not registered")
+	}
+	operation, forwarded, err := browser.Resolve(map[string]any{"action": "click", "ref": "e12", "verify": true})
+	if err != nil || operation.RuntimeTool != "browser_click" {
+		t.Fatalf("browser click did not resolve: %#v %v", operation, err)
+	}
+	if forwarded["verify"] != true {
+		t.Fatalf("browser verify was not forwarded: %#v", forwarded)
+	}
+}
+
+func TestCompactComputerSupportsSemanticTargetAndObserve(t *testing.T) {
+	var computer compactToolDef
+	for _, tool := range compactAutomationToolDefinitions() {
+		if tool.Name == "computer" {
+			computer = tool
+			break
+		}
+	}
+	if computer.Resolve == nil {
+		t.Fatal("computer compact tool not registered")
+	}
+	observe, _, err := computer.Resolve(map[string]any{"action": "observe"})
+	if err != nil || observe.RuntimeTool != "computer_observe" {
+		t.Fatalf("observe did not resolve to smart runtime operation: %#v %v", observe, err)
+	}
+	click, forwarded, err := computer.Resolve(map[string]any{"action": "click", "windowId": "42", "target": "Continue", "verify": true})
+	if err != nil || click.RuntimeTool != "computer_click" {
+		t.Fatalf("semantic click did not resolve: %#v %v", click, err)
+	}
+	if forwarded["target"] != "Continue" || forwarded["verify"] != true {
+		t.Fatalf("semantic click arguments were not forwarded: %#v", forwarded)
+	}
+	if _, _, err := computer.Resolve(map[string]any{"action": "click", "target": "Continue"}); err == nil {
+		t.Fatal("semantic click without a windowId must be rejected")
 	}
 }
 
