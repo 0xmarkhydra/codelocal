@@ -26,10 +26,10 @@ func (c *ComputerController) AgentCursorSupported() bool {
 	return err == nil && strings.EqualFold(strings.TrimSpace(string(output)), "true")
 }
 
-// agentCursor asks the native helper to render visual-only feedback after the
-// caller has checked AgentCursorSupported. It is deliberately package-private
-// so unsupported callers cannot bypass that capability gate.
-func (c *ComputerController) agentCursor(ctx context.Context, args map[string]any) (any, error) {
+// AgentCursor is internal runtime plumbing: callers must gate it with
+// AgentCursorSupported. It renders visual-only feedback and never performs
+// input, approval, or permission changes.
+func (c *ComputerController) AgentCursor(ctx context.Context, args map[string]any) (any, error) {
 	if c == nil || c.Helper == "" {
 		return nil, errors.New("Computer Use helper unavailable")
 	}
