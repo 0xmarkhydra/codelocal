@@ -61,6 +61,13 @@ func stateKey(userID, sessionID, workspaceKey string) string {
 	return strings.TrimSpace(userID) + "\x00" + strings.TrimSpace(sessionID) + "\x00" + strings.TrimSpace(workspaceKey)
 }
 
+func cloneState(state State) State {
+	state.TouchedFiles = append([]string(nil), state.TouchedFiles...)
+	state.RecentChecks = append([]string(nil), state.RecentChecks...)
+	state.RecentErrors = append([]string(nil), state.RecentErrors...)
+	return state
+}
+
 func normalizeList(values []string, max int) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(values))
@@ -98,6 +105,9 @@ func (s *Store) Get(userID, sessionID, workspaceKey string) (State, bool) {
 	s.mu.RLock()
 	state, ok := s.states[key]
 	expired := ok && s.expired(state, time.Now().UTC())
+	if ok && !expired {
+		state = cloneState(state)
+	}
 	s.mu.RUnlock()
 	if !expired {
 		return state, ok
@@ -144,7 +154,7 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 	state.UpdatedAt = now
 	s.states[key] = state
 	s.compactLocked(now)
-	return state
+	return cloneState(state)
 }
 
 func (s *Store) Delete(userID, sessionID, workspaceKey string) {
