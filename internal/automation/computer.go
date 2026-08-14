@@ -29,7 +29,20 @@ type ComputerController struct {
 	stdin        io.WriteCloser
 	stdout       *bufio.Reader
 	stderr       bytes.Buffer
+	sceneMu      sync.RWMutex
+	scene        map[string]sceneCacheEntry
+	windows      sceneCacheEntry
 }
+
+type sceneCacheEntry struct {
+	Value     any
+	ExpiresAt time.Time
+}
+
+const (
+	computerWindowCacheTTL = 750 * time.Millisecond
+	computerSceneCacheTTL  = 5 * time.Second
+)
 
 func computerHelperName() string {
 	name := "computer-" + runtime.GOOS + "-" + runtime.GOARCH
@@ -86,7 +99,7 @@ func helperCapabilities(helper string, environment Environment) map[string]any {
 	if json.Unmarshal(output, &reported) != nil {
 		return base
 	}
-	for _, key := range []string{"available", "backend", "windowList", "screenCapture", "uiTree", "visionFallback", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
+	for _, key := range []string{"available", "backend", "engine", "persistentEngine", "sceneCache", "batchActions", "semanticActions", "screenCapture", "screenCaptureStreaming", "uiTree", "visionFallback", "physicalInputFallback", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
 		if value, ok := reported[key]; ok {
 			base[key] = value
 		}
@@ -147,7 +160,101 @@ func NewComputerController(workspaceID, workspaceKey, root string) (*ComputerCon
 		return nil, errors.New("native Computer Use helper is present but not ready in this graphical session")
 	}
 	backend, _ := capabilities["backend"].(string)
-	return &ComputerController{WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Helper: helper, Backend: backend, Capabilities: capabilities}, nil
+	return &ComputerController{
+		WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Helper: helper, Backend: backend,
+		Capabilities: capabilities, scene: map[string]sceneCacheEntry{},
+	}, nil
+}
+
+func (c *ComputerController) cachedWindows() (any, bool) {
+	c.sceneMu.RLock()
+	defer c.sceneMu.RUnlock()
+	if c.windows.Value == nil || time.Now().After(c.windows.ExpiresAt) {
+		return nil, false
+	}
+	return c.windows.Value, true
+}
+
+func (c *ComputerController) rememberWindows(value any) {
+	c.sceneMu.Lock()
+	c.windows = sceneCacheEntry{Value: value, ExpiresAt: time.Now().Add(computerWindowCacheTTL)}
+	c.sceneMu.Unlock()
+}
+
+func (c *ComputerController) cachedScene(windowID string) (any, bool) {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return nil, false
+	}
+	c.sceneMu.RLock()
+	entry, ok := c.scene[windowID]
+	c.sceneMu.RUnlock()
+	if !ok || entry.Value == nil || time.Now().After(entry.ExpiresAt) {
+		return nil, false
+	}
+	return entry.Value, true
+}
+
+func (c *ComputerController) rememberScene(windowID string, value any) {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" || value == nil {
+		return
+	}
+	c.sceneMu.Lock()
+	c.scene[windowID] = sceneCacheEntry{Value: value, ExpiresAt: time.Now().Add(computerSceneCacheTTL)}
+	c.sceneMu.Unlock()
+}
+
+func (c *ComputerController) InvalidateScene(windowID string) {
+	c.sceneMu.Lock()
+	if strings.TrimSpace(windowID) == "" {
+		c.scene = map[string]sceneCacheEntry{}
+		c.windows = sceneCacheEntry{}
+	} else {
+		delete(c.scene, strings.TrimSpace(windowID))
+	}
+	c.sceneMu.Unlock()
+}
+
+func (c *ComputerController) Windows(ctx context.Context, fresh bool) (any, error) {
+	if !fresh {
+		if value, ok := c.cachedWindows(); ok {
+			return value, nil
+		}
+	}
+	value, err := c.Call(ctx, "list_windows", map[string]any{})
+	if err == nil {
+		c.rememberWindows(value)
+	}
+	return value, err
+}
+
+func (c *ComputerController) UITree(ctx context.Context, windowID string, fresh bool) (any, error) {
+	if !fresh {
+		if value, ok := c.cachedScene(windowID); ok {
+			return value, nil
+		}
+	}
+	value, err := c.Call(ctx, "ui_tree", map[string]any{"windowId": windowID})
+	if err == nil {
+		c.rememberScene(windowID, value)
+	}
+	return value, err
+}
+
+// SemanticAction resolves and performs a semantic accessibility action inside
+// the local helper. Platforms can therefore prefer background AX actions over
+// moving the user's physical mouse, while preserving legacy fallbacks.
+func (c *ComputerController) SemanticAction(ctx context.Context, operation, windowID, target, text string) (any, error) {
+	args := map[string]any{"windowId": windowID, "target": target}
+	if text != "" {
+		args["text"] = text
+	}
+	value, err := c.Call(ctx, "semantic_"+operation, args)
+	if err == nil {
+		c.InvalidateScene(windowID)
+	}
+	return value, err
 }
 
 func (c *ComputerController) resetProcessLocked() {
@@ -245,6 +352,7 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 	allowed := map[string]bool{
 		"status": true, "list_windows": true, "ui_tree": true, "screenshot": true,
 		"focus": true, "click": true, "type": true, "key": true, "scroll": true, "drag": true,
+		"semantic_click": true, "semantic_type": true,
 	}
 	if !allowed[operation] {
 		return nil, fmt.Errorf("unsupported Computer Use operation: %s", operation)
@@ -268,6 +376,13 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 			response.Error = "Computer Use operation failed"
 		}
 		return nil, errors.New(response.Error)
+	}
+	if operation == "click" || operation == "type" || operation == "key" || operation == "scroll" || operation == "drag" || operation == "focus" {
+		if windowID, _ := args["windowId"].(string); strings.TrimSpace(windowID) != "" {
+			c.InvalidateScene(windowID)
+		} else {
+			c.InvalidateScene("")
+		}
 	}
 	return response.Result, nil
 }

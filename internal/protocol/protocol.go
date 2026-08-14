@@ -16,17 +16,23 @@ type BrowserCapabilities struct {
 }
 
 type ComputerCapabilities struct {
-	Available         bool   `json:"available"`
-	Backend           string `json:"backend,omitempty"`
-	WindowList        bool   `json:"windowList,omitempty"`
-	ScreenCapture     bool   `json:"screenCapture,omitempty"`
-	UITree            bool   `json:"uiTree,omitempty"`
-	SemanticActions   bool   `json:"semanticActions,omitempty"`
-	Pointer           bool   `json:"pointer,omitempty"`
-	Keyboard          bool   `json:"keyboard,omitempty"`
-	Clipboard         bool   `json:"clipboard,omitempty"`
-	BackgroundControl bool   `json:"backgroundControl,omitempty"`
-	SecureDesktop     bool   `json:"secureDesktop,omitempty"`
+	Available              bool   `json:"available"`
+	Backend                string `json:"backend,omitempty"`
+	Engine                 string `json:"engine,omitempty"`
+	PersistentEngine       bool   `json:"persistentEngine,omitempty"`
+	SceneCache             bool   `json:"sceneCache,omitempty"`
+	BatchActions           bool   `json:"batchActions,omitempty"`
+	WindowList             bool   `json:"windowList,omitempty"`
+	ScreenCapture          bool   `json:"screenCapture,omitempty"`
+	ScreenCaptureStreaming bool   `json:"screenCaptureStreaming,omitempty"`
+	UITree                 bool   `json:"uiTree,omitempty"`
+	SemanticActions        bool   `json:"semanticActions,omitempty"`
+	PhysicalInputFallback  bool   `json:"physicalInputFallback,omitempty"`
+	Pointer                bool   `json:"pointer,omitempty"`
+	Keyboard               bool   `json:"keyboard,omitempty"`
+	Clipboard              bool   `json:"clipboard,omitempty"`
+	BackgroundControl      bool   `json:"backgroundControl,omitempty"`
+	SecureDesktop          bool   `json:"secureDesktop,omitempty"`
 }
 
 type AutomationCapabilities struct {
@@ -114,7 +120,7 @@ func SideEffecting(tool string) bool {
 		"exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill", "exec_cancel",
 		"git_stage", "git_unstage", "git_commit", "git_push", "approval_revoke", "approval_reset", "mcp_call",
 		"browser_open", "browser_click", "browser_fill", "browser_press", "browser_close",
-		"computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag":
+		"computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run":
 		return true
 	default:
 		return false

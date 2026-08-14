@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 func runOSA(ctx context.Context, language, script string, args ...string) (string, error) {
@@ -38,30 +40,60 @@ func runOSA(ctx context.Context, language, script string, args ...string) (strin
 	return text, nil
 }
 
+var macAccessibilityState = struct {
+	sync.RWMutex
+	trusted   bool
+	expiresAt time.Time
+}{}
+
+const macAccessibilityCacheTTL = 5 * time.Second
+
 func macAccessibilityTrusted(ctx context.Context) bool {
+	macAccessibilityState.RLock()
+	if time.Now().Before(macAccessibilityState.expiresAt) {
+		trusted := macAccessibilityState.trusted
+		macAccessibilityState.RUnlock()
+		return trusted
+	}
+	macAccessibilityState.RUnlock()
+
+	trusted := false
 	text, err := runOSA(ctx, "JavaScript", `function run(){var s=Application('System Events'); try { return String(s.uiElementsEnabled()); } catch(e) { return 'false'; }}`)
 	if err == nil && strings.EqualFold(strings.TrimSpace(text), "true") {
-		return true
+		trusted = true
+	} else {
+		// Older System Events dictionaries do not expose uiElementsEnabled in JXA.
+		text, err = runOSA(ctx, "", `tell application "System Events" to return UI elements enabled`)
+		trusted = err == nil && strings.EqualFold(strings.TrimSpace(text), "true")
 	}
-	// Older System Events dictionaries do not expose uiElementsEnabled in JXA.
-	text, err = runOSA(ctx, "", `tell application "System Events" to return UI elements enabled`)
-	return err == nil && strings.EqualFold(strings.TrimSpace(text), "true")
+	macAccessibilityState.Lock()
+	macAccessibilityState.trusted = trusted
+	macAccessibilityState.expiresAt = time.Now().Add(macAccessibilityCacheTTL)
+	macAccessibilityState.Unlock()
+	return trusted
 }
 
 func platformCapabilities() map[string]any {
 	ctx := context.Background()
 	trusted := macAccessibilityTrusted(ctx)
 	return map[string]any{
-		"available":         true,
-		"backend":           "macos-accessibility+coregraphics",
-		"screenCapture":     true,
-		"uiTree":            trusted,
-		"visionFallback":    true,
-		"pointer":           trusted,
-		"keyboard":          trusted,
-		"clipboard":         false,
-		"backgroundControl": trusted,
-		"secureDesktop":     false,
+		"available":              true,
+		"backend":                "macos-persistent-ax+coregraphics",
+		"engine":                 "computer-v2",
+		"persistentEngine":       true,
+		"sceneCache":             true,
+		"batchActions":           trusted,
+		"semanticActions":        trusted,
+		"screenCapture":          true,
+		"screenCaptureStreaming": false,
+		"uiTree":                 trusted,
+		"visionFallback":         true,
+		"physicalInputFallback":  true,
+		"pointer":                trusted,
+		"keyboard":               trusted,
+		"clipboard":              false,
+		"backgroundControl":      trusted,
+		"secureDesktop":          false,
 		"permissionRequired": map[string]any{
 			"accessibility":   !trusted,
 			"screenRecording": true,
@@ -90,6 +122,31 @@ function run(){
 const macMainScreenScript = `ObjC.import('AppKit');
 function run(){var s=$.NSScreen.mainScreen,f=s.frame;return JSON.stringify({x:0,y:0,width:Number(f.size.width),height:Number(f.size.height)})}`
 
+var macWindowState = struct {
+	sync.RWMutex
+	value     []any
+	expiresAt time.Time
+}{value: []any{}}
+
+const macWindowCacheTTL = 750 * time.Millisecond
+
+func macCachedWindows() ([]any, bool) {
+	macWindowState.RLock()
+	defer macWindowState.RUnlock()
+	if len(macWindowState.value) == 0 || time.Now().After(macWindowState.expiresAt) {
+		return nil, false
+	}
+	return macWindowState.value, true
+}
+
+func macRememberWindows(value []any) []any {
+	macWindowState.Lock()
+	macWindowState.value = value
+	macWindowState.expiresAt = time.Now().Add(macWindowCacheTTL)
+	macWindowState.Unlock()
+	return value
+}
+
 func macMainScreenBounds(ctx context.Context) (map[string]float64, error) {
 	text, err := runOSA(ctx, "JavaScript", macMainScreenScript)
 	if err != nil {
@@ -106,11 +163,17 @@ func macMainScreenBounds(ctx context.Context) (map[string]float64, error) {
 }
 
 func macWindows(ctx context.Context) (any, error) {
+	if cached, ok := macCachedWindows(); ok {
+		return cached, nil
+	}
+	if windows, persistentErr := macPersistentWindows(ctx); persistentErr == nil && len(windows) > 0 {
+		return macRememberWindows(windows), nil
+	}
 	text, err := runOSA(ctx, "JavaScript", macWindowScript)
 	if err == nil {
 		var out []any
 		if json.Unmarshal([]byte(text), &out) == nil && len(out) > 0 {
-			return out, nil
+			return macRememberWindows(out), nil
 		}
 	}
 	bounds, boundsErr := macMainScreenBounds(ctx)
@@ -120,16 +183,16 @@ func macWindows(ctx context.Context) (any, error) {
 		}
 		return nil, boundsErr
 	}
-	return []any{map[string]any{
+	return macRememberWindows([]any{map[string]any{
 		"windowId": "screen:main", "pid": float64(0), "app": "Desktop", "title": "Main Screen",
 		"bounds":   map[string]any{"x": bounds["x"], "y": bounds["y"], "width": bounds["width"], "height": bounds["height"]},
 		"fallback": true,
-	}}, nil
+	}}), nil
 }
 
 const macTreeScript = `function safe(fn,fb){try{return fn()}catch(e){return fb}}
 function run(argv){
- var pid=Number(argv[0]||0), max=Number(argv[1]||400);
+ var pid=Number(argv[0]||0), max=Number(argv[1]||400), windowIndex=Number(argv[2]==null?-1:argv[2]);
  var se=Application('System Events');
  var ps=se.applicationProcesses.whose({unixId:pid})();
  if(!ps.length) throw new Error('application process not found');
@@ -142,11 +205,100 @@ function run(argv){
    return item;
  }
  var wins=safe(function(){return p.windows()},[]), out=[];
- for(var i=0;i<wins.length && count<max;i++){var node=walk(wins[i],[i],0);if(node)out.push(node)}
- return JSON.stringify({pid:pid,app:safe(function(){return String(p.name())},''),nodes:out,truncated:count>=max});
+ if(windowIndex>=0){if(windowIndex>=wins.length)throw new Error('window reference is stale');var selected=walk(wins[windowIndex],[windowIndex],0);if(selected)out.push(selected)}
+ else{for(var i=0;i<wins.length && count<max;i++){var node=walk(wins[i],[i],0);if(node)out.push(node)}}
+ return JSON.stringify({pid:pid,windowIndex:windowIndex,app:safe(function(){return String(p.name())},''),nodes:out,truncated:count>=max});
 }`
 
+// Semantic actions stay inside one System Events/JXA transaction. When an app
+// exposes a useful accessibility tree this performs AX-backed click/value
+// updates without moving the user's physical cursor.
+const macSemanticActionScript = `function safe(fn,fb){try{return fn()}catch(e){return fb}}
+function norm(v){return String(v==null?'':v).trim().toLowerCase().replace(/\s+/g,' ')}
+function score(target,role,name,desc,value){
+ var t=norm(target), best=0;
+ function one(text,exact,inside){text=norm(text);if(!text)return;if(text===t)best=Math.max(best,exact);else if(text.indexOf(t)>=0||t.indexOf(text)>=0)best=Math.max(best,inside)}
+ one(name,100,70); one(desc,85,55); one(value,65,45); one(role,35,20);
+ var r=norm(role); if(best>0 && (r.indexOf('button')>=0||r.indexOf('link')>=0||r.indexOf('menu')>=0||r.indexOf('checkbox')>=0||r.indexOf('radio')>=0||r.indexOf('textfield')>=0||r.indexOf('text field')>=0)) best+=10;
+ return best;
+}
+function run(argv){
+ var pid=Number(argv[0]||0), target=String(argv[1]||''), op=String(argv[2]||''), text=String(argv[3]||''), windowIndex=Number(argv[4]==null?-1:argv[4]), max=Number(argv[5]||500);
+ if(!pid||!target) throw new Error('semantic action requires pid and target');
+ var se=Application('System Events'); var ps=se.applicationProcesses.whose({unixId:pid})();
+ if(!ps.length) throw new Error('application process not found');
+ var p=ps[0], count=0, best=null, bestScore=0;
+ function walk(e,path,depth){
+   if(count++>=max||depth>8)return;
+   var role=safe(function(){return String(e.role())},''), name=safe(function(){return String(e.name())},''), desc=safe(function(){return String(e.description())},''), value=safe(function(){var v=e.value();return v==null?'':String(v)},''), enabled=safe(function(){return !!e.enabled()},true);
+   var s=score(target,role,name,desc,value); if(!enabled)s-=60;
+   if(s>bestScore){
+     var pos=safe(function(){return e.position()},null), size=safe(function(){return e.size()},null), bounds=null;
+     if(pos&&size&&pos.length>=2&&size.length>=2)bounds={x:Number(pos[0]),y:Number(pos[1]),width:Number(size[0]),height:Number(size[1])};
+     best={element:e,elementId:String(pid)+':'+path.join('.'),role:role,name:name,description:desc,value:value,bounds:bounds};bestScore=s;
+   }
+   var children=safe(function(){return e.uiElements()},[]);
+   for(var i=0;i<children.length&&count<max;i++)walk(children[i],path.concat([i]),depth+1);
+ }
+ var wins=safe(function(){return p.windows()},[]);
+ if(windowIndex>=0){if(windowIndex>=wins.length)throw new Error('window reference is stale');walk(wins[windowIndex],[windowIndex],0)}
+ else{for(var i=0;i<wins.length&&count<max;i++)walk(wins[i],[i],0)}
+ if(!best||bestScore<35)throw new Error('no accessible UI element matched '+JSON.stringify(target));
+ if(op==='click'){
+   try{best.element.click()}catch(e){throw new Error('background accessibility click failed: '+String(e))}
+ } else if(op==='type') {
+   try{best.element.value=text}catch(e){throw new Error('background accessibility value update failed: '+String(e))}
+ } else throw new Error('unsupported semantic action');
+ return JSON.stringify({operation:op,background:true,physicalInput:false,resolvedTarget:{elementId:best.elementId,role:best.role,name:best.name,description:best.description,value:best.value,bounds:best.bounds,score:bestScore}});
+}`
+
+func macSemanticAction(ctx context.Context, operation, windowID, target, text string) (any, error) {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" || windowID == "screen:main" {
+		return nil, errors.New("background semantic action requires an application window")
+	}
+	pid, err := macWindowPID(ctx, windowID)
+	if err != nil {
+		return nil, err
+	}
+	windowIndex := -1
+	if _, index, ok := macAXWindowRef(windowID); ok {
+		windowIndex = index
+	}
+	if value, persistentErr := macPersistentSemanticAction(ctx, pid, windowIndex, operation, target, text); persistentErr == nil {
+		return value, nil
+	}
+	// Compatibility fallback for older/macOS environments where the persistent
+	// JXA worker cannot be started. This keeps v1 behavior available without
+	// putting process-spawn overhead on the normal hot path.
+	out, err := runOSA(ctx, "JavaScript", macSemanticActionScript, strconv.Itoa(pid), target, operation, text, strconv.Itoa(windowIndex), "500")
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal([]byte(out), &value); err != nil {
+		return nil, fmt.Errorf("decode semantic action: %w", err)
+	}
+	return value, nil
+}
+
+func macAXWindowRef(windowID string) (pid, windowIndex int, ok bool) {
+	parts := strings.Split(strings.TrimSpace(windowID), ":")
+	if len(parts) != 3 || parts[0] != "ax" {
+		return 0, -1, false
+	}
+	pid, errPID := strconv.Atoi(parts[1])
+	windowIndex, errIndex := strconv.Atoi(parts[2])
+	if errPID != nil || errIndex != nil || pid <= 0 || windowIndex < 0 {
+		return 0, -1, false
+	}
+	return pid, windowIndex, true
+}
+
 func macWindowPID(ctx context.Context, windowID string) (int, error) {
+	if pid, _, ok := macAXWindowRef(windowID); ok {
+		return pid, nil
+	}
 	windows, err := macWindows(ctx)
 	if err != nil {
 		return 0, err
@@ -294,6 +446,11 @@ func macVisionTree(ctx context.Context, windowID string) ([]any, error) {
 		}
 		return nil, errors.New(message)
 	}
+	if vision, persistentErr := macPersistentVisionFile(ctx, path, windowID, bounds); persistentErr == nil {
+		return vision, nil
+	}
+	// Keep the original one-shot Vision path as a compatibility fallback if the
+	// persistent JXA worker is unavailable on a particular macOS build.
 	text, err := runOSA(ctx, "JavaScript", macVisionScript, path, windowID,
 		strconv.FormatFloat(bounds["x"], 'f', -1, 64), strconv.FormatFloat(bounds["y"], 'f', -1, 64),
 		strconv.FormatFloat(bounds["width"], 'f', -1, 64), strconv.FormatFloat(bounds["height"], 'f', -1, 64))
@@ -322,13 +479,24 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	text, err := runOSA(ctx, "JavaScript", macTreeScript, strconv.Itoa(pid), "500")
-	if err != nil {
-		return nil, err
+	windowIndex := -1
+	if _, index, ok := macAXWindowRef(windowID); ok {
+		windowIndex = index
 	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(text), &out); err != nil {
-		return nil, err
+	out, persistentErr := macPersistentTree(ctx, pid, windowIndex, 500)
+	if persistentErr != nil {
+		// Preserve the v1 tree path as a compatibility fallback. The normal path
+		// keeps one JXA process warm across requests and therefore avoids process
+		// startup on every observation.
+		text, err := runOSA(ctx, "JavaScript", macTreeScript, strconv.Itoa(pid), "500", strconv.Itoa(windowIndex))
+		if err != nil {
+			return nil, err
+		}
+		out = map[string]any{}
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			return nil, err
+		}
+		out["engine"] = "jxa-fallback"
 	}
 	if !macTreeDegraded(out) {
 		out["source"] = "accessibility"
@@ -522,6 +690,10 @@ func platformHandle(ctx context.Context, input request) (any, error) {
 		return macScreenshot(ctx, stringValue(input.Arguments, "windowId"))
 	case "focus":
 		return macFocus(ctx, stringValue(input.Arguments, "windowId"))
+	case "semantic_click":
+		return macSemanticAction(ctx, "click", stringValue(input.Arguments, "windowId"), stringValue(input.Arguments, "target"), "")
+	case "semantic_type":
+		return macSemanticAction(ctx, "type", stringValue(input.Arguments, "windowId"), stringValue(input.Arguments, "target"), stringValue(input.Arguments, "text"))
 	case "click":
 		if element := stringValue(input.Arguments, "elementId"); element != "" {
 			return macElementClick(ctx, element)

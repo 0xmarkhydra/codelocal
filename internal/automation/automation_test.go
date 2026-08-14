@@ -3,6 +3,7 @@ package automation
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/security"
@@ -50,6 +51,54 @@ func TestAutomationPolicy(t *testing.T) {
 	extract := ClassifyAutomation(Action{Domain: "browser", Operation: "read", Target: "password field"})
 	if !extract.Blocked || extract.RiskLevel != security.RiskBlocked {
 		t.Fatalf("credential extraction should be blocked: %+v", extract)
+	}
+}
+
+func TestComputerPolicyScopesRememberedInputByWindow(t *testing.T) {
+	decision := ClassifyAutomation(Action{Domain: "computer", Operation: "click", Origin: "ax:123:0", Target: "Save"})
+	if decision.RiskLevel != security.RiskHigh || !decision.RequiresApproval || decision.ApprovalPolicy != security.ApprovalRememberable {
+		t.Fatalf("scoped desktop click should be rememberable high risk: %+v", decision)
+	}
+	if decision.ApprovalKey != "computer:input:ax:123:0" {
+		t.Fatalf("unexpected scoped approval key: %q", decision.ApprovalKey)
+	}
+}
+
+func TestComputerPolicyRequiresFreshApprovalForPhysicalFallback(t *testing.T) {
+	decision := ClassifyAutomation(Action{Domain: "computer", Operation: "click", Origin: "ax:123:0", Target: "Custom icon", Physical: true})
+	if decision.RiskLevel != security.RiskCritical || decision.ApprovalPolicy != security.ApprovalAlways || !decision.RequiresApproval {
+		t.Fatalf("physical fallback should require fresh approval: %+v", decision)
+	}
+	if !strings.Contains(decision.Reason, "physical desktop input") {
+		t.Fatalf("physical fallback should explain user-input interference: %+v", decision)
+	}
+}
+
+func TestComputerPolicyRequiresFreshApprovalForUnscopedInput(t *testing.T) {
+	for _, action := range []Action{
+		{Domain: "computer", Operation: "click", Origin: "ax:123:0"},
+		{Domain: "computer", Operation: "click", Origin: "screen:main", Target: "Unknown icon"},
+		{Domain: "computer", Operation: "type", Text: "hello"},
+	} {
+		decision := ClassifyAutomation(action)
+		if decision.RiskLevel != security.RiskCritical || decision.ApprovalPolicy != security.ApprovalAlways || !decision.RequiresApproval {
+			t.Fatalf("unscoped input should require fresh critical approval: action=%+v decision=%+v", action, decision)
+		}
+	}
+}
+
+func TestComputerPolicyScopesObservationAndScreenshot(t *testing.T) {
+	observe := ClassifyAutomation(Action{Domain: "computer", Operation: "observe", Origin: "ax:77:1"})
+	if observe.RiskLevel != security.RiskReview || observe.ApprovalKey != "computer:observe:ax:77:1" {
+		t.Fatalf("unexpected observe policy: %+v", observe)
+	}
+	screenshot := ClassifyAutomation(Action{Domain: "computer", Operation: "screenshot", Origin: "ax:77:1"})
+	if screenshot.RiskLevel != security.RiskReview || screenshot.ApprovalKey != "computer:screenshot:ax:77:1" {
+		t.Fatalf("unexpected screenshot policy: %+v", screenshot)
+	}
+	windows := ClassifyAutomation(Action{Domain: "computer", Operation: "list_windows"})
+	if windows.RequiresApproval || windows.RiskLevel != security.RiskSafe {
+		t.Fatalf("window listing should remain safe: %+v", windows)
 	}
 }
 

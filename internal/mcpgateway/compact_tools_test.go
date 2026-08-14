@@ -69,7 +69,8 @@ func universalCompactArgs(action string) map[string]any {
 		"message": "commit", "command": "go test ./...", "processId": "process", "input": "input", "cols": 120, "rows": 36,
 		"server": "server", "tool": "tool", "id": "approval", "actionKey": "approval-key",
 		"url": "https://example.com", "ref": "e1", "text": "input", "windowId": "window-1", "elementId": "element-1",
-		"x": 100, "y": 100, "deltaX": 0, "deltaY": 100, "fromX": 10, "fromY": 10, "toX": 100, "toY": 100,
+		"steps": []any{map[string]any{"action": "click", "target": "Save"}},
+		"x":     100, "y": 100, "deltaX": 0, "deltaY": 100, "fromX": 10, "fromY": 10, "toX": 100, "toY": 100,
 	}
 }
 

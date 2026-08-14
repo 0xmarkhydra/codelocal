@@ -140,6 +140,7 @@ var runtimeOperationIDs = map[string]string{
 	"computer_key":          "computer.key",
 	"computer_scroll":       "computer.scroll",
 	"computer_drag":         "computer.drag",
+	"computer_run":          "computer.run",
 }
 
 func runtimeOperationID(name string) (string, bool) {
@@ -180,7 +181,7 @@ func runtimeToolMutatesState(name string) bool {
 func runtimeToolDestructive(name string) bool {
 	switch name {
 	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call",
-		"browser_click", "browser_fill", "browser_press", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag":
+		"browser_click", "browser_fill", "browser_press", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run":
 		return true
 	default:
 		return false

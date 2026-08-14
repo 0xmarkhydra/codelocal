@@ -3,9 +3,13 @@ package automation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
+
+var physicalComputerInputMu sync.Mutex
 
 type Controller struct {
 	WorkspaceID  string
@@ -97,6 +101,20 @@ func cursorVisible(value any) bool {
 	}
 	visible, _ := entry["visible"].(bool)
 	return visible
+}
+
+func computerActionUsesPhysicalInput(operation string, args map[string]any, target string) bool {
+	elementID := stringArg(args, "elementId")
+	switch operation {
+	case "click":
+		return strings.HasPrefix(elementID, "vision:") || (elementID == "" && strings.TrimSpace(target) == "")
+	case "type":
+		return strings.TrimSpace(target) == ""
+	case "key", "scroll", "drag":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Controller) Handle(ctx context.Context, tool string, args map[string]any) (any, error) {
@@ -216,30 +234,87 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if c.Computer == nil {
 			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
 		}
-		approved, state, err := c.authorize(Action{Domain: "computer", Operation: "observe", Target: stringArg(args, "description")}, args)
+		approved, state, err := c.authorize(Action{Domain: "computer", Operation: "observe", Origin: stringArg(args, "windowId"), Target: stringArg(args, "description")}, args)
 		if err != nil || !approved {
 			return state, err
 		}
 		return ObserveComputer(ctx, c.Computer, stringArg(args, "windowId"))
+	case "computer_run":
+		return c.runComputerSequence(ctx, args)
 	case "computer_list_windows", "computer_ui_tree", "computer_screenshot", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag":
 		if c.Computer == nil {
 			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
 		}
 		op := strings.TrimPrefix(tool, "computer_")
 		target := firstNonEmpty(stringArg(args, "target"), stringArg(args, "description"))
-		action := Action{Domain: "computer", Operation: op, Target: target, Text: stringArg(args, "text")}
+		action := Action{
+			Domain: "computer", Operation: op, Origin: stringArg(args, "windowId"), Target: target, Text: stringArg(args, "text"),
+			Physical: computerActionUsesPhysicalInput(op, args, target),
+		}
 		approved, state, err := c.authorize(action, args)
 		if err != nil || !approved {
 			return state, err
 		}
+		physicalInput := action.Physical
+
+		verify := boolArg(args, "verify", false)
+		windowID := stringArg(args, "windowId")
+
+		// Fast path: resolve + interact inside the local native helper. AX-backed
+		// actions do not move the user's physical cursor and avoid a separate
+		// observe/resolve round-trip. Custom-rendered apps fall through to the
+		// existing Vision/coordinate recovery path.
+		if (op == "click" || op == "type") && stringArg(args, "elementId") == "" && target != "" && windowID != "" && windowID != "screen:main" {
+			fastStarted := time.Now()
+			fast, fastErr := c.Computer.SemanticAction(ctx, op, windowID, target, stringArg(args, "text"))
+			if fastErr == nil {
+				envelope := map[string]any{"result": fast, "background": true, "physicalInput": false, "durationMs": time.Since(fastStarted).Milliseconds()}
+				if root, ok := fast.(map[string]any); ok {
+					if resolvedTarget, ok := root["resolvedTarget"].(map[string]any); ok {
+						envelope["resolvedTarget"] = resolvedTarget
+						if op == "click" && c.Computer.AgentCursorSupported() {
+							if elementID, _ := resolvedTarget["elementId"].(string); strings.TrimSpace(elementID) != "" {
+								if cursor, cursorErr := c.Computer.AgentCursor(ctx, map[string]any{"elementId": elementID}); cursorErr == nil && cursorVisible(cursor) {
+									envelope["agentCursor"] = cursor
+								}
+							}
+						}
+					}
+				}
+				if verify {
+					observation, observeErr := ObserveComputer(ctx, c.Computer, windowID)
+					if observeErr != nil {
+						envelope["verificationError"] = observeErr.Error()
+					} else {
+						envelope["observation"] = observation
+					}
+				}
+				return envelope, nil
+			}
+			if op == "type" {
+				// A semantic type request promises background control. Falling back
+				// to a global keystroke could type into whatever app the user is
+				// actively using, so require an explicit physical action instead.
+				return nil, fmt.Errorf("background semantic type failed for %q: %w", target, fastErr)
+			}
+		}
 
 		resolved := map[string]any(nil)
 		if op == "click" && stringArg(args, "elementId") == "" && target != "" {
-			resolved, err = FindComputerElement(ctx, c.Computer, stringArg(args, "windowId"), target)
+			resolved, err = FindComputerElement(ctx, c.Computer, windowID, target)
 			if err != nil {
 				return nil, err
 			}
 			args["elementId"] = resolved["elementId"]
+		}
+		if op == "click" && strings.HasPrefix(stringArg(args, "elementId"), "vision:") && !action.Physical {
+			physicalAction := action
+			physicalAction.Physical = true
+			approved, state, authErr := c.authorize(physicalAction, args)
+			if authErr != nil || !approved {
+				return state, authErr
+			}
+			physicalInput = true
 		}
 
 		var agentCursor any
@@ -251,11 +326,14 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 			}
 		}
 
+		if physicalInput {
+			physicalComputerInputMu.Lock()
+			defer physicalComputerInputMu.Unlock()
+		}
 		result, err := c.Computer.Call(ctx, op, args)
 		if err != nil {
 			return nil, err
 		}
-		verify := boolArg(args, "verify", false)
 		if !verify {
 			if resolved == nil && !cursorVisible(agentCursor) {
 				return result, nil

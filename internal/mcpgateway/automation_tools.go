@@ -22,7 +22,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 	computerActions := map[string]string{
 		"status": "computer_status", "observe": "computer_observe", "list_windows": "computer_list_windows", "ui_tree": "computer_ui_tree",
 		"screenshot": "computer_screenshot", "focus": "computer_focus", "click": "computer_click", "type": "computer_type",
-		"key": "computer_key", "scroll": "computer_scroll", "drag": "computer_drag",
+		"key": "computer_key", "scroll": "computer_scroll", "drag": "computer_drag", "run": "computer_run",
 	}
 
 	return []compactToolDef{
@@ -55,9 +55,9 @@ func compactAutomationToolDefinitions() []compactToolDef {
 		{
 			Name:        "computer",
 			Title:       "Use desktop apps",
-			Description: "Observe desktop windows/UI and interact with native apps. Prefer action=observe, then semantic target text for click. CodeLocal resolves accessibility elements locally; use raw coordinates only as a fallback. Set verify=true when the result should include a fresh post-action observation.",
+			Description: "Observe desktop windows/UI and interact with native apps. Prefer action=observe, then semantic target text for click. action=run executes a bounded same-window sequence of semantic background click/type steps in one MCP round trip when the client advertises batchActions. Raw coordinates remain a last-resort single action. Set verify=true when the result should include a fresh post-action observation.",
 			Schema: actionSchema(
-				[]string{"status", "observe", "list_windows", "ui_tree", "screenshot", "focus", "click", "type", "key", "scroll", "drag"},
+				[]string{"status", "observe", "list_windows", "ui_tree", "screenshot", "focus", "click", "type", "key", "scroll", "drag", "run"},
 				map[string]any{
 					"windowId":      str("Window identifier returned by action=observe or action=list_windows."),
 					"elementId":     str("Accessibility element identifier returned by action=ui_tree. Usually omit this and provide target instead."),
@@ -73,6 +73,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 					"fromY":         integer("Drag start Y coordinate.", 0, 0),
 					"toX":           integer("Drag end X coordinate.", 0, 0),
 					"toY":           integer("Drag end Y coordinate.", 0, 0),
+					"steps":         array(anyObject("Background sequence step. Each step must use action=click or action=type with a semantic target; type also requires text. All steps inherit the top-level windowId."), "Bounded semantic background steps for action=run."),
 					"description":   description,
 					"approvalToken": approval,
 				},
@@ -81,7 +82,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 			Resolve: func(args map[string]any) (operationInvocation, map[string]any, error) {
 				operation, forward, err := resolveAction(args, computerActions, map[string][]string{
 					"focus": {"windowId"}, "type": {"text"}, "key": {"key"},
-					"drag": {"fromX", "fromY", "toX", "toY"},
+					"drag": {"fromX", "fromY", "toX", "toY"}, "run": {"windowId", "steps"},
 				})
 				if err != nil {
 					return operationInvocation{}, nil, err
@@ -102,6 +103,15 @@ func compactAutomationToolDefinitions() []compactToolDef {
 						if strings.TrimSpace(windowID) == "" {
 							return operationInvocation{}, nil, errors.New("semantic click requires windowId from computer action=observe or list_windows")
 						}
+					}
+				}
+				if action == "run" {
+					steps, ok := forward["steps"].([]any)
+					if !ok || len(steps) == 0 {
+						return operationInvocation{}, nil, errors.New("run requires at least one semantic step")
+					}
+					if len(steps) > 12 {
+						return operationInvocation{}, nil, errors.New("run supports at most 12 semantic steps")
 					}
 				}
 				return operation, forward, nil
@@ -141,6 +151,8 @@ func requiredComputerCapability(tool string) string {
 		return "windowList"
 	case "computer_ui_tree":
 		return "uiTree"
+	case "computer_run":
+		return "batchActions"
 	case "computer_screenshot":
 		return "screenCapture"
 	case "computer_click", "computer_scroll", "computer_drag":

@@ -34,9 +34,17 @@ func TestAutomationCapabilityGateUsesNestedProtocolV3Capabilities(t *testing.T) 
 	if err := ensureAutomationOperationSupported("computer_click", workspace); err == nil || !strings.Contains(err.Error(), "pointer") {
 		t.Fatalf("computer_click should honor granular pointer capability: %v", err)
 	}
-	workspace.Capabilities["automation"].(map[string]any)["computer"].(map[string]any)["pointer"] = true
+	computerCaps := workspace.Capabilities["automation"].(map[string]any)["computer"].(map[string]any)
+	computerCaps["pointer"] = true
 	if err := ensureAutomationOperationSupported("computer_click", workspace); err != nil {
 		t.Fatalf("advertised pointer capability should pass: %v", err)
+	}
+	if err := ensureAutomationOperationSupported("computer_run", workspace); err == nil || !strings.Contains(err.Error(), "batchActions") {
+		t.Fatalf("computer_run must require explicit batchActions capability: %v", err)
+	}
+	computerCaps["batchActions"] = true
+	if err := ensureAutomationOperationSupported("computer_run", workspace); err != nil {
+		t.Fatalf("advertised batchActions capability should pass: %v", err)
 	}
 }
 
@@ -84,6 +92,16 @@ func TestCompactComputerSupportsSemanticTargetAndObserve(t *testing.T) {
 	}
 	if _, _, err := computer.Resolve(map[string]any{"action": "click", "target": "Continue"}); err == nil {
 		t.Fatal("semantic click without a windowId must be rejected")
+	}
+	run, forwardedRun, err := computer.Resolve(map[string]any{
+		"action": "run", "windowId": "ax:42:0",
+		"steps": []any{map[string]any{"action": "click", "target": "Continue"}},
+	})
+	if err != nil || run.RuntimeTool != "computer_run" {
+		t.Fatalf("computer run did not resolve: %#v %v", run, err)
+	}
+	if len(forwardedRun["steps"].([]any)) != 1 {
+		t.Fatalf("computer run steps were not forwarded: %#v", forwardedRun)
 	}
 }
 

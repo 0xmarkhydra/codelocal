@@ -1,6 +1,8 @@
 package automation
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -16,6 +18,7 @@ type Action struct {
 	Origin    string
 	Target    string
 	Text      string
+	Physical  bool
 }
 
 type Authorizer struct {
@@ -35,6 +38,15 @@ func automationCommand(action Action) string {
 	}
 	if action.Target != "" {
 		parts = append(parts, action.Target)
+	}
+	if action.Text != "" {
+		// Bind approval tokens to the exact text without storing or returning the
+		// potentially sensitive value itself.
+		sum := sha256.Sum256([]byte(action.Text))
+		parts = append(parts, "text-sha256:"+hex.EncodeToString(sum[:8]))
+	}
+	if action.Physical {
+		parts = append(parts, "physical-input")
 	}
 	return strings.Join(parts, " ")
 }
@@ -68,6 +80,25 @@ func browserOriginKey(origin string) string {
 		return strings.ToLower(origin)
 	}
 	return strings.ToLower(u.Scheme + "://" + u.Host)
+}
+
+func computerScopeKey(scope string) string {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		return "unknown"
+	}
+	// Window IDs are local opaque identifiers. Keep approval keys bounded and
+	// filesystem-safe without leaking arbitrary UI text into approval storage.
+	scope = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ':' || r == '.' {
+			return r
+		}
+		return '_'
+	}, scope)
+	if len(scope) > 160 {
+		scope = scope[:160]
+	}
+	return scope
 }
 
 func ClassifyAutomation(action Action) security.Decision {
@@ -141,23 +172,55 @@ func ClassifyAutomation(action Action) security.Decision {
 			decision.Reason = "unknown browser automation operation"
 		}
 	case "computer":
+		scope := computerScopeKey(action.Origin)
 		switch op {
-		case "status", "list_windows", "ui_tree":
+		case "status", "list_windows":
 			return decision
+		case "observe":
+			if scope == "unknown" {
+				return decision
+			}
+			decision.RiskLevel = security.RiskReview
+			decision.RequiresApproval = true
+			decision.ApprovalPolicy = security.ApprovalRememberable
+			decision.ApprovalKey = "computer:observe:" + scope
+			decision.ApprovalLabel = "Allow CodeLocal to inspect desktop window " + scope
+			decision.Reason = "desktop UI metadata may contain private on-screen information"
+		case "ui_tree":
+			decision.RiskLevel = security.RiskReview
+			decision.RequiresApproval = true
+			decision.ApprovalPolicy = security.ApprovalRememberable
+			decision.ApprovalKey = "computer:observe:" + scope
+			decision.ApprovalLabel = "Allow CodeLocal to inspect desktop window " + scope
+			decision.Reason = "accessibility or local Vision text may contain private on-screen information"
 		case "screenshot":
 			decision.RiskLevel = security.RiskReview
 			decision.RequiresApproval = true
 			decision.ApprovalPolicy = security.ApprovalRememberable
-			decision.ApprovalKey = "computer:screenshot"
-			decision.ApprovalLabel = "Allow CodeLocal screen capture"
+			decision.ApprovalKey = "computer:screenshot:" + scope
+			decision.ApprovalLabel = "Allow CodeLocal screen capture for " + scope
 			decision.Reason = "screen capture may reveal private application content"
-		case "focus", "click", "type", "key", "scroll", "drag":
+		case "focus", "click", "type", "key", "scroll", "drag", "run":
 			decision.RiskLevel = security.RiskHigh
 			decision.RequiresApproval = true
 			decision.ApprovalPolicy = security.ApprovalRememberable
-			decision.ApprovalKey = "computer:input"
-			decision.ApprovalLabel = "Allow desktop mouse and keyboard control"
+			decision.ApprovalKey = "computer:input:" + scope
+			decision.ApprovalLabel = "Allow desktop control for " + scope
 			decision.Reason = "desktop input can affect applications outside the code workspace"
+			// Coordinate-only or unscoped control can hit a completely different
+			// application if the desktop changes underneath the agent. Never
+			// remember that permission across actions.
+			if action.Physical || scope == "unknown" || scope == "screen:main" || (op == "click" && strings.TrimSpace(action.Target) == "") {
+				decision.RiskLevel = security.RiskCritical
+				decision.ApprovalPolicy = security.ApprovalAlways
+				decision.ApprovalKey = ""
+				decision.ApprovalLabel = ""
+				if action.Physical {
+					decision.Reason = "physical desktop input can interfere with the user's active cursor or keyboard and requires fresh confirmation"
+				} else {
+					decision.Reason = "unscoped desktop input requires fresh confirmation"
+				}
+			}
 			if criticalAutomationText(action.Target + " " + action.Text) {
 				decision.RiskLevel = security.RiskCritical
 				decision.ApprovalPolicy = security.ApprovalAlways

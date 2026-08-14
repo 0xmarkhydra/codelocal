@@ -9,14 +9,14 @@ import (
 func TestAutomationCapabilitiesMarshalGranularFlags(t *testing.T) {
 	caps := Capabilities{Automation: AutomationCapabilities{
 		Browser:  BrowserCapabilities{Available: true, IsolatedProfile: true, Screenshots: true, Devtools: true},
-		Computer: ComputerCapabilities{Available: true, Backend: "test", WindowList: true, ScreenCapture: true, Pointer: true, Keyboard: true},
+		Computer: ComputerCapabilities{Available: true, Backend: "test", PersistentEngine: true, SceneCache: true, BatchActions: true, WindowList: true, ScreenCapture: true, Pointer: true, Keyboard: true},
 	}}
 	raw, err := json.Marshal(caps)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, want := range []string{`"automation"`, `"browser"`, `"computer"`, `"windowList":true`, `"screenCapture":true`, `"pointer":true`, `"keyboard":true`} {
+	for _, want := range []string{`"automation"`, `"browser"`, `"computer"`, `"persistentEngine":true`, `"sceneCache":true`, `"batchActions":true`, `"windowList":true`, `"screenCapture":true`, `"pointer":true`, `"keyboard":true`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("capabilities JSON missing %s: %s", want, text)
 		}
@@ -27,7 +27,7 @@ func TestAutomationCapabilitiesMarshalGranularFlags(t *testing.T) {
 }
 
 func TestAutomationSideEffects(t *testing.T) {
-	for _, tool := range []string{"browser_open", "browser_click", "browser_fill", "computer_click", "computer_type", "computer_drag"} {
+	for _, tool := range []string{"browser_open", "browser_click", "browser_fill", "computer_click", "computer_type", "computer_drag", "computer_run"} {
 		if !SideEffecting(tool) {
 			t.Fatalf("%s must be side effecting", tool)
 		}

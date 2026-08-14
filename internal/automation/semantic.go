@@ -12,13 +12,14 @@ import (
 // screenshot so ChatGPT can reason about the UI without paying the latency and
 // token cost of vision on every step.
 type ComputerObservation struct {
-	Windows         any    `json:"windows"`
-	UITree          any    `json:"uiTree,omitempty"`
-	UITreeError     string `json:"uiTreeError,omitempty"`
-	ScreenshotError string `json:"screenshotError,omitempty"`
-	WindowID        string `json:"windowId,omitempty"`
-	VisionFallback  bool   `json:"visionFallback,omitempty"`
-	MCPImage        any    `json:"__mcpImage,omitempty"`
+	Windows                any    `json:"windows"`
+	UITree                 any    `json:"uiTree,omitempty"`
+	UITreeError            string `json:"uiTreeError,omitempty"`
+	ScreenshotError        string `json:"screenshotError,omitempty"`
+	WindowID               string `json:"windowId,omitempty"`
+	VisionFallback         bool   `json:"visionFallback,omitempty"`
+	VisualContextAvailable bool   `json:"visualContextAvailable,omitempty"`
+	MCPImage               any    `json:"__mcpImage,omitempty"`
 }
 
 // ObserveComputer always preserves a successful window observation. When a
@@ -28,7 +29,7 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 	if computer == nil {
 		return ComputerObservation{}, errors.New("Computer Use helper unavailable")
 	}
-	windows, err := computer.Call(ctx, "list_windows", map[string]any{})
+	windows, err := computer.Windows(ctx, false)
 	if err != nil {
 		return ComputerObservation{}, err
 	}
@@ -36,7 +37,7 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 	if observation.WindowID == "" {
 		return observation, nil
 	}
-	uiTree, err := computer.Call(ctx, "ui_tree", map[string]any{"windowId": observation.WindowID})
+	uiTree, err := computer.UITree(ctx, observation.WindowID, false)
 	if err != nil {
 		observation.UITreeError = err.Error()
 		return observation, nil
@@ -46,12 +47,11 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 		observation.VisionFallback, _ = tree["visionFallback"].(bool)
 	}
 	if observation.VisionFallback {
-		screenshot, screenshotErr := computer.Call(ctx, "screenshot", map[string]any{"windowId": observation.WindowID})
-		if screenshotErr != nil {
-			observation.ScreenshotError = screenshotErr.Error()
-		} else if root, ok := screenshot.(map[string]any); ok {
-			observation.MCPImage = root["__mcpImage"]
-		}
+		// Vision/OCR can remain entirely local. Do not silently attach a full
+		// screenshot to the MCP response: screen images may contain unrelated
+		// private applications, OTPs, credentials, or chats. The explicit
+		// computer_screenshot action remains available behind its own approval.
+		observation.VisualContextAvailable = true
 	}
 	return observation, nil
 }
@@ -160,7 +160,7 @@ func FindComputerElement(ctx context.Context, computer *ComputerController, wind
 	if target == "" {
 		return nil, errors.New("semantic target lookup requires target")
 	}
-	uiTree, err := computer.Call(ctx, "ui_tree", map[string]any{"windowId": windowID})
+	uiTree, err := computer.UITree(ctx, windowID, false)
 	if err != nil {
 		return nil, err
 	}
