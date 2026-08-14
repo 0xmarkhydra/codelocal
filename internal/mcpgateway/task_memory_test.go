@@ -18,9 +18,20 @@ func TestTaskPatchTracksContextAndEditPaths(t *testing.T) {
 	patch = taskPatchForOperation("edit", editOp, map[string]any{
 		"path":  "a.go",
 		"paths": []any{"b.go", "c.go"},
+		"files": []any{map[string]any{"path": "d.go"}},
 	}, nil)
-	if len(patch.TouchedFiles) != 3 {
+	if len(patch.TouchedFiles) != 4 {
 		t.Fatalf("expected all touched paths, got %#v", patch.TouchedFiles)
+	}
+}
+
+func TestTaskPatchDoesNotPersistRawTerminalCommand(t *testing.T) {
+	op := operationInvocation{OperationID: "terminal.run"}
+	patch := taskPatchForOperation("terminal", op, map[string]any{
+		"command": "deploy --token super-secret-value",
+	}, nil)
+	if len(patch.RecentChecks) != 1 || patch.RecentChecks[0] != "terminal.run" {
+		t.Fatalf("expected only stable operation identity, got %#v", patch.RecentChecks)
 	}
 }
 
@@ -30,7 +41,7 @@ func TestAttachTaskMemoryProjectsOperationalState(t *testing.T) {
 		Task:         "Fix login",
 		Branch:       "feat/login",
 		TouchedFiles: []string{"a.go"},
-		RecentChecks: []string{"go test ./..."},
+		RecentChecks: []string{"verify.changes"},
 		LastAction:   "verify.changes",
 	})
 	root, ok := result.StructuredContent.(map[string]any)
