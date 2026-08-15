@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,111 @@ type indexedFile struct {
 	Size    int64
 	Symbols []indexedSymbol
 	Imports []string
+}
+
+type knowledgeSourceCandidate struct {
+	Path                      string
+	Provider                  string
+	SourceType                string
+	ScopePath                 string
+	Classification            string
+	ContentHash               string
+	AdapterVersion            string
+	ParserVersion             string
+	SemanticNormalizerVersion string
+	ParserFingerprint         string
+	Size                      int64
+}
+
+const (
+	knowledgeAdapterVersion            = "1"
+	knowledgeParserVersion             = "1"
+	knowledgeSemanticNormalizerVersion = "1"
+	maxKnowledgeSourceBytes            = int64(2 << 20)
+	maxKnowledgeSources                = 512
+)
+
+func knowledgeScopePath(rel string) string {
+	dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
+	if dir == "" || dir == "." {
+		return "."
+	}
+	return dir
+}
+
+func knowledgeSourceForPath(rel string) (knowledgeSourceCandidate, bool) {
+	rel = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(rel))))
+	if rel == "" || rel == "." || strings.HasPrefix(rel, "../") || strings.HasPrefix(rel, "/") || security.IsSensitivePath(rel) {
+		return knowledgeSourceCandidate{}, false
+	}
+	lower := strings.ToLower(rel)
+	base := strings.ToLower(filepath.Base(filepath.FromSlash(rel)))
+	candidate := knowledgeSourceCandidate{Path: rel, ScopePath: ".", Classification: "private_project", AdapterVersion: knowledgeAdapterVersion, ParserVersion: knowledgeParserVersion, SemanticNormalizerVersion: knowledgeSemanticNormalizerVersion}
+	switch {
+	case base == "agents.md":
+		candidate.Provider = "agents"
+		candidate.SourceType = "instructions"
+		candidate.ScopePath = knowledgeScopePath(rel)
+	case base == "claude.md":
+		candidate.Provider = "claude"
+		candidate.SourceType = "instructions"
+		candidate.ScopePath = knowledgeScopePath(rel)
+	case base == "claude.local.md":
+		candidate.Provider = "claude"
+		candidate.SourceType = "instructions"
+		candidate.ScopePath = knowledgeScopePath(rel)
+		candidate.Classification = "local_private"
+	case strings.HasPrefix(lower, ".cursor/rules/") && (strings.HasSuffix(lower, ".mdc") || strings.HasSuffix(lower, ".md")):
+		candidate.Provider = "cursor"
+		candidate.SourceType = "rule"
+	case lower == ".github/copilot-instructions.md":
+		candidate.Provider = "github-copilot"
+		candidate.SourceType = "instructions"
+	case strings.HasPrefix(lower, ".github/instructions/") && strings.HasSuffix(lower, ".instructions.md"):
+		candidate.Provider = "github-copilot"
+		candidate.SourceType = "instructions"
+	case lower == ".codelocal/project.json":
+		candidate.Provider = "codelocal"
+		candidate.SourceType = "project_metadata"
+		candidate.Classification = "local_private"
+	default:
+		return knowledgeSourceCandidate{}, false
+	}
+	fingerprint := sha256.Sum256([]byte(strings.Join([]string{"project-knowledge-discovery", candidate.Provider, candidate.SourceType, candidate.AdapterVersion, candidate.ParserVersion, candidate.SemanticNormalizerVersion}, "\x00")))
+	candidate.ParserFingerprint = fmt.Sprintf("%x", fingerprint[:])
+	return candidate, true
+}
+
+func hydrateKnowledgeSource(path string, candidate knowledgeSourceCandidate) (knowledgeSourceCandidate, bool) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maxKnowledgeSourceBytes {
+		return knowledgeSourceCandidate{}, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return knowledgeSourceCandidate{}, false
+	}
+	probe := data
+	if len(probe) > 8192 {
+		probe = probe[:8192]
+	}
+	if bytes.IndexByte(probe, 0) >= 0 {
+		return knowledgeSourceCandidate{}, false
+	}
+	hash := sha256.Sum256(data)
+	candidate.ContentHash = fmt.Sprintf("%x", hash[:])
+	candidate.Size = info.Size()
+	return candidate, true
+}
+
+func knowledgeSourceMap(candidate knowledgeSourceCandidate) map[string]any {
+	return map[string]any{
+		"path": candidate.Path, "provider": candidate.Provider, "sourceType": candidate.SourceType,
+		"scopePath": candidate.ScopePath, "classification": candidate.Classification, "contentHash": candidate.ContentHash,
+		"adapterVersion": candidate.AdapterVersion, "parserVersion": candidate.ParserVersion,
+		"semanticNormalizerVersion": candidate.SemanticNormalizerVersion, "parserFingerprint": candidate.ParserFingerprint,
+		"size": candidate.Size,
+	}
 }
 
 type Engine struct {
@@ -72,6 +178,24 @@ func (e *Engine) scan() (map[string]any, error) {
 	roots := map[string]struct{}{".": {}}
 	modules := map[string]struct{}{}
 	entrypoints := []string{}
+	knowledgeSources := []knowledgeSourceCandidate{}
+	knowledgeSeen := map[string]struct{}{}
+	addKnowledgeSource := func(path, rel string) {
+		candidate, ok := knowledgeSourceForPath(rel)
+		if !ok {
+			return
+		}
+		key := candidate.Provider + "\x00" + candidate.SourceType + "\x00" + candidate.Path
+		if _, exists := knowledgeSeen[key]; exists {
+			return
+		}
+		hydrated, ok := hydrateKnowledgeSource(path, candidate)
+		if !ok {
+			return
+		}
+		knowledgeSeen[key] = struct{}{}
+		knowledgeSources = append(knowledgeSources, hydrated)
+	}
 	err := filepath.WalkDir(e.FS.Root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -95,6 +219,7 @@ func (e *Engine) scan() (map[string]any, error) {
 		if d.IsDir() {
 			return nil
 		}
+		addKnowledgeSource(path, rel)
 		files++
 		if _, ok := manifestNames[d.Name()]; ok {
 			manifests = append(manifests, rel)
@@ -123,6 +248,26 @@ func (e *Engine) scan() (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// .codelocal is deliberately excluded from the normal project index. The
+	// explicit project marker is safe metadata used by project identity, so
+	// include only this known file without recursively scanning local state.
+	addKnowledgeSource(filepath.Join(e.FS.Root, ".codelocal", "project.json"), ".codelocal/project.json")
+	sort.Slice(knowledgeSources, func(i, j int) bool {
+		if knowledgeSources[i].Path != knowledgeSources[j].Path {
+			return knowledgeSources[i].Path < knowledgeSources[j].Path
+		}
+		if knowledgeSources[i].Provider != knowledgeSources[j].Provider {
+			return knowledgeSources[i].Provider < knowledgeSources[j].Provider
+		}
+		return knowledgeSources[i].SourceType < knowledgeSources[j].SourceType
+	})
+	if len(knowledgeSources) > maxKnowledgeSources {
+		knowledgeSources = knowledgeSources[:maxKnowledgeSources]
+	}
+	knowledgeSourceMaps := make([]map[string]any, 0, len(knowledgeSources))
+	for _, candidate := range knowledgeSources {
+		knowledgeSourceMaps = append(knowledgeSourceMaps, knowledgeSourceMap(candidate))
+	}
 	frameworks := detectFrameworks(e.FS.Root, manifests)
 	languageList := []string{}
 	for lang := range languages {
@@ -149,7 +294,7 @@ func (e *Engine) scan() (map[string]any, error) {
 		commands["build"] = append(commands["build"], "flutter analyze")
 		commands["test"] = append(commands["test"], "flutter test")
 	}
-	return map[string]any{"generatedAt": time.Now().UnixMilli(), "rootName": filepath.Base(e.FS.Root), "languages": languageList, "frameworks": frameworks, "workspaceRoots": rootList, "entrypoints": entrypoints, "sourceRoots": sourceRoots(moduleList), "testRoots": testRoots(moduleList), "manifests": manifests, "buildCommands": commands["build"], "testCommands": commands["test"], "lintCommands": commands["lint"], "typecheckCommands": commands["typecheck"], "modules": moduleList, "packageManager": packageManager(e.FS.Root), "intelligence": map[string]any{"builtAt": time.Now().UnixMilli(), "dirty": false, "files": files, "sourceFiles": sourceFiles, "languages": languageList}}, nil
+	return map[string]any{"generatedAt": time.Now().UnixMilli(), "rootName": filepath.Base(e.FS.Root), "languages": languageList, "frameworks": frameworks, "workspaceRoots": rootList, "entrypoints": entrypoints, "sourceRoots": sourceRoots(moduleList), "testRoots": testRoots(moduleList), "manifests": manifests, "knowledgeSources": knowledgeSourceMaps, "buildCommands": commands["build"], "testCommands": commands["test"], "lintCommands": commands["lint"], "typecheckCommands": commands["typecheck"], "modules": moduleList, "packageManager": packageManager(e.FS.Root), "intelligence": map[string]any{"builtAt": time.Now().UnixMilli(), "dirty": false, "files": files, "sourceFiles": sourceFiles, "knowledgeSources": len(knowledgeSourceMaps), "languages": languageList}}, nil
 }
 func exists(path string) bool { _, err := os.Stat(path); return err == nil }
 func keys(m map[string]struct{}) []string {

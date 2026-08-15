@@ -98,3 +98,152 @@ func TestContextTermsSupportsVietnameseAndCapsSearchFanout(t *testing.T) {
 		t.Fatalf("context terms = %v, want %v", got, want)
 	}
 }
+
+func writeKnowledgeFixture(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func knowledgeMaps(t *testing.T, projectMap map[string]any) []map[string]any {
+	t.Helper()
+	raw, ok := projectMap["knowledgeSources"].([]any)
+	if !ok {
+		t.Fatalf("knowledgeSources has unexpected type: %T", projectMap["knowledgeSources"])
+	}
+	out := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("knowledge source has unexpected type: %T", item)
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func knowledgeSnapshot(items []map[string]any) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, fmt.Sprintf("%v|%v|%v|%v|%v|%v|%v", item["path"], item["provider"], item["sourceType"], item["scopePath"], item["classification"], item["contentHash"], item["parserFingerprint"]))
+	}
+	return out
+}
+
+func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *testing.T) {
+	root := t.TempDir()
+	fixtures := map[string]string{
+		"AGENTS.md":                               "root instructions",
+		"backend/AGENTS.md":                       "backend instructions",
+		"backend/CLAUDE.md":                       "claude backend",
+		"CLAUDE.local.md":                         "local claude preference",
+		".cursor/rules/backend.mdc":               "---\ndescription: backend\n---\nUse services.",
+		".cursor/rules/ignored.mdc":               "ignored cursor rule",
+		".github/copilot-instructions.md":         "copilot root",
+		".github/instructions/go.instructions.md": "go instructions",
+		"ignored/AGENTS.md":                       "ignored agents",
+		".codelocal/project.json":                 `{"projectId":"project-test"}`,
+		".codelocal/secrets.json":                 `{"token":"must-not-be-discovered"}`,
+		".claude/settings.local.json":             `{"dangerouslyAllow":"not-a-knowledge-source"}`,
+	}
+	for rel, content := range fixtures {
+		writeKnowledgeFixture(t, root, rel, content)
+	}
+	writeKnowledgeFixture(t, root, ".gitignore", "ignored/\n.cursor/rules/ignored.mdc\n")
+	outside := t.TempDir()
+	writeKnowledgeFixture(t, outside, "AGENTS.md", "outside workspace")
+	_ = os.MkdirAll(filepath.Join(root, "symlinked"), 0o755)
+	symlinkCreated := os.Symlink(filepath.Join(outside, "AGENTS.md"), filepath.Join(root, "symlinked", "AGENTS.md")) == nil
+
+	fs, err := localfs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(fs)
+	defer engine.Close()
+
+	firstMap, err := engine.Map(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := knowledgeMaps(t, firstMap)
+	wantPaths := []string{
+		".codelocal/project.json",
+		".cursor/rules/backend.mdc",
+		".github/copilot-instructions.md",
+		".github/instructions/go.instructions.md",
+		"AGENTS.md",
+		"CLAUDE.local.md",
+		"backend/AGENTS.md",
+		"backend/CLAUDE.md",
+	}
+	if len(items) != len(wantPaths) {
+		t.Fatalf("knowledge source count=%d want=%d items=%v", len(items), len(wantPaths), items)
+	}
+	for i, item := range items {
+		if got := fmt.Sprint(item["path"]); got != wantPaths[i] {
+			t.Fatalf("knowledge path[%d]=%q want=%q", i, got, wantPaths[i])
+		}
+		if item["content"] != nil {
+			t.Fatalf("raw content leaked into project map for %s", gotPath(item))
+		}
+		if len(fmt.Sprint(item["contentHash"])) != 64 || len(fmt.Sprint(item["parserFingerprint"])) != 64 {
+			t.Fatalf("missing stable hashes for %s: %v", gotPath(item), item)
+		}
+	}
+
+	byPath := map[string]map[string]any{}
+	for _, item := range items {
+		byPath[gotPath(item)] = item
+	}
+	if byPath["backend/AGENTS.md"]["scopePath"] != "backend" {
+		t.Fatalf("nested AGENTS scope=%v want backend", byPath["backend/AGENTS.md"]["scopePath"])
+	}
+	if byPath["CLAUDE.local.md"]["classification"] != "local_private" {
+		t.Fatalf("CLAUDE.local classification=%v", byPath["CLAUDE.local.md"]["classification"])
+	}
+	if byPath[".codelocal/project.json"]["sourceType"] != "project_metadata" || byPath[".codelocal/project.json"]["classification"] != "local_private" {
+		t.Fatalf("unexpected CodeLocal marker classification: %v", byPath[".codelocal/project.json"])
+	}
+	excludedPaths := []string{"ignored/AGENTS.md", ".cursor/rules/ignored.mdc", ".codelocal/secrets.json", ".claude/settings.local.json"}
+	if symlinkCreated {
+		excludedPaths = append(excludedPaths, "symlinked/AGENTS.md")
+	}
+	for _, excluded := range excludedPaths {
+		if _, exists := byPath[excluded]; exists {
+			t.Fatalf("unsafe/ignored source discovered: %s", excluded)
+		}
+	}
+
+	secondMap, err := engine.Map(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(knowledgeSnapshot(items)) != fmt.Sprint(knowledgeSnapshot(knowledgeMaps(t, secondMap))) {
+		t.Fatalf("knowledge discovery is not stable across cached maps")
+	}
+
+	oldHash := fmt.Sprint(byPath["AGENTS.md"]["contentHash"])
+	writeKnowledgeFixture(t, root, "AGENTS.md", "root instructions changed")
+	engine.Invalidate()
+	changedMap, err := engine.Map(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedByPath := map[string]map[string]any{}
+	for _, item := range knowledgeMaps(t, changedMap) {
+		changedByPath[gotPath(item)] = item
+	}
+	if newHash := fmt.Sprint(changedByPath["AGENTS.md"]["contentHash"]); newHash == oldHash {
+		t.Fatalf("content hash did not change after source edit: %s", newHash)
+	}
+}
+
+func gotPath(item map[string]any) string {
+	return fmt.Sprint(item["path"])
+}
