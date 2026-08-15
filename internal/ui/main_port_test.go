@@ -152,6 +152,21 @@ func TestDashboardPolishRemovesDecorativeBarsAndKeepsDistinctChatGPTMark(t *test
 	}
 }
 
+func TestDashboardPageIncludesKnowledgeGraphNavigation(t *testing.T) {
+	html := DashboardPage(DashboardOptions{
+		Title:  "Knowledge Graph",
+		Active: "knowledge",
+		Email:  "user@example.com",
+		CSRF:   "csrf",
+	})
+	if !strings.Contains(html, `href="/dashboard/knowledge"`) || !strings.Contains(html, `>Knowledge Graph</span>`) {
+		t.Fatal("modern dashboard must expose the Knowledge Graph in the control-plane navigation")
+	}
+	if !strings.Contains(html, `href="/dashboard/knowledge" aria-label="Knowledge Graph" title="Knowledge Graph" class="active"`) {
+		t.Fatal("Knowledge Graph navigation must render active on the graph page")
+	}
+}
+
 func TestDashboardPageDoesNotRenderStandaloneTokenUsageTab(t *testing.T) {
 	html := DashboardPage(DashboardOptions{
 		Title:  "Overview",

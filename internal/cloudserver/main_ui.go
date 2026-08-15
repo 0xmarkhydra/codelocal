@@ -42,6 +42,8 @@ func (s *Server) MainUIHandler(next http.Handler) http.Handler {
 			s.mainRevokeDevice(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/workspaces":
 			s.mainWorkspaces(w, r, identity)
+		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/knowledge":
+			s.knowledgeDashboard(w, r, identity)
 		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/dashboard/workspaces/") && strings.HasSuffix(r.URL.Path, "/remove"):
 			s.mainRemoveWorkspace(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/usage":

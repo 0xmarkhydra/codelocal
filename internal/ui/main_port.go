@@ -27,6 +27,7 @@ const ChatGPTLogoDataURI = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMwAAA
 var UIIcons = map[string]string{
 	"overview":     navIcons["overview"],
 	"workspaces":   navIcons["workspaces"],
+	"knowledge":    navIcons["knowledge"],
 	"devices":      navIcons["devices"],
 	"usage":        navIcons["usage"],
 	"connect":      navIcons["connect"],
@@ -194,6 +195,7 @@ func DashboardPage(options DashboardOptions) string {
 	nav.WriteString(`<div class="nav-label">Control plane</div><nav class="nav">`)
 	nav.WriteString(navLink("/dashboard", "overview", "Overview", options.Active == "overview"))
 	nav.WriteString(navLink("/dashboard/workspaces", "workspaces", "Workspaces", options.Active == "workspaces"))
+	nav.WriteString(navLink("/dashboard/knowledge", "knowledge", "Knowledge Graph", options.Active == "knowledge"))
 	nav.WriteString(navLink("/dashboard/devices", "devices", "Devices", options.Active == "devices"))
 	nav.WriteString(navLink("/dashboard/connect", "connect", "Connect ChatGPT", options.Active == "connect"))
 	nav.WriteString(`</nav><div class="nav-label">Community</div><nav class="nav">`)
