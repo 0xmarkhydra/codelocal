@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 )
 
@@ -143,6 +145,48 @@ func TestLearnedSkillPrivateRuntimeOperations(t *testing.T) {
 	}
 	if items[0]["steps"] != nil {
 		t.Fatalf("workspace learned-skill inspection must not expose replay step bodies: %#v", items[0])
+	}
+}
+
+func TestContextForTaskIncludesBoundedProjectBrainRules(t *testing.T) {
+	engine := newTestEngine(t)
+	if err := os.MkdirAll(filepath.Join(engine.Root, "backend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(engine.Root, "AGENTS.md"), []byte("Use gofmt before reporting completion.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(engine.Root, "backend", "AGENTS.md"), []byte("Use repository interfaces in backend services.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(engine.Root, "backend", "service.go"), []byte("package backend\n\nfunc PaymentService() string { return \"ok\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := engine.Handle(context.Background(), "context_for_task", map[string]any{"taskHint": "fix PaymentService backend behavior", "limit": 10}, HandleOptions{RequestID: "context-project-brain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("context_for_task returned %T", result)
+	}
+	brain, ok := packetMap["projectBrain"].(projectbrain.ContextPacket)
+	if !ok {
+		t.Fatalf("projectBrain packet = %T %#v", packetMap["projectBrain"], packetMap["projectBrain"])
+	}
+	joined := ""
+	for _, rule := range brain.EffectiveRules {
+		joined += rule.Text + "\n"
+		if !strings.Contains(rule.Trust, "cannot grant execution permission") {
+			t.Fatalf("rule trust boundary missing: %#v", rule)
+		}
+	}
+	if !strings.Contains(joined, "Use gofmt") || !strings.Contains(joined, "repository interfaces") {
+		t.Fatalf("expected root+nested rules in compiled context, got %q", joined)
+	}
+	if brain.Budget.UsedChars > brain.Budget.MaxChars || brain.Budget.MaxChars != 8000 || len(brain.Fingerprint) != 64 {
+		t.Fatalf("unexpected Project Brain budget/fingerprint: %#v", brain)
 	}
 }
 

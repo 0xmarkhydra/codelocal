@@ -28,6 +28,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/mcphub"
 	processmgr "github.com/0xmarkhydra/codelocal/internal/process"
 	"github.com/0xmarkhydra/codelocal/internal/project"
+	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/security"
 	"github.com/0xmarkhydra/codelocal/internal/version"
@@ -445,6 +446,62 @@ func (e *Engine) readInstructions(path string) (map[string]any, error) {
 	return map[string]any{"instructionFiles": files, "instructions": contents}, nil
 }
 
+func projectBrainTargets(result map[string]any) []string {
+	out := []string{}
+	seen := map[string]struct{}{}
+	appendPath := func(value any) {
+		path := strings.TrimSpace(fmt.Sprint(value))
+		if path == "" || path == "." {
+			return
+		}
+		if _, exists := seen[path]; exists {
+			return
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	switch ranked := result["rankedFiles"].(type) {
+	case []map[string]any:
+		for _, item := range ranked {
+			appendPath(item["path"])
+			if len(out) >= 8 {
+				break
+			}
+		}
+	case []any:
+		for _, raw := range ranked {
+			if item, ok := raw.(map[string]any); ok {
+				appendPath(item["path"])
+			}
+			if len(out) >= 8 {
+				break
+			}
+		}
+	}
+	return out
+}
+
+func (e *Engine) attachProjectBrainContext(result map[string]any) {
+	if e == nil || e.FS == nil || result == nil {
+		return
+	}
+	projectMap, ok := result["project"].(map[string]any)
+	if !ok || projectMap == nil {
+		return
+	}
+	manifest := projectbrain.FromProjectMap(projectMap)
+	resolved, err := projectbrain.ResolveRules(e.FS, manifest, projectBrainTargets(result))
+	if err != nil {
+		return
+	}
+	packet := projectbrain.CompileContext(resolved, 8000)
+	result["projectBrain"] = packet
+	if budget, ok := result["contextBudget"].(map[string]any); ok {
+		budget["projectBrainMaxChars"] = packet.Budget.MaxChars
+		budget["projectBrainUsedChars"] = packet.Budget.UsedChars
+	}
+}
+
 func (e *Engine) inspectDependency(name, ecosystem string) (map[string]any, error) {
 	if ecosystem == "" || ecosystem == "auto" {
 		if strings.HasPrefix(name, "@") || exists(filepath.Join(e.Root, "node_modules", name)) {
@@ -681,7 +738,12 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "project_map":
 		return e.Project.Map(asBool(args["force"], false))
 	case "context_for_task":
-		return e.Project.ContextForTask(ctx, asString(args["taskHint"]), asInt(args["limit"], 30))
+		result, err := e.Project.ContextForTask(ctx, asString(args["taskHint"]), asInt(args["limit"], 30))
+		if err != nil {
+			return nil, err
+		}
+		e.attachProjectBrainContext(result)
+		return result, nil
 	case "read_instructions":
 		return e.readInstructions(defaultString(asString(args["path"]), "."))
 	case "list_files":
