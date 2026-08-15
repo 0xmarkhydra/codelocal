@@ -209,8 +209,16 @@ func ContextCompatible(stored, current *ContextFingerprint) (bool, string) {
 	if stored.BranchPolicy == "exact" && stored.Branch != "" && current.Branch != "" && stored.Branch != current.Branch {
 		return false, "branch_changed"
 	}
-	if strings.Join(stored.RequiredCapabilities, "\x00") != strings.Join(current.RequiredCapabilities, "\x00") && len(stored.RequiredCapabilities) > 0 {
-		return false, "required_capabilities_changed"
+	if len(stored.RequiredCapabilities) > 0 {
+		available := map[string]struct{}{}
+		for _, capability := range current.RequiredCapabilities {
+			available[capability] = struct{}{}
+		}
+		for _, required := range stored.RequiredCapabilities {
+			if _, ok := available[required]; !ok {
+				return false, "required_capability_missing:" + required
+			}
+		}
 	}
 	if len(stored.WorkflowFiles) > 0 {
 		for key, hash := range stored.WorkflowFiles {

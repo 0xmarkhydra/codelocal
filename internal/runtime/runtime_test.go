@@ -2,14 +2,19 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/identity"
+	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
+	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/workspace"
 )
 
@@ -79,19 +84,6 @@ func TestRegistrySignatureIgnoresWorkspaceOrder(t *testing.T) {
 	}
 }
 
-func TestProjectIdentityRefreshDue(t *testing.T) {
-	now := time.Now().UnixMilli()
-	if !projectIdentityRefreshDue(0, now) {
-		t.Fatal("first project identity scan must run")
-	}
-	if projectIdentityRefreshDue(now-projectIdentityRefreshInterval.Milliseconds()+1, now) {
-		t.Fatal("project identity should not rescan before the bounded refresh interval")
-	}
-	if !projectIdentityRefreshDue(now-projectIdentityRefreshInterval.Milliseconds(), now) {
-		t.Fatal("project identity must refresh when the interval elapses so newly added nested repos are discovered")
-	}
-}
-
 func TestWorkspaceWorkerStopIsConcurrentSafe(t *testing.T) {
 	runtime := New(Options{})
 	worker := &WorkspaceWorker{
@@ -121,5 +113,78 @@ func TestWorkspaceWorkerStopIsConcurrentSafe(t *testing.T) {
 	defer runtime.mu.Unlock()
 	if runtime.workers[worker.Workspace.WorkspaceID] != nil {
 		t.Fatal("worker was not removed from runtime")
+	}
+}
+
+func TestSyncRegistryKeepsProjectBrainOffStartupPayloadAndFailsOpenOnLocalBrainState(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("CODELOCAL_STATE_DIR", stateDir)
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), []byte("Use repository interfaces.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/client/workspaces/sync" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode sync body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"synced":1,"removed":0,"knowledge":{},"projectBrain":{"cloudSyncEnabled":false}}`))
+	}))
+	defer server.Close()
+
+	runtime := New(Options{BaseURL: server.URL, Credential: identity.Credential{CredentialID: "cld_test", CredentialSecret: "secret", DeviceID: "device-a"}})
+	if _, err := runtime.Registry.Grant(projectDir, "project-a"); err != nil {
+		t.Fatal(err)
+	}
+	corruptPath := filepath.Join(stateDir, "project-brain", "corrupt.json")
+	if err := os.MkdirAll(filepath.Dir(corruptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(corruptPath, []byte("{not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime.brainSync = projectbrain.NewSyncStateStoreAt(corruptPath)
+
+	items, err := runtime.SyncRegistry(context.Background(), true)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("core registry sync must stay usable when local brain state is corrupt: items=%d err=%v", len(items), err)
+	}
+	workspaces, ok := body["workspaces"].([]any)
+	if !ok || len(workspaces) != 1 {
+		t.Fatalf("unexpected workspace payload: %#v", body)
+	}
+	entry, ok := workspaces[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected workspace entry: %#v", workspaces[0])
+	}
+	if _, exists := entry["knowledgeManifest"]; exists {
+		t.Fatalf("startup registry payload still contains full knowledge manifest: %#v", entry)
+	}
+	if _, exists := entry["knowledgeDelta"]; exists {
+		t.Fatalf("startup registry payload contains Project Brain delta: %#v", entry)
+	}
+	if runtime.projectBrainCloudEnabled() {
+		t.Fatal("server control-plane rollout flag did not disable Project Brain cloud sync")
+	}
+}
+
+func TestApplyDeltaProvenanceDoesNotChangeManifestIdentity(t *testing.T) {
+	source := projectbrain.Source{
+		Path: "backend/AGENTS.md", Provider: "agents", SourceType: "instructions", ScopePath: "backend", Classification: "private_project",
+		ContentHash: "hash", ParserFingerprint: "parser", AdapterVersion: "1", ParserVersion: "1", SemanticNormalizerVersion: "1",
+	}
+	identity := projectidentity.Snapshot{Repositories: []projectidentity.Repository{{ID: "repo-backend", RelativePath: "backend", IdentitySource: "remote"}}}
+	before := projectbrain.SourceFingerprint(source)
+	delta := applyDeltaProvenance(projectbrain.ManifestDelta{RootHash: "root", Sources: []projectbrain.Source{source}}, identity, map[string]gitProvenance{"repo-backend": {Branch: "feat/payment", Commit: "abc123"}})
+	if len(delta.Sources) != 1 || delta.Sources[0].Branch != "feat/payment" || delta.Sources[0].GitCommit != "abc123" {
+		t.Fatalf("branch/commit provenance missing: %#v", delta)
+	}
+	if projectbrain.SourceFingerprint(delta.Sources[0]) != before {
+		t.Fatal("observation provenance changed source content fingerprint")
 	}
 }

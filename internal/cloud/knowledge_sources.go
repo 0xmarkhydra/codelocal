@@ -202,6 +202,19 @@ func validKnowledgeStatus(value string) bool {
 	}
 }
 
+func knowledgeStatusAfterRevision(currentStatus string, tombstone bool) string {
+	switch strings.TrimSpace(currentStatus) {
+	case KnowledgeStatusRevoked:
+		return KnowledgeStatusRevoked
+	case KnowledgeStatusConflicted:
+		return KnowledgeStatusConflicted
+	}
+	if tombstone {
+		return KnowledgeStatusSuperseded
+	}
+	return KnowledgeStatusActive
+}
+
 func normalizeKnowledgeSourceInput(in KnowledgeSourceInput) (KnowledgeSourceInput, error) {
 	in.UserID = strings.TrimSpace(in.UserID)
 	in.ProjectID = strings.TrimSpace(in.ProjectID)
@@ -455,12 +468,12 @@ func (s *Store) AppendKnowledgeSourceRevision(ctx context.Context, input Knowled
 	}
 	defer tx.Rollback(ctx)
 
-	var currentRevisionID string
+	var currentRevisionID, currentStatus string
 	err = tx.QueryRow(ctx, `
-SELECT COALESCE(active_revision_id,'')
+SELECT COALESCE(active_revision_id,''),status
 FROM codelocal_knowledge_sources
 WHERE user_id=$1 AND source_id=$2
-FOR UPDATE`, normalized.UserID, normalized.SourceID).Scan(&currentRevisionID)
+FOR UPDATE`, normalized.UserID, normalized.SourceID).Scan(&currentRevisionID, &currentStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrKnowledgeSourceNotFound
 	}
@@ -500,12 +513,14 @@ VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,NULLIF($10,''),$11,$12,$
 		}
 	}
 
-	status := KnowledgeStatusActive
+	status := knowledgeStatusAfterRevision(currentStatus, normalized.Tombstone)
 	var validTo any
-	if normalized.Tombstone {
-		status = KnowledgeStatusSuperseded
+	if normalized.Tombstone || status == KnowledgeStatusRevoked {
 		validTo = now
 	}
+	// Revoke is explicit user policy, not content state. New observations and
+	// revisions may continue to advance for provenance, but only an explicit
+	// revalidation may make the source eligible again.
 	if _, err := tx.Exec(ctx, `
 UPDATE codelocal_knowledge_sources
 SET active_revision_id=$3,status=$4,last_seen_at=$5,valid_to=$6

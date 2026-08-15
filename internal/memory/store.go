@@ -176,15 +176,17 @@ func embedderModel(embedder Embedder, vector []float32) string {
 	return embedder.Model()
 }
 
-func (s *Store) clearEmbeddingIfPresent(ctx context.Context, id string) error {
-	if !s.Enabled() || strings.TrimSpace(id) == "" {
+func (s *Store) clearEmbeddingIfPresent(ctx context.Context, userID, id string) error {
+	userID = strings.TrimSpace(userID)
+	id = strings.TrimSpace(id)
+	if !s.Enabled() || userID == "" || id == "" {
 		return nil
 	}
 	if !s.EmbeddingColumnAvailable() {
-		_, err := s.db.Exec(ctx, `UPDATE codelocal_memories SET embedding_model=NULL,embedding_dimension=NULL WHERE id=$1`, id)
+		_, err := s.db.Exec(ctx, `UPDATE codelocal_memories SET embedding_model=NULL,embedding_dimension=NULL WHERE user_id=$1 AND id=$2`, userID, id)
 		return err
 	}
-	_, err := s.db.Exec(ctx, `UPDATE codelocal_memories SET embedding=NULL,embedding_model=NULL,embedding_dimension=NULL WHERE id=$1`, id)
+	_, err := s.db.Exec(ctx, `UPDATE codelocal_memories SET embedding=NULL,embedding_model=NULL,embedding_dimension=NULL WHERE user_id=$1 AND id=$2`, userID, id)
 	return err
 }
 
@@ -249,7 +251,7 @@ func (s *Store) Ingest(ctx context.Context, input IngestInput) (Record, error) {
 	// Clear any previous vector before changing the durable text. If the new
 	// embedding cannot be produced or written, recall safely falls back to
 	// lexical ranking instead of pairing new text with stale semantic meaning.
-	if err := s.clearEmbeddingIfPresent(ctx, id); err != nil {
+	if err := s.clearEmbeddingIfPresent(ctx, input.UserID, id); err != nil {
 		return Record{}, fmt.Errorf("clear stale memory embedding: %w", err)
 	}
 	var record Record
@@ -269,7 +271,7 @@ RETURNING id,user_id,COALESCE(workspace_id,''),COALESCE(project_id,''),COALESCE(
 	record.Files = decodeList(filesRaw)
 	record.Symbols = decodeList(symbolsRaw)
 	if len(vector) > 0 {
-		if _, err := s.db.Exec(ctx, `UPDATE codelocal_memories SET embedding=$1::vector,embedding_model=$2,embedding_dimension=$3 WHERE id=$4`, vectorLiteral(vector), s.embedder.Model(), len(vector), record.ID); err != nil {
+		if _, err := s.db.Exec(ctx, `UPDATE codelocal_memories SET embedding=$1::vector,embedding_model=$2,embedding_dimension=$3 WHERE user_id=$4 AND id=$5`, vectorLiteral(vector), s.embedder.Model(), len(vector), record.UserID, record.ID); err != nil {
 			slog.Warn("memory vector write failed; lexical memory remains stored", "error", err)
 		}
 	}
@@ -487,7 +489,7 @@ LIMIT $6`, input.UserID, input.WorkspaceID, input.ProjectID, input.RepositoryIDs
 		for _, record := range ranked {
 			ids = append(ids, record.ID)
 		}
-		_, _ = s.db.Exec(ctx, `UPDATE codelocal_memories SET last_used_at=$1 WHERE id=ANY($2)`, time.Now().UnixMilli(), ids)
+		_, _ = s.db.Exec(ctx, `UPDATE codelocal_memories SET last_used_at=$1 WHERE user_id=$2 AND id=ANY($3)`, time.Now().UnixMilli(), input.UserID, ids)
 	}
 	return ranked, nil
 }

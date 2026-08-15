@@ -31,6 +31,55 @@ func TestTaskPatchTracksContextAndEditPaths(t *testing.T) {
 	}
 }
 
+func TestTaskPatchPersistsMandatoryOverflowAsDeterministicMutationGate(t *testing.T) {
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{
+		"projectBrain": map[string]any{
+			"ruleFingerprint": "rules", "fingerprint": "context", "mandatoryOverflow": true,
+			"omittedRequiredRuleIds": []any{"rule-25", "rule-26"},
+		},
+	}}
+	patch := taskPatchForOperation("context", operationInvocation{OperationID: "context.task"}, map[string]any{"taskHint": "fix payment"}, result)
+	if patch.RuleMutationBlocked == nil || !*patch.RuleMutationBlocked || !patch.ReplaceOmittedRuleIDs || len(patch.OmittedRequiredRuleIDs) != 2 {
+		t.Fatalf("mandatory overflow not persisted into task gate: %#v", patch)
+	}
+	if !ruleGovernedMutation(operationInvocation{OperationID: "edit.apply", MutatesState: true}) || ruleGovernedMutation(operationInvocation{OperationID: "read.file", MutatesState: false}) {
+		t.Fatal("rule-governed mutation classification is wrong")
+	}
+	user, session, workspace := "gate-user", "gate-session", "gate-workspace"
+	defer workingMemory.Delete(user, session, workspace)
+	workingMemory.Update(user, session, workspace, taskstate.Patch{Task: "fix payment", RuleMutationBlocked: patch.RuleMutationBlocked, OmittedRequiredRuleIDs: patch.OmittedRequiredRuleIDs, ReplaceOmittedRuleIDs: true})
+	if state, blocked := mutationBlockedState(user, session, workspace); !blocked || len(state.OmittedRequiredRuleIDs) != 2 {
+		t.Fatalf("deterministic mutation gate state missing: %#v blocked=%v", state, blocked)
+	}
+	if _, blocked := mutationBlockedState(user, "different-session", workspace); blocked {
+		t.Fatal("mandatory overflow from one task/session leaked into an unrelated session")
+	}
+}
+
+func TestMutationTargetPathsIncludesUnifiedDiffFiles(t *testing.T) {
+	op := operationInvocation{OperationID: "edit.patch", MutatesState: true}
+	paths := mutationTargetPaths("edit", op, map[string]any{"patch": "--- a/internal/a.go\n+++ b/internal/a.go\n@@ -1 +1 @@\n-old\n+new\n--- /dev/null\n+++ b/internal/new.go\n"})
+	joined := strings.Join(paths, ",")
+	if !strings.Contains(joined, "internal/a.go") || !strings.Contains(joined, "internal/new.go") || strings.Contains(joined, "dev/null") {
+		t.Fatalf("unexpected patch mutation targets: %#v", paths)
+	}
+}
+
+func TestSemanticExperienceTaskKindUsesTaskIntentNotExecutionTool(t *testing.T) {
+	cases := map[string]string{
+		"fix login bug":                  "bugfix",
+		"refactor payment service":       "refactor",
+		"deploy backend to Railway":      "deployment",
+		"review authentication code":     "review",
+		"implement user profile feature": "feature",
+	}
+	for task, want := range cases {
+		if got := semanticExperienceTaskKind(task, "terminal"); got != want {
+			t.Fatalf("task %q kind=%q want=%q", task, got, want)
+		}
+	}
+}
+
 func TestTaskPatchDoesNotPersistRawTerminalCommand(t *testing.T) {
 	op := operationInvocation{OperationID: "terminal.run"}
 	patch := taskPatchForOperation("terminal", op, map[string]any{

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 )
@@ -70,8 +71,21 @@ func TestMCPCallAlwaysRequiresFreshChatApproval(t *testing.T) {
 	if !ok || retryState["status"] != "approval_required" {
 		t.Fatalf("approval-required request was incorrectly journaled: %#v", retry)
 	}
-	if retryState["approvalToken"] == firstToken {
-		t.Fatal("short-lived approval token was replayed from idempotency journal")
+	if retryState["approvalToken"] != firstToken {
+		t.Fatal("same-session retry rotated the pending approval token before it was consumed")
+	}
+
+	otherSession := options
+	otherSession.RequestID = "mcp-3"
+	otherSession.SessionID = "s2"
+	otherSession.IdempotencyKey = "mcp-idem-s2"
+	other, err := engine.Handle(context.Background(), "mcp_call", map[string]any{"server": "external", "tool": "do_thing", "arguments": map[string]any{}}, otherSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherState, ok := other.(map[string]any)
+	if !ok || otherState["approvalToken"] == firstToken {
+		t.Fatal("pending approval token leaked across ChatGPT sessions")
 	}
 }
 
@@ -187,6 +201,48 @@ func TestContextForTaskIncludesBoundedProjectBrainRules(t *testing.T) {
 	}
 	if brain.Budget.UsedChars > brain.Budget.MaxChars || brain.Budget.MaxChars != 8000 || len(brain.Fingerprint) != 64 {
 		t.Fatalf("unexpected Project Brain budget/fingerprint: %#v", brain)
+	}
+}
+
+func TestContextForTaskExplicitTargetsRefreshNestedRules(t *testing.T) {
+	engine := newTestEngine(t)
+	if err := os.MkdirAll(filepath.Join(engine.Root, "backend", "payments"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(engine.Root, "backend", "payments", "AGENTS.md"), []byte("Always use payment transaction boundaries.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(engine.Root, "backend", "payments", "service.go"), []byte("package payments\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.Handle(context.Background(), "context_for_task", map[string]any{"taskHint": "inspect unrelated startup behavior", "targets": []any{"backend/payments/service.go"}, "limit": 3}, HandleOptions{RequestID: "explicit-target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := result.(map[string]any)
+	if packet["projectBrainTargetSource"] != "explicit" {
+		t.Fatalf("target source=%#v", packet["projectBrainTargetSource"])
+	}
+	brain := packet["projectBrain"].(projectbrain.ContextPacket)
+	joined := ""
+	for _, rule := range brain.EffectiveRules {
+		joined += rule.Text + "\n"
+	}
+	if !strings.Contains(joined, "payment transaction boundaries") {
+		t.Fatalf("explicit target did not refresh nested rule: %q", joined)
+	}
+}
+
+func TestLearnedSkillContextHelpersAreBranchAndCapabilityAware(t *testing.T) {
+	if learnedSkillBranchPolicy("bugfix") != "exact" || learnedSkillBranchPolicy("browser") != "any" {
+		t.Fatal("unexpected branch policy")
+	}
+	reqs := learnedSkillRequirements([]learnedskills.Step{{Tool: "terminal"}, {Tool: "computer"}, {Tool: "read"}})
+	joined := strings.Join(reqs, ",")
+	for _, want := range []string{"computer", "filesystem", "shell"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing capability %s in %v", want, reqs)
+		}
 	}
 }
 

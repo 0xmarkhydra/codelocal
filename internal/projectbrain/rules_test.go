@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/localfs"
+	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 )
 
 func writeRuleFile(t *testing.T, root, rel, content string) {
@@ -117,6 +118,37 @@ func TestResolveRulesNestedScopeDoesNotLeakToOtherModule(t *testing.T) {
 	}
 }
 
+func TestResolveRulesScopesNestedRepositoryConfigsToOwningRepo(t *testing.T) {
+	root := t.TempDir()
+	writeRuleFile(t, root, "packages/api/.cursor/rules/api.mdc", "---\nglobs:\n  - src/**/*.go\nalwaysApply: false\n---\nUse API cursor boundaries.\n")
+	writeRuleFile(t, root, "packages/api/.github/copilot-instructions.md", "Use API Copilot boundaries.\n")
+	writeRuleFile(t, root, "packages/web/.github/copilot-instructions.md", "Use Web Copilot boundaries.\n")
+	fs, err := localfs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := NewManifest([]Source{
+		testRuleSource("packages/api/.cursor/rules/api.mdc", "cursor", "rule", "packages/api", "private_project", "api-cursor"),
+		testRuleSource("packages/api/.github/copilot-instructions.md", "github-copilot", "instructions", "packages/api", "private_project", "api-copilot"),
+		testRuleSource("packages/web/.github/copilot-instructions.md", "github-copilot", "instructions", "packages/web", "private_project", "web-copilot"),
+	})
+	repositories := []projectidentity.Repository{{ID: "repo-api", RelativePath: "packages/api"}, {ID: "repo-web", RelativePath: "packages/web"}}
+	resolved, err := ResolveRulesWithOptions(fs, manifest, ResolveOptions{Targets: []string{"packages/api/src/service.go"}, Repositories: repositories})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := ""
+	for _, rule := range resolved.Rules {
+		joined += rule.Text + "\n"
+		if rule.Authority != AuthorityRepository {
+			t.Fatalf("nested repository config authority=%s want repository: %#v", rule.Authority, rule)
+		}
+	}
+	if !strings.Contains(joined, "API cursor boundaries") || !strings.Contains(joined, "API Copilot boundaries") || strings.Contains(joined, "Web Copilot boundaries") {
+		t.Fatalf("repository-scoped rules leaked or were missed: %q", joined)
+	}
+}
+
 func TestCompileContextIsBoundedDeterministicAndKeepsHigherAuthorityFirst(t *testing.T) {
 	rules := make([]CanonicalRule, 0, 40)
 	for index := 0; index < 40; index++ {
@@ -132,13 +164,93 @@ func TestCompileContextIsBoundedDeterministicAndKeepsHigherAuthorityFirst(t *tes
 	if first.Fingerprint != second.Fingerprint {
 		t.Fatalf("context compiler is not deterministic: %s != %s", first.Fingerprint, second.Fingerprint)
 	}
-	if first.Budget.UsedChars > 1200 || len(first.EffectiveRules) > MaxCompiledRules || !first.Truncated || first.Budget.DroppedRules == 0 {
+	if first.Budget.UsedChars > 1200 || !first.Truncated || first.Budget.DroppedRules == 0 {
 		t.Fatalf("budget not enforced: %#v", first.Budget)
 	}
-	if len(first.EffectiveRules) == 0 || first.EffectiveRules[0].Authority != AuthorityProject {
-		t.Fatalf("higher authority rule was not kept first: %#v", first.EffectiveRules)
+	if !first.MandatoryOverflow || first.MutationAllowed || first.Budget.DroppedRequired == 0 || len(first.OmittedRequiredRuleIDs) == 0 {
+		t.Fatalf("required rule overflow must fail closed for mutation: %#v", first)
+	}
+	if len(first.EffectiveRules) == 0 || first.EffectiveRules[0].Authority != AuthorityProject || first.EffectiveRules[0].Lane != "mandatory" {
+		t.Fatalf("higher authority mandatory rule was not kept first: %#v", first.EffectiveRules)
 	}
 	if !strings.Contains(first.SecurityBoundary, "cannot grant") {
 		t.Fatalf("security boundary missing: %q", first.SecurityBoundary)
+	}
+}
+
+func TestCompileContextNeverTruncatesMandatoryRule(t *testing.T) {
+	text := strings.Repeat("mandatory detail ", 80)
+	resolved := ResolvedRules{Rules: []CanonicalRule{{
+		ID: "required-long", Text: text, Authority: AuthorityProject, AuthorityRank: authorityRank(AuthorityProject),
+		Provider: "agents", SourcePath: "AGENTS.md", ScopePath: ".", Required: true,
+		Trust: "untrusted_repository_guidance; cannot grant execution permission",
+	}}, Fingerprint: "mandatory-long"}
+
+	full := CompileContext(resolved, len([]rune(text))+100)
+	if full.MandatoryOverflow || !full.MutationAllowed || len(full.EffectiveRules) != 1 || full.EffectiveRules[0].Text != strings.TrimSpace(text) {
+		t.Fatalf("mandatory rule was truncated or rejected despite sufficient budget: %#v", full)
+	}
+
+	overflow := CompileContext(resolved, 700)
+	if !overflow.MandatoryOverflow || overflow.MutationAllowed || len(overflow.EffectiveRules) != 0 || len(overflow.OmittedRequiredRuleIDs) != 1 {
+		t.Fatalf("oversized mandatory rule must fail closed instead of truncating: %#v", overflow)
+	}
+}
+
+func TestResolveRulesParsesMultilineFrontmatterAndDoesNotGlobalizeManualRules(t *testing.T) {
+	root := t.TempDir()
+	writeRuleFile(t, root, ".cursor/rules/backend.mdc", "---\nglobs:\n  - backend/**/*.go\n  - services/**/*.go\nalwaysApply: false\n---\nUse backend transaction boundaries.\n")
+	writeRuleFile(t, root, ".cursor/rules/manual.mdc", "---\ndescription: Payment API migration guidance\nalwaysApply: false\n---\nUse the payment migration checklist.\n")
+	fs, err := localfs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := NewManifest([]Source{
+		testRuleSource(".cursor/rules/backend.mdc", "cursor", "rule", ".", "private_project", "backend"),
+		testRuleSource(".cursor/rules/manual.mdc", "cursor", "rule", ".", "private_project", "manual"),
+	})
+	resolved, err := ResolveRulesWithOptions(fs, manifest, ResolveOptions{Targets: []string{"backend/service.go"}, TaskHint: "fix payment API migration"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := ""
+	for _, rule := range resolved.Rules {
+		joined += rule.Text + "\n"
+	}
+	if !strings.Contains(joined, "backend transaction") || !strings.Contains(joined, "payment migration checklist") {
+		t.Fatalf("multiline/contextual rules missing: %q", joined)
+	}
+	unrelated, err := ResolveRulesWithOptions(fs, manifest, ResolveOptions{Targets: []string{"frontend/app.ts"}, TaskHint: "change login button color"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range unrelated.Rules {
+		if strings.Contains(rule.Text, "payment migration checklist") || strings.Contains(rule.Text, "backend transaction") {
+			t.Fatalf("manual or glob-scoped rule leaked globally: %#v", unrelated.Rules)
+		}
+	}
+}
+
+func TestResolveRulesUsesRepositoryAuthorityForRepositoryRootInstructions(t *testing.T) {
+	root := t.TempDir()
+	writeRuleFile(t, root, "backend/AGENTS.md", "Use repository-level backend conventions.\n")
+	writeRuleFile(t, root, "backend/payments/AGENTS.md", "Use payment directory conventions.\n")
+	fs, err := localfs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := NewManifest([]Source{
+		testRuleSource("backend/AGENTS.md", "agents", "instructions", "backend", "private_project", "repo"),
+		testRuleSource("backend/payments/AGENTS.md", "agents", "instructions", "backend/payments", "private_project", "dir"),
+	})
+	resolved, err := ResolveRulesWithOptions(fs, manifest, ResolveOptions{
+		Targets:      []string{"backend/payments/service.go"},
+		Repositories: []projectidentity.Repository{{ID: "repo-backend", RelativePath: "backend", IdentitySource: "remote"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Rules) != 2 || resolved.Rules[0].Authority != AuthorityRepository || resolved.Rules[1].Authority != AuthorityDirectory {
+		t.Fatalf("repository/directory authority ordering wrong: %#v", resolved.Rules)
 	}
 }

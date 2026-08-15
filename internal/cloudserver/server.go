@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -58,6 +61,30 @@ func randomID() string {
 		return hex.EncodeToString(buf)
 	}
 	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+func projectBrainCloudSyncEnabled(userID, deviceID string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_PROJECT_BRAIN_CLOUD_SYNC"))) {
+	case "0", "false", "off", "disabled":
+		return false
+	}
+	// Rollout is opt-in and fail-closed. Deploying a new server binary without
+	// configuring a cohort must never silently turn Project Brain on for 100%
+	// of users.
+	raw := strings.TrimSpace(os.Getenv("CODELOCAL_PROJECT_BRAIN_ROLLOUT_PERCENT"))
+	if raw == "" {
+		return false
+	}
+	percent, err := strconv.Atoi(raw)
+	if err != nil || percent <= 0 {
+		return false
+	}
+	if percent >= 100 {
+		return true
+	}
+	digest := sha256.Sum256([]byte(strings.TrimSpace(userID) + "\x00" + strings.TrimSpace(deviceID)))
+	bucket := int(binary.BigEndian.Uint16(digest[:2])) % 10000
+	return bucket < percent*100
 }
 
 func New(ctx context.Context) (*Server, error) {
@@ -241,6 +268,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/client/auth/check", s.clientAuthCheck)
 	mux.HandleFunc("POST /api/client/auth/logout", s.clientAuthLogout)
 	mux.HandleFunc("POST /api/client/workspaces/sync", s.workspaceSync)
+	mux.HandleFunc("POST /api/client/knowledge/sync", s.knowledgeSync)
 	mux.HandleFunc("POST /api/client/runtime/poll", s.runtimePoll)
 	mux.HandleFunc("POST /api/client/runtime/revocation-ack", s.revocationAck)
 	mux.Handle("/client", s.Hub)
@@ -767,12 +795,51 @@ func (s *Server) clientAuthLogout(w http.ResponseWriter, r *http.Request) {
 	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": revoked})
 }
 
+func (s *Server) knowledgeSync(w http.ResponseWriter, r *http.Request) {
+	device, err := s.authenticateDevice(r)
+	if err != nil || device == nil {
+		webutil.JSON(w, http.StatusUnauthorized, map[string]any{"error": "device_auth_failed"})
+		return
+	}
+	if !projectBrainCloudSyncEnabled(device.UserID, device.DeviceID) {
+		webutil.JSON(w, http.StatusOK, cloud.KnowledgeManifestSyncResult{Disabled: true, ActiveRevisions: map[string]string{}})
+		return
+	}
+	var input struct {
+		WorkspaceID     string                     `json:"workspaceId"`
+		ProjectIdentity projectidentity.Snapshot   `json:"projectIdentity"`
+		Delta           projectbrain.ManifestDelta `json:"delta"`
+	}
+	if webutil.DecodeJSON(r, 320<<10, &input) != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
+		return
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`).MatchString(input.WorkspaceID) {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_workspace"})
+		return
+	}
+	binding, err := s.Store.ResolveWorkspaceProject(r.Context(), device.UserID, device.DeviceID, input.WorkspaceID, input.ProjectIdentity)
+	if err != nil || binding.ProjectID == "" {
+		slog.Warn("project brain binding refresh failed; background sync will retry", "workspaceId", input.WorkspaceID, "error", err)
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_binding_unavailable"})
+		return
+	}
+	result, err := s.Store.SyncKnowledgeDelta(r.Context(), device.UserID, device.DeviceID, input.WorkspaceID, binding.ProjectID, input.ProjectIdentity.Repositories, input.Delta)
+	if err != nil {
+		slog.Warn("project brain delta sync failed; runtime remains usable", "workspaceId", input.WorkspaceID, "projectId", binding.ProjectID, "error", err)
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_sync_failed"})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, result)
+}
+
 func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	device, err := s.authenticateDevice(r)
 	if err != nil || device == nil {
 		webutil.JSON(w, http.StatusUnauthorized, map[string]any{"error": "device_auth_failed"})
 		return
 	}
+	brainEnabled := projectBrainCloudSyncEnabled(device.UserID, device.DeviceID)
 	var input struct {
 		ClientVersion string `json:"clientVersion"`
 		Workspaces    []struct {
@@ -830,14 +897,16 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 		if bindingErr != nil {
 			slog.Warn("workspace project identity resolution failed; workspace remains usable", "workspaceId", item.WorkspaceID, "error", bindingErr)
 		}
-		if bindingErr == nil && binding.ProjectID != "" && item.KnowledgeManifest != nil {
+		if brainEnabled && bindingErr == nil && binding.ProjectID != "" && item.KnowledgeManifest != nil {
 			result, knowledgeErr := s.Store.SyncKnowledgeManifest(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, binding.ProjectID, item.ProjectIdentity.Repositories, *item.KnowledgeManifest)
 			if knowledgeErr != nil {
-				slog.Warn("project knowledge manifest sync failed", "workspaceId", item.WorkspaceID, "projectId", binding.ProjectID, "error", knowledgeErr)
-				webutil.JSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_sync_failed", "workspaceId": item.WorkspaceID})
-				return
+				// Knowledge is an enrichment layer. Legacy clients may still attach a
+				// full manifest to workspace sync, but a transient Project Brain/DB
+				// failure must never make the runtime itself unavailable.
+				slog.Warn("project knowledge manifest sync failed; workspace remains usable", "workspaceId", item.WorkspaceID, "projectId", binding.ProjectID, "error", knowledgeErr)
+			} else {
+				knowledgeResults[item.WorkspaceID] = result
 			}
-			knowledgeResults[item.WorkspaceID] = result
 		}
 		if err := s.Store.SyncLearnedSkillMetadata(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, item.LearnedSkills); err != nil {
 			slog.Warn("learned skill metadata sync failed; local skills remain authoritative", "workspaceId", item.WorkspaceID, "error", err)
@@ -858,7 +927,10 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Activation.Heartbeat(r.Context(), device.UserID, device.DeviceID, ids, 45*time.Second)
 	s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "runtime.workspaces_synced", DeviceID: device.DeviceID, Detail: map[string]any{"count": synced, "removed": len(removed)}})
-	webutil.JSON(w, http.StatusOK, map[string]any{"synced": synced, "removed": len(removed), "knowledge": knowledgeResults, "syncedAt": time.Now().UnixMilli()})
+	webutil.JSON(w, http.StatusOK, map[string]any{
+		"synced": synced, "removed": len(removed), "knowledge": knowledgeResults, "syncedAt": time.Now().UnixMilli(),
+		"projectBrain": map[string]any{"cloudSyncEnabled": brainEnabled},
+	})
 }
 
 func truncate(value string, n int) string {

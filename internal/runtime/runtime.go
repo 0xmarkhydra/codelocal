@@ -48,11 +48,14 @@ type Runtime struct {
 	knowledgeManifests      map[string]projectbrain.Manifest
 	knowledgeBaseRevisions  map[string]map[string]string
 	syncedKnowledgeRoots    map[string]string
+	brainSync               *projectbrain.SyncStateStore
+	knowledgeMu             sync.Mutex
+	brainCloudSyncEnabled   bool
+	lastControlPlaneSync    int64
 	stopped                 bool
 	pollCancel              context.CancelFunc
 	syncedRegistrySignature string
 	syncedSignature         string
-	lastProjectIdentitySync int64
 }
 
 type WorkspaceWorker struct {
@@ -88,7 +91,7 @@ func New(options Options) *Runtime {
 	if options.IdleWorkspace <= 0 {
 		options.IdleWorkspace = 20 * time.Minute
 	}
-	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}, projectIdentities: map[string]projectidentity.Snapshot{}, knowledgeManifests: map[string]projectbrain.Manifest{}, knowledgeBaseRevisions: map[string]map[string]string{}, syncedKnowledgeRoots: map[string]string{}}
+	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}, projectIdentities: map[string]projectidentity.Snapshot{}, knowledgeManifests: map[string]projectbrain.Manifest{}, knowledgeBaseRevisions: map[string]map[string]string{}, syncedKnowledgeRoots: map[string]string{}, brainSync: projectbrain.NewSyncStateStore(), brainCloudSyncEnabled: false}
 }
 func normalizeBase(value string) string { return strings.TrimRight(value, "/") }
 func wsURL(base string) string {
@@ -137,15 +140,6 @@ func (r *Runtime) post(ctx context.Context, path string, input any, output any) 
 	return nil
 }
 
-const projectIdentityRefreshInterval = 5 * time.Minute
-
-func projectIdentityRefreshDue(lastSync, now int64) bool {
-	if lastSync <= 0 {
-		return true
-	}
-	return now-lastSync >= projectIdentityRefreshInterval.Milliseconds()
-}
-
 func registrySignature(items []workspace.Workspace) string {
 	parts := make([]string, 0, len(items))
 	for _, w := range items {
@@ -177,7 +171,28 @@ func learnedSkillMetadataSnapshot(store *learnedskills.Store, deviceID, workspac
 }
 
 type workspaceSyncResponse struct {
-	Knowledge map[string]cloud.KnowledgeManifestSyncResult `json:"knowledge"`
+	Knowledge    map[string]cloud.KnowledgeManifestSyncResult `json:"knowledge"`
+	ProjectBrain *struct {
+		CloudSyncEnabled bool `json:"cloudSyncEnabled"`
+	} `json:"projectBrain,omitempty"`
+}
+
+const controlPlaneRefreshInterval = 5 * time.Minute
+
+func controlPlaneRefreshDue(lastSync, now int64) bool {
+	return lastSync <= 0 || now-lastSync >= controlPlaneRefreshInterval.Milliseconds()
+}
+
+func (r *Runtime) projectBrainCloudEnabled() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.brainCloudSyncEnabled
+}
+
+func (r *Runtime) setProjectBrainCloudEnabled(value bool) {
+	r.mu.Lock()
+	r.brainCloudSyncEnabled = value
+	r.mu.Unlock()
 }
 
 func copyRevisionMap(values map[string]string) map[string]string {
@@ -186,27 +201,6 @@ func copyRevisionMap(values map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
-}
-
-func (r *Runtime) knowledgeManifestForWorkspace(w workspace.Workspace, cached projectbrain.Manifest, reconcile bool) (projectbrain.Manifest, error) {
-	r.mu.Lock()
-	worker := r.workers[w.WorkspaceID]
-	r.mu.Unlock()
-	if worker != nil && worker.Engine != nil && worker.Engine.Project != nil {
-		projectMap, err := worker.Engine.Project.Map(false)
-		if err != nil {
-			return cached, err
-		}
-		return projectbrain.CloudSafeManifest(projectbrain.FromProjectMap(projectMap)), nil
-	}
-	if !reconcile && cached.RootHash != "" {
-		return cached, nil
-	}
-	manifest, err := projectbrain.Collect(w.LocalPath)
-	if err != nil {
-		return cached, err
-	}
-	return projectbrain.CloudSafeManifest(manifest), nil
 }
 
 func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Workspace, error) {
@@ -224,8 +218,10 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 	sort.Strings(skillVersions)
 
 	authorized := make(map[string]struct{}, len(items))
+	authorizedIDs := make([]string, 0, len(items))
 	for _, item := range items {
 		authorized[item.WorkspaceID] = struct{}{}
+		authorizedIDs = append(authorizedIDs, item.WorkspaceID)
 	}
 	staleWorkers := make([]*WorkspaceWorker, 0)
 	r.mu.Lock()
@@ -234,68 +230,67 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 			staleWorkers = append(staleWorkers, worker)
 		}
 	}
-	now := time.Now().UnixMilli()
-	registryChanged := registrySig != r.syncedRegistrySignature
-	projectRefreshDue := force || registryChanged || projectIdentityRefreshDue(r.lastProjectIdentitySync, now)
 	cachedIdentities := make(map[string]projectidentity.Snapshot, len(r.projectIdentities))
 	for id, snapshot := range r.projectIdentities {
 		cachedIdentities[id] = snapshot
-	}
-	cachedManifests := make(map[string]projectbrain.Manifest, len(r.knowledgeManifests))
-	for id, manifest := range r.knowledgeManifests {
-		cachedManifests[id] = manifest
-	}
-	baseRevisions := make(map[string]map[string]string, len(r.knowledgeBaseRevisions))
-	for id, revisions := range r.knowledgeBaseRevisions {
-		baseRevisions[id] = copyRevisionMap(revisions)
-	}
-	syncedRoots := make(map[string]string, len(r.syncedKnowledgeRoots))
-	for id, root := range r.syncedKnowledgeRoots {
-		syncedRoots[id] = root
 	}
 	r.mu.Unlock()
 	for _, worker := range staleWorkers {
 		go worker.Stop("workspace authorization removed")
 	}
 
+	// Project identity is durable local metadata. Do not rediscover every
+	// authorized workspace on a timer: sleeping workspaces may be large and a
+	// repository walk on the runtime heartbeat is unnecessary. Reuse memory,
+	// then the private Project Brain state, and discover only a workspace that
+	// has no durable identity yet. Active workspaces refresh identity separately.
 	nextIdentities := make(map[string]projectidentity.Snapshot, len(items))
-	nextManifests := make(map[string]projectbrain.Manifest, len(items))
-	manifestVersions := make([]string, 0, len(items))
 	for _, w := range items {
 		identity, cached := cachedIdentities[w.WorkspaceID]
-		if projectRefreshDue || !cached {
+		var syncState projectbrain.WorkspaceSyncState
+		var haveSyncState bool
+		if !cached && r.brainSync != nil {
+			if stored, ok, loadErr := r.brainSync.Workspace(w.WorkspaceID); loadErr != nil {
+				slog.Debug("project identity cache unreadable; rediscovering workspace", "workspaceId", w.WorkspaceID, "error", loadErr)
+			} else if ok {
+				syncState, haveSyncState = stored, true
+				if projectIdentityPresent(stored.ProjectIdentity) {
+					identity, cached = stored.ProjectIdentity, true
+				}
+			}
+		}
+		if !cached {
 			identity = projectidentity.Discover(w.LocalPath, w.WorkspaceName)
+			if r.brainSync != nil {
+				if !haveSyncState {
+					syncState = projectbrain.WorkspaceSyncState{WorkspaceID: w.WorkspaceID, BaseRevisions: map[string]string{}}
+				}
+				syncState.WorkspaceID = w.WorkspaceID
+				syncState.ProjectIdentity = identity
+				if persistErr := r.brainSync.Put(syncState); persistErr != nil {
+					slog.Debug("project identity cache persistence failed; runtime remains usable", "workspaceId", w.WorkspaceID, "error", persistErr)
+				}
+			}
 		}
 		nextIdentities[w.WorkspaceID] = identity
-		manifest, manifestErr := r.knowledgeManifestForWorkspace(w, cachedManifests[w.WorkspaceID], projectRefreshDue)
-		if manifestErr != nil {
-			slog.Debug("project knowledge manifest refresh failed; retaining prior manifest", "workspaceId", w.WorkspaceID, "error", manifestErr)
-			manifest = cachedManifests[w.WorkspaceID]
-		}
-		nextManifests[w.WorkspaceID] = manifest
-		manifestVersions = append(manifestVersions, w.WorkspaceID+"="+manifest.RootHash)
 	}
-	sort.Strings(manifestVersions)
-	signature := registrySig + "\nlearned-skills\n" + strings.Join(skillVersions, "\n") + "\nproject-knowledge\n" + strings.Join(manifestVersions, "\n")
+	signature := registrySig + "\nlearned-skills\n" + strings.Join(skillVersions, "\n")
+	now := time.Now().UnixMilli()
 	r.mu.Lock()
 	unchanged := signature == r.syncedSignature
+	controlRefreshDue := controlPlaneRefreshDue(r.lastControlPlaneSync, now)
 	r.mu.Unlock()
-	if !force && unchanged && !projectRefreshDue {
+	if !force && unchanged && !controlRefreshDue {
 		return items, nil
 	}
 
 	workspaces := make([]map[string]any, 0, len(items))
 	for _, w := range items {
 		skillMetadata, _ := learnedSkillMetadataSnapshot(skillStore, r.Options.Credential.DeviceID, w.WorkspaceID)
-		entry := map[string]any{
+		workspaces = append(workspaces, map[string]any{
 			"workspaceId": w.WorkspaceID, "workspaceName": w.WorkspaceName,
 			"projectIdentity": nextIdentities[w.WorkspaceID], "learnedSkills": skillMetadata,
-		}
-		manifest := nextManifests[w.WorkspaceID]
-		if manifest.RootHash != "" && (force || manifest.RootHash != syncedRoots[w.WorkspaceID]) {
-			entry["knowledgeManifest"] = projectbrain.WithBaseRevisions(manifest, baseRevisions[w.WorkspaceID])
-		}
-		workspaces = append(workspaces, entry)
+		})
 	}
 	payload := map[string]any{"clientVersion": version.Version, "workspaces": workspaces}
 	var response workspaceSyncResponse
@@ -307,18 +302,16 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 	r.syncedRegistrySignature = registrySig
 	r.syncedSignature = signature
 	r.projectIdentities = nextIdentities
-	r.knowledgeManifests = nextManifests
-	for workspaceID, result := range response.Knowledge {
-		if strings.TrimSpace(result.RootHash) == "" {
-			continue
-		}
-		r.syncedKnowledgeRoots[workspaceID] = result.RootHash
-		r.knowledgeBaseRevisions[workspaceID] = copyRevisionMap(result.ActiveRevisions)
-	}
-	if projectRefreshDue {
-		r.lastProjectIdentitySync = now
+	r.lastControlPlaneSync = now
+	if response.ProjectBrain != nil {
+		r.brainCloudSyncEnabled = response.ProjectBrain.CloudSyncEnabled
 	}
 	r.mu.Unlock()
+	if r.brainSync != nil {
+		if err := r.brainSync.Prune(authorizedIDs); err != nil {
+			slog.Debug("project brain sync-state prune failed; runtime remains usable", "error", err)
+		}
+	}
 	return items, nil
 }
 
@@ -372,6 +365,16 @@ func (r *Runtime) Activate(ctx context.Context, workspaceID string) (*WorkspaceW
 		worker.Stop("activation failed")
 		return nil, err
 	}
+	// Project Brain is intentionally outside the activation critical path. The
+	// workspace is already usable once the worker has registered; knowledge
+	// discovery/sync may retry independently if Cloud or the local cache fails.
+	go func(active workspace.Workspace) {
+		syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := r.syncKnowledgeWorkspace(syncCtx, active, true); err != nil {
+			slog.Debug("project brain activation sync delayed; workspace remains usable", "workspaceId", active.WorkspaceID, "error", err)
+		}
+	}(worker.Workspace)
 	return worker, nil
 }
 
@@ -712,6 +715,9 @@ func (r *Runtime) ackRevocation(ctx context.Context, requestID, workspaceID stri
 }
 
 func (r *Runtime) Run(ctx context.Context) error {
+	brainCtx, cancelBrain := context.WithCancel(ctx)
+	defer cancelBrain()
+	go r.runKnowledgeSyncLoop(brainCtx)
 	return r.runRealtime(ctx)
 }
 

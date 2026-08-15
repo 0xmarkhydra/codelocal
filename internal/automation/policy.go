@@ -252,7 +252,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (a *Authorizer) Authorize(action Action, providedToken string) (bool, map[string]any, error) {
+func (a *Authorizer) AuthorizeScoped(action Action, providedToken, sessionID string) (bool, map[string]any, error) {
 	if a == nil {
 		return false, nil, errors.New("automation authorizer unavailable")
 	}
@@ -265,30 +265,31 @@ func (a *Authorizer) Authorize(action Action, providedToken string) (bool, map[s
 		return true, nil, nil
 	}
 	if decision.ApprovalPolicy == security.ApprovalRememberable && decision.ApprovalKey != "" {
-		remembered, err := a.Memory.Find(a.WorkspaceKey, decision.ApprovalKey)
+		remembered, err := a.Memory.Find(a.WorkspaceKey, sessionID, decision.ApprovalKey, decision.RiskLevel)
 		if err != nil {
 			return false, nil, err
 		}
 		if remembered != nil {
-			_, _ = a.Memory.Touch(a.WorkspaceKey, decision.ApprovalKey)
-			return true, map[string]any{"remembered": true, "approvalId": remembered.ID}, nil
+			_, _ = a.Memory.Touch(a.WorkspaceKey, sessionID, decision.ApprovalKey)
+			return true, map[string]any{"remembered": true, "approvalId": remembered.ID, "expiresAt": remembered.ExpiresAt}, nil
 		}
 	}
-	if providedToken != "" && a.Broker.Consume(providedToken, command, a.WorkspaceKey, decision) {
+	if providedToken != "" && a.Broker.ConsumeScoped(sessionID, providedToken, command, a.WorkspaceKey, decision) {
 		state := map[string]any{"approved": true}
 		if decision.ApprovalPolicy == security.ApprovalRememberable {
-			entry, err := a.Memory.Remember(a.WorkspaceKey, decision)
+			entry, err := a.Memory.Remember(a.WorkspaceKey, sessionID, decision)
 			if err != nil {
 				return false, nil, err
 			}
 			if entry != nil {
 				state["remembered"] = true
 				state["approvalId"] = entry.ID
+				state["expiresAt"] = entry.ExpiresAt
 			}
 		}
 		return true, state, nil
 	}
-	preflight := a.Broker.Preflight(command, a.WorkspaceKey, decision)
+	preflight := a.Broker.PreflightScoped(sessionID, command, a.WorkspaceKey, decision)
 	return false, map[string]any{
 		"status":         preflight.Status,
 		"riskLevel":      preflight.RiskLevel,
@@ -300,6 +301,10 @@ func (a *Authorizer) Authorize(action Action, providedToken string) (bool, map[s
 		"approvalToken":  preflight.ApprovalToken,
 		"expiresAt":      preflight.ExpiresAt,
 	}, nil
+}
+
+func (a *Authorizer) Authorize(action Action, providedToken string) (bool, map[string]any, error) {
+	return a.AuthorizeScoped(action, providedToken, "")
 }
 
 func (a Action) String() string {

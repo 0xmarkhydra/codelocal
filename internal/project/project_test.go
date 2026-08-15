@@ -138,18 +138,21 @@ func knowledgeSnapshot(items []map[string]any) []string {
 func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *testing.T) {
 	root := t.TempDir()
 	fixtures := map[string]string{
-		"AGENTS.md":                               "root instructions",
-		"backend/AGENTS.md":                       "backend instructions",
-		"backend/CLAUDE.md":                       "claude backend",
-		"CLAUDE.local.md":                         "local claude preference",
-		".cursor/rules/backend.mdc":               "---\ndescription: backend\n---\nUse services.",
-		".cursor/rules/ignored.mdc":               "ignored cursor rule",
-		".github/copilot-instructions.md":         "copilot root",
-		".github/instructions/go.instructions.md": "go instructions",
-		"ignored/AGENTS.md":                       "ignored agents",
-		".codelocal/project.json":                 `{"projectId":"project-test"}`,
-		".codelocal/secrets.json":                 `{"token":"must-not-be-discovered"}`,
-		".claude/settings.local.json":             `{"dangerouslyAllow":"not-a-knowledge-source"}`,
+		"AGENTS.md":                                            "root instructions",
+		"backend/AGENTS.md":                                    "backend instructions",
+		"backend/CLAUDE.md":                                    "claude backend",
+		"CLAUDE.local.md":                                      "local claude preference",
+		".cursor/rules/backend.mdc":                            "---\ndescription: backend\n---\nUse services.",
+		".cursor/rules/ignored.mdc":                            "ignored cursor rule",
+		".github/copilot-instructions.md":                      "copilot root",
+		".github/instructions/go.instructions.md":              "go instructions",
+		"packages/api/.cursor/rules/api.mdc":                   "---\nglobs:\n  - src/**/*.go\n---\nUse API boundaries.",
+		"packages/api/.github/copilot-instructions.md":         "copilot api root",
+		"packages/api/.github/instructions/go.instructions.md": "---\napplyTo:\n  - src/**/*.go\n---\nUse API Go instructions.",
+		"ignored/AGENTS.md":                                    "ignored agents",
+		".codelocal/project.json":                              `{"projectId":"project-test"}`,
+		".codelocal/secrets.json":                              `{"token":"must-not-be-discovered"}`,
+		".claude/settings.local.json":                          `{"dangerouslyAllow":"not-a-knowledge-source"}`,
 	}
 	for rel, content := range fixtures {
 		writeKnowledgeFixture(t, root, rel, content)
@@ -181,6 +184,9 @@ func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *tes
 		"CLAUDE.local.md",
 		"backend/AGENTS.md",
 		"backend/CLAUDE.md",
+		"packages/api/.cursor/rules/api.mdc",
+		"packages/api/.github/copilot-instructions.md",
+		"packages/api/.github/instructions/go.instructions.md",
 	}
 	if len(items) != len(wantPaths) {
 		t.Fatalf("knowledge source count=%d want=%d items=%v", len(items), len(wantPaths), items)
@@ -203,6 +209,15 @@ func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *tes
 	}
 	if byPath["backend/AGENTS.md"]["scopePath"] != "backend" {
 		t.Fatalf("nested AGENTS scope=%v want backend", byPath["backend/AGENTS.md"]["scopePath"])
+	}
+	for _, nestedConfig := range []string{
+		"packages/api/.cursor/rules/api.mdc",
+		"packages/api/.github/copilot-instructions.md",
+		"packages/api/.github/instructions/go.instructions.md",
+	} {
+		if byPath[nestedConfig]["scopePath"] != "packages/api" {
+			t.Fatalf("nested repository config %s scope=%v want packages/api", nestedConfig, byPath[nestedConfig]["scopePath"])
+		}
 	}
 	if byPath["CLAUDE.local.md"]["classification"] != "local_private" {
 		t.Fatalf("CLAUDE.local classification=%v", byPath["CLAUDE.local.md"]["classification"])

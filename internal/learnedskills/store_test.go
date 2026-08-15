@@ -166,6 +166,18 @@ func TestContextFingerprintBranchPolicyAndLegacyCompatibility(t *testing.T) {
 	}
 }
 
+func TestContextFingerprintCapabilitiesUseRequirementSubsetSemantics(t *testing.T) {
+	stored := &ContextFingerprint{ProjectID: "project", RequiredCapabilities: []string{"git", "shell"}}
+	current := &ContextFingerprint{ProjectID: "project", RequiredCapabilities: []string{"filesystem", "git", "shell", "browser"}}
+	if ok, reason := ContextCompatible(stored, current); !ok {
+		t.Fatalf("extra available capabilities must not stale a skill: reason=%q", reason)
+	}
+	missing := &ContextFingerprint{ProjectID: "project", RequiredCapabilities: []string{"filesystem", "git"}}
+	if ok, reason := ContextCompatible(stored, missing); ok || reason != "required_capability_missing:shell" {
+		t.Fatalf("missing required capability must block replay: ok=%v reason=%q", ok, reason)
+	}
+}
+
 func TestRecipesAreWorkspaceScopedAndPrivate(t *testing.T) {
 	store := newTestStore(t)
 	steps := []Step{{Tool: "browser", Args: map[string]any{"action": "open", "url": "https://example.com"}}, {Tool: "browser", Args: map[string]any{"action": "snapshot"}}}

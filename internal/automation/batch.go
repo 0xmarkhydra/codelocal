@@ -94,7 +94,7 @@ func executeComputerSequence(ctx context.Context, windowID string, steps []compu
 	return results, nil
 }
 
-func (c *Controller) runComputerSequence(ctx context.Context, args map[string]any) (any, error) {
+func (c *Controller) runComputerSequence(ctx context.Context, args map[string]any, sessionID string) (any, error) {
 	if c == nil || c.Computer == nil {
 		return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
 	}
@@ -102,7 +102,7 @@ func (c *Controller) runComputerSequence(ctx context.Context, args map[string]an
 	if err != nil {
 		return nil, err
 	}
-	approved, state, err := c.authorize(sequenceApprovalAction(windowID, steps), args)
+	approved, state, err := c.authorize(sessionID, sequenceApprovalAction(windowID, steps), args)
 	if err != nil || !approved {
 		return state, err
 	}

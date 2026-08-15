@@ -54,6 +54,53 @@ func TestAutomationPolicy(t *testing.T) {
 	}
 }
 
+func TestAutomationAuthorizerScopesRememberedGrantToChatSession(t *testing.T) {
+	t.Setenv("CODELOCAL_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	authorizer := NewAuthorizer("device::workspace")
+	action := Action{Domain: "browser", Operation: "open", Origin: "https://example.com", Target: "https://example.com"}
+
+	approved, pending, err := authorizer.AuthorizeScoped(action, "", "session-a")
+	if err != nil || approved || pending["status"] != "approval_required" {
+		t.Fatalf("initial approval state: approved=%v pending=%#v err=%v", approved, pending, err)
+	}
+	token, _ := pending["approvalToken"].(string)
+	if token == "" {
+		t.Fatal("missing approval token")
+	}
+	approved, confirmed, err := authorizer.AuthorizeScoped(action, token, "session-a")
+	if err != nil || !approved || confirmed["remembered"] != true {
+		t.Fatalf("confirmation did not create scoped grant: approved=%v state=%#v err=%v", approved, confirmed, err)
+	}
+	approved, reused, err := authorizer.AuthorizeScoped(action, "", "session-a")
+	if err != nil || !approved || reused["remembered"] != true {
+		t.Fatalf("same-session grant not reused: approved=%v state=%#v err=%v", approved, reused, err)
+	}
+	approved, otherSession, err := authorizer.AuthorizeScoped(action, "", "session-b")
+	if err != nil || approved || otherSession["status"] != "approval_required" {
+		t.Fatalf("approval leaked across sessions: approved=%v state=%#v err=%v", approved, otherSession, err)
+	}
+}
+
+func TestAutomationAlwaysApprovalNeverBecomesRemembered(t *testing.T) {
+	t.Setenv("CODELOCAL_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	authorizer := NewAuthorizer("device::workspace")
+	action := Action{Domain: "browser", Operation: "click", Origin: "https://shop.example", Target: "Confirm payment"}
+
+	approved, pending, err := authorizer.AuthorizeScoped(action, "", "session-a")
+	if err != nil || approved || pending["approvalPolicy"] != security.ApprovalAlways {
+		t.Fatalf("critical action did not require fresh approval: approved=%v state=%#v err=%v", approved, pending, err)
+	}
+	token, _ := pending["approvalToken"].(string)
+	approved, _, err = authorizer.AuthorizeScoped(action, token, "session-a")
+	if err != nil || !approved {
+		t.Fatalf("critical one-time approval failed: approved=%v err=%v", approved, err)
+	}
+	approved, next, err := authorizer.AuthorizeScoped(action, "", "session-a")
+	if err != nil || approved || next["approvalPolicy"] != security.ApprovalAlways {
+		t.Fatalf("critical approval was incorrectly remembered: approved=%v state=%#v err=%v", approved, next, err)
+	}
+}
+
 func TestComputerPolicyScopesRememberedInputByWindow(t *testing.T) {
 	decision := ClassifyAutomation(Action{Domain: "computer", Operation: "click", Origin: "ax:123:0", Target: "Save"})
 	if decision.RiskLevel != security.RiskHigh || !decision.RequiresApproval || decision.ApprovalPolicy != security.ApprovalRememberable {

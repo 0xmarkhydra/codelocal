@@ -30,25 +30,33 @@ type Preflight struct {
 }
 
 type pendingApproval struct {
+	Token       string
 	TokenHash   string
 	Fingerprint string
 	ExpiresAt   int64
 }
 
 type Broker struct {
-	mu      sync.Mutex
-	pending map[string]pendingApproval
-	ttl     time.Duration
+	mu                   sync.Mutex
+	pending              map[string]pendingApproval
+	pendingByFingerprint map[string]string
+	ttl                  time.Duration
 }
 
 func NewBroker() *Broker {
-	ttl := 5 * time.Minute
+	// Chat approval is a human round trip. The token is still one-time and
+	// exact-fingerprint-bound; a longer pending window does not broaden scope.
+	ttl := 30 * time.Minute
 	if raw := strings.TrimSpace(os.Getenv("CODELOCAL_CHAT_APPROVAL_TTL_MS")); raw != "" {
 		if parsed, err := time.ParseDuration(raw + "ms"); err == nil && parsed > 0 {
 			ttl = parsed
 		}
 	}
-	return &Broker{pending: map[string]pendingApproval{}, ttl: ttl}
+	return &Broker{
+		pending:              map[string]pendingApproval{},
+		pendingByFingerprint: map[string]string{},
+		ttl:                  ttl,
+	}
 }
 
 func sha(value string) string {
@@ -64,10 +72,11 @@ func randomSecret(bytes int) string {
 	return sha(time.Now().String())
 }
 
-func fingerprint(command, cwd string, decision security.Decision) string {
+func fingerprint(sessionID, command, cwd string, decision security.Decision) string {
 	rules := append([]string(nil), decision.MatchedRules...)
 	sort.Strings(rules)
 	payload, _ := json.Marshal(map[string]any{
+		"sessionId":       strings.TrimSpace(sessionID),
 		"rawCommandHash":  sha(command),
 		"redactedCommand": decision.RedactedCommand,
 		"cwd":             cwd,
@@ -79,10 +88,21 @@ func fingerprint(command, cwd string, decision security.Decision) string {
 	return sha(string(payload))
 }
 
+func (b *Broker) deletePendingLocked(id string) {
+	entry, ok := b.pending[id]
+	if !ok {
+		return
+	}
+	delete(b.pending, id)
+	if current, exists := b.pendingByFingerprint[entry.Fingerprint]; exists && current == id {
+		delete(b.pendingByFingerprint, entry.Fingerprint)
+	}
+}
+
 func (b *Broker) pruneLocked(now int64) {
 	for id, entry := range b.pending {
 		if entry.ExpiresAt <= now {
-			delete(b.pending, id)
+			b.deletePendingLocked(id)
 		}
 	}
 }
@@ -91,7 +111,10 @@ func preflightBase(status string, decision security.Decision) Preflight {
 	return Preflight{Status: status, RiskLevel: decision.RiskLevel, Reason: decision.Reason, MatchedRules: append([]string(nil), decision.MatchedRules...), Command: decision.RedactedCommand, ApprovalPolicy: decision.ApprovalPolicy, ApprovalKey: decision.ApprovalKey, ApprovalLabel: decision.ApprovalLabel}
 }
 
-func (b *Broker) Preflight(command, cwd string, decision security.Decision) Preflight {
+// PreflightScoped returns one stable pending token for the exact
+// session+command+cwd+policy fingerprint. Repeated retries while a user is
+// deciding do not rotate the nonce and invalidate the approval being reviewed.
+func (b *Broker) PreflightScoped(sessionID, command, cwd string, decision security.Decision) Preflight {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := time.Now().UnixMilli()
@@ -102,14 +125,32 @@ func (b *Broker) Preflight(command, cwd string, decision security.Decision) Pref
 	if !decision.RequiresApproval {
 		return preflightBase("safe", decision)
 	}
+
+	fp := fingerprint(sessionID, command, cwd, decision)
+	if id := b.pendingByFingerprint[fp]; id != "" {
+		if existing, ok := b.pending[id]; ok && existing.ExpiresAt > now && existing.Token != "" {
+			out := preflightBase("approval_required", decision)
+			out.ApprovalToken = existing.Token
+			out.ExpiresAt = existing.ExpiresAt
+			return out
+		}
+		delete(b.pendingByFingerprint, fp)
+	}
+
 	id := randomSecret(16)
 	secret := randomSecret(32)
+	token := id + "." + secret
 	expires := time.Now().Add(b.ttl).UnixMilli()
-	b.pending[id] = pendingApproval{TokenHash: sha(secret), Fingerprint: fingerprint(command, cwd, decision), ExpiresAt: expires}
+	b.pending[id] = pendingApproval{Token: token, TokenHash: sha(secret), Fingerprint: fp, ExpiresAt: expires}
+	b.pendingByFingerprint[fp] = id
 	out := preflightBase("approval_required", decision)
-	out.ApprovalToken = id + "." + secret
+	out.ApprovalToken = token
 	out.ExpiresAt = expires
 	return out
+}
+
+func (b *Broker) Preflight(command, cwd string, decision security.Decision) Preflight {
+	return b.PreflightScoped("", command, cwd, decision)
 }
 
 func sameHex(a, b string) bool {
@@ -121,7 +162,10 @@ func sameHex(a, b string) bool {
 	return subtle.ConstantTimeCompare(aa, bb) == 1
 }
 
-func (b *Broker) Consume(token, command, cwd string, decision security.Decision) bool {
+// ConsumeScoped validates and consumes exactly one pending capability. Invalid
+// tokens, a different session, or a changed command/policy never erase the
+// legitimate pending approval; only successful consumption or expiry does.
+func (b *Broker) ConsumeScoped(sessionID, token, command, cwd string, decision security.Decision) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := time.Now().UnixMilli()
@@ -137,12 +181,19 @@ func (b *Broker) Consume(token, command, cwd string, decision security.Decision)
 		return false
 	}
 	entry, ok := b.pending[parts[0]]
-	if !ok {
+	if !ok || entry.ExpiresAt <= now {
 		return false
 	}
-	delete(b.pending, parts[0])
-	if entry.ExpiresAt <= now || !sameHex(entry.TokenHash, sha(parts[1])) {
+	if !sameHex(entry.TokenHash, sha(parts[1])) {
 		return false
 	}
-	return sameHex(entry.Fingerprint, fingerprint(command, cwd, decision))
+	if !sameHex(entry.Fingerprint, fingerprint(sessionID, command, cwd, decision)) {
+		return false
+	}
+	b.deletePendingLocked(parts[0])
+	return true
+}
+
+func (b *Broker) Consume(token, command, cwd string, decision security.Decision) bool {
+	return b.ConsumeScoped("", token, command, cwd, decision)
 }

@@ -230,6 +230,33 @@ func structuredFilePaths(args map[string]any, key string) []string {
 	return paths
 }
 
+func patchFilePaths(value string) []string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, line := range strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "+++ ") && !strings.HasPrefix(line, "--- ") {
+			continue
+		}
+		path := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "--- "))
+		if tab := strings.IndexByte(path, '\t'); tab >= 0 {
+			path = path[:tab]
+		}
+		path = strings.TrimPrefix(path, "a/")
+		path = strings.TrimPrefix(path, "b/")
+		path = strings.TrimSpace(path)
+		if path == "" || path == "/dev/null" || path == "dev/null" || strings.HasPrefix(path, "/") || path == ".." || strings.HasPrefix(path, "../") {
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
+}
+
 func taskPatchForOperation(publicTool string, operation operationInvocation, args map[string]any, result *mcp.CallToolResult) taskstate.Patch {
 	patch := taskstate.Patch{LastAction: operation.OperationID}
 	if publicTool == "context" {
@@ -241,6 +268,10 @@ func taskPatchForOperation(publicTool string, operation operationInvocation, arg
 			patch.RulesHash = sanitizeTaskMemoryText(fmt.Sprint(brain["ruleFingerprint"]))
 			patch.ContextHash = sanitizeTaskMemoryText(fmt.Sprint(brain["fingerprint"]))
 			patch.Branch = sanitizeTaskMemoryText(fmt.Sprint(root["gitBranch"]))
+			blocked, _ := brain["mandatoryOverflow"].(bool)
+			patch.RuleMutationBlocked = &blocked
+			patch.ReplaceOmittedRuleIDs = true
+			patch.OmittedRequiredRuleIDs = stringSliceArg(brain, "omittedRequiredRuleIds")
 		}
 	}
 	if publicTool == "edit" {
@@ -249,6 +280,9 @@ func taskPatchForOperation(publicTool string, operation operationInvocation, arg
 		}
 		patch.TouchedFiles = append(patch.TouchedFiles, stringSliceArg(args, "paths")...)
 		patch.TouchedFiles = append(patch.TouchedFiles, structuredFilePaths(args, "files")...)
+		if rawPatch, _ := args["patch"].(string); strings.TrimSpace(rawPatch) != "" {
+			patch.TouchedFiles = append(patch.TouchedFiles, patchFilePaths(rawPatch)...)
+		}
 	}
 	if publicTool == "git" {
 		if branch, _ := args["branch"].(string); strings.TrimSpace(branch) != "" {
@@ -911,8 +945,46 @@ func (s *Service) recallLongTermMemory(ctx context.Context, userID, deviceID, wo
 	return records, graph
 }
 
+func semanticExperienceTaskKind(task, publicTool string) string {
+	lower := strings.ToLower(strings.Join(strings.Fields(task), " "))
+	containsAny := func(values ...string) bool {
+		for _, value := range values {
+			if strings.Contains(lower, value) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case containsAny("review", "audit", "đánh giá", "kiểm tra code"):
+		return "review"
+	case containsAny("refactor", "tái cấu trúc"):
+		return "refactor"
+	case containsAny("migration", "migrate", "chuyển đổi schema"):
+		return "migration"
+	case containsAny("deploy", "deployment", "triển khai", "release"):
+		return "deployment"
+	case containsAny("bug", "fix", "sửa lỗi", "lỗi "):
+		return "bugfix"
+	case containsAny("feature", "tính năng", "implement", "thêm "):
+		return "feature"
+	case containsAny("test", "kiểm thử"):
+		return "test"
+	default:
+		if strings.TrimSpace(publicTool) == "" {
+			return "coding"
+		}
+		return "coding"
+	}
+}
+
 func (s *Service) recordVerifiedExperienceAsync(userID, session, deviceID, workspaceID, publicTool string, state taskstate.State, result *mcp.CallToolResult) {
-	if s == nil || s.Store == nil || result == nil || result.IsError || strings.TrimSpace(state.Task) == "" || state.QualityStatus != "ready" || !state.VerificationSeen || state.DiagnosticRegression > 0 {
+	if s == nil || s.Store == nil || result == nil || strings.TrimSpace(state.Task) == "" || !state.VerificationSeen {
+		return
+	}
+	succeeded := !result.IsError && state.QualityStatus == "ready" && state.DiagnosticRegression <= 0
+	failed := state.DiagnosticRegression > 0 || (strings.EqualFold(state.LastOutcome, "failed") && len(state.RecentErrors) > 0)
+	if !succeeded && !failed {
 		return
 	}
 	go func() {
@@ -923,14 +995,26 @@ func (s *Service) recordVerifiedExperienceAsync(userID, session, deviceID, works
 		if repoIDs := s.repositoryIDsForWorkspaceFiles(ctx, userID, projectID, deviceID, workspaceID, state.TouchedFiles); len(repoIDs) == 1 {
 			repositoryID = repoIDs[0]
 		}
+		outcome := "succeeded"
+		rootCause := ""
 		verificationSummary := fmt.Sprintf("Verified ready quality gate; quality=%d; passed=%d; required=%d; diffObserved=%t; diagnosticRegression=%d", state.QualityScore, len(state.PassedChecks), len(state.RequiredChecks), state.DiffObserved, state.DiagnosticRegression)
+		idempotencyState := "verified-ready"
+		if failed {
+			outcome = "failed"
+			idempotencyState = "verified-failure"
+			rootCause = strings.Join(state.RecentErrors, "; ")
+			if rootCause == "" && state.DiagnosticRegression > 0 {
+				rootCause = fmt.Sprintf("diagnostic regression: +%d", state.DiagnosticRegression)
+			}
+			verificationSummary = fmt.Sprintf("Verified failure evidence; quality=%d; status=%s; passed=%d; required=%d; diagnosticRegression=%d", state.QualityScore, state.QualityStatus, len(state.PassedChecks), len(state.RequiredChecks), state.DiagnosticRegression)
+		}
 		input := cloud.ExperienceInput{
 			UserID: userID, ProjectID: projectID, RepositoryID: repositoryID, WorkspaceID: workspaceID, DeviceID: deviceID,
-			TaskID: session, TaskKind: publicTool, Objective: state.Task, Branch: state.Branch,
+			TaskID: session, TaskKind: semanticExperienceTaskKind(state.Task, publicTool), Objective: state.Task, Branch: state.Branch,
 			Files: append([]string(nil), state.TouchedFiles...), Symbols: agentCheckpointSymbols(state), Checks: append([]string(nil), state.PassedChecks...),
-			Outcome: "succeeded", RulesHash: state.RulesHash, ContextHash: state.ContextHash, VerificationSummary: verificationSummary, Verified: true,
-			IdempotencyKey: longmemory.IdempotencyKey(userID, session, projectID, repositoryID, state.Task, state.RulesHash, state.ContextHash, "verified-ready"),
-			Metadata:       map[string]any{"qualityScore": state.QualityScore, "diffObserved": state.DiffObserved, "source": "codelocal-verification"},
+			Outcome: outcome, RootCause: rootCause, RulesHash: state.RulesHash, ContextHash: state.ContextHash, VerificationSummary: verificationSummary, Verified: true,
+			IdempotencyKey: longmemory.IdempotencyKey(userID, session, projectID, repositoryID, state.Task, state.RulesHash, state.ContextHash, idempotencyState),
+			Metadata:       map[string]any{"qualityScore": state.QualityScore, "diffObserved": state.DiffObserved, "source": "codelocal-verification", "executionTool": publicTool},
 		}
 		if _, err := s.Store.RecordExperience(ctx, input); err != nil {
 			slog.Warn("verified experience record failed; tool result remains valid", "error", err)
@@ -1190,9 +1274,113 @@ func (s *Service) recallConversationMemory(ctx context.Context, userID, session 
 	return result, nil
 }
 
+func ruleGovernedMutation(operation operationInvocation) bool {
+	if !operation.MutatesState {
+		return false
+	}
+	id := strings.TrimSpace(operation.OperationID)
+	return strings.HasPrefix(id, "edit.") || strings.HasPrefix(id, "git.") || strings.HasPrefix(id, "terminal.") || strings.HasPrefix(id, "process.")
+}
+
+func mutationBlockedState(userID, session, workspaceKey string) (taskstate.State, bool) {
+	state, ok := workingMemory.Get(userID, session, workspaceKey)
+	return state, ok && state.RuleMutationBlocked
+}
+
+func mutationTargetPaths(publicTool string, operation operationInvocation, args map[string]any) []string {
+	patch := taskPatchForOperation(publicTool, operation, args, nil)
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(patch.TouchedFiles))
+	for _, path := range patch.TouchedFiles {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
+}
+
+func contextRefreshRequired(result *mcp.CallToolResult, targets []string) *mcp.CallToolResult {
+	if result == nil {
+		return errorResult(fmt.Errorf("Project Brain context refresh failed before mutation"))
+	}
+	root := resultRoot(result)
+	if root == nil {
+		root = map[string]any{}
+	}
+	root["status"] = "context_refresh_required"
+	root["error"] = "Project Brain resolved rules for the concrete mutation target. Review the refreshed projectBrain packet, then retry the mutation."
+	root["targets"] = append([]string(nil), targets...)
+	result.StructuredContent = root
+	result.IsError = true
+	return result
+}
+
+func (s *Service) refreshProjectBrainBeforeMutation(ctx context.Context, userID, session, workspaceKey, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, bool) {
+	state, ok := workingMemory.Get(userID, session, workspaceKey)
+	if !ok || strings.TrimSpace(state.Task) == "" {
+		return nil, false
+	}
+	targets := mutationTargetPaths(publicTool, operation, args)
+	if len(targets) == 0 {
+		return nil, false
+	}
+	contextOperation, err := operationForRuntimeTool("context_for_task")
+	if err != nil {
+		return errorResult(err), true
+	}
+	contextArgs := map[string]any{
+		"taskHint": state.Task,
+		"targets":  targets,
+		"limit":    30,
+	}
+	if workspaceKey != "" {
+		contextArgs["workspaceKey"] = workspaceKey
+	}
+	oldHash := state.ContextHash
+	result, callErr := s.callOperation(ctx, userID, "context", contextOperation, contextArgs, req)
+	if callErr != nil {
+		return errorResult(callErr), true
+	}
+	if result == nil || result.IsError {
+		if result == nil {
+			return errorResult(fmt.Errorf("Project Brain context refresh returned no result before mutation")), true
+		}
+		return result, true
+	}
+	patch := taskPatchForOperation("context", contextOperation, contextArgs, result)
+	state = workingMemory.Update(userID, session, workspaceKey, patch)
+	if state.ContextHash != "" && state.ContextHash != oldHash {
+		// Stop before the write. The caller receives the exact-target rule packet
+		// and can retry only after it has observed the refreshed constraints.
+		return contextRefreshRequired(result, targets), true
+	}
+	return nil, false
+}
+
 func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	session := sessionID(req)
 	workspaceKey := memoryWorkspaceKey(s, userID, session, args)
+	if workspaceKey == "" {
+		workspaceKey = strings.TrimSpace(s.route(userID, session))
+	}
+	if workspaceKey != "" && ruleGovernedMutation(operation) {
+		if refreshed, stop := s.refreshProjectBrainBeforeMutation(ctx, userID, session, workspaceKey, publicTool, operation, args, req); stop {
+			return refreshed, nil
+		}
+		if state, blocked := mutationBlockedState(userID, session, workspaceKey); blocked {
+			missing := strings.Join(state.OmittedRequiredRuleIDs, ", ")
+			if missing == "" {
+				missing = "unknown"
+			}
+			return errorResult(fmt.Errorf("Project Brain mandatory rules exceed the current context budget; project mutation is blocked until context is re-resolved with concrete targets (omitted rule IDs: %s)", missing)), nil
+		}
+	}
 	result, err := s.callOperation(ctx, userID, publicTool, operation, args, req)
 	attachRecoveryHint(result)
 	if operation.OperationID == "memory.remember" || operation.OperationID == "memory.recall" {

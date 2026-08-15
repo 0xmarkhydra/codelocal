@@ -25,6 +25,8 @@ type Source struct {
 	SemanticNormalizerVersion string `json:"semanticNormalizerVersion"`
 	Size                      int64  `json:"size"`
 	BaseRevisionID            string `json:"baseRevisionId,omitempty"`
+	Branch                    string `json:"branch,omitempty"`
+	GitCommit                 string `json:"gitCommit,omitempty"`
 }
 
 type Manifest struct {
@@ -200,6 +202,14 @@ func WithBaseRevisions(manifest Manifest, revisions map[string]string) Manifest 
 }
 
 func SourceIdentityKey(source Source) string { return sourceKey(source) }
+
+func BaseRevisionKey(source Source) string {
+	key := SourceIdentityKey(source)
+	if branch := strings.TrimSpace(source.Branch); branch != "" {
+		return key + "\x00branch:" + branch
+	}
+	return key
+}
 
 func RepositoryScopeForPath(sourcePath string, repositories []projectidentity.Repository) (string, string) {
 	sourcePath = cleanPath(sourcePath)

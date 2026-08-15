@@ -276,10 +276,28 @@ func Score(candidate Record, input RecallInput, now int64) float64 {
 		lifecycleScore(candidate.Lifecycle)*0.06
 }
 
+func branchEligible(candidate Record, input RecallInput) bool {
+	memoryBranch := strings.TrimSpace(candidate.Branch)
+	if memoryBranch == "" {
+		return true
+	}
+	current := strings.TrimSpace(input.Branch)
+	if current == "" {
+		// A branch-scoped claim is not safe to reuse when the caller cannot prove
+		// the active branch. Branch-neutral memories remain eligible.
+		return false
+	}
+	return memoryBranch == current
+}
+
 func Rank(records []Record, input RecallInput, now int64) []Record {
-	out := append([]Record(nil), records...)
-	for i := range out {
-		out[i].Score = Score(out[i], input, now)
+	out := make([]Record, 0, len(records))
+	for _, record := range records {
+		if !branchEligible(record, input) {
+			continue
+		}
+		record.Score = Score(record, input, now)
+		out = append(out, record)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Score == out[j].Score {

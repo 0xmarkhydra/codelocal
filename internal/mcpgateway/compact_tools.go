@@ -172,7 +172,7 @@ func compactToolDefinitions() []compactToolDef {
 		},
 		{
 			Name: "context", Title: "Find task context", Description: "Primary semantic-first retrieval and planning step for coding/debug/review/refactor. Returns ranked symbols, graph neighbors, bounded snippets, durable task memory, a capability-aware agent plan, verification strategy and next action; call before broad scans and refresh after recovery when evidence becomes stale.",
-			Schema:      objectSchema(map[string]any{"taskHint": str("Concrete coding task."), "limit": integer("Maximum ranked results.", 1, 100), "workspaceKey": workspaceKeySchema}, "taskHint"),
+			Schema:      objectSchema(map[string]any{"taskHint": str("Concrete coding task."), "targets": array(path, "Optional concrete workspace-relative files/directories discovered during work. Explicit targets force Project Brain to re-resolve repository/directory rules for the actual working set."), "limit": integer("Maximum ranked results.", 1, 100), "workspaceKey": workspaceKeySchema}, "taskHint"),
 			Annotations: compactAnnotations("Find task context", true, false, false), Resolve: singleOperationResolver("context_for_task", "taskHint"),
 		},
 		{

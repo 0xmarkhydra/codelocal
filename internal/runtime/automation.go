@@ -74,7 +74,7 @@ func workspaceAutomationCapabilities(w *WorkspaceWorker) protocol.AutomationCapa
 
 func (w *WorkspaceWorker) handleTool(ctx context.Context, tool string, args map[string]any, opts localclient.HandleOptions) (any, error) {
 	if automation.IsTool(tool) {
-		return automationController(w).Handle(ctx, tool, args)
+		return automationController(w).HandleScoped(ctx, tool, args, opts.SessionID)
 	}
 	return w.Engine.Handle(ctx, tool, args, opts)
 }

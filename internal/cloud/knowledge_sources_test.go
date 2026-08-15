@@ -217,3 +217,18 @@ func TestKnowledgeStatusesRemainClosedSet(t *testing.T) {
 		t.Fatal("unexpected open-ended knowledge status")
 	}
 }
+
+func TestKnowledgeRevisionStatePreservesExplicitRevoke(t *testing.T) {
+	if got := knowledgeStatusAfterRevision(KnowledgeStatusRevoked, false); got != KnowledgeStatusRevoked {
+		t.Fatalf("content revision resurrected revoked source: %q", got)
+	}
+	if got := knowledgeStatusAfterRevision(KnowledgeStatusRevoked, true); got != KnowledgeStatusRevoked {
+		t.Fatalf("tombstone replaced explicit revoke policy: %q", got)
+	}
+	if got := knowledgeStatusAfterRevision(KnowledgeStatusActive, true); got != KnowledgeStatusSuperseded {
+		t.Fatalf("tombstone content state=%q want superseded", got)
+	}
+	if got := knowledgeStatusAfterRevision(KnowledgeStatusSuperseded, false); got != KnowledgeStatusActive {
+		t.Fatalf("re-added content did not reactivate non-revoked source: %q", got)
+	}
+}

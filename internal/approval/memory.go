@@ -14,9 +14,12 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/state"
 )
 
+const approvalStateVersion = 2
+
 type Remembered struct {
 	ID              string   `json:"id"`
 	WorkspaceKey    string   `json:"workspaceKey"`
+	SessionID       string   `json:"sessionId,omitempty"`
 	ActionKey       string   `json:"actionKey"`
 	Label           string   `json:"label"`
 	RedactedCommand string   `json:"redactedCommand"`
@@ -24,6 +27,7 @@ type Remembered struct {
 	MatchedRules    []string `json:"matchedRules"`
 	CreatedAt       int64    `json:"createdAt"`
 	LastUsedAt      int64    `json:"lastUsedAt"`
+	ExpiresAt       int64    `json:"expiresAt,omitempty"`
 	UseCount        int      `json:"useCount"`
 }
 
@@ -33,9 +37,28 @@ type fileState struct {
 	Approvals    []Remembered `json:"approvals"`
 }
 
-type Memory struct{ RootDir string }
+type Memory struct {
+	RootDir string
+	ttl     time.Duration
+}
 
-func New() *Memory { return &Memory{RootDir: filepath.Join(state.Dir(), "approvals")} }
+func approvalGrantTTL() time.Duration {
+	ttl := 30 * time.Minute
+	for _, key := range []string{"CODELOCAL_APPROVAL_GRANT_TTL_MS", "CODELOCAL_CHAT_APPROVAL_TTL_MS"} {
+		raw := strings.TrimSpace(os.Getenv(key))
+		if raw == "" {
+			continue
+		}
+		if parsed, err := time.ParseDuration(raw + "ms"); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return ttl
+}
+
+func New() *Memory {
+	return &Memory{RootDir: filepath.Join(state.Dir(), "approvals"), ttl: approvalGrantTTL()}
+}
 
 func workspaceHash(key string) string {
 	sum := sha256.Sum256([]byte(key))
@@ -58,11 +81,11 @@ func (m *Memory) read(key string) (fileState, error) {
 	var data fileState
 	if err := state.ReadJSON(m.fileFor(key), &data); err != nil {
 		if os.IsNotExist(err) {
-			return fileState{Version: 1, WorkspaceKey: key}, nil
+			return fileState{Version: approvalStateVersion, WorkspaceKey: key}, nil
 		}
 		return fileState{}, err
 	}
-	data.Version = 1
+	data.Version = approvalStateVersion
 	data.WorkspaceKey = key
 	filtered := data.Approvals[:0]
 	for _, entry := range data.Approvals {
@@ -74,26 +97,60 @@ func (m *Memory) read(key string) (fileState, error) {
 	return data, nil
 }
 
+func approvalEntryKey(entry Remembered) string {
+	return strings.TrimSpace(entry.SessionID) + "\x00" + strings.TrimSpace(entry.ActionKey)
+}
+
 func (m *Memory) write(key string, entries []Remembered) error {
 	unique := map[string]Remembered{}
 	for _, entry := range entries {
-		unique[entry.ActionKey] = entry
+		unique[approvalEntryKey(entry)] = entry
 	}
 	out := make([]Remembered, 0, len(unique))
 	for _, entry := range unique {
 		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastUsedAt > out[j].LastUsedAt })
-	return state.WriteJSONAtomic(m.fileFor(key), fileState{Version: 1, WorkspaceKey: key, Approvals: out})
+	return state.WriteJSONAtomic(m.fileFor(key), fileState{Version: approvalStateVersion, WorkspaceKey: key, Approvals: out})
 }
 
-func (m *Memory) Find(workspaceKey, actionKey string) (*Remembered, error) {
+func approvalRiskRank(value security.RiskLevel) int {
+	switch value {
+	case security.RiskSafe:
+		return 0
+	case security.RiskReview:
+		return 1
+	case security.RiskHigh:
+		return 2
+	case security.RiskCritical:
+		return 3
+	case security.RiskBlocked:
+		return 4
+	default:
+		return -1
+	}
+}
+
+func rememberedAllows(entry Remembered, sessionID, actionKey string, currentRisk security.RiskLevel, now int64) bool {
+	if strings.TrimSpace(entry.SessionID) == "" || entry.SessionID != strings.TrimSpace(sessionID) {
+		return false
+	}
+	if entry.ActionKey != strings.TrimSpace(actionKey) || entry.ExpiresAt <= now {
+		return false
+	}
+	ceiling := security.RiskLevel(strings.TrimSpace(entry.RiskLevel))
+	currentRank, ceilingRank := approvalRiskRank(currentRisk), approvalRiskRank(ceiling)
+	return currentRank >= 0 && ceilingRank >= 0 && currentRank <= ceilingRank
+}
+
+func (m *Memory) Find(workspaceKey, sessionID, actionKey string, currentRisk security.RiskLevel) (*Remembered, error) {
 	data, err := m.read(workspaceKey)
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now().UnixMilli()
 	for _, entry := range data.Approvals {
-		if entry.ActionKey == actionKey {
+		if rememberedAllows(entry, sessionID, actionKey, currentRisk, now) {
 			copy := entry
 			return &copy, nil
 		}
@@ -101,8 +158,9 @@ func (m *Memory) Find(workspaceKey, actionKey string) (*Remembered, error) {
 	return nil, nil
 }
 
-func (m *Memory) Remember(workspaceKey string, decision security.Decision) (*Remembered, error) {
-	if decision.ApprovalPolicy != security.ApprovalRememberable || decision.ApprovalKey == "" {
+func (m *Memory) Remember(workspaceKey, sessionID string, decision security.Decision) (*Remembered, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || decision.ApprovalPolicy != security.ApprovalRememberable || decision.ApprovalKey == "" {
 		return nil, nil
 	}
 	data, err := m.read(workspaceKey)
@@ -110,12 +168,21 @@ func (m *Memory) Remember(workspaceKey string, decision security.Decision) (*Rem
 		return nil, err
 	}
 	now := time.Now().UnixMilli()
-	entry := Remembered{ID: randomID(), WorkspaceKey: workspaceKey, ActionKey: decision.ApprovalKey, Label: decision.ApprovalLabel, RedactedCommand: decision.RedactedCommand, RiskLevel: string(decision.RiskLevel), MatchedRules: append([]string(nil), decision.MatchedRules...), CreatedAt: now, LastUsedAt: now, UseCount: 1}
+	ttl := m.ttl
+	if ttl <= 0 {
+		ttl = 30 * time.Minute
+	}
+	entry := Remembered{
+		ID: randomID(), WorkspaceKey: workspaceKey, SessionID: sessionID, ActionKey: decision.ApprovalKey,
+		Label: decision.ApprovalLabel, RedactedCommand: decision.RedactedCommand, RiskLevel: string(decision.RiskLevel),
+		MatchedRules: append([]string(nil), decision.MatchedRules...), CreatedAt: now, LastUsedAt: now,
+		ExpiresAt: now + ttl.Milliseconds(), UseCount: 1,
+	}
 	if entry.Label == "" {
 		entry.Label = decision.RedactedCommand
 	}
 	for _, previous := range data.Approvals {
-		if previous.ActionKey == entry.ActionKey {
+		if previous.SessionID == entry.SessionID && previous.ActionKey == entry.ActionKey {
 			entry.ID = previous.ID
 			entry.CreatedAt = previous.CreatedAt
 			entry.UseCount = previous.UseCount + 1
@@ -123,7 +190,7 @@ func (m *Memory) Remember(workspaceKey string, decision security.Decision) (*Rem
 	}
 	next := make([]Remembered, 0, len(data.Approvals)+1)
 	for _, item := range data.Approvals {
-		if item.ActionKey != entry.ActionKey {
+		if item.SessionID != entry.SessionID || item.ActionKey != entry.ActionKey {
 			next = append(next, item)
 		}
 	}
@@ -134,14 +201,15 @@ func (m *Memory) Remember(workspaceKey string, decision security.Decision) (*Rem
 	return &entry, nil
 }
 
-func (m *Memory) Touch(workspaceKey, actionKey string) (*Remembered, error) {
+func (m *Memory) Touch(workspaceKey, sessionID, actionKey string) (*Remembered, error) {
 	data, err := m.read(workspaceKey)
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now().UnixMilli()
 	for i := range data.Approvals {
-		if data.Approvals[i].ActionKey == actionKey {
-			data.Approvals[i].LastUsedAt = time.Now().UnixMilli()
+		if data.Approvals[i].SessionID == strings.TrimSpace(sessionID) && data.Approvals[i].ActionKey == strings.TrimSpace(actionKey) && data.Approvals[i].ExpiresAt > now {
+			data.Approvals[i].LastUsedAt = now
 			data.Approvals[i].UseCount++
 			if err := m.write(workspaceKey, data.Approvals); err != nil {
 				return nil, err

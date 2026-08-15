@@ -68,8 +68,8 @@ func boolArg(args map[string]any, name string, fallback bool) bool {
 	return value
 }
 
-func (c *Controller) authorize(action Action, args map[string]any) (bool, any, error) {
-	approved, state, err := c.Authorizer.Authorize(action, stringArg(args, "approvalToken"))
+func (c *Controller) authorize(sessionID string, action Action, args map[string]any) (bool, any, error) {
+	approved, state, err := c.Authorizer.AuthorizeScoped(action, stringArg(args, "approvalToken"), sessionID)
 	if err != nil || !approved {
 		return approved, state, err
 	}
@@ -144,6 +144,10 @@ func computerActionUsesPhysicalInput(operation string, args map[string]any, targ
 }
 
 func (c *Controller) Handle(ctx context.Context, tool string, args map[string]any) (any, error) {
+	return c.HandleScoped(ctx, tool, args, "")
+}
+
+func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[string]any, sessionID string) (any, error) {
 	if c == nil {
 		return nil, errors.New("automation controller unavailable")
 	}
@@ -162,7 +166,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
 		}
 		target := stringArg(args, "url")
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "open", Origin: target, Target: target}, args)
+		approved, state, err := c.authorize(sessionID, Action{Domain: "browser", Operation: "open", Origin: target, Target: target}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -182,7 +186,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
 		}
 		ref := stringArg(args, "ref")
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "click", Origin: c.browserOrigin(), Target: firstNonEmpty(stringArg(args, "description"), ref)}, args)
+		approved, state, err := c.authorize(sessionID, Action{Domain: "browser", Operation: "click", Origin: c.browserOrigin(), Target: firstNonEmpty(stringArg(args, "description"), ref)}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -197,7 +201,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		}
 		ref := stringArg(args, "ref")
 		text := stringArg(args, "text")
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "fill", Origin: c.browserOrigin(), Target: firstNonEmpty(stringArg(args, "description"), ref), Text: text}, args)
+		approved, state, err := c.authorize(sessionID, Action{Domain: "browser", Operation: "fill", Origin: c.browserOrigin(), Target: firstNonEmpty(stringArg(args, "description"), ref), Text: text}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -211,7 +215,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
 		}
 		key := stringArg(args, "key")
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "press", Origin: c.browserOrigin(), Target: stringArg(args, "description"), Text: key}, args)
+		approved, state, err := c.authorize(sessionID, Action{Domain: "browser", Operation: "press", Origin: c.browserOrigin(), Target: stringArg(args, "description"), Text: key}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -234,7 +238,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if c.Browser == nil {
 			return nil, errors.New("Browser Automation is not available on this CodeLocal runtime")
 		}
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "screenshot", Origin: c.browserOrigin(), Target: stringArg(args, "description")}, args)
+		approved, state, err := c.authorize(sessionID, Action{Domain: "browser", Operation: "screenshot", Origin: c.browserOrigin(), Target: stringArg(args, "description")}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -243,7 +247,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if c.Browser == nil {
 			return map[string]any{"closed": true, "alreadyStopped": true}, nil
 		}
-		approved, state, err := c.authorize(Action{Domain: "browser", Operation: "close", Origin: c.browserOrigin()}, args)
+		approved, state, err := c.authorize(sessionID, Action{Domain: "browser", Operation: "close", Origin: c.browserOrigin()}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -263,13 +267,13 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if err := c.resolveComputerWindowHint(ctx, args); err != nil {
 			return nil, err
 		}
-		approved, state, err := c.authorize(Action{Domain: "computer", Operation: "observe", Origin: firstNonEmpty(stringArg(args, "windowHint"), stringArg(args, "windowId")), Target: stringArg(args, "description")}, args)
+		approved, state, err := c.authorize(sessionID, Action{Domain: "computer", Operation: "observe", Origin: firstNonEmpty(stringArg(args, "windowHint"), stringArg(args, "windowId")), Target: stringArg(args, "description")}, args)
 		if err != nil || !approved {
 			return state, err
 		}
 		return ObserveComputer(ctx, c.Computer, stringArg(args, "windowId"))
 	case "computer_run":
-		return c.runComputerSequence(ctx, args)
+		return c.runComputerSequence(ctx, args, sessionID)
 	case "computer_list_windows", "computer_ui_tree", "computer_screenshot", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag":
 		if c.Computer == nil {
 			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
@@ -283,7 +287,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 			Domain: "computer", Operation: op, Origin: firstNonEmpty(stringArg(args, "windowHint"), stringArg(args, "windowId")), Target: target, Text: stringArg(args, "text"),
 			Physical: computerActionUsesPhysicalInput(op, args, target),
 		}
-		approved, state, err := c.authorize(action, args)
+		approved, state, err := c.authorize(sessionID, action, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -342,7 +346,7 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if op == "click" && strings.HasPrefix(stringArg(args, "elementId"), "vision:") && !action.Physical {
 			physicalAction := action
 			physicalAction.Physical = true
-			approved, state, authErr := c.authorize(physicalAction, args)
+			approved, state, authErr := c.authorize(sessionID, physicalAction, args)
 			if authErr != nil || !approved {
 				return state, authErr
 			}

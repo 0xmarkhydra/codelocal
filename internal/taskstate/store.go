@@ -12,58 +12,63 @@ import (
 // model remains responsible for reasoning while CodeLocal remembers the facts
 // that are expensive to rediscover on every turn.
 type State struct {
-	UserID               string    `json:"-"`
-	SessionID            string    `json:"sessionId"`
-	WorkspaceKey         string    `json:"workspaceKey"`
-	Task                 string    `json:"task,omitempty"`
-	Branch               string    `json:"branch,omitempty"`
-	TouchedFiles         []string  `json:"touchedFiles,omitempty"`
-	RecentChecks         []string  `json:"recentChecks,omitempty"`
-	RecentErrors         []string  `json:"recentErrors,omitempty"`
-	LastAction           string    `json:"lastAction,omitempty"`
-	AgentPhase           string    `json:"agentPhase,omitempty"`
-	AgentIteration       int       `json:"agentIteration,omitempty"`
-	RecoveryAttempts     int       `json:"recoveryAttempts,omitempty"`
-	LastOutcome          string    `json:"lastOutcome,omitempty"`
-	NextAction           string    `json:"nextAction,omitempty"`
-	PassedChecks         []string  `json:"passedChecks,omitempty"`
-	RequiredChecks       []string  `json:"requiredChecks,omitempty"`
-	VerificationSeen     bool      `json:"verificationSeen,omitempty"`
-	DiagnosticRegression int       `json:"diagnosticRegression,omitempty"`
-	DiffObserved         bool      `json:"diffObserved,omitempty"`
-	QualityScore         int       `json:"qualityScore,omitempty"`
-	QualityStatus        string    `json:"qualityStatus,omitempty"`
-	RulesHash            string    `json:"rulesHash,omitempty"`
-	ContextHash          string    `json:"contextHash,omitempty"`
-	UpdatedAt            time.Time `json:"updatedAt"`
+	UserID                 string    `json:"-"`
+	SessionID              string    `json:"sessionId"`
+	WorkspaceKey           string    `json:"workspaceKey"`
+	Task                   string    `json:"task,omitempty"`
+	Branch                 string    `json:"branch,omitempty"`
+	TouchedFiles           []string  `json:"touchedFiles,omitempty"`
+	RecentChecks           []string  `json:"recentChecks,omitempty"`
+	RecentErrors           []string  `json:"recentErrors,omitempty"`
+	LastAction             string    `json:"lastAction,omitempty"`
+	AgentPhase             string    `json:"agentPhase,omitempty"`
+	AgentIteration         int       `json:"agentIteration,omitempty"`
+	RecoveryAttempts       int       `json:"recoveryAttempts,omitempty"`
+	LastOutcome            string    `json:"lastOutcome,omitempty"`
+	NextAction             string    `json:"nextAction,omitempty"`
+	PassedChecks           []string  `json:"passedChecks,omitempty"`
+	RequiredChecks         []string  `json:"requiredChecks,omitempty"`
+	VerificationSeen       bool      `json:"verificationSeen,omitempty"`
+	DiagnosticRegression   int       `json:"diagnosticRegression,omitempty"`
+	DiffObserved           bool      `json:"diffObserved,omitempty"`
+	QualityScore           int       `json:"qualityScore,omitempty"`
+	QualityStatus          string    `json:"qualityStatus,omitempty"`
+	RulesHash              string    `json:"rulesHash,omitempty"`
+	ContextHash            string    `json:"contextHash,omitempty"`
+	RuleMutationBlocked    bool      `json:"ruleMutationBlocked,omitempty"`
+	OmittedRequiredRuleIDs []string  `json:"omittedRequiredRuleIds,omitempty"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 // Patch updates only fields that are meaningful for working memory. Empty
 // scalar values are ignored so an incidental tool call cannot erase context.
 type Patch struct {
-	Task                  string
-	Branch                string
-	TouchedFiles          []string
-	RecentChecks          []string
-	RecentErrors          []string
-	LastAction            string
-	ReplaceErrors         bool
-	AgentPhase            string
-	AgentIteration        *int
-	RecoveryAttempts      *int
-	LastOutcome           string
-	NextAction            string
-	PassedChecks          []string
-	ReplacePassedChecks   bool
-	RequiredChecks        []string
-	ReplaceRequiredChecks bool
-	VerificationSeen      *bool
-	DiagnosticRegression  *int
-	DiffObserved          *bool
-	QualityScore          *int
-	QualityStatus         string
-	RulesHash             string
-	ContextHash           string
+	Task                   string
+	Branch                 string
+	TouchedFiles           []string
+	RecentChecks           []string
+	RecentErrors           []string
+	LastAction             string
+	ReplaceErrors          bool
+	AgentPhase             string
+	AgentIteration         *int
+	RecoveryAttempts       *int
+	LastOutcome            string
+	NextAction             string
+	PassedChecks           []string
+	ReplacePassedChecks    bool
+	RequiredChecks         []string
+	ReplaceRequiredChecks  bool
+	VerificationSeen       *bool
+	DiagnosticRegression   *int
+	DiffObserved           *bool
+	QualityScore           *int
+	QualityStatus          string
+	RulesHash              string
+	ContextHash            string
+	RuleMutationBlocked    *bool
+	OmittedRequiredRuleIDs []string
+	ReplaceOmittedRuleIDs  bool
 }
 
 type Store struct {
@@ -97,6 +102,7 @@ func cloneState(state State) State {
 	state.RecentErrors = append([]string(nil), state.RecentErrors...)
 	state.PassedChecks = append([]string(nil), state.PassedChecks...)
 	state.RequiredChecks = append([]string(nil), state.RequiredChecks...)
+	state.OmittedRequiredRuleIDs = append([]string(nil), state.OmittedRequiredRuleIDs...)
 	return state
 }
 
@@ -206,6 +212,8 @@ func resetAgentState(state *State) {
 	state.QualityStatus = ""
 	state.RulesHash = ""
 	state.ContextHash = ""
+	state.RuleMutationBlocked = false
+	state.OmittedRequiredRuleIDs = nil
 }
 
 func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) State {
@@ -287,6 +295,14 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 	}
 	if value := strings.TrimSpace(patch.ContextHash); value != "" {
 		state.ContextHash = value
+	}
+	if patch.RuleMutationBlocked != nil {
+		state.RuleMutationBlocked = *patch.RuleMutationBlocked
+	}
+	if patch.ReplaceOmittedRuleIDs {
+		state.OmittedRequiredRuleIDs = normalizeList(patch.OmittedRequiredRuleIDs, 64)
+	} else if len(patch.OmittedRequiredRuleIDs) > 0 {
+		state.OmittedRequiredRuleIDs = mergeRecent(state.OmittedRequiredRuleIDs, patch.OmittedRequiredRuleIDs, 64)
 	}
 	state.UpdatedAt = now
 	s.states[key] = state

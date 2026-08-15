@@ -115,6 +115,33 @@ func TestRankPrefersExactBranchAndActiveLifecycle(t *testing.T) {
 	}
 }
 
+func TestRankExcludesIncompatibleBranchScopedMemory(t *testing.T) {
+	now := time.Now().UnixMilli()
+	input := RecallInput{Branch: "dev", ProjectID: "project-a", Limit: 10}
+	base := Record{Scope: ScopeProject, ProjectID: "project-a", CreatedAt: now, UpdatedAt: now, Confidence: .9, Importance: .9, LexicalScore: 1, VectorScore: 1, Lifecycle: LifecycleActive}
+	wrong := base
+	wrong.ID = "wrong"
+	wrong.Branch = "release"
+	neutral := base
+	neutral.ID = "neutral"
+	neutral.Branch = ""
+	exact := base
+	exact.ID = "exact"
+	exact.Branch = "dev"
+	ranked := Rank([]Record{wrong, neutral, exact}, input, now)
+	if len(ranked) != 2 || ranked[0].ID != "exact" {
+		t.Fatalf("wrong-branch memory must be filtered before ranking: %#v", ranked)
+	}
+	for _, record := range ranked {
+		if record.ID == "wrong" {
+			t.Fatalf("incompatible branch memory leaked into recall: %#v", ranked)
+		}
+	}
+	if rankedUnknown := Rank([]Record{wrong}, RecallInput{ProjectID: "project-a", Limit: 10}, now); len(rankedUnknown) != 0 {
+		t.Fatalf("branch-scoped memory must not apply when current branch is unknown: %#v", rankedUnknown)
+	}
+}
+
 func TestNormalizeLifecycleDefaultsLegacyRowsToActive(t *testing.T) {
 	if got := normalizeLifecycle(""); got != LifecycleActive {
 		t.Fatalf("legacy lifecycle=%q want active", got)

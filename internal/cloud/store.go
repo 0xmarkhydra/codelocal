@@ -873,6 +873,36 @@ CREATE TABLE IF NOT EXISTS codelocal_organization_rules (
 CREATE INDEX IF NOT EXISTS idx_codelocal_org_rules_active
  ON codelocal_organization_rules(owner_user_id,organization_id,updated_at DESC) WHERE status='active';
 `},
+		{25, `
+CREATE TABLE IF NOT EXISTS codelocal_knowledge_branch_heads (
+ user_id TEXT NOT NULL,
+ source_id TEXT NOT NULL,
+ branch TEXT NOT NULL,
+ revision_id TEXT NOT NULL,
+ updated_at BIGINT NOT NULL,
+ PRIMARY KEY(user_id,source_id,branch),
+ FOREIGN KEY(user_id,source_id) REFERENCES codelocal_knowledge_sources(user_id,source_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,revision_id) REFERENCES codelocal_knowledge_source_revisions(user_id,revision_id),
+ CHECK (BTRIM(branch) <> '')
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_branch_heads_revision
+ ON codelocal_knowledge_branch_heads(user_id,revision_id,updated_at DESC);
+INSERT INTO codelocal_knowledge_branch_heads(user_id,source_id,branch,revision_id,updated_at)
+SELECT DISTINCT ON (obs.user_id,obs.source_id,obs.branch)
+ obs.user_id,obs.source_id,obs.branch,obs.revision_id,obs.last_seen_at
+FROM codelocal_knowledge_source_observations obs
+JOIN codelocal_knowledge_sources src
+ ON src.user_id=obs.user_id AND src.source_id=obs.source_id
+WHERE obs.branch IS NOT NULL AND BTRIM(obs.branch) <> ''
+ AND obs.revision_id=src.active_revision_id
+ORDER BY obs.user_id,obs.source_id,obs.branch,obs.last_seen_at DESC,obs.observation_id DESC
+ON CONFLICT(user_id,source_id,branch) DO UPDATE SET
+ revision_id=EXCLUDED.revision_id,
+ updated_at=GREATEST(codelocal_knowledge_branch_heads.updated_at,EXCLUDED.updated_at);
+ALTER TABLE codelocal_knowledge_conflicts ADD COLUMN IF NOT EXISTS branch TEXT;
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_branch
+ ON codelocal_knowledge_conflicts(user_id,source_id,branch,updated_at DESC) WHERE branch IS NOT NULL;
+`},
 	}
 	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
 	for _, migration := range migrations {

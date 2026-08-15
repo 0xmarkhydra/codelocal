@@ -19,6 +19,7 @@ type KnowledgeConflict struct {
 	SourceID            string         `json:"sourceId"`
 	ActiveRevisionID    string         `json:"activeRevisionId"`
 	CandidateRevisionID string         `json:"candidateRevisionId"`
+	Branch              string         `json:"branch,omitempty"`
 	Status              string         `json:"status"`
 	CreatedAt           int64          `json:"createdAt"`
 	UpdatedAt           int64          `json:"updatedAt"`
@@ -32,6 +33,7 @@ type KnowledgeManifestSyncResult struct {
 	Synced          int               `json:"synced"`
 	Conflicts       int               `json:"conflicts"`
 	Tombstones      int               `json:"tombstones"`
+	Disabled        bool              `json:"disabled,omitempty"`
 }
 
 type workspaceKnowledgeObservation struct {
@@ -47,8 +49,8 @@ type workspaceKnowledgeObservation struct {
 	NormalizerVersion string
 }
 
-func knowledgeConflictID(userID, sourceID, activeRevisionID, candidateRevisionID string) string {
-	return knowledgeStableID("kconf_", userID, sourceID, activeRevisionID, candidateRevisionID)
+func knowledgeConflictID(userID, sourceID, branch, activeRevisionID, candidateRevisionID string) string {
+	return knowledgeStableID("kconf_", userID, sourceID, strings.TrimSpace(branch), activeRevisionID, candidateRevisionID)
 }
 
 func knowledgeAdvanceAllowed(activeRevisionID, candidateRevisionID, baseRevisionID string) bool {
@@ -96,20 +98,21 @@ VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,NULLIF($10,''),$11,$12,$
 	if err := upsertKnowledgeObservation(ctx, tx, normalized.UserID, normalized.SourceID, candidateRevisionID, normalized.BaseRevisionID, normalized.Observation, now); err != nil {
 		return nil, err
 	}
-	conflictID := knowledgeConflictID(normalized.UserID, normalized.SourceID, activeRevisionID, candidateRevisionID)
+	branch := strings.TrimSpace(normalized.Observation.Branch)
+	conflictID := knowledgeConflictID(normalized.UserID, normalized.SourceID, branch, activeRevisionID, candidateRevisionID)
 	_, err = tx.Exec(ctx, `
 INSERT INTO codelocal_knowledge_conflicts(
- user_id,conflict_id,source_id,active_revision_id,candidate_revision_id,status,created_at,updated_at,metadata)
-VALUES($1,$2,$3,$4,$5,'open',$6,$6,$7)
-ON CONFLICT(user_id,conflict_id) DO UPDATE SET updated_at=EXCLUDED.updated_at,metadata=EXCLUDED.metadata`,
-		normalized.UserID, conflictID, normalized.SourceID, activeRevisionID, candidateRevisionID, now,
-		knowledgeMetadata(map[string]any{"baseRevisionId": normalized.BaseRevisionID, "deviceId": normalized.Observation.DeviceID, "workspaceId": normalized.Observation.WorkspaceID}))
+ user_id,conflict_id,source_id,active_revision_id,candidate_revision_id,branch,status,created_at,updated_at,metadata)
+VALUES($1,$2,$3,$4,$5,NULLIF($6,''),'open',$7,$7,$8)
+ON CONFLICT(user_id,conflict_id) DO UPDATE SET updated_at=EXCLUDED.updated_at,metadata=EXCLUDED.metadata,branch=EXCLUDED.branch`,
+		normalized.UserID, conflictID, normalized.SourceID, activeRevisionID, candidateRevisionID, branch, now,
+		knowledgeMetadata(map[string]any{"baseRevisionId": normalized.BaseRevisionID, "deviceId": normalized.Observation.DeviceID, "workspaceId": normalized.Observation.WorkspaceID, "branch": branch}))
 	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE codelocal_knowledge_sources
-SET status=$3,last_seen_at=$4
+SET status=CASE WHEN status='revoked' THEN status ELSE $3 END,last_seen_at=$4
 WHERE user_id=$1 AND source_id=$2`, normalized.UserID, normalized.SourceID, KnowledgeStatusConflicted, now); err != nil {
 		return nil, err
 	}
@@ -258,7 +261,7 @@ func (s *Store) ListKnowledgeConflicts(ctx context.Context, userID, projectID st
 		limit = 500
 	}
 	rows, err := s.DB.Query(ctx, `
-SELECT c.user_id,c.conflict_id,c.source_id,c.active_revision_id,c.candidate_revision_id,c.status,c.created_at,c.updated_at,COALESCE(c.resolved_at,0),c.metadata
+SELECT c.user_id,c.conflict_id,c.source_id,c.active_revision_id,c.candidate_revision_id,COALESCE(c.branch,''),c.status,c.created_at,c.updated_at,COALESCE(c.resolved_at,0),c.metadata
 FROM codelocal_knowledge_conflicts c
 JOIN codelocal_knowledge_sources s ON s.user_id=c.user_id AND s.source_id=c.source_id
 WHERE c.user_id=$1 AND s.project_id=$2
@@ -272,7 +275,7 @@ LIMIT $3`, userID, projectID, limit)
 	for rows.Next() {
 		var item KnowledgeConflict
 		var metadata []byte
-		if err := rows.Scan(&item.UserID, &item.ConflictID, &item.SourceID, &item.ActiveRevisionID, &item.CandidateRevisionID, &item.Status, &item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt, &metadata); err != nil {
+		if err := rows.Scan(&item.UserID, &item.ConflictID, &item.SourceID, &item.ActiveRevisionID, &item.CandidateRevisionID, &item.Branch, &item.Status, &item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt, &metadata); err != nil {
 			return nil, err
 		}
 		_ = jsonUnmarshalMetadata(metadata, &item.Metadata)
@@ -312,12 +315,12 @@ func (s *Store) ResolveKnowledgeConflict(ctx context.Context, userID, conflictID
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var sourceID, activeRevisionID, candidateRevisionID, status string
+	var sourceID, activeRevisionID, candidateRevisionID, status, branch string
 	if err := tx.QueryRow(ctx, `
-SELECT source_id,active_revision_id,candidate_revision_id,status
+SELECT source_id,active_revision_id,candidate_revision_id,status,COALESCE(branch,'')
 FROM codelocal_knowledge_conflicts
 WHERE user_id=$1 AND conflict_id=$2
-FOR UPDATE`, userID, conflictID).Scan(&sourceID, &activeRevisionID, &candidateRevisionID, &status); err != nil {
+FOR UPDATE`, userID, conflictID).Scan(&sourceID, &activeRevisionID, &candidateRevisionID, &status, &branch); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrKnowledgeSourceNotFound
 		}
@@ -329,13 +332,32 @@ FOR UPDATE`, userID, conflictID).Scan(&sourceID, &activeRevisionID, &candidateRe
 	if winnerRevisionID != activeRevisionID && winnerRevisionID != candidateRevisionID {
 		return fmt.Errorf("winner revision is not part of conflict")
 	}
-	var tombstone bool
-	if err := tx.QueryRow(ctx, `SELECT tombstone FROM codelocal_knowledge_source_revisions WHERE user_id=$1 AND revision_id=$2 AND source_id=$3`, userID, winnerRevisionID, sourceID).Scan(&tombstone); err != nil {
-		return err
-	}
 	now := time.Now().UnixMilli()
+	if branch != "" {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO codelocal_knowledge_branch_heads(user_id,source_id,branch,revision_id,updated_at)
+VALUES($1,$2,$3,$4,$5)
+ON CONFLICT(user_id,source_id,branch) DO UPDATE SET revision_id=EXCLUDED.revision_id,updated_at=EXCLUDED.updated_at`, userID, sourceID, branch, winnerRevisionID, now); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(ctx, `UPDATE codelocal_knowledge_conflicts SET status='resolved',resolved_at=$3,updated_at=$3,metadata=metadata || jsonb_build_object('winnerRevisionId',$4) WHERE user_id=$1 AND conflict_id=$2`, userID, conflictID, now, winnerRevisionID); err != nil {
 		return err
+	}
+
+	var currentGlobal, currentStatus string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(active_revision_id,''),status FROM codelocal_knowledge_sources WHERE user_id=$1 AND source_id=$2 FOR UPDATE`, userID, sourceID).Scan(&currentGlobal, &currentStatus); err != nil {
+		return err
+	}
+	globalWinner := currentGlobal
+	if branch == "" || currentGlobal == activeRevisionID {
+		globalWinner = winnerRevisionID
+	}
+	var globalTombstone bool
+	if globalWinner != "" {
+		if err := tx.QueryRow(ctx, `SELECT tombstone FROM codelocal_knowledge_source_revisions WHERE user_id=$1 AND revision_id=$2 AND source_id=$3`, userID, globalWinner, sourceID).Scan(&globalTombstone); err != nil {
+			return err
+		}
 	}
 	var remainingOpen int
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*)::int FROM codelocal_knowledge_conflicts WHERE user_id=$1 AND source_id=$2 AND status='open'`, userID, sourceID).Scan(&remainingOpen); err != nil {
@@ -343,14 +365,22 @@ FOR UPDATE`, userID, conflictID).Scan(&sourceID, &activeRevisionID, &candidateRe
 	}
 	newStatus := KnowledgeStatusActive
 	var validTo any
-	if tombstone {
+	if globalTombstone {
 		newStatus = KnowledgeStatusSuperseded
 		validTo = now
 	}
 	if remainingOpen > 0 {
 		newStatus = KnowledgeStatusConflicted
 	}
-	if _, err := tx.Exec(ctx, `UPDATE codelocal_knowledge_sources SET active_revision_id=$3,status=$4,last_seen_at=$5,valid_to=$6 WHERE user_id=$1 AND source_id=$2`, userID, sourceID, winnerRevisionID, newStatus, now, validTo); err != nil {
+	if currentStatus == KnowledgeStatusRevoked {
+		newStatus = KnowledgeStatusRevoked
+	}
+	if _, err := tx.Exec(ctx, `UPDATE codelocal_knowledge_sources
+SET active_revision_id=$3,
+    status=$4,
+    last_seen_at=$5,
+    valid_to=CASE WHEN status='revoked' THEN valid_to ELSE $6 END
+WHERE user_id=$1 AND source_id=$2`, userID, sourceID, globalWinner, newStatus, now, validTo); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

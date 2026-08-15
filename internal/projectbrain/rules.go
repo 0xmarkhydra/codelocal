@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/0xmarkhydra/codelocal/internal/localfs"
+	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 )
 
 type RuleAuthority string
@@ -56,7 +57,14 @@ type ResolvedRules struct {
 	Targets     []string        `json:"targets,omitempty"`
 }
 
+type ResolveOptions struct {
+	Targets      []string
+	TaskHint     string
+	Repositories []projectidentity.Repository
+}
+
 type ruleFrontmatter struct {
+	Present     bool
 	Globs       []string
 	ApplyTo     []string
 	AlwaysApply bool
@@ -86,9 +94,51 @@ func authorityRank(authority RuleAuthority) int {
 	}
 }
 
-func authorityForSource(source Source) RuleAuthority {
+func repositoryRootForSource(source Source, repositories []projectidentity.Repository) bool {
+	sourcePath := normalizeTarget(source.Path)
+	scope := normalizeTarget(source.ScopePath)
+	if scope == "" {
+		scope = "."
+	}
+	for _, repository := range repositories {
+		root := normalizeTarget(repository.RelativePath)
+		if strings.TrimSpace(repository.RelativePath) == "." || root == "" {
+			root = "."
+		}
+		if scope != root {
+			continue
+		}
+		switch source.Provider {
+		case "agents", "claude":
+			dir := path.Dir(sourcePath)
+			if dir == "" {
+				dir = "."
+			}
+			if dir == root {
+				return true
+			}
+		case "cursor":
+			prefix := normalizeTarget(path.Join(root, ".cursor/rules")) + "/"
+			if strings.HasPrefix(sourcePath, prefix) {
+				return true
+			}
+		case "github-copilot":
+			rootInstructions := normalizeTarget(path.Join(root, ".github/copilot-instructions.md"))
+			instructionsPrefix := normalizeTarget(path.Join(root, ".github/instructions")) + "/"
+			if sourcePath == rootInstructions || strings.HasPrefix(sourcePath, instructionsPrefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func authorityForSource(source Source, repositories []projectidentity.Repository) RuleAuthority {
 	if strings.EqualFold(source.Path, "CLAUDE.local.md") || strings.HasSuffix(strings.ToLower(source.Path), "/claude.local.md") || strings.EqualFold(source.Classification, "local_private") {
 		return AuthorityUserPreference
+	}
+	if len(repositories) > 0 && repositoryRootForSource(source, repositories) && (source.Provider == "agents" || source.Provider == "claude" || source.Provider == "cursor" || source.Provider == "github-copilot") {
+		return AuthorityRepository
 	}
 	if source.ScopePath != "" && source.ScopePath != "." && (source.Provider == "agents" || source.Provider == "claude") {
 		return AuthorityDirectory
@@ -112,6 +162,13 @@ func splitListValue(value string) []string {
 	return uniqueStrings(out)
 }
 
+func canonicalFrontmatterKey(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "-", "")
+	value = strings.ReplaceAll(value, "_", "")
+	return value
+}
+
 func parseRuleFrontmatter(content string) (ruleFrontmatter, string) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	lines := strings.Split(content, "\n")
@@ -128,21 +185,49 @@ func parseRuleFrontmatter(content string) (ruleFrontmatter, string) {
 	if end < 0 {
 		return ruleFrontmatter{}, content
 	}
-	frontmatter := ruleFrontmatter{}
+	frontmatter := ruleFrontmatter{Present: true}
+	listKey := ""
 	for _, raw := range lines[1:end] {
-		key, value, ok := strings.Cut(raw, ":")
-		if !ok {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		key = strings.ToLower(strings.TrimSpace(key))
+		if strings.HasPrefix(trimmed, "- ") && listKey != "" {
+			value := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")), `"'`)
+			value = strings.ReplaceAll(value, "\\", "/")
+			if value != "" {
+				switch listKey {
+				case "globs":
+					frontmatter.Globs = append(frontmatter.Globs, value)
+				case "applyto":
+					frontmatter.ApplyTo = append(frontmatter.ApplyTo, value)
+				}
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(raw, ":")
+		if !ok {
+			listKey = ""
+			continue
+		}
+		key = canonicalFrontmatterKey(key)
 		value = strings.TrimSpace(value)
+		listKey = ""
 		switch key {
 		case "globs":
-			frontmatter.Globs = append(frontmatter.Globs, splitListValue(value)...)
-		case "applyto", "apply-to", "apply_to":
-			frontmatter.ApplyTo = append(frontmatter.ApplyTo, splitListValue(value)...)
-		case "alwaysapply", "always-apply", "always_apply":
-			frontmatter.AlwaysApply = strings.EqualFold(value, "true") || value == "1"
+			if value == "" {
+				listKey = "globs"
+			} else {
+				frontmatter.Globs = append(frontmatter.Globs, splitListValue(value)...)
+			}
+		case "applyto":
+			if value == "" {
+				listKey = "applyto"
+			} else {
+				frontmatter.ApplyTo = append(frontmatter.ApplyTo, splitListValue(value)...)
+			}
+		case "alwaysapply":
+			frontmatter.AlwaysApply = strings.EqualFold(strings.Trim(value, `"'`), "true") || value == "1"
 		case "description":
 			frontmatter.Description = strings.Trim(strings.TrimSpace(value), `"'`)
 		}
@@ -300,16 +385,79 @@ func globsApply(patterns, targets []string) bool {
 	return false
 }
 
-func sourceApplies(source Source, frontmatter ruleFrontmatter, targets []string) bool {
+func contextualDescriptionApplies(description, taskHint string) bool {
+	description = strings.ToLower(strings.Join(strings.Fields(description), " "))
+	taskHint = strings.ToLower(strings.Join(strings.Fields(taskHint), " "))
+	if description == "" || taskHint == "" {
+		return false
+	}
+	terms := func(value string) map[string]struct{} {
+		out := map[string]struct{}{}
+		for _, term := range strings.FieldsFunc(value, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' && r != '/'
+		}) {
+			if len([]rune(term)) >= 3 {
+				out[term] = struct{}{}
+			}
+		}
+		return out
+	}
+	descriptionTerms := terms(description)
+	taskTerms := terms(taskHint)
+	overlap := 0
+	for term := range descriptionTerms {
+		if _, ok := taskTerms[term]; ok {
+			overlap++
+		}
+	}
+	return overlap >= 2 || (overlap == 1 && len(descriptionTerms) == 1)
+}
+
+func targetsRelativeToScope(scope string, targets []string) []string {
+	scope = normalizeTarget(scope)
+	if scope == "" || scope == "." {
+		return append([]string(nil), targets...)
+	}
+	prefix := scope + "/"
+	out := make([]string, 0, len(targets))
+	for _, target := range targets {
+		target = normalizeTarget(target)
+		switch {
+		case target == scope:
+			out = append(out, ".")
+		case strings.HasPrefix(target, prefix):
+			out = append(out, strings.TrimPrefix(target, prefix))
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func sourceApplies(source Source, frontmatter ruleFrontmatter, targets []string, taskHint string) bool {
 	if (source.Provider == "agents" || source.Provider == "claude") && !scopeApplies(source.ScopePath, targets) {
 		return false
+	}
+	if (source.Provider == "cursor" || source.Provider == "github-copilot") && normalizeTarget(source.ScopePath) != "." {
+		targets = targetsRelativeToScope(source.ScopePath, targets)
+		if len(targets) == 0 {
+			return false
+		}
 	}
 	patterns := append([]string{}, frontmatter.Globs...)
 	patterns = append(patterns, frontmatter.ApplyTo...)
 	if frontmatter.AlwaysApply {
 		return true
 	}
-	return globsApply(patterns, targets)
+	if len(patterns) > 0 {
+		return globsApply(patterns, targets)
+	}
+	if frontmatter.Present {
+		// Cursor/Copilot frontmatter with alwaysApply=false and no file selector
+		// is contextual/manual guidance, never an implicit global rule.
+		return contextualDescriptionApplies(frontmatter.Description, taskHint)
+	}
+	// Plain AGENTS.md/CLAUDE.md/Copilot root instructions without frontmatter
+	// keep their normal repository/directory scope semantics.
+	return source.SourceType == "instructions" && source.Provider != "cursor"
 }
 
 func normalizedConflictCore(text string) (string, bool) {
@@ -377,11 +525,15 @@ func detectRuleConflicts(rules []CanonicalRule) []RuleConflict {
 }
 
 func ResolveRules(fs *localfs.FS, manifest Manifest, targets []string) (ResolvedRules, error) {
+	return ResolveRulesWithOptions(fs, manifest, ResolveOptions{Targets: targets})
+}
+
+func ResolveRulesWithOptions(fs *localfs.FS, manifest Manifest, options ResolveOptions) (ResolvedRules, error) {
 	if fs == nil {
 		return ResolvedRules{}, fmt.Errorf("project brain rule resolver requires local filesystem")
 	}
 	normalizedTargets := []string{}
-	for _, target := range targets {
+	for _, target := range options.Targets {
 		if value := normalizeTarget(target); value != "" {
 			normalizedTargets = append(normalizedTargets, value)
 		}
@@ -401,10 +553,10 @@ func ResolveRules(fs *localfs.FS, manifest Manifest, targets []string) (Resolved
 		}
 		content, _ := read["content"].(string)
 		frontmatter, body := parseRuleFrontmatter(content)
-		if !sourceApplies(source, frontmatter, normalizedTargets) {
+		if !sourceApplies(source, frontmatter, normalizedTargets, options.TaskHint) {
 			continue
 		}
-		authority := authorityForSource(source)
+		authority := authorityForSource(source, options.Repositories)
 		patterns := uniqueStrings(append(append([]string{}, frontmatter.Globs...), frontmatter.ApplyTo...))
 		chunks := extractRuleChunks(body)
 		for index, chunk := range chunks {

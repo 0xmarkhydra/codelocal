@@ -65,6 +65,41 @@ func knowledgeScopePath(rel string) string {
 	return dir
 }
 
+func knowledgeConfigFileScope(rel, configPath string) (string, bool) {
+	lower := strings.ToLower(rel)
+	configPath = strings.ToLower(strings.TrimPrefix(configPath, "/"))
+	if lower == configPath {
+		return ".", true
+	}
+	needle := "/" + configPath
+	if !strings.HasSuffix(lower, needle) {
+		return "", false
+	}
+	root := strings.Trim(rel[:len(rel)-len(needle)], "/")
+	if root == "" {
+		root = "."
+	}
+	return root, true
+}
+
+func knowledgeConfigDirScope(rel, configDir string) (string, bool) {
+	lower := strings.ToLower(rel)
+	configDir = strings.ToLower(strings.Trim(configDir, "/")) + "/"
+	if strings.HasPrefix(lower, configDir) {
+		return ".", true
+	}
+	needle := "/" + configDir
+	index := strings.LastIndex(lower, needle)
+	if index < 0 {
+		return "", false
+	}
+	root := strings.Trim(rel[:index], "/")
+	if root == "" {
+		root = "."
+	}
+	return root, true
+}
+
 func knowledgeSourceForPath(rel string) (knowledgeSourceCandidate, bool) {
 	rel = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(rel))))
 	if rel == "" || rel == "." || strings.HasPrefix(rel, "../") || strings.HasPrefix(rel, "/") || security.IsSensitivePath(rel) {
@@ -72,6 +107,9 @@ func knowledgeSourceForPath(rel string) (knowledgeSourceCandidate, bool) {
 	}
 	lower := strings.ToLower(rel)
 	base := strings.ToLower(filepath.Base(filepath.FromSlash(rel)))
+	cursorScope, cursorConfig := knowledgeConfigDirScope(rel, ".cursor/rules")
+	copilotScope, copilotRoot := knowledgeConfigFileScope(rel, ".github/copilot-instructions.md")
+	copilotInstructionsScope, copilotInstructions := knowledgeConfigDirScope(rel, ".github/instructions")
 	candidate := knowledgeSourceCandidate{Path: rel, ScopePath: ".", Classification: "private_project", AdapterVersion: knowledgeAdapterVersion, ParserVersion: knowledgeParserVersion, SemanticNormalizerVersion: knowledgeSemanticNormalizerVersion}
 	switch {
 	case base == "agents.md":
@@ -87,15 +125,18 @@ func knowledgeSourceForPath(rel string) (knowledgeSourceCandidate, bool) {
 		candidate.SourceType = "instructions"
 		candidate.ScopePath = knowledgeScopePath(rel)
 		candidate.Classification = "local_private"
-	case strings.HasPrefix(lower, ".cursor/rules/") && (strings.HasSuffix(lower, ".mdc") || strings.HasSuffix(lower, ".md")):
+	case cursorConfig && (strings.HasSuffix(lower, ".mdc") || strings.HasSuffix(lower, ".md")):
 		candidate.Provider = "cursor"
 		candidate.SourceType = "rule"
-	case lower == ".github/copilot-instructions.md":
+		candidate.ScopePath = cursorScope
+	case copilotRoot:
 		candidate.Provider = "github-copilot"
 		candidate.SourceType = "instructions"
-	case strings.HasPrefix(lower, ".github/instructions/") && strings.HasSuffix(lower, ".instructions.md"):
+		candidate.ScopePath = copilotScope
+	case copilotInstructions && strings.HasSuffix(lower, ".instructions.md"):
 		candidate.Provider = "github-copilot"
 		candidate.SourceType = "instructions"
+		candidate.ScopePath = copilotInstructionsScope
 	case lower == ".codelocal/project.json":
 		candidate.Provider = "codelocal"
 		candidate.SourceType = "project_metadata"
@@ -464,6 +505,23 @@ func (e *Engine) Map(force bool) (map[string]any, error) {
 	e.builtAt = time.Now().UnixMilli()
 	e.mu.Unlock()
 	return cloneMap(value), nil
+}
+
+// CachedMap returns the last project snapshot without triggering a filesystem
+// walk. Background Project Brain sync uses this path so polling never turns
+// into a periodic full-repository scan. An invalidated or never-built cache is
+// reported as unavailable and may be refreshed only on an explicit work path.
+func (e *Engine) CachedMap() (map[string]any, bool) {
+	if e == nil {
+		return nil, false
+	}
+	e.mu.RLock()
+	cached := e.cached
+	e.mu.RUnlock()
+	if cached == nil {
+		return nil, false
+	}
+	return cloneMap(cached), true
 }
 func cloneMap(in map[string]any) map[string]any {
 	raw, _ := json.Marshal(in)

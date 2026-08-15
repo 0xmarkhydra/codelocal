@@ -206,12 +206,12 @@ func (e *Engine) cwd(relative string) (string, error) {
 	return path, nil
 }
 
-func (e *Engine) authorize(command, cwd, provided string) (bool, map[string]any, security.Decision, error) {
+func (e *Engine) authorize(command, cwd, provided, sessionID string) (bool, map[string]any, security.Decision, error) {
 	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: e.Root, CWD: cwd})
-	return e.authorizeDecision(command, cwd, provided, decision)
+	return e.authorizeDecision(command, cwd, provided, sessionID, decision)
 }
 
-func (e *Engine) authorizeDecision(command, cwd, provided string, decision security.Decision) (bool, map[string]any, security.Decision, error) {
+func (e *Engine) authorizeDecision(command, cwd, provided, sessionID string, decision security.Decision) (bool, map[string]any, security.Decision, error) {
 	if decision.Blocked {
 		return false, map[string]any{"status": "blocked", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy}, decision, errors.New(decision.Reason)
 	}
@@ -219,18 +219,18 @@ func (e *Engine) authorizeDecision(command, cwd, provided string, decision secur
 		return true, nil, decision, nil
 	}
 	if decision.ApprovalPolicy == security.ApprovalRememberable && decision.ApprovalKey != "" {
-		remembered, err := e.Approvals.Find(e.WorkspaceKey, decision.ApprovalKey)
+		remembered, err := e.Approvals.Find(e.WorkspaceKey, sessionID, decision.ApprovalKey, decision.RiskLevel)
 		if err != nil {
 			return false, nil, decision, err
 		}
 		if remembered != nil {
-			_, _ = e.Approvals.Touch(e.WorkspaceKey, decision.ApprovalKey)
+			_, _ = e.Approvals.Touch(e.WorkspaceKey, sessionID, decision.ApprovalKey)
 			return true, map[string]any{"remembered": true, "approvalId": remembered.ID}, decision, nil
 		}
 	}
-	if provided != "" && e.Broker.Consume(provided, command, e.FS.Rel(cwd), decision) {
+	if provided != "" && e.Broker.ConsumeScoped(sessionID, provided, command, e.FS.Rel(cwd), decision) {
 		if decision.ApprovalPolicy == security.ApprovalRememberable {
-			entry, err := e.Approvals.Remember(e.WorkspaceKey, decision)
+			entry, err := e.Approvals.Remember(e.WorkspaceKey, sessionID, decision)
 			if err != nil {
 				return false, nil, decision, err
 			}
@@ -243,11 +243,11 @@ func (e *Engine) authorizeDecision(command, cwd, provided string, decision secur
 		}
 		return true, map[string]any{"approved": true}, decision, nil
 	}
-	preflight := e.Broker.Preflight(command, e.FS.Rel(cwd), decision)
+	preflight := e.Broker.PreflightScoped(sessionID, command, e.FS.Rel(cwd), decision)
 	return false, map[string]any{"status": preflight.Status, "riskLevel": preflight.RiskLevel, "reason": preflight.Reason, "matchedRules": preflight.MatchedRules, "command": preflight.Command, "approvalPolicy": preflight.ApprovalPolicy, "approvalKey": preflight.ApprovalKey, "approvalLabel": preflight.ApprovalLabel, "approvalToken": preflight.ApprovalToken, "expiresAt": preflight.ExpiresAt}, decision, nil
 }
 
-func (e *Engine) Preflight(command, cwd string) (map[string]any, error) {
+func (e *Engine) PreflightScoped(command, cwd, sessionID string) (map[string]any, error) {
 	if !e.ShellEnabled {
 		return map[string]any{"status": "blocked", "riskLevel": "BLOCKED", "reason": "Shell execution is disabled for this workspace.", "matchedRules": []string{"shell-disabled"}, "command": command, "approvalPolicy": "blocked"}, nil
 	}
@@ -257,13 +257,17 @@ func (e *Engine) Preflight(command, cwd string) (map[string]any, error) {
 	}
 	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: e.Root, CWD: absolute})
 	if decision.ApprovalPolicy == security.ApprovalRememberable && decision.ApprovalKey != "" {
-		remembered, _ := e.Approvals.Find(e.WorkspaceKey, decision.ApprovalKey)
+		remembered, _ := e.Approvals.Find(e.WorkspaceKey, sessionID, decision.ApprovalKey, decision.RiskLevel)
 		if remembered != nil {
-			return map[string]any{"status": "safe", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalKey": decision.ApprovalKey, "approvalLabel": decision.ApprovalLabel, "remembered": true}, nil
+			return map[string]any{"status": "safe", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalKey": decision.ApprovalKey, "approvalLabel": decision.ApprovalLabel, "remembered": true, "approvalId": remembered.ID, "expiresAt": remembered.ExpiresAt}, nil
 		}
 	}
-	pre := e.Broker.Preflight(command, e.FS.Rel(absolute), decision)
+	pre := e.Broker.PreflightScoped(sessionID, command, e.FS.Rel(absolute), decision)
 	return map[string]any{"status": pre.Status, "riskLevel": pre.RiskLevel, "reason": pre.Reason, "matchedRules": pre.MatchedRules, "command": pre.Command, "approvalPolicy": pre.ApprovalPolicy, "approvalKey": pre.ApprovalKey, "approvalLabel": pre.ApprovalLabel, "approvalToken": pre.ApprovalToken, "expiresAt": pre.ExpiresAt}, nil
+}
+
+func (e *Engine) Preflight(command, cwd string) (map[string]any, error) {
+	return e.PreflightScoped(command, cwd, "")
 }
 
 func (e *Engine) startProcess(command string, args map[string]any, opts HandleOptions, usePTY bool) (map[string]any, error) {
@@ -274,7 +278,7 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 	if err != nil {
 		return nil, err
 	}
-	approved, approvalState, decision, authErr := e.authorize(command, cwd, asString(args["approvalToken"]))
+	approved, approvalState, decision, authErr := e.authorize(command, cwd, asString(args["approvalToken"]), opts.SessionID)
 	if authErr != nil && decision.Blocked {
 		return approvalState, nil
 	}
@@ -380,7 +384,7 @@ func safeGitPath(path string) error {
 	return nil
 }
 
-func (e *Engine) guardedGit(args []string, approvalToken string) (map[string]any, error) {
+func (e *Engine) guardedGit(args []string, approvalToken, sessionID string) (map[string]any, error) {
 	command := "git " + strings.Join(args, " ")
 	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: e.Root, CWD: e.Root})
 	if len(args) >= 3 && args[0] == "push" && decision.ApprovalPolicy == security.ApprovalRememberable && strings.HasPrefix(decision.ApprovalKey, "git.push:") {
@@ -399,7 +403,7 @@ func (e *Engine) guardedGit(args []string, approvalToken string) (map[string]any
 			decision.ApprovalKey += fmt.Sprintf(":remote-%x", digest[:8])
 		}
 	}
-	approved, state, _, err := e.authorizeDecision(command, e.Root, approvalToken, decision)
+	approved, state, _, err := e.authorizeDecision(command, e.Root, approvalToken, sessionID, decision)
 	if err != nil && state != nil {
 		return state, nil
 	}
@@ -447,7 +451,7 @@ func (e *Engine) readInstructions(path string) (map[string]any, error) {
 	return map[string]any{"instructionFiles": files, "instructions": contents}, nil
 }
 
-func projectBrainTargets(result map[string]any) []string {
+func projectBrainTargets(result map[string]any, explicit []string) []string {
 	out := []string{}
 	seen := map[string]struct{}{}
 	appendPath := func(value any) {
@@ -461,11 +465,19 @@ func projectBrainTargets(result map[string]any) []string {
 		seen[path] = struct{}{}
 		out = append(out, path)
 	}
+	for _, path := range explicit {
+		appendPath(path)
+		if len(out) >= 32 {
+			return out
+		}
+	}
+	// Ranked files remain useful for initial grounding, but explicit targets
+	// discovered during work always win and trigger a fresh rule resolution.
 	switch ranked := result["rankedFiles"].(type) {
 	case []map[string]any:
 		for _, item := range ranked {
 			appendPath(item["path"])
-			if len(out) >= 8 {
+			if len(out) >= 32 || (len(explicit) == 0 && len(out) >= 8) {
 				break
 			}
 		}
@@ -474,7 +486,7 @@ func projectBrainTargets(result map[string]any) []string {
 			if item, ok := raw.(map[string]any); ok {
 				appendPath(item["path"])
 			}
-			if len(out) >= 8 {
+			if len(out) >= 32 || (len(explicit) == 0 && len(out) >= 8) {
 				break
 			}
 		}
@@ -482,7 +494,7 @@ func projectBrainTargets(result map[string]any) []string {
 	return out
 }
 
-func (e *Engine) attachProjectBrainContext(result map[string]any) {
+func (e *Engine) attachProjectBrainContext(result map[string]any, explicitTargets []string, taskHint string) {
 	if e == nil || e.FS == nil || result == nil {
 		return
 	}
@@ -491,12 +503,20 @@ func (e *Engine) attachProjectBrainContext(result map[string]any) {
 		return
 	}
 	manifest := projectbrain.FromProjectMap(projectMap)
-	resolved, err := projectbrain.ResolveRules(e.FS, manifest, projectBrainTargets(result))
+	identity := projectidentity.Discover(e.Root, e.WorkspaceName)
+	resolved, err := projectbrain.ResolveRulesWithOptions(e.FS, manifest, projectbrain.ResolveOptions{
+		Targets: projectBrainTargets(result, explicitTargets), TaskHint: taskHint, Repositories: identity.Repositories,
+	})
 	if err != nil {
 		return
 	}
 	packet := projectbrain.CompileContext(resolved, 8000)
 	result["projectBrain"] = packet
+	if len(explicitTargets) > 0 {
+		result["projectBrainTargetSource"] = "explicit"
+	} else {
+		result["projectBrainTargetSource"] = "ranked"
+	}
 	if branch, err := runGit(e.Root, "branch", "--show-current"); err == nil {
 		result["gitBranch"] = strings.TrimSpace(asString(branch["stdout"]))
 	}
@@ -656,7 +676,56 @@ func stableProjectID(snapshot projectidentity.Snapshot) string {
 	return fmt.Sprintf("reposet_%x", sum[:12])
 }
 
-func (e *Engine) currentLearnedSkillContext() *learnedskills.ContextFingerprint {
+func learnedSkillBranchPolicy(taskKind string) string {
+	switch strings.ToLower(strings.TrimSpace(taskKind)) {
+	case "code", "coding", "bugfix", "feature", "refactor", "review", "build", "test", "migration", "deployment", "deploy":
+		return "exact"
+	default:
+		return "any"
+	}
+}
+
+func (e *Engine) availableLearnedSkillCapabilities() []string {
+	capabilities := []string{"filesystem", "git", "lsp", "mcp", "browser", "computer"}
+	if e != nil && e.ShellEnabled {
+		capabilities = append(capabilities, "shell")
+	}
+	sort.Strings(capabilities)
+	return capabilities
+}
+
+func learnedSkillRequirements(steps []learnedskills.Step) []string {
+	seen := map[string]struct{}{}
+	for _, step := range steps {
+		tool := strings.ToLower(strings.TrimSpace(step.Tool))
+		capability := ""
+		switch tool {
+		case "terminal", "run_command", "exec_start", "pty_start", "shell":
+			capability = "shell"
+		case "git", "git_stage", "git_commit", "git_push", "git_diff", "git_status":
+			capability = "git"
+		case "browser":
+			capability = "browser"
+		case "computer":
+			capability = "computer"
+		case "mcp", "mcp_call":
+			capability = "mcp"
+		case "read", "edit", "write_file", "edit_file", "apply_patch", "apply_edits":
+			capability = "filesystem"
+		}
+		if capability != "" {
+			seen[capability] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for capability := range seen {
+		out = append(out, capability)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (e *Engine) currentLearnedSkillContext(taskKind string) *learnedskills.ContextFingerprint {
 	if e == nil || e.FS == nil || e.Project == nil {
 		return nil
 	}
@@ -703,7 +772,8 @@ func (e *Engine) currentLearnedSkillContext() *learnedskills.ContextFingerprint 
 	}
 	return &learnedskills.ContextFingerprint{
 		ProjectID: stableProjectID(identity), RepositoryIDs: repositoryIDs, RulesHash: manifest.RootHash,
-		DependencyHash: dependencyHash, WorkflowFiles: workflowFiles, BranchPolicy: "any", Branch: branch,
+		DependencyHash: dependencyHash, WorkflowFiles: workflowFiles, BranchPolicy: learnedSkillBranchPolicy(taskKind), Branch: branch,
+		RequiredCapabilities: e.availableLearnedSkillCapabilities(),
 	}
 }
 
@@ -792,14 +862,23 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		}
 		return map[string]any{"skills": items, "source": "local"}, nil
 	case "learned_skill_match":
-		recipe, err := e.Skills.MatchWithContext(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]), e.currentLearnedSkillContext())
+		taskKind := asString(args["taskKind"])
+		recipe, err := e.Skills.MatchWithContext(e.WorkspaceKey, asString(args["intent"]), taskKind, e.currentLearnedSkillContext(taskKind))
 		return map[string]any{"match": recipe}, err
 	case "learned_skill_record":
 		steps, err := learnedSkillSteps(args["steps"])
 		if err != nil {
 			return nil, err
 		}
-		recipe, err := e.Skills.RecordWithContext(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]), steps, asBool(args["verified"], false), e.currentLearnedSkillContext())
+		taskKind := asString(args["taskKind"])
+		contextFingerprint := e.currentLearnedSkillContext(taskKind)
+		if contextFingerprint != nil {
+			// Persist requirements, not the full set of currently available
+			// capabilities. Matching interprets this field as requirements ⊆
+			// current capabilities, so gaining a capability never stales a skill.
+			contextFingerprint.RequiredCapabilities = learnedSkillRequirements(steps)
+		}
+		recipe, err := e.Skills.RecordWithContext(e.WorkspaceKey, asString(args["intent"]), taskKind, steps, asBool(args["verified"], false), contextFingerprint)
 		return map[string]any{"recipe": recipe}, err
 	case "learned_skill_feedback":
 		recipe, err := e.Skills.Feedback(e.WorkspaceKey, asString(args["id"]), asBool(args["success"], false))
@@ -808,15 +887,16 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		projectMap, _ := e.Project.Map(false)
 		instructions, _ := e.readInstructions(".")
 		branch, _ := runGit(e.Root, "branch", "--show-current")
-		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": projectMap, "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "rememberable approvals are stored only on this machine and scoped to the workspace", "critical actions always require fresh confirmation in ChatGPT", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": e.ApprovalMode, "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
+		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": projectMap, "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "rememberable approvals are stored only on this machine and scoped to the workspace, ChatGPT session, risk ceiling, and local TTL", "critical actions always require fresh confirmation in ChatGPT", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": e.ApprovalMode, "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
 	case "project_map":
 		return e.Project.Map(asBool(args["force"], false))
 	case "context_for_task":
-		result, err := e.Project.ContextForTask(ctx, asString(args["taskHint"]), asInt(args["limit"], 30))
+		taskHint := asString(args["taskHint"])
+		result, err := e.Project.ContextForTask(ctx, taskHint, asInt(args["limit"], 30))
 		if err != nil {
 			return nil, err
 		}
-		e.attachProjectBrainContext(result)
+		e.attachProjectBrainContext(result, stringSlice(args["targets"]), taskHint)
 		return result, nil
 	case "read_instructions":
 		return e.readInstructions(defaultString(asString(args["path"]), "."))
@@ -999,7 +1079,7 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 			}
 		}
 		gitArgs := append([]string{"add", "--"}, paths...)
-		return e.guardedGit(gitArgs, asString(args["approvalToken"]))
+		return e.guardedGit(gitArgs, asString(args["approvalToken"]), opts.SessionID)
 	case "git_unstage":
 		paths := stringSlice(args["paths"])
 		if len(paths) == 0 {
@@ -1011,7 +1091,7 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 			}
 		}
 		gitArgs := append([]string{"restore", "--staged", "--"}, paths...)
-		return e.guardedGit(gitArgs, asString(args["approvalToken"]))
+		return e.guardedGit(gitArgs, asString(args["approvalToken"]), opts.SessionID)
 	case "git_commit":
 		staged, err := runGit(e.Root, "diff", "--cached", "--name-only")
 		if err != nil {
@@ -1043,7 +1123,7 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 				return nil, fmt.Errorf("unexpected staged changes: %s", strings.Join(unexpected, ", "))
 			}
 		}
-		return e.guardedGit([]string{"commit", "-m", asString(args["message"])}, asString(args["approvalToken"]))
+		return e.guardedGit([]string{"commit", "-m", asString(args["message"])}, asString(args["approvalToken"]), opts.SessionID)
 	case "git_push":
 		if asBool(args["force"], false) {
 			return map[string]any{"status": "blocked", "riskLevel": "BLOCKED", "reason": "force push is blocked by CodeLocal"}, nil
@@ -1055,13 +1135,13 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		if branch := asString(args["branch"]); branch != "" {
 			gitArgs = append(gitArgs, branch)
 		}
-		return e.guardedGit(gitArgs, asString(args["approvalToken"]))
+		return e.guardedGit(gitArgs, asString(args["approvalToken"]), opts.SessionID)
 	case "sandbox_info":
 		return map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy()}, nil
 	case "sandbox_smoke_test":
 		return map[string]any{"ok": true, "backend": "host-policy", "mode": "policy-only"}, nil
 	case "terminal_preflight":
-		return e.Preflight(asString(args["command"]), defaultString(asString(args["cwd"]), "."))
+		return e.PreflightScoped(asString(args["command"]), defaultString(asString(args["cwd"]), "."), opts.SessionID)
 	case "terminal_history":
 		return e.History.Query(e.WorkspaceKey, asString(args["query"]), defaultString(asString(args["event"]), "started"), asInt(args["limit"], 50))
 	case "run_command":
@@ -1110,7 +1190,7 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "mcp_tool_info":
 		return e.MCP.ToolInfo(ctx, asString(args["server"]), asString(args["tool"]), false)
 	case "mcp_call":
-		return e.callMCP(ctx, args)
+		return e.callMCP(ctx, args, opts.SessionID)
 	default:
 		return nil, fmt.Errorf("unsupported CodeLocal tool: %s", tool)
 	}
@@ -1153,7 +1233,7 @@ func symbolAt(e *Engine, path string, line, column int) string {
 	return text[start:end]
 }
 
-func (e *Engine) callMCP(ctx context.Context, args map[string]any) (any, error) {
+func (e *Engine) callMCP(ctx context.Context, args map[string]any, sessionID string) (any, error) {
 	server := strings.TrimSpace(asString(args["server"]))
 	tool := strings.TrimSpace(asString(args["tool"]))
 	if server == "" || tool == "" {
@@ -1173,7 +1253,7 @@ func (e *Engine) callMCP(ctx context.Context, args map[string]any) (any, error) 
 		Reason:           "external MCP call may execute local or remote side effects; read-only annotations are advisory",
 		ApprovalPolicy:   security.ApprovalAlways,
 	}
-	approved, state, _, authErr := e.authorizeDecision(command, e.Root, asString(args["approvalToken"]), decision)
+	approved, state, _, authErr := e.authorizeDecision(command, e.Root, asString(args["approvalToken"]), sessionID, decision)
 	if authErr != nil {
 		return state, nil
 	}
