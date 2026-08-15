@@ -2267,6 +2267,20 @@ PB13 Universal Agent Runtime / coding-engine router
 
 PB4 may move earlier if cross-device conflicts become common during development. PB13 should begin its UAR0/UAR1 architecture work once PB1-PB6 interfaces are stable enough to supply canonical project identity, rules and compiled context; full learned routing should wait for verified Experience data.
 
+## Canonical semantic index rollout boundary
+
+Canonical embeddings are a **derived/rebuildable Project Brain index**, never a second durable truth. The implemented v38/v39 path follows these rules:
+
+- v38 core migration stores projection state without requiring pgvector; when the feature is explicitly enabled, an on-demand derived vector schema stores embeddings by tenant/project/revision/provider/model/model-version with explicit dimension and content hash;
+- provider/model version changes create a new cohort instead of mutating canonical knowledge;
+- provider calls are batched outside DB transactions, then the canonical source snapshot is revalidated before commit;
+- active private Knowledge V2 revisions are the only embedding source; secret-like content is skipped;
+- freshness is reported separately as `current | stale | missing | empty` and does not degrade deterministic canonical truth;
+- semantic query shadowing is separately opt-in and aggregate-only metrics are stored by v39;
+- semantic/vector hits do **not** enter hybrid/live model context until a future benchmark/readiness gate explicitly approves that rollout.
+
+This preserves the retrieval hierarchy: deterministic canonical retrieval is safe without vectors; semantic vectors are optional acceleration/ranking evidence that can be deleted and rebuilt.
+
 ---
 
 # 38. Final product vision

@@ -16,12 +16,16 @@ type fakeCanonicalEmbeddingProvider struct {
 }
 
 func (f *fakeCanonicalEmbeddingProvider) Model() CanonicalEmbeddingModel { return f.model }
-func (f *fakeCanonicalEmbeddingProvider) Embed(_ context.Context, _ string) ([]float32, error) {
+func (f *fakeCanonicalEmbeddingProvider) Embed(_ context.Context, texts []string) ([][]float32, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
-	return append([]float32(nil), f.vector...), nil
+	vectors := make([][]float32, len(texts))
+	for index := range texts {
+		vectors[index] = append([]float32(nil), f.vector...)
+	}
+	return vectors, nil
 }
 
 func TestCanonicalEmbeddingSourceTextIsDeterministicAndSecretSafe(t *testing.T) {
@@ -87,31 +91,50 @@ func TestCanonicalEmbeddingFeatureDefaultsOff(t *testing.T) {
 	}
 }
 
-func TestCanonicalEmbeddingMigrationStoresModelDimensionRevisionAndDerivedState(t *testing.T) {
+func TestCanonicalEmbeddingMigrationKeepsOptionalVectorDependencyOutOfCoreTrain(t *testing.T) {
 	lower := strings.ToLower(canonicalKnowledgeEmbeddingMigrationSQL)
 	for _, required := range []string{
-		"codelocal_knowledge_embeddings",
-		"revision_id text not null",
+		"codelocal_knowledge_embedding_projection_state",
 		"provider text not null",
 		"model text not null",
+		"model_version text not null",
+		"dimensions integer not null",
+		"source_revision_count",
+		"projected_revision_count",
+		"projected_at",
+		"references codelocal_projects(user_id,project_id)",
+	} {
+		if !strings.Contains(lower, required) {
+			t.Fatalf("canonical embedding migration missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"create extension", "embedding vector", "codelocal_knowledge_embeddings (", "drop table", "truncate table"} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("core embedding migration unexpectedly depends on optional vector schema %q", forbidden)
+		}
+	}
+}
+
+func TestCanonicalEmbeddingVectorSchemaIsOnDemandDerivedAndRevisionScoped(t *testing.T) {
+	lower := strings.ToLower(canonicalKnowledgeEmbeddingVectorSchemaSQL)
+	for _, required := range []string{
+		"create extension if not exists vector",
+		"codelocal_knowledge_embeddings",
+		"revision_id text not null",
 		"model_version text not null",
 		"dimensions integer not null",
 		"content_hash text not null",
 		"embedding vector not null",
 		"references codelocal_knowledge_objects(user_id,knowledge_id)",
 		"references codelocal_knowledge_revisions(user_id,revision_id)",
-		"codelocal_knowledge_embedding_projection_state",
-		"source_revision_count",
-		"projected_revision_count",
-		"projected_at",
 	} {
 		if !strings.Contains(lower, required) {
-			t.Fatalf("canonical embedding migration missing %q", required)
+			t.Fatalf("canonical embedding vector schema missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{"drop table", "truncate table"} {
 		if strings.Contains(lower, forbidden) {
-			t.Fatalf("canonical embedding migration unexpectedly destructive: %q", forbidden)
+			t.Fatalf("canonical embedding vector schema unexpectedly destructive: %q", forbidden)
 		}
 	}
 }
@@ -148,7 +171,7 @@ func TestCanonicalEmbeddingUpsertIsRevisionAndModelScoped(t *testing.T) {
 
 func TestCanonicalEmbeddingProviderErrorContract(t *testing.T) {
 	provider := &fakeCanonicalEmbeddingProvider{err: errors.New("provider unavailable")}
-	if _, err := provider.Embed(context.Background(), "safe"); err == nil || provider.calls != 1 {
+	if _, err := provider.Embed(context.Background(), []string{"safe"}); err == nil || provider.calls != 1 {
 		t.Fatalf("fake provider contract broken: calls=%d err=%v", provider.calls, err)
 	}
 }

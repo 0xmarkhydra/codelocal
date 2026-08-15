@@ -516,7 +516,17 @@ func (s *Store) evaluateRecentlyActiveKnowledgeHealth(ctx context.Context) error
 				// before publishing any derived projection from the same sweep.
 				health, evalErr = s.EvaluateKnowledgeHealth(projectCtx, project.userID, project.projectID)
 			case knowledgeMaintenanceProjection:
-				_, evalErr = s.RebuildCanonicalKnowledgeGraphProject(projectCtx, project.userID, project.projectID)
+				if _, projectionErr := s.RebuildCanonicalKnowledgeGraphProject(projectCtx, project.userID, project.projectID); projectionErr != nil {
+					slog.Debug("canonical graph projection skipped", "error", projectionErr)
+				}
+				if s.canonicalEmbeddingProvider != nil {
+					embeddingCtx, embeddingCancel := context.WithTimeout(ctx, canonicalEmbeddingMaintenanceTimeout())
+					_, embeddingErr := s.RebuildCanonicalKnowledgeEmbeddingsProject(embeddingCtx, s.canonicalEmbeddingProvider, project.userID, project.projectID)
+					embeddingCancel()
+					if embeddingErr != nil {
+						slog.Debug("canonical embedding projection skipped", "error", embeddingErr)
+					}
+				}
 			}
 		}
 		cancel()

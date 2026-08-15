@@ -134,16 +134,18 @@ type AdminUser struct {
 }
 
 type Store struct {
-	DB              *pgxpool.Pool
-	Redis           *redis.Client
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	usageQ          chan MCPUsageEvent
-	usageConsumerID string
-	usageDropped    atomic.Uint64
-	outboxWorkerID  string
-	outboxWake      chan struct{}
+	DB                         *pgxpool.Pool
+	Redis                      *redis.Client
+	ctx                        context.Context
+	cancel                     context.CancelFunc
+	wg                         sync.WaitGroup
+	usageQ                     chan MCPUsageEvent
+	usageConsumerID            string
+	usageDropped               atomic.Uint64
+	outboxWorkerID             string
+	outboxWake                 chan struct{}
+	canonicalEmbeddingProvider CanonicalEmbeddingProvider
+	canonicalEmbeddingError    string
 }
 
 const (
@@ -191,14 +193,25 @@ func New(ctx context.Context) (*Store, error) {
 		return nil, err
 	}
 	storeCtx, cancel := context.WithCancel(ctx)
+	embeddingProvider, embeddingErr := canonicalEmbeddingProviderFromEnv()
 	s := &Store{
 		DB: db, Redis: rdb, ctx: storeCtx, cancel: cancel,
 		usageQ: make(chan MCPUsageEvent, envInt("CODELOCAL_USAGE_LOCAL_QUEUE_SIZE", 8192)), usageConsumerID: RandomHex(12),
 		outboxWorkerID: RandomHex(12), outboxWake: make(chan struct{}, 1),
+		canonicalEmbeddingProvider: embeddingProvider,
+	}
+	if embeddingErr != nil {
+		s.canonicalEmbeddingError = embeddingErr.Error()
+		slog.Warn("canonical embedding provider unavailable", "error", embeddingErr)
 	}
 	if err := s.Migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
+	}
+	if err := s.ensureCanonicalEmbeddingVectorSchema(ctx); err != nil {
+		s.canonicalEmbeddingProvider = nil
+		s.canonicalEmbeddingError = "canonical embedding vector schema unavailable: " + err.Error()
+		slog.Warn("canonical embedding vector schema unavailable; derived semantic index disabled", "error", err)
 	}
 	if err := s.ensureUsageStreamGroup(ctx); err != nil {
 		s.Close()
@@ -267,6 +280,7 @@ func knowledgeV2SchemaMigrations() []schemaMigration {
 		{36, canonicalKnowledgeGraphMigrationSQL},
 		{37, canonicalKnowledgeGraphStateMigrationSQL},
 		{38, canonicalKnowledgeEmbeddingMigrationSQL},
+		{39, canonicalEmbeddingShadowMigrationSQL},
 	}
 }
 

@@ -942,6 +942,7 @@ func (s *Service) recallLongTermMemory(ctx context.Context, userID, deviceID, wo
 	// graph source until Knowledge V2 graph projection has its own rollout gate.
 	records = s.maybeApplyHybridCanonicalRecall(recallCtx, canonicalInput, records)
 	s.maybeShadowCanonicalRecall(canonicalInput, len(records))
+	s.maybeRunCanonicalSemanticShadow(canonicalInput, state.Task)
 	return records, graph
 }
 

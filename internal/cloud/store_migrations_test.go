@@ -7,8 +7,8 @@ import (
 
 func TestKnowledgeV2MigrationTrainIsContiguousAndTransactional(t *testing.T) {
 	migrations := knowledgeV2SchemaMigrations()
-	if len(migrations) != 13 {
-		t.Fatalf("knowledge v2 migration count=%d want 13", len(migrations))
+	if len(migrations) != 14 {
+		t.Fatalf("knowledge v2 migration count=%d want 14", len(migrations))
 	}
 	for index, migration := range migrations {
 		want := 26 + index
@@ -72,7 +72,8 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 		35: {"codelocal_collective_preferences", "codelocal_collective_user_patterns", "codelocal_collective_event_ledger"},
 		36: {"codelocal_knowledge_graph_nodes", "codelocal_knowledge_graph_edges", "references codelocal_knowledge_objects", "references codelocal_knowledge_revisions"},
 		37: {"codelocal_knowledge_graph_projection_state", "source_object_count", "source_revision_count", "projected_at", "references codelocal_projects"},
-		38: {"codelocal_knowledge_embeddings", "embedding vector", "model_version", "dimensions", "content_hash", "codelocal_knowledge_embedding_projection_state"},
+		38: {"codelocal_knowledge_embedding_projection_state", "model_version", "dimensions", "source_revision_count", "projected_revision_count", "references codelocal_projects"},
+		39: {"codelocal_knowledge_embedding_shadow_metrics", "semantic_hits_total", "high_similarity_hits_total", "references codelocal_projects"},
 	}
 	for _, migration := range knowledgeV2SchemaMigrations() {
 		lower := strings.ToLower(migration.sql)
@@ -88,26 +89,26 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 	if schemaMigrationAdvisoryLockID == 0 {
 		t.Fatal("schema migration advisory lock id must be non-zero")
 	}
-	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[38] {
+	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[39] {
 		t.Fatal("new migration train unexpectedly bypasses transactional runner")
 	}
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 38 {
-		t.Fatalf("latest schema version=%d want 38", got)
+	if got := LatestSchemaMigrationVersion(); got != 39 {
+		t.Fatalf("latest schema version=%d want 39", got)
 	}
-	ready := schemaMigrationStatus(38, 38)
-	if !ready.UpToDate || ready.TargetVersion != 38 || ready.AppliedCount != 38 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(39, 39)
+	if !ready.UpToDate || ready.TargetVersion != 39 || ready.AppliedCount != 39 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
 		current int
 		count   int
 	}{
-		{current: 37, count: 37},
-		{current: 38, count: 37},
-		{current: 39, count: 39},
+		{current: 38, count: 38},
+		{current: 39, count: 38},
+		{current: 40, count: 40},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)
@@ -128,20 +129,20 @@ func TestProjectBrainMigrationPlanHashIsDeterministicAndCoversTrain(t *testing.T
 }
 
 func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
-	if err := validateDatabaseSchemaHistory(25, 25, 38); err != nil {
+	if err := validateDatabaseSchemaHistory(25, 25, 39); err != nil {
 		t.Fatalf("valid older contiguous schema rejected: %v", err)
 	}
-	if err := validateDatabaseSchemaHistory(38, 38, 38); err != nil {
+	if err := validateDatabaseSchemaHistory(39, 39, 39); err != nil {
 		t.Fatalf("target schema rejected: %v", err)
 	}
 	for _, tc := range []struct {
 		name                   string
 		current, count, target int
 	}{
-		{name: "newer database", current: 39, count: 39, target: 38},
-		{name: "missing history row", current: 38, count: 37, target: 38},
-		{name: "corrupt sparse history", current: 20, count: 19, target: 38},
-		{name: "invalid negative", current: -1, count: 0, target: 38},
+		{name: "newer database", current: 40, count: 40, target: 39},
+		{name: "missing history row", current: 39, count: 38, target: 39},
+		{name: "corrupt sparse history", current: 20, count: 19, target: 39},
+		{name: "invalid negative", current: -1, count: 0, target: 39},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {

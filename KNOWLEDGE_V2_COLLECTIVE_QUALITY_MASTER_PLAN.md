@@ -1451,6 +1451,8 @@ CODELOCAL_KNOWLEDGE_V2_READ
 CODELOCAL_KNOWLEDGE_HEALTH
 CODELOCAL_KNOWLEDGE_AUTO_PROMOTION
 CODELOCAL_CODE_QUALITY_POLICY
+CODELOCAL_CANONICAL_EMBEDDINGS
+CODELOCAL_CANONICAL_EMBEDDING_SHADOW
 CODELOCAL_COLLECTIVE_INTELLIGENCE
 CODELOCAL_COLLECTIVE_CONTRIBUTION
 ```
@@ -1460,6 +1462,9 @@ Rollout rules:
 - migrations are additive;
 - reads can fall back to legacy during transition;
 - auto-promotion can be disabled independently;
+- canonical embeddings are a rebuildable derived index and default OFF;
+- semantic query shadowing has a separate cost/rollout switch and never changes model context;
+- live/hybrid canonical retrieval must not depend on semantic vectors until shadow benchmark/readiness explicitly passes;
 - collective contribution and collective serving are separate switches;
 - quality policy can begin report-only before enforcement;
 - kill switch must not require DB downgrade.
@@ -1765,6 +1770,29 @@ Only after scale and measurement justify it:
 - differential privacy;
 - secure aggregation;
 - federated learning/ranking.
+
+## Implemented Project Brain migration train through v39
+
+The current native Go implementation keeps the migration train contiguous and additive:
+
+```text
+v26 durable outbox
+v27 promotion candidates
+v28 canonical KnowledgeObject + Revision + Provenance
+v29 deterministic promotion approval
+v30 Knowledge Health
+v31 source-aware promotion + explicit project memory
+v32 repository alias/history identity
+v33 Knowledge V2 shadow readiness aggregates
+v34 portable Learned Skill contributions
+v35 Collective Intelligence privacy/consent foundation
+v36 canonical Knowledge Graph projection
+v37 canonical graph freshness state
+v38 canonical embedding projection state + on-demand vector schema
+v39 canonical semantic-shadow aggregate metrics
+```
+
+v38/v39 are strictly derived-index rollout infrastructure. Canonical Knowledge V2 remains authoritative. Embedding provider calls are batched outside database transactions, the canonical source snapshot is revalidated before vector commit, model version is explicit, semantic shadow is separately opt-in, and semantic hits are not injected into live/hybrid context yet.
 
 ---
 

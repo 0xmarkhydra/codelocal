@@ -580,17 +580,19 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 	schemaStatus, schemaErr := s.Store.SchemaMigrationStatus(r.Context())
 	durableLearning, _ := s.Store.DurableOutboxHealth(r.Context(), identity.User.ID)
 	_, canonicalGraphFreshness, _ := s.Store.CanonicalGraphFreshness(r.Context(), identity.User.ID)
+	_, canonicalEmbeddingFreshness, _ := s.Store.CanonicalEmbeddingFreshness(r.Context(), identity.User.ID)
 	for i := range devices {
 		devices[i].SecretHash = ""
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"user":                    map[string]any{"id": identity.User.ID, "email": identity.User.Email},
-		"workspaces":              workspaces,
-		"devices":                 devices,
-		"gateway":                 s.InstanceID,
-		"schemaMigration":         schemaMigrationPayload(schemaStatus, schemaErr),
-		"durableLearning":         durableLearning,
-		"canonicalGraphFreshness": canonicalGraphFreshness,
+		"user":                        map[string]any{"id": identity.User.ID, "email": identity.User.Email},
+		"workspaces":                  workspaces,
+		"devices":                     devices,
+		"gateway":                     s.InstanceID,
+		"schemaMigration":             schemaMigrationPayload(schemaStatus, schemaErr),
+		"durableLearning":             durableLearning,
+		"canonicalGraphFreshness":     canonicalGraphFreshness,
+		"canonicalEmbeddingFreshness": canonicalEmbeddingFreshness,
 		"mcpTokenUsage": map[string]any{
 			"estimated": true,
 			"scope":     "MCP payload only; not full ChatGPT model/billing tokens",
@@ -613,6 +615,9 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	graphCtx, graphCancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
 	_, canonicalGraphFreshness, _ := s.Store.CanonicalGraphFreshness(graphCtx, "")
 	graphCancel()
+	embeddingCtx, embeddingCancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+	_, canonicalEmbeddingFreshness, _ := s.Store.CanonicalEmbeddingFreshness(embeddingCtx, "")
+	embeddingCancel()
 	agentMemory := map[string]any{"enabled": s.Memory != nil}
 	if s.Memory != nil {
 		agentMemory["vectorAvailable"] = s.Memory.VectorAvailable()
@@ -636,12 +641,13 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 			"sysBytes":       mem.Sys,
 			"gcCycles":       mem.NumGC,
 		},
-		"goroutines":              runtime.NumGoroutine(),
-		"agentMemory":             agentMemory,
-		"schemaMigration":         schemaMigrationPayload(schemaStatus, schemaErr),
-		"durableLearning":         durableLearning,
-		"canonicalGraphFreshness": canonicalGraphFreshness,
-		"toolSurface":             s.MCP.ToolSurface(),
+		"goroutines":                  runtime.NumGoroutine(),
+		"agentMemory":                 agentMemory,
+		"schemaMigration":             schemaMigrationPayload(schemaStatus, schemaErr),
+		"durableLearning":             durableLearning,
+		"canonicalGraphFreshness":     canonicalGraphFreshness,
+		"canonicalEmbeddingFreshness": canonicalEmbeddingFreshness,
+		"toolSurface":                 s.MCP.ToolSurface(),
 	})
 }
 

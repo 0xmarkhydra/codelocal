@@ -4,19 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	longmemory "github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/jackc/pgx/v5"
 )
 
-const canonicalKnowledgeEmbeddingMigrationSQL = `
+const canonicalKnowledgeEmbeddingVectorSchemaSQL = `
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS codelocal_knowledge_embeddings (
  user_id TEXT NOT NULL,
  project_id TEXT NOT NULL,
@@ -42,14 +41,16 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_embeddings_revision
  ON codelocal_knowledge_embeddings(user_id,project_id,revision_id,embedded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_embeddings_model
  ON codelocal_knowledge_embeddings(user_id,project_id,provider,model,model_version,dimensions);
+`
 
+const canonicalKnowledgeEmbeddingMigrationSQL = `
 CREATE TABLE IF NOT EXISTS codelocal_knowledge_embedding_projection_state (
  user_id TEXT NOT NULL,
  project_id TEXT NOT NULL,
  provider TEXT NOT NULL,
  model TEXT NOT NULL,
  model_version TEXT NOT NULL,
- dimensions INTEGER NOT NULL CHECK (dimensions > 0 AND dimensions <= 8192),
+ dimensions INTEGER NOT NULL CHECK (dimensions >= 0 AND dimensions <= 8192),
  source_revision_count INTEGER NOT NULL DEFAULT 0 CHECK (source_revision_count >= 0),
  source_updated_at BIGINT NOT NULL DEFAULT 0,
  projected_revision_count INTEGER NOT NULL DEFAULT 0 CHECK (projected_revision_count >= 0),
@@ -100,7 +101,7 @@ type CanonicalEmbeddingModel struct {
 
 type CanonicalEmbeddingProvider interface {
 	Model() CanonicalEmbeddingModel
-	Embed(context.Context, string) ([]float32, error)
+	Embed(context.Context, []string) ([][]float32, error)
 }
 
 type canonicalEmbeddingSource struct {
@@ -206,8 +207,12 @@ func canonicalEmbeddingProjectionLimit() int {
 	return limit
 }
 
-func readCanonicalEmbeddingSources(ctx context.Context, tx pgx.Tx, userID, projectID string, limit int) ([]canonicalEmbeddingSource, int, int64, error) {
-	rows, err := tx.Query(ctx, canonicalEmbeddingSourceSQL, userID, projectID, limit+1)
+type canonicalEmbeddingQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func readCanonicalEmbeddingSources(ctx context.Context, querier canonicalEmbeddingQuerier, userID, projectID string, limit int) ([]canonicalEmbeddingSource, int, int64, error) {
+	rows, err := querier.Query(ctx, canonicalEmbeddingSourceSQL, userID, projectID, limit+1)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -272,103 +277,5 @@ WHERE user_id=$1 AND project_id=$2 AND provider=$3 AND model=$4 AND model_versio
 }
 
 func (s *Store) RebuildCanonicalKnowledgeEmbeddingsProject(ctx context.Context, provider CanonicalEmbeddingProvider, userID, projectID string) (CanonicalEmbeddingProjectionStats, error) {
-	stats := CanonicalEmbeddingProjectionStats{Status: "disabled"}
-	if !canonicalEmbeddingEnabled() {
-		return stats, nil
-	}
-	if s == nil || s.DB == nil || provider == nil || strings.TrimSpace(userID) == "" || strings.TrimSpace(projectID) == "" {
-		return stats, errors.New("canonical embedding projection requires store, provider, user and project")
-	}
-	model, ok := normalizeCanonicalEmbeddingModel(provider.Model())
-	if !ok {
-		return stats, errors.New("canonical embedding provider metadata is invalid")
-	}
-	stats.Provider, stats.Model, stats.ModelVersion = model.Provider, model.Model, model.Version
-	limit := canonicalEmbeddingProjectionLimit()
-	tx, err := s.DB.Begin(ctx)
-	if err != nil {
-		return stats, err
-	}
-	defer tx.Rollback(ctx)
-	sources, skippedUnsafe, sourceUpdatedAt, err := readCanonicalEmbeddingSources(ctx, tx, userID, projectID, limit)
-	if err != nil {
-		return stats, err
-	}
-	stats.SourceRevisionCount = len(sources)
-	stats.SkippedUnsafeCount = skippedUnsafe
-	stats.SourceUpdatedAt = sourceUpdatedAt
-	existing, err := existingCanonicalEmbeddingHashes(ctx, tx, userID, projectID, model)
-	if err != nil {
-		return stats, err
-	}
-	dimensions := 0
-	activeRevisionIDs := make([]string, 0, len(sources))
-	for _, source := range sources {
-		activeRevisionIDs = append(activeRevisionIDs, source.RevisionID)
-		if existing[source.RevisionID] == source.ContentHash {
-			stats.ReusedCount++
-			continue
-		}
-		vector, embedErr := provider.Embed(ctx, source.Text)
-		if embedErr != nil {
-			return stats, embedErr
-		}
-		literal, valid := canonicalEmbeddingVectorLiteral(vector)
-		if !valid {
-			return stats, errors.New("canonical embedding provider returned invalid vector")
-		}
-		if dimensions == 0 {
-			dimensions = len(vector)
-		} else if dimensions != len(vector) {
-			return stats, fmt.Errorf("canonical embedding dimension changed within projection: %d -> %d", dimensions, len(vector))
-		}
-		if _, err := tx.Exec(ctx, canonicalEmbeddingUpsertSQL,
-			userID, projectID, source.KnowledgeID, source.RevisionID,
-			model.Provider, model.Model, model.Version, len(vector), source.ContentHash, literal, time.Now().UnixMilli(),
-		); err != nil {
-			return stats, err
-		}
-		stats.EmbeddedCount++
-	}
-	if dimensions == 0 {
-		var existingDimension int
-		_ = tx.QueryRow(ctx, `
-SELECT COALESCE(MAX(dimensions),0)
-FROM codelocal_knowledge_embeddings
-WHERE user_id=$1 AND project_id=$2 AND provider=$3 AND model=$4 AND model_version=$5`,
-			userID, projectID, model.Provider, model.Model, model.Version).Scan(&existingDimension)
-		dimensions = existingDimension
-	}
-	if dimensions <= 0 && len(sources) > 0 {
-		return stats, errors.New("canonical embedding projection could not resolve vector dimensions")
-	}
-	if _, err := tx.Exec(ctx, `
-DELETE FROM codelocal_knowledge_embeddings
-WHERE user_id=$1 AND project_id=$2 AND provider=$3 AND model=$4 AND model_version=$5
- AND NOT(revision_id=ANY($6::text[]))`, userID, projectID, model.Provider, model.Model, model.Version, activeRevisionIDs); err != nil {
-		return stats, err
-	}
-	projectedAt := time.Now().UnixMilli()
-	if dimensions > 0 {
-		if _, err := tx.Exec(ctx, canonicalEmbeddingStateUpsertSQL,
-			userID, projectID, model.Provider, model.Model, model.Version, dimensions,
-			len(sources), sourceUpdatedAt, len(sources), projectedAt,
-		); err != nil {
-			return stats, err
-		}
-	} else {
-		if _, err := tx.Exec(ctx, `
-DELETE FROM codelocal_knowledge_embedding_projection_state
-WHERE user_id=$1 AND project_id=$2 AND provider=$3 AND model=$4 AND model_version=$5`,
-			userID, projectID, model.Provider, model.Model, model.Version); err != nil {
-			return stats, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return stats, err
-	}
-	stats.Status = "current"
-	stats.Dimensions = dimensions
-	stats.ProjectedAt = projectedAt
-	return stats, nil
+	return s.rebuildCanonicalKnowledgeEmbeddingsProject(ctx, provider, userID, projectID)
 }
