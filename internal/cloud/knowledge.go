@@ -219,6 +219,105 @@ LIMIT 300`, userID)
 	skillRows.Close()
 	out.Stats["skills"] = skillCount
 
+	knowledgeRows, err := s.DB.Query(ctx, `
+SELECT s.project_id,COALESCE(s.repository_id,''),s.source_id,s.provider,s.source_type,s.canonical_path,s.classification,s.status,s.last_seen_at,
+       COALESCE(s.active_revision_id,''),COALESCE(r.content_hash,''),
+       COALESCE((SELECT COUNT(*) FROM codelocal_knowledge_conflicts c WHERE c.user_id=s.user_id AND c.source_id=s.source_id AND c.status='open'),0)::int
+FROM codelocal_knowledge_sources s
+LEFT JOIN codelocal_knowledge_source_revisions r ON r.user_id=s.user_id AND r.revision_id=s.active_revision_id
+WHERE s.user_id=$1
+ORDER BY CASE WHEN s.status='conflicted' THEN 0 ELSE 1 END,s.last_seen_at DESC
+LIMIT 400`, userID)
+	if err != nil {
+		return out, err
+	}
+	knowledgeCount := 0
+	conflictedSources := 0
+	for knowledgeRows.Next() {
+		var projectID, repositoryID, sourceID, provider, sourceType, canonicalPath, classification, status, revisionID, contentHash string
+		var lastSeen int64
+		var openConflicts int
+		if err := knowledgeRows.Scan(&projectID, &repositoryID, &sourceID, &provider, &sourceType, &canonicalPath, &classification, &status, &lastSeen, &revisionID, &contentHash, &openConflicts); err != nil {
+			knowledgeRows.Close()
+			return out, err
+		}
+		nodeID := "knowledge-source:" + sourceID
+		revisionSummary := revisionID
+		if len(revisionSummary) > 18 {
+			revisionSummary = revisionSummary[:18] + "…"
+		}
+		hashSummary := contentHash
+		if len(hashSummary) > 12 {
+			hashSummary = hashSummary[:12]
+		}
+		summary := fmt.Sprintf("%s · %s · %s · revision %s · content %s", provider, sourceType, status, revisionSummary, hashSummary)
+		importance := .7
+		if status == KnowledgeStatusConflicted {
+			importance = .93
+			conflictedSources++
+		}
+		addNode(KnowledgeNode{ID: nodeID, Kind: "knowledge_source", Name: canonicalPath, Summary: summary, Scope: classification, Confidence: 1, Importance: importance, LastSeenAt: lastSeen})
+		if projectID != "" {
+			addEdge(KnowledgeEdge{ID: "project-knowledge:" + projectID + ":" + sourceID, From: "project:" + projectID, To: nodeID, Relation: "HAS_KNOWLEDGE_SOURCE", Confidence: 1, Importance: importance})
+		}
+		if repositoryID != "" {
+			addEdge(KnowledgeEdge{ID: "repo-knowledge:" + repositoryID + ":" + sourceID, From: "repo:" + repositoryID, To: nodeID, Relation: "HAS_KNOWLEDGE_SOURCE", Confidence: 1, Importance: importance})
+		}
+		if openConflicts > 0 {
+			conflictNode := "knowledge-conflicts:" + sourceID
+			addNode(KnowledgeNode{ID: conflictNode, Kind: "conflict", Name: fmt.Sprintf("%d unresolved knowledge conflict(s)", openConflicts), Summary: "Concurrent source revisions require explicit resolution; no silent last-write-wins.", Scope: "project", Confidence: 1, Importance: 1, LastSeenAt: lastSeen})
+			addEdge(KnowledgeEdge{ID: "knowledge-conflict:" + sourceID, From: nodeID, To: conflictNode, Relation: "HAS_CONFLICT", Confidence: 1, Importance: 1})
+		}
+		knowledgeCount++
+	}
+	if err := knowledgeRows.Err(); err != nil {
+		knowledgeRows.Close()
+		return out, err
+	}
+	knowledgeRows.Close()
+	out.Stats["knowledgeSources"] = knowledgeCount
+	out.Stats["conflictedKnowledgeSources"] = conflictedSources
+
+	experienceRows, err := s.DB.Query(ctx, `
+SELECT experience_id,COALESCE(project_id,''),COALESCE(repository_id,''),COALESCE(task_kind,''),objective,outcome,verification_summary,created_at
+FROM codelocal_experiences
+WHERE user_id=$1
+ORDER BY created_at DESC
+LIMIT 250`, userID)
+	if err != nil {
+		return out, err
+	}
+	experienceCount := 0
+	for experienceRows.Next() {
+		var experienceID, projectID, repositoryID, taskKind, objective, outcome, verificationSummary string
+		var createdAt int64
+		if err := experienceRows.Scan(&experienceID, &projectID, &repositoryID, &taskKind, &objective, &outcome, &verificationSummary, &createdAt); err != nil {
+			experienceRows.Close()
+			return out, err
+		}
+		nodeID := "experience:" + experienceID
+		name := objective
+		runes := []rune(name)
+		if len(runes) > 80 {
+			name = string(runes[:80]) + "…"
+		}
+		summary := strings.TrimSpace(taskKind + " · " + outcome + " · " + verificationSummary)
+		addNode(KnowledgeNode{ID: nodeID, Kind: "experience", Name: name, Summary: summary, Scope: "project", Confidence: 1, Importance: .82, LastSeenAt: createdAt})
+		if projectID != "" {
+			addEdge(KnowledgeEdge{ID: "project-experience:" + projectID + ":" + experienceID, From: "project:" + projectID, To: nodeID, Relation: "HAS_VERIFIED_EXPERIENCE", Confidence: 1, Importance: .82})
+		}
+		if repositoryID != "" {
+			addEdge(KnowledgeEdge{ID: "repo-experience:" + repositoryID + ":" + experienceID, From: "repo:" + repositoryID, To: nodeID, Relation: "HAS_VERIFIED_EXPERIENCE", Confidence: 1, Importance: .78})
+		}
+		experienceCount++
+	}
+	if err := experienceRows.Err(); err != nil {
+		experienceRows.Close()
+		return out, err
+	}
+	experienceRows.Close()
+	out.Stats["experiences"] = experienceCount
+
 	// Project/repository-scoped memories live directly in the base memory table
 	// while the legacy graph schema is migrated gradually. Surface them in the
 	// dashboard immediately and anchor them to the logical Project/Repository so
@@ -226,9 +325,9 @@ LIMIT 300`, userID)
 	nativeRemaining := max(0, limit-len(nodes))
 	if nativeRemaining > 0 {
 		nativeRows, err := s.DB.Query(ctx, `
-SELECT id,COALESCE(project_id,''),COALESCE(repository_id,''),scope,COALESCE(kind,''),summary,confidence,importance,GREATEST(created_at,updated_at,last_used_at)
+SELECT id,COALESCE(project_id,''),COALESCE(repository_id,''),scope,COALESCE(kind,''),summary,lifecycle_status,confidence,importance,GREATEST(created_at,updated_at,last_used_at)
 FROM codelocal_memories
-WHERE user_id=$1 AND scope IN ('project','repository')
+WHERE user_id=$1 AND scope IN ('project','repository') AND lifecycle_status NOT IN ('invalidated','superseded')
 ORDER BY importance DESC,confidence DESC,GREATEST(created_at,updated_at,last_used_at) DESC
 LIMIT $2`, userID, nativeRemaining)
 		if err != nil {
@@ -236,15 +335,15 @@ LIMIT $2`, userID, nativeRemaining)
 		}
 		nativeCount := 0
 		for nativeRows.Next() {
-			var memoryID, projectID, repositoryID, scope, kind, summary string
+			var memoryID, projectID, repositoryID, scope, kind, summary, lifecycle string
 			var confidence, importance float64
 			var lastSeen int64
-			if err := nativeRows.Scan(&memoryID, &projectID, &repositoryID, &scope, &kind, &summary, &confidence, &importance, &lastSeen); err != nil {
+			if err := nativeRows.Scan(&memoryID, &projectID, &repositoryID, &scope, &kind, &summary, &lifecycle, &confidence, &importance, &lastSeen); err != nil {
 				nativeRows.Close()
 				return out, err
 			}
 			nodeID := "native-memory:" + memoryID
-			addNode(KnowledgeNode{ID: nodeID, Kind: knowledgeMemoryKind(kind), Name: knowledgeMemoryName(kind, summary), Summary: summary, Scope: scope, Confidence: confidence, Importance: importance, LastSeenAt: lastSeen, SourceMemoryID: memoryID})
+			addNode(KnowledgeNode{ID: nodeID, Kind: knowledgeMemoryKind(kind), Name: knowledgeMemoryName(kind, summary), Summary: lifecycle + " · " + summary, Scope: scope, Confidence: confidence, Importance: importance, LastSeenAt: lastSeen, SourceMemoryID: memoryID})
 			switch scope {
 			case "repository":
 				if repositoryID != "" {

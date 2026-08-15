@@ -820,6 +820,59 @@ ALTER TABLE codelocal_memories ADD CONSTRAINT codelocal_memories_lifecycle_statu
 CREATE INDEX IF NOT EXISTS idx_codelocal_memories_lifecycle
  ON codelocal_memories(user_id,lifecycle_status,updated_at DESC);
 `},
+		{24, `
+CREATE TABLE IF NOT EXISTS codelocal_organizations (
+ owner_user_id TEXT NOT NULL,
+ organization_id TEXT NOT NULL,
+ name TEXT NOT NULL,
+ created_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ PRIMARY KEY(owner_user_id,organization_id),
+ FOREIGN KEY(owner_user_id) REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ CHECK (BTRIM(name) <> '')
+);
+CREATE TABLE IF NOT EXISTS codelocal_organization_members (
+ owner_user_id TEXT NOT NULL,
+ organization_id TEXT NOT NULL,
+ member_user_id TEXT NOT NULL,
+ role TEXT NOT NULL CHECK (role IN ('owner','admin','member','viewer')),
+ status TEXT NOT NULL CHECK (status IN ('active','invited','revoked')),
+ added_at BIGINT NOT NULL,
+ updated_at BIGINT NOT NULL,
+ PRIMARY KEY(owner_user_id,organization_id,member_user_id),
+ FOREIGN KEY(owner_user_id,organization_id) REFERENCES codelocal_organizations(owner_user_id,organization_id) ON DELETE CASCADE,
+ FOREIGN KEY(member_user_id) REFERENCES codelocal_users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_org_members_member
+ ON codelocal_organization_members(member_user_id,status,updated_at DESC);
+CREATE TABLE IF NOT EXISTS codelocal_project_organizations (
+ owner_user_id TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ organization_id TEXT NOT NULL,
+ created_at BIGINT NOT NULL,
+ PRIMARY KEY(owner_user_id,project_id,organization_id),
+ FOREIGN KEY(owner_user_id,project_id) REFERENCES codelocal_projects(user_id,project_id) ON DELETE CASCADE,
+ FOREIGN KEY(owner_user_id,organization_id) REFERENCES codelocal_organizations(owner_user_id,organization_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS codelocal_organization_rules (
+ owner_user_id TEXT NOT NULL,
+ organization_id TEXT NOT NULL,
+ rule_id TEXT NOT NULL,
+ rule_text TEXT NOT NULL,
+ apply_to JSONB NOT NULL DEFAULT '[]'::jsonb,
+ required BOOLEAN NOT NULL DEFAULT TRUE,
+ status TEXT NOT NULL CHECK (status IN ('active','revoked')),
+ revision BIGINT NOT NULL DEFAULT 1,
+ created_at BIGINT NOT NULL,
+ updated_at BIGINT NOT NULL,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ PRIMARY KEY(owner_user_id,organization_id,rule_id),
+ FOREIGN KEY(owner_user_id,organization_id) REFERENCES codelocal_organizations(owner_user_id,organization_id) ON DELETE CASCADE,
+ CHECK (BTRIM(rule_text) <> '')
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_org_rules_active
+ ON codelocal_organization_rules(owner_user_id,organization_id,updated_at DESC) WHERE status='active';
+`},
 	}
 	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
 	for _, migration := range migrations {
