@@ -98,11 +98,53 @@ func TestDiscoverReadsExplicitProjectMarker(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".codelocal"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".codelocal", "project.json"), []byte(`{"projectId":"prj_biddi_01","name":"BIDDI"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".codelocal", "project.json"), []byte(`{"schemaVersion":1,"projectId":"prj_biddi_01","name":"BIDDI"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got := Discover(root, "fallback")
-	if got.MarkerProjectID != "prj_biddi_01" || got.SuggestedName != "BIDDI" {
+	if !got.MarkerPresent || !got.MarkerValid || got.MarkerSchemaVersion != 1 || got.MarkerProjectID != "prj_biddi_01" || got.MarkerName != "BIDDI" || got.SuggestedName != "BIDDI" {
 		t.Fatalf("marker was not applied: %#v", got)
+	}
+}
+
+func TestDiscoverRejectsUnversionedMarkerWithoutLeakingClaim(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".codelocal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".codelocal", "project.json"), []byte(`{"projectId":"prj_copied","name":"Copied Template"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Discover(root, "Safe Fallback")
+	if !got.MarkerPresent || got.MarkerValid || got.MarkerProjectID != "" || got.MarkerReason != "unsupported_schema_version" {
+		t.Fatalf("unversioned marker was not rejected: %#v", got)
+	}
+	if got.SuggestedName != "Safe Fallback" {
+		t.Fatalf("invalid marker name influenced project identity: %#v", got)
+	}
+}
+
+func TestDiscoverRejectsUnsafeMarkerPayload(t *testing.T) {
+	for name, payload := range map[string]struct {
+		payload string
+		reason  string
+	}{
+		"unsafe-id": {`{"schemaVersion":1,"projectId":"../../other","name":"Bad"}`, "invalid_project_id"},
+		"missing-name": {`{"schemaVersion":1,"projectId":"prj_safe","name":""}`, "missing_name"},
+		"future-schema": {`{"schemaVersion":2,"projectId":"prj_safe","name":"Future"}`, "unsupported_schema_version"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, ".codelocal"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, ".codelocal", "project.json"), []byte(payload.payload), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got := Discover(root, "Fallback")
+			if !got.MarkerPresent || got.MarkerValid || got.MarkerProjectID != "" || got.MarkerReason != payload.reason || got.SuggestedName != "Fallback" {
+				t.Fatalf("unsafe marker survived validation: %#v", got)
+			}
+		})
 	}
 }

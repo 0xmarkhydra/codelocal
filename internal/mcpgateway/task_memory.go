@@ -304,6 +304,19 @@ func taskPatchForOperation(publicTool string, operation operationInvocation, arg
 	return patch
 }
 
+func qualityPolicyBlockingCount(result *mcp.CallToolResult) int {
+	root := resultRoot(result)
+	quality, ok := root["qualityPolicy"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	count := intValue(quality["blockingCount"])
+	if count < 0 {
+		return 0
+	}
+	return count
+}
+
 func verificationCheckOutcome(operation operationInvocation, args map[string]any, result *mcp.CallToolResult) (checkKey string, completed bool, success bool, failure string) {
 	if result == nil {
 		return "", true, false, "missing tool result"
@@ -329,6 +342,12 @@ func verificationCheckOutcome(operation operationInvocation, args map[string]any
 			failure = "tool failed"
 		}
 		return "", true, false, failure
+	}
+	if operation.OperationID == "verify.changes" {
+		if count := qualityPolicyBlockingCount(result); count > 0 {
+			return "", true, false, fmt.Sprintf("quality policy has %d blocking violation(s)", count)
+		}
+		return "", true, true, ""
 	}
 
 	command := ""
@@ -381,13 +400,26 @@ func agentPatchForOperation(operation operationInvocation, args map[string]any, 
 		LastOutcome:      loop.LastOutcome,
 		NextAction:       loop.NextAction,
 	}
+	if success && (checkKey != "" || operation.OperationID == "verify.changes") {
+		// Fresh successful verification evidence supersedes transient execution
+		// errors from an earlier attempt. RecentErrors is a quality-gate blocker,
+		// so retaining already-recovered failures would keep the task in recover
+		// forever even after every required check passes.
+		patch.ReplaceErrors = true
+		patch.RecentErrors = nil
+	}
 	if success && checkKey != "" {
 		patch.PassedChecks = []string{checkKey}
 	}
 	if !success {
-		patch.RecentErrors = []string{operation.OperationID + " failed"}
+		if operation.OperationID == "verify.changes" && qualityPolicyBlockingCount(result) > 0 {
+			patch.ReplaceErrors = true
+			patch.RecentErrors = []string{failure}
+		} else {
+			patch.RecentErrors = []string{operation.OperationID + " failed"}
+		}
 	}
-	if success && operation.OperationID == "verify.changes" {
+	if operation.OperationID == "verify.changes" && result != nil && !result.IsError {
 		root := resultRoot(result)
 		regression := intValue(root["diagnosticRegression"])
 		diffObserved := strings.TrimSpace(fmt.Sprint(root["gitDiff"])) != "" || len(stringSliceValue(root["verificationScope"])) > 0
@@ -834,48 +866,6 @@ func agentCheckpointPatch(state taskstate.State, records []longmemory.Record, no
 	return taskstate.Patch{}, false
 }
 
-func longTermMemoryInput(userID, session, workspaceID, publicTool string, operation operationInvocation, state taskstate.State, result *mcp.CallToolResult) *longmemory.IngestInput {
-	if strings.TrimSpace(state.Task) == "" || strings.TrimSpace(workspaceID) == "" {
-		return nil
-	}
-	level := longmemory.LevelEvent
-	importance := 0.55
-	var summary string
-	switch {
-	case publicTool == "verify" && result != nil && !result.IsError && state.QualityStatus == "ready":
-		level = longmemory.LevelScenario
-		importance = 0.9
-		summary = "Fresh verification evidence reached the ready quality gate for task: " + state.Task
-	case publicTool == "verify" && result != nil && !result.IsError:
-		importance = 0.7
-		summary = "Verification evidence refreshed; more checks may still be required for task: " + state.Task
-	case publicTool == "edit" && result != nil && !result.IsError:
-		summary = "Files edited for task: " + state.Task
-	case result != nil && result.IsError:
-		summary = operation.OperationID + " failed while working on task: " + state.Task
-	case operation.OperationID == "terminal.run" && result != nil && !result.IsError && state.QualityStatus == "ready":
-		level = longmemory.LevelScenario
-		importance = 0.9
-		summary = "Agent quality gate reached ready state for task: " + state.Task
-	default:
-		return nil
-	}
-	return &longmemory.IngestInput{
-		UserID:         userID,
-		WorkspaceID:    workspaceID,
-		Scope:          longmemory.ScopeWorkspace,
-		TaskID:         session,
-		Level:          level,
-		Summary:        summary,
-		Branch:         state.Branch,
-		Files:          append([]string(nil), state.TouchedFiles...),
-		Symbols:        agentCheckpointSymbols(state),
-		Confidence:     0.8,
-		Importance:     importance,
-		IdempotencyKey: longmemory.IdempotencyKey(session, workspaceID, operation.OperationID, summary),
-	}
-}
-
 func (s *Service) projectIDForWorkspace(ctx context.Context, userID, workspaceID string) string {
 	if s == nil || s.Workspaces == nil || strings.TrimSpace(workspaceID) == "" {
 		return ""
@@ -942,6 +932,16 @@ func (s *Service) recallLongTermMemory(ctx context.Context, userID, deviceID, wo
 			graph = value
 		}
 	}
+	canonicalInput := cloud.CanonicalKnowledgeRecallInput{
+		UserID: userID, ProjectID: projectID, RepositoryIDs: append([]string(nil), input.RepositoryIDs...), Branch: state.Branch, Limit: 6,
+	}
+	// Shadow remains the default and is fully asynchronous. Guarded hybrid is
+	// explicit-only and fail-soft: readiness/health/read failures preserve the
+	// legacy ranked output, while a ready project may receive at most two
+	// high-confidence canonical supplements. Legacy graph context remains the
+	// graph source until Knowledge V2 graph projection has its own rollout gate.
+	records = s.maybeApplyHybridCanonicalRecall(recallCtx, canonicalInput, records)
+	s.maybeShadowCanonicalRecall(canonicalInput, len(records))
 	return records, graph
 }
 
@@ -978,7 +978,7 @@ func semanticExperienceTaskKind(task, publicTool string) string {
 	}
 }
 
-func (s *Service) recordVerifiedExperienceAsync(userID, session, deviceID, workspaceID, publicTool string, state taskstate.State, result *mcp.CallToolResult) {
+func (s *Service) enqueueVerifiedExperience(ctx context.Context, userID, session, deviceID, workspaceID, publicTool string, state taskstate.State, result *mcp.CallToolResult) {
 	if s == nil || s.Store == nil || result == nil || strings.TrimSpace(state.Task) == "" || !state.VerificationSeen {
 		return
 	}
@@ -987,75 +987,39 @@ func (s *Service) recordVerifiedExperienceAsync(userID, session, deviceID, works
 	if !succeeded && !failed {
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		projectID := s.projectIDForWorkspace(ctx, userID, workspaceID)
-		repositoryID := ""
-		if repoIDs := s.repositoryIDsForWorkspaceFiles(ctx, userID, projectID, deviceID, workspaceID, state.TouchedFiles); len(repoIDs) == 1 {
-			repositoryID = repoIDs[0]
+	outcome := "succeeded"
+	rootCause := ""
+	verificationSummary := fmt.Sprintf("Verified ready quality gate; quality=%d; passed=%d; required=%d; diffObserved=%t; diagnosticRegression=%d", state.QualityScore, len(state.PassedChecks), len(state.RequiredChecks), state.DiffObserved, state.DiagnosticRegression)
+	idempotencyState := "verified-ready"
+	if failed {
+		outcome = "failed"
+		idempotencyState = "verified-failure"
+		rootCause = strings.Join(state.RecentErrors, "; ")
+		if rootCause == "" && state.DiagnosticRegression > 0 {
+			rootCause = fmt.Sprintf("diagnostic regression: +%d", state.DiagnosticRegression)
 		}
-		outcome := "succeeded"
-		rootCause := ""
-		verificationSummary := fmt.Sprintf("Verified ready quality gate; quality=%d; passed=%d; required=%d; diffObserved=%t; diagnosticRegression=%d", state.QualityScore, len(state.PassedChecks), len(state.RequiredChecks), state.DiffObserved, state.DiagnosticRegression)
-		idempotencyState := "verified-ready"
-		if failed {
-			outcome = "failed"
-			idempotencyState = "verified-failure"
-			rootCause = strings.Join(state.RecentErrors, "; ")
-			if rootCause == "" && state.DiagnosticRegression > 0 {
-				rootCause = fmt.Sprintf("diagnostic regression: +%d", state.DiagnosticRegression)
-			}
-			verificationSummary = fmt.Sprintf("Verified failure evidence; quality=%d; status=%s; passed=%d; required=%d; diagnosticRegression=%d", state.QualityScore, state.QualityStatus, len(state.PassedChecks), len(state.RequiredChecks), state.DiagnosticRegression)
-		}
-		input := cloud.ExperienceInput{
-			UserID: userID, ProjectID: projectID, RepositoryID: repositoryID, WorkspaceID: workspaceID, DeviceID: deviceID,
-			TaskID: session, TaskKind: semanticExperienceTaskKind(state.Task, publicTool), Objective: state.Task, Branch: state.Branch,
-			Files: append([]string(nil), state.TouchedFiles...), Symbols: agentCheckpointSymbols(state), Checks: append([]string(nil), state.PassedChecks...),
-			Outcome: outcome, RootCause: rootCause, RulesHash: state.RulesHash, ContextHash: state.ContextHash, VerificationSummary: verificationSummary, Verified: true,
-			IdempotencyKey: longmemory.IdempotencyKey(userID, session, projectID, repositoryID, state.Task, state.RulesHash, state.ContextHash, idempotencyState),
-			Metadata:       map[string]any{"qualityScore": state.QualityScore, "diffObserved": state.DiffObserved, "source": "codelocal-verification", "executionTool": publicTool},
-		}
-		if _, err := s.Store.RecordExperience(ctx, input); err != nil {
-			slog.Warn("verified experience record failed; tool result remains valid", "error", err)
-		}
-	}()
+		verificationSummary = fmt.Sprintf("Verified failure evidence; quality=%d; status=%s; passed=%d; required=%d; diagnosticRegression=%d", state.QualityScore, state.QualityStatus, len(state.PassedChecks), len(state.RequiredChecks), state.DiagnosticRegression)
+	}
+	input := cloud.ExperienceInput{
+		UserID: userID, WorkspaceID: workspaceID, DeviceID: deviceID,
+		TaskID: session, TaskKind: semanticExperienceTaskKind(state.Task, publicTool), Objective: state.Task, Branch: state.Branch,
+		Files: append([]string(nil), state.TouchedFiles...), Symbols: agentCheckpointSymbols(state), Checks: append([]string(nil), state.PassedChecks...),
+		Outcome: outcome, RootCause: rootCause, RulesHash: state.RulesHash, ContextHash: state.ContextHash, VerificationSummary: verificationSummary, Verified: true,
+		IdempotencyKey: longmemory.IdempotencyKey(userID, session, workspaceID, deviceID, state.Task, state.RulesHash, state.ContextHash, idempotencyState),
+		Metadata:       map[string]any{"qualityScore": state.QualityScore, "diffObserved": state.DiffObserved, "source": "codelocal-verification", "executionTool": publicTool},
+	}
+	enqueueCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := s.Store.EnqueueExperience(enqueueCtx, input); err != nil {
+		slog.Warn("verified experience durable enqueue failed; tool result remains valid", "error", err)
+	}
 }
 
-func (s *Service) ingestLongTermMemoryAsync(userID, session, deviceID, workspaceID, publicTool string, operation operationInvocation, state taskstate.State, result *mcp.CallToolResult) {
-	if s.Memory == nil {
-		return
-	}
-	s.recordVerifiedExperienceAsync(userID, session, deviceID, workspaceID, publicTool, state, result)
-	input := longTermMemoryInput(userID, session, workspaceID, publicTool, operation, state, result)
-	if input == nil {
-		return
-	}
-	go func(value longmemory.IngestInput) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		// New task memories prefer logical project/repository scope. Legacy
-		// workspace rows remain readable, but successful work performed from a
-		// second checkout no longer creates another copy of the same project
-		// knowledge merely because the device/workspace changed.
-		projectID := s.projectIDForWorkspace(ctx, userID, workspaceID)
-		if projectID != "" {
-			value.ProjectID = projectID
-			value.WorkspaceID = ""
-			if repoIDs := s.repositoryIDsForWorkspaceFiles(ctx, userID, projectID, deviceID, workspaceID, state.TouchedFiles); len(repoIDs) == 1 {
-				value.Scope = longmemory.ScopeRepository
-				value.RepositoryID = repoIDs[0]
-				value.IdempotencyKey = longmemory.IdempotencyKey(session, projectID, repoIDs[0], operation.OperationID, value.Summary)
-			} else {
-				value.Scope = longmemory.ScopeProject
-				value.RepositoryID = ""
-				value.IdempotencyKey = longmemory.IdempotencyKey(session, projectID, operation.OperationID, value.Summary)
-			}
-		}
-		if _, err := s.Memory.Ingest(ctx, value); err != nil {
-			slog.Warn("long-term memory ingest failed; tool result remains valid", "level", value.Level, "scope", value.Scope, "error", err)
-		}
-	}(*input)
+func (s *Service) recordAutomaticLearning(ctx context.Context, userID, session, deviceID, workspaceID, publicTool string, state taskstate.State, result *mcp.CallToolResult) {
+	// Operational task activity belongs to task/audit/history, never canonical
+	// long-term knowledge. Verified Experience crosses a durable outbox boundary;
+	// later Knowledge V2 promotion consumes only processed Experience.
+	s.enqueueVerifiedExperience(ctx, userID, session, deviceID, workspaceID, publicTool, state, result)
 }
 
 func durableMemoryKind(value string) (string, bool) {
@@ -1204,6 +1168,15 @@ func (s *Service) rememberConversationMemory(ctx context.Context, userID, sessio
 		})
 		if err != nil {
 			return errorResult(err), nil
+		}
+		if item.scope == longmemory.ScopeProject && item.key != "" && s.Store != nil {
+			if promotionInput, ok := cloud.ExplicitMemoryPromotionInputForRecord(userID, projectID, record, item.key); ok {
+				enqueueCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				if _, enqueueErr := s.Store.EnqueueExplicitMemoryPromotion(enqueueCtx, promotionInput); enqueueErr != nil {
+					slog.Warn("explicit memory promotion enqueue failed; durable legacy memory remains valid", "error", enqueueErr)
+				}
+				cancel()
+			}
 		}
 		remembered = append(remembered, map[string]any{
 			"id": record.ID, "scope": record.Scope, "kind": record.Kind,
@@ -1439,6 +1412,6 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		attachGraphMemoryContext(result, graphContext)
 	}
 	attachAgentLoop(result, state)
-	s.ingestLongTermMemoryAsync(userID, session, logicalDeviceID, logicalWorkspaceID, publicTool, operation, state, result)
+	s.recordAutomaticLearning(ctx, userID, session, logicalDeviceID, logicalWorkspaceID, publicTool, state, result)
 	return result, err
 }

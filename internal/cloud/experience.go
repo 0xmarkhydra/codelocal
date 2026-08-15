@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -78,6 +79,7 @@ func normalizeExperienceInput(input ExperienceInput) (ExperienceInput, error) {
 	input.ContextHash = longmemory.SanitizeText(input.ContextHash, 160)
 	input.VerificationSummary = longmemory.SanitizeText(input.VerificationSummary, 1200)
 	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
+	input.Metadata = sanitizePromotionCandidateMetadata(input.Metadata)
 	if !input.Verified {
 		return ExperienceInput{}, errors.New("experience requires verified evidence")
 	}
@@ -135,6 +137,14 @@ ON CONFLICT(user_id,experience_id) DO NOTHING`,
 		experience.VerificationSummary, experience.CreatedAt, knowledgeMetadata(experience.Metadata))
 	if err != nil {
 		return Experience{}, err
+	}
+	// Collective learning is a privacy-gated derivative of verified Experience.
+	// It is never allowed to fail or delay the private Experience path when the
+	// feature is disabled, the user has not opted in, or the derivative fails.
+	if recorded, collectiveErr := s.RecordCollectiveExperience(ctx, experience); collectiveErr != nil {
+		slog.Debug("collective experience contribution skipped", "error", collectiveErr)
+	} else if recorded {
+		slog.Debug("collective experience contribution recorded")
 	}
 	return experience, nil
 }

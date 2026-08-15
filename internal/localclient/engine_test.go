@@ -170,6 +170,9 @@ func TestContextForTaskIncludesBoundedProjectBrainRules(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(engine.Root, "AGENTS.md"), []byte("Use gofmt before reporting completion.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(engine.Root, "CLAUDE.md"), []byte("use   gofmt before reporting completion;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(engine.Root, "backend", "AGENTS.md"), []byte("Use repository interfaces in backend services.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +201,15 @@ func TestContextForTaskIncludesBoundedProjectBrainRules(t *testing.T) {
 	}
 	if !strings.Contains(joined, "Use gofmt") || !strings.Contains(joined, "repository interfaces") {
 		t.Fatalf("expected root+nested rules in compiled context, got %q", joined)
+	}
+	if strings.Count(strings.ToLower(joined), "gofmt before reporting completion") != 1 || brain.Budget.DuplicateRules != 1 || brain.Budget.DeduplicatedChars <= 0 {
+		t.Fatalf("duplicate cross-provider rule was not compacted: brain=%#v joined=%q", brain.Budget, joined)
+	}
+	contextBudget, ok := packetMap["contextBudget"].(map[string]any)
+	duplicates, duplicateOK := contextBudget["projectBrainDuplicateRules"].(int)
+	deduplicated, deduplicatedOK := contextBudget["projectBrainDeduplicatedChars"].(int)
+	if !ok || !duplicateOK || !deduplicatedOK || duplicates != 1 || deduplicated <= 0 {
+		t.Fatalf("project brain savings were not projected into context budget: %#v", packetMap["contextBudget"])
 	}
 	if brain.Budget.UsedChars > brain.Budget.MaxChars || brain.Budget.MaxChars != 8000 || len(brain.Fingerprint) != 64 {
 		t.Fatalf("unexpected Project Brain budget/fingerprint: %#v", brain)

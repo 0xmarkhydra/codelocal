@@ -290,10 +290,36 @@ func branchEligible(candidate Record, input RecallInput) bool {
 	return memoryBranch == current
 }
 
+func legacyOperationalNoise(candidate Record) bool {
+	// Historical task telemetry was accidentally persisted as durable memory.
+	// Keep those rows for audit/migration, but never return known deterministic
+	// task-progress signatures through normal recall. Explicit conversation or
+	// other typed knowledge is not suppressed merely because it mentions them.
+	if source := strings.ToLower(strings.TrimSpace(candidate.SourceType)); source != "" && source != "task" {
+		return false
+	}
+	summary := strings.TrimSpace(candidate.Summary)
+	for _, prefix := range []string{
+		"Files edited for task:",
+		"Verification evidence refreshed;",
+		"Fresh verification evidence reached the ready quality gate for task:",
+		"Agent quality gate reached ready state for task:",
+	} {
+		if strings.HasPrefix(summary, prefix) {
+			return true
+		}
+	}
+	if index := strings.Index(summary, " failed while working on task:"); index > 0 {
+		operationID := strings.TrimSpace(summary[:index])
+		return operationID != "" && !strings.ContainsAny(operationID, " \t\r\n")
+	}
+	return false
+}
+
 func Rank(records []Record, input RecallInput, now int64) []Record {
 	out := make([]Record, 0, len(records))
 	for _, record := range records {
-		if !branchEligible(record, input) {
+		if legacyOperationalNoise(record) || !branchEligible(record, input) {
 			continue
 		}
 		record.Score = Score(record, input, now)

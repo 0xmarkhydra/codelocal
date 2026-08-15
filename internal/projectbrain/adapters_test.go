@@ -5,8 +5,17 @@ import "testing"
 func TestBuiltInAdaptersAreDeclarativeAndStable(t *testing.T) {
 	registry := NewAdapterRegistry()
 	items := registry.List()
-	if len(items) < 7 {
+	if len(items) < 8 {
 		t.Fatalf("built-in adapters=%d", len(items))
+	}
+	foundQuality := false
+	for _, item := range items {
+		if item.ID == "codelocal-quality" && item.SourceType == "quality_policy" && item.ParserKind == ParserJSONQualityPolicy && item.Classification == "private_project" {
+			foundQuality = true
+		}
+	}
+	if !foundQuality {
+		t.Fatalf("portable CodeLocal quality adapter missing: %#v", items)
 	}
 	for _, item := range items {
 		if !allowedDeclarativeParser(item.ParserKind) || item.Digest == "" || item.Digest != AdapterManifestDigest(item) {

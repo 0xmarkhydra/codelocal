@@ -14,6 +14,7 @@ const (
 	ParserMarkdownInstructions = "markdown_instructions"
 	ParserMarkdownRules        = "markdown_frontmatter_rules"
 	ParserJSONProjectMetadata  = "json_project_metadata"
+	ParserJSONQualityPolicy    = "json_quality_policy"
 )
 
 type AdapterManifest struct {
@@ -42,7 +43,7 @@ type AdapterRegistry struct {
 
 func allowedDeclarativeParser(kind string) bool {
 	switch kind {
-	case ParserMarkdownInstructions, ParserMarkdownRules, ParserJSONProjectMetadata:
+	case ParserMarkdownInstructions, ParserMarkdownRules, ParserJSONProjectMetadata, ParserJSONQualityPolicy:
 		return true
 	default:
 		return false
@@ -165,5 +166,6 @@ func BuiltInAdapterManifests() []AdapterManifest {
 		builtInAdapter("copilot-root", "github-copilot", "instructions", ParserMarkdownInstructions, "private_project", ".github/copilot-instructions.md"),
 		builtInAdapter("copilot-instructions", "github-copilot", "instructions", ParserMarkdownRules, "private_project", ".github/instructions/**/*.instructions.md"),
 		builtInAdapter("codelocal-project", "codelocal", "project_metadata", ParserJSONProjectMetadata, "local_private", ".codelocal/project.json"),
+		builtInAdapter("codelocal-quality", "codelocal", "quality_policy", ParserJSONQualityPolicy, "private_project", ".codelocal/quality.json"),
 	}
 }

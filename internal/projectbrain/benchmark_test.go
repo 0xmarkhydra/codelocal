@@ -4,10 +4,10 @@ import "testing"
 
 func TestCompareBenchmarkMeasuresEfficiencyWithoutHidingRegression(t *testing.T) {
 	scenario := BenchmarkScenario{ID: "repeat-task", Name: "repeat"}
-	baseline := BenchmarkResult{Scenario: scenario, Variant: "plain-agent", Metrics: BenchmarkMetrics{VerifiedSuccess: true, ContextBytes: 10000, ToolCalls: 20, FileReads: 10, RoundTrips: 12, CompletionMS: 10000, RuleAccuracy: .9, UnrelatedFilesTouched: 0}}
-	candidate := BenchmarkResult{Scenario: scenario, Variant: "codelocal", Metrics: BenchmarkMetrics{VerifiedSuccess: true, ContextBytes: 5000, ToolCalls: 10, FileReads: 5, RoundTrips: 6, CompletionMS: 8000, RuleAccuracy: .95, UnrelatedFilesTouched: 0}}
+	baseline := BenchmarkResult{Scenario: scenario, Variant: "plain-agent", Metrics: BenchmarkMetrics{VerifiedSuccess: true, ContextBytes: 10000, RuleInputChars: 1000, ToolCalls: 20, FileReads: 10, RoundTrips: 12, CompletionMS: 10000, RuleAccuracy: .9, UnrelatedFilesTouched: 0}}
+	candidate := BenchmarkResult{Scenario: scenario, Variant: "codelocal", Metrics: BenchmarkMetrics{VerifiedSuccess: true, ContextBytes: 5000, RuleInputChars: 1000, RuleDeduplicatedChars: 400, RuleDuplicateCount: 3, ToolCalls: 10, FileReads: 5, RoundTrips: 6, CompletionMS: 8000, RuleAccuracy: .95, UnrelatedFilesTouched: 0}}
 	comparison := CompareBenchmark(baseline, candidate)
-	if comparison.ContextReduction != .5 || comparison.ToolCallReduction != .5 || comparison.RoundTripReduction != .5 || comparison.CompletionTimeReduction != .2 || comparison.CandidateRegressed {
+	if comparison.ContextReduction != .5 || comparison.ToolCallReduction != .5 || comparison.RoundTripReduction != .5 || comparison.CompletionTimeReduction != .2 || comparison.RuleDeduplicationDelta != .4 || comparison.CandidateRuleCharsSaved != 400 || comparison.CandidateDuplicateRules != 3 || comparison.CandidateRegressed {
 		t.Fatalf("unexpected comparison: %#v", comparison)
 	}
 	candidate.Metrics.VerifiedSuccess = false

@@ -196,6 +196,69 @@ func TestAgentPatchCapturesVerifyEvidence(t *testing.T) {
 	}
 }
 
+func TestQualityPolicyBlockingViolationsKeepVerificationFromFinalizing(t *testing.T) {
+	state := taskstate.State{
+		Task: "Refactor planner", TouchedFiles: []string{"internal/foo/foo.go"}, AgentPhase: "verify",
+		RequiredChecks: []string{"diff-check"}, PassedChecks: []string{"diff-check"}, DiffObserved: true,
+	}
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{
+		"diagnosticRegression": 0,
+		"gitDiff":              map[string]any{"output": "diff --git a/internal/foo/foo.go b/internal/foo/foo.go"},
+		"qualityPolicy":        map[string]any{"blockingCount": 2, "advisoryCount": 1},
+		"verificationPlan":     map[string]any{"checks": []any{}},
+	}}
+	patch := agentPatchForOperation(operationInvocation{OperationID: "verify.changes"}, nil, result, state)
+	if patch.LastOutcome != "failed" || !patch.ReplaceErrors || len(patch.RecentErrors) != 1 || !strings.Contains(patch.RecentErrors[0], "2 blocking violation") {
+		t.Fatalf("blocking quality policy did not hold the agent gate: %#v", patch)
+	}
+	if patch.VerificationSeen == nil || !*patch.VerificationSeen || patch.DiagnosticRegression == nil || *patch.DiagnosticRegression != 0 {
+		t.Fatalf("blocking policy discarded fresh verification evidence: %#v", patch)
+	}
+}
+
+func TestQualityPolicyAdvisoriesDoNotBlockFreshVerification(t *testing.T) {
+	state := taskstate.State{Task: "Refactor planner", TouchedFiles: []string{"internal/foo/foo.go"}, AgentPhase: "verify"}
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{
+		"diagnosticRegression": 0,
+		"gitDiff":              map[string]any{"output": "diff --git a/internal/foo/foo.go b/internal/foo/foo.go"},
+		"qualityPolicy":        map[string]any{"blockingCount": 0, "advisoryCount": 4},
+		"verificationPlan":     map[string]any{"checks": []any{}},
+	}}
+	patch := agentPatchForOperation(operationInvocation{OperationID: "verify.changes"}, nil, result, state)
+	if patch.LastOutcome != "succeeded" || len(patch.RecentErrors) != 0 {
+		t.Fatalf("advisory-only quality findings incorrectly blocked verification: %#v", patch)
+	}
+}
+
+func TestSuccessfulVerificationClearsRecoveredErrorsSoQualityCanFinalize(t *testing.T) {
+	store := taskstate.New(8)
+	user, session, workspace := "quality-user", "quality-session", "quality-workspace"
+	store.Update(user, session, workspace, taskstate.Patch{
+		Task:                  "Fix planner",
+		TouchedFiles:          []string{"internal/foo/foo.go"},
+		AgentPhase:            "verify",
+		RecentErrors:          []string{"terminal.run failed"},
+		RequiredChecks:        []string{"diff-check", orchestration.CheckID("go test ./internal/foo")},
+		ReplaceRequiredChecks: true,
+		PassedChecks:          []string{"diff-check"},
+		ReplacePassedChecks:   true,
+		VerificationSeen:      boolPointer(true),
+		DiagnosticRegression:  intPointer(0),
+		DiffObserved:          boolPointer(true),
+	})
+	state, _ := store.Get(user, session, workspace)
+	command := "go test ./internal/foo"
+	patch := agentPatchForOperation(operationInvocation{OperationID: "terminal.run"}, map[string]any{"command": command}, &mcp.CallToolResult{StructuredContent: map[string]any{"exitCode": 0}}, state)
+	if !patch.ReplaceErrors || len(patch.RecentErrors) != 0 {
+		t.Fatalf("successful verification must clear recovered errors: %#v", patch)
+	}
+	state = store.Update(user, session, workspace, patch)
+	quality := qualityPatchForState(state)
+	if quality.QualityStatus != "ready" || quality.AgentPhase != "finalize" {
+		t.Fatalf("recovered verification should finalize once all required checks pass: state=%#v quality=%#v", state, quality)
+	}
+}
+
 func TestCarryTaskStatePatchPreservesAgentState(t *testing.T) {
 	state := taskstate.State{
 		Task: "Fix planner", Branch: "feat/planner", TouchedFiles: []string{"planner.go"},
@@ -319,34 +382,23 @@ func TestAttachRecoveryHintIsConservative(t *testing.T) {
 	}
 }
 
-func TestLongTermMemoryInputPersistsOnlyCompactTaskFacts(t *testing.T) {
-	input := longTermMemoryInput("user", "session", "workspace", "verify", operationInvocation{OperationID: "verify.changes"}, taskstate.State{
-		Task:          "Fix login",
-		Branch:        "feat/login",
-		TouchedFiles:  []string{"a.go"},
-		RecentChecks:  []string{"verify.changes"},
-		QualityStatus: "ready",
-	}, &mcp.CallToolResult{})
-	if input == nil || input.Level != longmemory.LevelScenario || input.WorkspaceID != "workspace" {
-		t.Fatalf("unexpected long-term memory input: %#v", input)
+func TestOperationalTaskEventsDoNotEnterDurableMemory(t *testing.T) {
+	memory := &recordingLongTermMemory{}
+	service := &Service{Memory: memory}
+	state := taskstate.State{Task: "Fix login", QualityStatus: "ready", VerificationSeen: true}
+	for _, tc := range []struct {
+		publicTool string
+		result     *mcp.CallToolResult
+	}{
+		{publicTool: "edit", result: &mcp.CallToolResult{}},
+		{publicTool: "verify", result: &mcp.CallToolResult{}},
+		{publicTool: "terminal", result: &mcp.CallToolResult{}},
+		{publicTool: "edit", result: &mcp.CallToolResult{IsError: true}},
+	} {
+		service.recordAutomaticLearning(context.Background(), "user", "session", "device", "workspace", tc.publicTool, state, tc.result)
 	}
-	if len(input.Files) != 1 || input.Files[0] != "a.go" || !strings.Contains(input.Summary, "Fix login") {
-		t.Fatalf("expected compact task facts only, got %#v", input)
-	}
-	if len(input.Symbols) == 0 || input.Symbols[0] != agentCheckpointMarker {
-		t.Fatalf("expected compact agent checkpoint markers, got %#v", input.Symbols)
-	}
-}
-
-func TestLongTermMemoryDoesNotCallIncompleteVerificationReady(t *testing.T) {
-	input := longTermMemoryInput("user", "session", "workspace", "verify", operationInvocation{OperationID: "verify.changes"}, taskstate.State{
-		Task: "Fix login", AgentPhase: "verify", QualityStatus: "verifying",
-	}, &mcp.CallToolResult{})
-	if input == nil || input.Level != longmemory.LevelEvent {
-		t.Fatalf("incomplete verification should remain an event: %#v", input)
-	}
-	if strings.Contains(strings.ToLower(input.Summary), "ready") || strings.Contains(strings.ToLower(input.Summary), "success") {
-		t.Fatalf("incomplete verification summary overclaims readiness: %q", input.Summary)
+	if len(memory.inputs) != 0 {
+		t.Fatalf("operational task events polluted durable memory: %#v", memory.inputs)
 	}
 }
 

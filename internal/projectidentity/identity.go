@@ -23,14 +23,50 @@ type Repository struct {
 }
 
 type Snapshot struct {
-	SuggestedName   string       `json:"suggestedName"`
-	MarkerProjectID string       `json:"markerProjectId,omitempty"`
-	Repositories    []Repository `json:"repositories,omitempty"`
+	SuggestedName       string       `json:"suggestedName"`
+	MarkerPresent       bool         `json:"markerPresent,omitempty"`
+	MarkerSchemaVersion int          `json:"markerSchemaVersion,omitempty"`
+	MarkerProjectID     string       `json:"markerProjectId,omitempty"`
+	MarkerName          string       `json:"markerName,omitempty"`
+	MarkerValid         bool         `json:"markerValid,omitempty"`
+	MarkerReason        string       `json:"markerReason,omitempty"`
+	Repositories        []Repository `json:"repositories,omitempty"`
 }
 
 type markerFile struct {
-	ProjectID string `json:"projectId"`
-	Name      string `json:"name"`
+	SchemaVersion int    `json:"schemaVersion"`
+	ProjectID     string `json:"projectId"`
+	Name          string `json:"name"`
+}
+
+type markerObservation struct {
+	Present bool
+	Marker  markerFile
+	Valid   bool
+	Reason  string
+}
+
+// StableProjectID is the portable local project identity used before Cloud
+// alias resolution. A validated marker wins; otherwise the sorted repository
+// set produces the same identity across workspaces that observe the same repos.
+func StableProjectID(snapshot Snapshot) string {
+	if snapshot.MarkerValid && snapshot.MarkerSchemaVersion == 1 {
+		if marker := strings.TrimSpace(snapshot.MarkerProjectID); marker != "" {
+			return marker
+		}
+	}
+	ids := make([]string, 0, len(snapshot.Repositories))
+	for _, repository := range snapshot.Repositories {
+		if id := strings.TrimSpace(repository.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
+	return "reposet_" + hex.EncodeToString(sum[:12])
 }
 
 func digest(parts ...string) string {
@@ -177,22 +213,47 @@ func truncateRunes(value string, limit int) string {
 	return string(runes[:limit])
 }
 
-func readMarker(root string) markerFile {
+func validMarkerProjectID(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) < 4 || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func readMarker(root string) markerObservation {
 	data, err := os.ReadFile(filepath.Join(root, ".codelocal", "project.json"))
-	if err != nil || len(data) > 16<<10 {
-		return markerFile{}
+	if os.IsNotExist(err) {
+		return markerObservation{}
+	}
+	if err != nil {
+		return markerObservation{Present: true, Reason: "read_error"}
+	}
+	if len(data) > 16<<10 {
+		return markerObservation{Present: true, Reason: "too_large"}
 	}
 	var marker markerFile
 	if json.Unmarshal(data, &marker) != nil {
-		return markerFile{}
+		return markerObservation{Present: true, Reason: "invalid_json"}
 	}
 	marker.ProjectID = strings.TrimSpace(marker.ProjectID)
-	marker.Name = strings.TrimSpace(marker.Name)
-	if len(marker.ProjectID) > 128 {
-		marker.ProjectID = ""
+	marker.Name = truncateRunes(strings.TrimSpace(marker.Name), 120)
+	if marker.SchemaVersion != 1 {
+		return markerObservation{Present: true, Marker: marker, Reason: "unsupported_schema_version"}
 	}
-	marker.Name = truncateRunes(marker.Name, 120)
-	return marker
+	if !validMarkerProjectID(marker.ProjectID) {
+		return markerObservation{Present: true, Marker: marker, Reason: "invalid_project_id"}
+	}
+	if marker.Name == "" {
+		return markerObservation{Present: true, Marker: marker, Reason: "missing_name"}
+	}
+	return markerObservation{Present: true, Marker: marker, Valid: true}
 }
 
 func Discover(root, workspaceName string) Snapshot {
@@ -201,7 +262,10 @@ func Discover(root, workspaceName string) Snapshot {
 		root = filepath.Clean(root)
 	}
 	marker := readMarker(root)
-	name := strings.TrimSpace(marker.Name)
+	name := ""
+	if marker.Valid {
+		name = strings.TrimSpace(marker.Marker.Name)
+	}
 	if name == "" {
 		name = strings.TrimSpace(workspaceName)
 	}
@@ -209,7 +273,17 @@ func Discover(root, workspaceName string) Snapshot {
 		name = filepath.Base(root)
 	}
 	name = truncateRunes(name, 120)
-	out := Snapshot{SuggestedName: name, MarkerProjectID: marker.ProjectID}
+	out := Snapshot{
+		SuggestedName:       name,
+		MarkerPresent:       marker.Present,
+		MarkerSchemaVersion: marker.Marker.SchemaVersion,
+		MarkerValid:         marker.Valid,
+		MarkerReason:        marker.Reason,
+	}
+	if marker.Valid {
+		out.MarkerProjectID = marker.Marker.ProjectID
+		out.MarkerName = marker.Marker.Name
+	}
 	seen := map[string]struct{}{}
 	for _, repoRoot := range discoverRepositoryRoots(root) {
 		repo, ok := repositoryAt(root, repoRoot)

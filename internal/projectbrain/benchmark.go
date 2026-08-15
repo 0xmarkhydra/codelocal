@@ -12,6 +12,9 @@ type BenchmarkScenario struct {
 type BenchmarkMetrics struct {
 	VerifiedSuccess       bool    `json:"verifiedSuccess"`
 	ContextBytes          int64   `json:"contextBytes"`
+	RuleInputChars        int64   `json:"ruleInputChars,omitempty"`
+	RuleDeduplicatedChars int64   `json:"ruleDeduplicatedChars,omitempty"`
+	RuleDuplicateCount    int     `json:"ruleDuplicateCount,omitempty"`
 	ToolCalls             int     `json:"toolCalls"`
 	FileReads             int     `json:"fileReads"`
 	RoundTrips            int     `json:"roundTrips"`
@@ -38,6 +41,9 @@ type BenchmarkComparison struct {
 	FileReadReduction       float64 `json:"fileReadReduction"`
 	RoundTripReduction      float64 `json:"roundTripReduction"`
 	CompletionTimeReduction float64 `json:"completionTimeReduction"`
+	RuleDeduplicationDelta  float64 `json:"ruleDeduplicationDelta,omitempty"`
+	CandidateRuleCharsSaved int64   `json:"candidateRuleCharsSaved,omitempty"`
+	CandidateDuplicateRules int     `json:"candidateDuplicateRules,omitempty"`
 	VerifiedSuccessDelta    int     `json:"verifiedSuccessDelta"`
 	RuleAccuracyDelta       float64 `json:"ruleAccuracyDelta"`
 	CandidateRegressed      bool    `json:"candidateRegressed"`
@@ -54,6 +60,13 @@ func reduction(before, after float64) float64 {
 	return value
 }
 
+func ruleDeduplicationRatio(metrics BenchmarkMetrics) float64 {
+	if metrics.RuleInputChars <= 0 || metrics.RuleDeduplicatedChars <= 0 {
+		return 0
+	}
+	return reduction(float64(metrics.RuleInputChars), float64(metrics.RuleInputChars-metrics.RuleDeduplicatedChars))
+}
+
 func CompareBenchmark(baseline, candidate BenchmarkResult) BenchmarkComparison {
 	comparison := BenchmarkComparison{
 		ScenarioID: baseline.Scenario.ID, BaselineVariant: baseline.Variant, CandidateVariant: candidate.Variant,
@@ -62,6 +75,9 @@ func CompareBenchmark(baseline, candidate BenchmarkResult) BenchmarkComparison {
 		FileReadReduction:       reduction(float64(baseline.Metrics.FileReads), float64(candidate.Metrics.FileReads)),
 		RoundTripReduction:      reduction(float64(baseline.Metrics.RoundTrips), float64(candidate.Metrics.RoundTrips)),
 		CompletionTimeReduction: reduction(float64(baseline.Metrics.CompletionMS), float64(candidate.Metrics.CompletionMS)),
+		RuleDeduplicationDelta:  ruleDeduplicationRatio(candidate.Metrics) - ruleDeduplicationRatio(baseline.Metrics),
+		CandidateRuleCharsSaved: candidate.Metrics.RuleDeduplicatedChars,
+		CandidateDuplicateRules: candidate.Metrics.RuleDuplicateCount,
 		RuleAccuracyDelta:       candidate.Metrics.RuleAccuracy - baseline.Metrics.RuleAccuracy,
 	}
 	if candidate.Metrics.VerifiedSuccess && !baseline.Metrics.VerifiedSuccess {

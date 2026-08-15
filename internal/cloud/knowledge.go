@@ -8,6 +8,38 @@ import (
 	"strings"
 )
 
+const canonicalGraphDashboardNodesSQL = `
+SELECT project_id,node_id,node_kind,label,summary,status,confidence,importance,updated_at
+FROM codelocal_knowledge_graph_nodes
+WHERE user_id=$1
+ORDER BY updated_at DESC,node_id ASC
+LIMIT $2`
+
+const canonicalGraphDashboardEdgesSQL = `
+SELECT edge_id,from_node_id,to_node_id,relation,confidence,importance,updated_at
+FROM codelocal_knowledge_graph_edges
+WHERE user_id=$1
+ORDER BY updated_at DESC,edge_id ASC
+LIMIT $2`
+
+const portableSkillGraphSQL = `
+WITH per_device AS (
+ SELECT DISTINCT ON(project_id,portable_skill_id,device_id)
+  project_id,portable_skill_id,device_id,intent,status,confidence,success_count,failure_count,updated_at,last_used_at
+ FROM codelocal_project_learned_skill_contributions
+ WHERE user_id=$1 AND updated_at >= $2
+ ORDER BY project_id,portable_skill_id,device_id,(status='trusted') DESC,confidence DESC,success_count DESC,updated_at DESC
+)
+SELECT project_id,portable_skill_id,MAX(intent),COUNT(*)::int,
+ COUNT(*) FILTER (WHERE status='trusted')::int,
+ COALESCE(SUM(success_count),0)::int,COALESCE(SUM(failure_count),0)::int,
+ COALESCE(AVG(confidence),0)::double precision,
+ MAX(GREATEST(updated_at,last_used_at))::bigint
+FROM per_device
+GROUP BY project_id,portable_skill_id
+ORDER BY MAX(GREATEST(updated_at,last_used_at)) DESC
+LIMIT 250`
+
 func knowledgeRepoName(remote, id string) string {
 	remote = strings.Trim(strings.TrimSpace(remote), "/")
 	if remote != "" {
@@ -204,7 +236,7 @@ LIMIT 300`, userID)
 		}
 		nodeID := "skill:" + deviceID + ":" + workspaceID + ":" + skillID
 		lastSeen := max(updatedAt, lastUsedAt)
-		summary := fmt.Sprintf("%s · %d successful · %d failed · %d steps · local recipe remains private", status, successCount, failureCount, stepCount)
+		summary := fmt.Sprintf("%s · %d successful · %d failed · %d steps · machine-specific binding remains local", status, successCount, failureCount, stepCount)
 		addNode(KnowledgeNode{ID: nodeID, Kind: "skill", Name: intent, Summary: summary, Scope: "skill", Confidence: confidence, Importance: .72, LastSeenAt: lastSeen})
 		addEdge(KnowledgeEdge{ID: "workspace-skill:" + nodeID, From: workspaceNode, To: nodeID, Relation: "HAS_SKILL", Confidence: confidence, Importance: .72})
 		if projectID := workspaceProjects[workspaceKey]; projectID != "" {
@@ -218,6 +250,118 @@ LIMIT 300`, userID)
 	}
 	skillRows.Close()
 	out.Stats["skills"] = skillCount
+
+	portableRows, err := s.DB.Query(ctx, portableSkillGraphSQL, userID, portableSkillEvidenceCutoff())
+	if err != nil {
+		return out, err
+	}
+	portableCount, corroboratedCount, degradedCount := 0, 0, 0
+	for portableRows.Next() {
+		var projectID, skillID, intent string
+		var contributorCount, trustedContributorCount, successCount, failureCount int
+		var averageConfidence float64
+		var lastSeen int64
+		if err := portableRows.Scan(
+			&projectID, &skillID, &intent, &contributorCount, &trustedContributorCount,
+			&successCount, &failureCount, &averageConfidence, &lastSeen,
+		); err != nil {
+			portableRows.Close()
+			return out, err
+		}
+		health := portableSkillHealth(contributorCount, successCount, failureCount, averageConfidence)
+		switch health {
+		case "corroborated":
+			corroboratedCount++
+		case "degraded":
+			degradedCount++
+		}
+		importance := .73
+		if health == "corroborated" {
+			importance = .82
+		} else if health == "degraded" {
+			importance = .58
+		}
+		nodeID := "portable-skill:" + projectID + ":" + skillID
+		summary := fmt.Sprintf("portable · %s · %d independent device(s) · %d successful · %d failed · %d trusted contributor(s) · local verification still required", health, contributorCount, successCount, failureCount, trustedContributorCount)
+		addNode(KnowledgeNode{ID: nodeID, Kind: "skill", Name: intent, Summary: summary, Scope: "project_portable_skill", Confidence: averageConfidence, Importance: importance, LastSeenAt: lastSeen})
+		addEdge(KnowledgeEdge{ID: "project-portable-skill:" + projectID + ":" + skillID, From: "project:" + projectID, To: nodeID, Relation: "HAS_PORTABLE_SKILL", Confidence: averageConfidence, Importance: importance})
+		portableCount++
+	}
+	if err := portableRows.Err(); err != nil {
+		portableRows.Close()
+		return out, err
+	}
+	portableRows.Close()
+	out.Stats["portableSkills"] = portableCount
+	out.Stats["corroboratedPortableSkills"] = corroboratedCount
+	out.Stats["degradedPortableSkills"] = degradedCount
+
+	remainingCanonicalNodes := max(0, limit-len(out.Nodes))
+	canonicalNodeCount, canonicalEdgeCount := 0, 0
+	if remainingCanonicalNodes > 0 {
+		canonicalRows, queryErr := s.DB.Query(ctx, canonicalGraphDashboardNodesSQL, userID, remainingCanonicalNodes)
+		if queryErr != nil {
+			return out, queryErr
+		}
+		for canonicalRows.Next() {
+			var projectID, nodeID, nodeKind, label, summary, status string
+			var confidence, importance float64
+			var updatedAt int64
+			if err := canonicalRows.Scan(&projectID, &nodeID, &nodeKind, &label, &summary, &status, &confidence, &importance, &updatedAt); err != nil {
+				canonicalRows.Close()
+				return out, err
+			}
+			if len(out.Nodes) >= limit {
+				break
+			}
+			kind := "canonical_knowledge"
+			if nodeKind == "revision" {
+				kind = "knowledge_revision"
+			}
+			addNode(KnowledgeNode{
+				ID: nodeID, Kind: kind, Name: label, Summary: summary,
+				Scope: "canonical_" + status, Confidence: confidence, Importance: importance, LastSeenAt: updatedAt,
+			})
+			if _, present := nodes[nodeID]; present {
+				canonicalNodeCount++
+			}
+		}
+		if err := canonicalRows.Err(); err != nil {
+			canonicalRows.Close()
+			return out, err
+		}
+		canonicalRows.Close()
+		if canonicalNodeCount > 0 {
+			edgeRows, queryErr := s.DB.Query(ctx, canonicalGraphDashboardEdgesSQL, userID, min(max(canonicalNodeCount*4, 50), 2000))
+			if queryErr != nil {
+				return out, queryErr
+			}
+			for edgeRows.Next() {
+				var edgeID, fromNode, toNode, relation string
+				var confidence, importance float64
+				var updatedAt int64
+				if err := edgeRows.Scan(&edgeID, &fromNode, &toNode, &relation, &confidence, &importance, &updatedAt); err != nil {
+					edgeRows.Close()
+					return out, err
+				}
+				if _, present := nodes[fromNode]; !present {
+					continue
+				}
+				if _, present := nodes[toNode]; !present {
+					continue
+				}
+				addEdge(KnowledgeEdge{ID: edgeID, From: fromNode, To: toNode, Relation: relation, Confidence: confidence, Importance: importance})
+				canonicalEdgeCount++
+			}
+			if err := edgeRows.Err(); err != nil {
+				edgeRows.Close()
+				return out, err
+			}
+			edgeRows.Close()
+		}
+	}
+	out.Stats["canonicalGraphNodes"] = canonicalNodeCount
+	out.Stats["canonicalGraphEdges"] = canonicalEdgeCount
 
 	knowledgeRows, err := s.DB.Query(ctx, `
 SELECT s.project_id,COALESCE(s.repository_id,''),s.source_id,s.provider,s.source_type,s.canonical_path,s.classification,s.status,s.last_seen_at,

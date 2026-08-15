@@ -20,6 +20,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/approval"
 	"github.com/0xmarkhydra/codelocal/internal/audit"
+	"github.com/0xmarkhydra/codelocal/internal/codequality"
 	"github.com/0xmarkhydra/codelocal/internal/editing"
 	"github.com/0xmarkhydra/codelocal/internal/history"
 	"github.com/0xmarkhydra/codelocal/internal/idempotency"
@@ -523,6 +524,14 @@ func (e *Engine) attachProjectBrainContext(result map[string]any, explicitTarget
 	if budget, ok := result["contextBudget"].(map[string]any); ok {
 		budget["projectBrainMaxChars"] = packet.Budget.MaxChars
 		budget["projectBrainUsedChars"] = packet.Budget.UsedChars
+		budget["projectBrainInputChars"] = packet.Budget.InputChars
+		budget["projectBrainDeduplicatedChars"] = packet.Budget.DeduplicatedChars
+		budget["projectBrainDuplicateRules"] = packet.Budget.DuplicateRules
+		if packet.Budget.InputChars > 0 {
+			budget["projectBrainDeduplicationRatio"] = float64(packet.Budget.DeduplicatedChars) / float64(packet.Budget.InputChars)
+		} else {
+			budget["projectBrainDeduplicationRatio"] = float64(0)
+		}
 	}
 }
 
@@ -659,21 +668,7 @@ func fileEditArgs(args map[string]any) ([]editing.FileEdit, error) {
 }
 
 func stableProjectID(snapshot projectidentity.Snapshot) string {
-	if marker := strings.TrimSpace(snapshot.MarkerProjectID); marker != "" {
-		return marker
-	}
-	ids := make([]string, 0, len(snapshot.Repositories))
-	for _, repository := range snapshot.Repositories {
-		if id := strings.TrimSpace(repository.ID); id != "" {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	if len(ids) == 0 {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
-	return fmt.Sprintf("reposet_%x", sum[:12])
+	return projectidentity.StableProjectID(snapshot)
 }
 
 func learnedSkillBranchPolicy(taskKind string) string {
@@ -723,6 +718,10 @@ func learnedSkillRequirements(steps []learnedskills.Step) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (e *Engine) LearnedSkillContext(taskKind string) *learnedskills.ContextFingerprint {
+	return e.currentLearnedSkillContext(taskKind)
 }
 
 func (e *Engine) currentLearnedSkillContext(taskKind string) *learnedskills.ContextFingerprint {
@@ -1390,6 +1389,7 @@ func (e *Engine) verifyChanges(ctx context.Context, paths []string, baselineID s
 	if len(checks) > 8 {
 		checks = checks[:8]
 	}
+	quality := codequality.Analyze(e.Root, effectivePaths)
 	return map[string]any{
 		"baselineId":           baselineID,
 		"beforeDiagnostics":    baseline,
@@ -1399,6 +1399,7 @@ func (e *Engine) verifyChanges(ctx context.Context, paths []string, baselineID s
 		"verificationPlan":     verificationPlan,
 		"recommendedChecks":    checks,
 		"gitDiff":              diff,
+		"qualityPolicy":        quality,
 	}, nil
 }
 

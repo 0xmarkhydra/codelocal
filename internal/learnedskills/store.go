@@ -22,6 +22,7 @@ const (
 	Version           = 2
 	StatusCandidate   = "candidate"
 	StatusTrusted     = "trusted"
+	StatusImported    = "imported"
 	StatusStale       = "stale"
 	maxRecipes        = 128
 	initialConfidence = 0.65
@@ -46,6 +47,7 @@ type ContextFingerprint struct {
 
 type Recipe struct {
 	ID                string              `json:"id"`
+	PortableID        string              `json:"portableId,omitempty"`
 	Version           int                 `json:"version"`
 	WorkspaceKey      string              `json:"workspaceKey"`
 	Intent            string              `json:"intent"`
@@ -324,6 +326,11 @@ func (s *Store) read(workspaceKey string) (fileState, error) {
 	for _, recipe := range data.Recipes {
 		if recipe.WorkspaceKey == workspaceKey && recipe.ID != "" && recipe.Intent != "" && len(recipe.Steps) > 0 {
 			recipe.MatchScore = 0
+			if recipe.PortableID == "" && recipe.Context != nil && strings.TrimSpace(recipe.Context.ProjectID) != "" {
+				if portable, ok, _ := PortableRecipeFor(recipe, recipe.Context.ProjectID); ok {
+					recipe.PortableID = portable.ID
+				}
+			}
 			filtered = append(filtered, recipe)
 		}
 	}
@@ -381,8 +388,14 @@ func (s *Store) RecordWithContext(workspaceKey, intent, taskKind string, steps [
 	id := recipeID(workspaceKey, intent, steps)
 	fingerprint := normalizeFingerprint(contextFingerprint)
 	recipe := Recipe{ID: id, Version: Version, WorkspaceKey: workspaceKey, Intent: intent, TaskKind: strings.TrimSpace(taskKind), Steps: cloneSteps(steps), Confidence: initialConfidence, SuccessCount: 1, Status: StatusCandidate, CreatedAt: now, UpdatedAt: now, LastUsedAt: now, Context: fingerprint, ContextHash: FingerprintHash(fingerprint)}
+	if fingerprint != nil && strings.TrimSpace(fingerprint.ProjectID) != "" {
+		if portable, ok, _ := PortableRecipeFor(recipe, fingerprint.ProjectID); ok {
+			recipe.PortableID = portable.ID
+		}
+	}
 	for _, previous := range data.Recipes {
-		if previous.ID == id {
+		samePortable := recipe.PortableID != "" && previous.PortableID == recipe.PortableID
+		if previous.ID == id || samePortable {
 			recipe.CreatedAt = previous.CreatedAt
 			recipe.SuccessCount = previous.SuccessCount + 1
 			recipe.FailureCount = previous.FailureCount
@@ -395,7 +408,8 @@ func (s *Store) RecordWithContext(workspaceKey, intent, taskKind string, steps [
 	}
 	next := make([]Recipe, 0, len(data.Recipes)+1)
 	for _, item := range data.Recipes {
-		if item.ID != id {
+		samePortable := recipe.PortableID != "" && item.PortableID == recipe.PortableID
+		if item.ID != id && !samePortable {
 			next = append(next, item)
 		}
 	}
@@ -405,6 +419,72 @@ func (s *Store) RecordWithContext(workspaceKey, intent, taskKind string, steps [
 	}
 	copy := cloneRecipe(recipe)
 	return &copy, nil
+}
+
+// ImportPortable installs a Cloud-validated project recipe as an untrusted
+// local suggestion. Cross-device evidence never grants local replay trust: an
+// imported recipe must be re-observed through a successful local execution,
+// at which point RecordWithContext replaces it with a normal candidate.
+func (s *Store) ImportPortable(workspaceKey, canonicalProjectID string, input PortableRecipe, localContext *ContextFingerprint) (*Recipe, bool, error) {
+	workspaceKey = strings.TrimSpace(workspaceKey)
+	canonicalProjectID = strings.TrimSpace(canonicalProjectID)
+	localContext = normalizeFingerprint(localContext)
+	if workspaceKey == "" || canonicalProjectID == "" || localContext == nil || strings.TrimSpace(localContext.ProjectID) == "" {
+		return nil, false, errors.New("portable learned skill import requires workspace and project context")
+	}
+	portable, ok := NormalizePortableRecipe(input, canonicalProjectID)
+	if !ok {
+		return nil, false, errors.New("portable learned skill payload is invalid")
+	}
+	bound := *portable.Context
+	bound.ProjectID = localContext.ProjectID
+	bound.RepositoryIDs = append([]string(nil), localContext.RepositoryIDs...)
+	bound = *normalizeFingerprint(&bound)
+	now := time.Now().UnixMilli()
+	recipe := Recipe{
+		ID: "import_" + portable.ID, PortableID: portable.ID, Version: Version, WorkspaceKey: workspaceKey,
+		Intent: portable.Intent, TaskKind: portable.TaskKind, Steps: cloneSteps(portable.Steps), Confidence: math.Min(initialConfidence, portable.Confidence),
+		SuccessCount: 0, FailureCount: 0, Status: StatusImported, CreatedAt: now, UpdatedAt: now,
+		Context: &bound, ContextHash: FingerprintHash(&bound),
+	}
+	if compatible, reason := ContextCompatible(recipe.Context, localContext); !compatible {
+		recipe.StatusBeforeStale = StatusImported
+		recipe.Status = StatusStale
+		recipe.StaleReason = reason
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := s.read(workspaceKey)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, existing := range data.Recipes {
+		if existing.PortableID != portable.ID {
+			continue
+		}
+		if existing.Status == StatusCandidate || existing.Status == StatusTrusted {
+			copy := cloneRecipe(existing)
+			return &copy, false, nil
+		}
+		recipe.CreatedAt = existing.CreatedAt
+		if existing.ContextHash == recipe.ContextHash && existing.Intent == recipe.Intent && existing.TaskKind == recipe.TaskKind {
+			copy := cloneRecipe(existing)
+			return &copy, false, nil
+		}
+	}
+	next := make([]Recipe, 0, len(data.Recipes)+1)
+	for _, existing := range data.Recipes {
+		if existing.PortableID != portable.ID {
+			next = append(next, existing)
+		}
+	}
+	next = append(next, recipe)
+	if err := s.write(workspaceKey, next); err != nil {
+		return nil, false, err
+	}
+	copy := cloneRecipe(recipe)
+	return &copy, true, nil
 }
 
 func (s *Store) List(workspaceKey string, limit int) ([]Recipe, error) {
@@ -472,7 +552,7 @@ func (s *Store) MatchWithContext(workspaceKey, intent, taskKind string, currentC
 		}
 		if item.Status == StatusStale {
 			restored := item.StatusBeforeStale
-			if restored != StatusTrusted && restored != StatusCandidate {
+			if restored != StatusTrusted && restored != StatusCandidate && restored != StatusImported {
 				restored = StatusCandidate
 			}
 			item.Status = restored

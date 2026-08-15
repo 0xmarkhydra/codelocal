@@ -34,14 +34,19 @@ func TestCloudSafeManifestExcludesLocalPrivateAndSensitive(t *testing.T) {
 	project := base
 	project.Path = "AGENTS.md"
 	project.Classification = "private_project"
+	quality := base
+	quality.Path = ".codelocal/quality.json"
+	quality.Provider = "codelocal"
+	quality.SourceType = "quality_policy"
+	quality.Classification = "private_project"
 	local := base
 	local.Path = "CLAUDE.local.md"
 	local.Classification = "local_private"
 	sensitive := base
 	sensitive.Path = "secret.rules.md"
 	sensitive.Classification = "sensitive"
-	manifest := CloudSafeManifest(NewManifest([]Source{project, local, sensitive}))
-	if len(manifest.Sources) != 1 || manifest.Sources[0].Path != "AGENTS.md" {
+	manifest := CloudSafeManifest(NewManifest([]Source{project, quality, local, sensitive}))
+	if len(manifest.Sources) != 2 || manifest.Sources[0].Path != ".codelocal/quality.json" || manifest.Sources[1].Path != "AGENTS.md" {
 		t.Fatalf("cloud-safe sources=%#v", manifest.Sources)
 	}
 }

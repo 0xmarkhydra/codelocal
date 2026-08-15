@@ -13,10 +13,68 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/identity"
+	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/workspace"
 )
+
+func TestLearnedSkillMetadataSnapshotIncludesOnlyPortableSafeRecipeBodies(t *testing.T) {
+	store := &learnedskills.Store{RootDir: filepath.Join(t.TempDir(), "skills")}
+	workspaceKey := "device-a::workspace-a"
+	contextFingerprint := &learnedskills.ContextFingerprint{ProjectID: "project-a", RulesHash: "rules-a", RequiredCapabilities: []string{"computer"}}
+	if _, err := store.RecordWithContext(workspaceKey, "open notifications", "desktop", []learnedskills.Step{
+		{Tool: "computer", Args: map[string]any{"action": "focus", "windowHint": "Google Chrome Facebook"}},
+		{Tool: "computer", Args: map[string]any{"action": "observe", "windowHint": "Google Chrome Facebook"}},
+	}, true, contextFingerprint); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordWithContext(workspaceKey, "run local command", "code", []learnedskills.Step{
+		{Tool: "terminal", Args: map[string]any{"action": "run", "command": "echo local"}},
+	}, true, contextFingerprint); err != nil {
+		t.Fatal(err)
+	}
+	items, signature := learnedSkillMetadataSnapshot(store, "device-a", "workspace-a")
+	if len(items) != 2 || signature == "" {
+		t.Fatalf("unexpected learned skill snapshot: items=%#v signature=%q", items, signature)
+	}
+	portableCount := 0
+	for _, item := range items {
+		if item.Portable != nil {
+			portableCount++
+			if item.Intent != "open notifications" || item.Portable.ProjectID != "project-a" || item.Portable.ID == "" {
+				t.Fatalf("unexpected portable recipe projection: %#v", item)
+			}
+		}
+		if item.Intent == "run local command" && item.Portable != nil {
+			t.Fatalf("terminal recipe must remain local-only: %#v", item.Portable)
+		}
+	}
+	if portableCount != 1 {
+		t.Fatalf("portable recipe count=%d want 1: %#v", portableCount, items)
+	}
+}
+
+func TestPortableSkillImportHealthGateRejectsStaleAndDegradedEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		health string
+		want   bool
+	}{
+		{health: "single_source", want: true},
+		{health: "collecting", want: true},
+		{health: "corroborated", want: true},
+		{health: "stale", want: false},
+		{health: "degraded", want: false},
+	} {
+		recipe := learnedskills.PortableRecipe{Evidence: &learnedskills.PortableEvidence{Health: tc.health}}
+		if got := portableSkillImportAllowed(recipe); got != tc.want {
+			t.Fatalf("health=%q allowed=%v want %v", tc.health, got, tc.want)
+		}
+	}
+	if !portableSkillImportAllowed(learnedskills.PortableRecipe{}) {
+		t.Fatal("missing evidence should remain backward-compatible")
+	}
+}
 
 func TestTerminalToolContextOmitsMCPRequestIdentity(t *testing.T) {
 	got := terminalToolContext(workspace.Workspace{WorkspaceName: "codex-mcp", WorkspaceID: "codex-mcp-e759036dfa"})

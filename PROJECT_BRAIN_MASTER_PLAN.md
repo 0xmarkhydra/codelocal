@@ -164,6 +164,31 @@ CodeLocal must compile a tiny task-specific packet rather than dumping the datab
 
 The system is successful when long-lived projects require **less repeated context**, not more.
 
+## 1.8 One canonical durable truth
+
+Canonical durable knowledge is represented by the PostgreSQL knowledge object + revision + provenance model.
+
+The following are derived/rebuildable indexes, not independent sources of truth:
+
+- embeddings/vector index;
+- semantic Knowledge Graph nodes/edges;
+- compiled context caches;
+- local Code Graph/indexes.
+
+If a derived index is corrupt or stale, CodeLocal must be able to delete and rebuild it from canonical state without losing durable knowledge.
+
+## 1.9 Experience-first automatic learning
+
+Operational activity such as edits, verification progress, terminal progress, retries, and transient failures belongs to task/audit/history storage.
+
+A verified task may automatically create a verified **Experience**. It must not directly create a canonical fact, decision, memory, or Skill merely because an operation succeeded. Promotion from Experience to durable knowledge/Skill passes through explicit deterministic/semantic promotion rules.
+
+## 1.10 Durable asynchronous learning boundary
+
+Work that is acknowledged as durable but executes outside the interactive response path must cross a transactional durable outbox/queue boundary and be processed by idempotent at-least-once workers.
+
+A naked in-process goroutine is acceptable for best-effort telemetry, but is not a durability mechanism for canonical knowledge, Experience promotion, embeddings, or graph projections.
+
 ---
 
 # 2. Current foundations to preserve
@@ -372,6 +397,9 @@ Suggested fields:
 claim
   id
   kind
+  stable_key
+  cardinality scalar|set
+  qualifier nullable
   normalized_statement
   scope global|project|repository|module
   confidence
@@ -384,6 +412,8 @@ claim
   valid_to nullable
   status
 ```
+
+For `scalar` claims, a changed value creates a new revision of the same canonical identity. For `set` claims, simultaneous independent members require distinct qualifiers/entity keys so unrelated constraints, people, dependencies, or relationships are not merged merely because they share a predicate.
 
 ## 4.4 Experience
 
@@ -516,18 +546,32 @@ A project may contain:
 - Git submodules;
 - multiple checkouts/worktrees on different devices.
 
-`.codelocal/project.json` should become an optional authoritative project marker when present.
+`.codelocal/project.json` should become an optional **strong project-identity marker** when present, but it is not trusted blindly. CodeLocal must validate the marker against the authenticated tenant plus repository/alias evidence so copied templates or cloned starter folders cannot silently merge unrelated projects.
 
 Recommended committed marker:
 
 ```json
 {
+  "schemaVersion": 1,
   "projectId": "stable-project-id",
   "name": "BIDDI"
 }
 ```
 
-When no marker exists, CodeLocal derives project identity from a stable repository set and records aliases as evidence changes.
+Marker schema versions are explicit. A marker with an unsupported/missing schema version or unsafe payload is rejected locally and revalidated by Cloud. A valid marker can create a new logical project only when the incoming repository set is not already bound elsewhere; once the project exists, marker continuation requires compatible direct repository or project-local lineage evidence. Competing repository evidence always wins over the marker and forces a fail-closed repository-set fallback.
+
+Portable project configuration is intentionally commit-able:
+
+```text
+.codelocal/project.json
+.codelocal/quality.json
+.codelocal/rules/**
+.codelocal/skills/**
+```
+
+Runtime-only state such as `.codelocal/worktrees/**` remains ignored and must never enter project indexing/context.
+
+When no marker exists, CodeLocal derives project identity from a stable repository set and records repository aliases/history as evidence changes. Remote renames/migrations must not permanently split one logical repository into disconnected knowledge islands.
 
 ## 5.3 Module / Project Area identity
 
@@ -1031,6 +1075,28 @@ Invalidate on:
 - selected skill fingerprint change;
 - explicit user correction.
 
+## 14.4 Compiler v3 deterministic compaction
+
+Before budget selection, the compiler performs conservative exact-normalized rule compaction across providers/authority layers:
+
+```text
+lowercase
++ collapse whitespace
++ ignore trailing . ; :
+```
+
+It does **not** embedding-merge or semantically paraphrase rules. Opposite or merely similar rules stay separate. When exact-normalized duplicates exist, the highest-authority/specific representative is retained and `required` propagates if any duplicate is mandatory.
+
+The packet reports:
+
+```text
+inputRules / candidateRules / duplicateRules
+inputChars / deduplicatedChars / usedChars
+deduplicationRatio
+```
+
+This prevents repeated AGENTS/Claude/Copilot copies of one mandatory rule from consuming the budget multiple times or causing a false `mandatoryOverflow`. The savings are exposed through existing context-budget/benchmark output; no extra MCP tool or database write is required.
+
 ---
 
 # 15. Learned Skills v2
@@ -1041,13 +1107,25 @@ Current learned skills are useful but too workspace-local and too dependent on i
 
 Move sanitized abstract skill definitions and metadata to Cloud so the same logical project can reuse them across devices.
 
+Portable skill identity describes the workflow, while project scope is stored separately. The same semantic workflow therefore keeps one `portableSkillId` when repository/project aliases are canonicalized, but it never escapes its authenticated tenant/project scope.
+
+Portable v1 is intentionally narrow: only semantic browser/computer steps that can be stripped of ephemeral machine identifiers are eligible. Raw terminal/shell commands remain local until a separate command-template/local-binding model can prove they contain no secrets, absolute paths, host-specific executables, or unsafe arguments.
+
 Local remains responsible for:
 
 - device-specific paths;
 - local executable bindings;
 - approval state;
 - secrets;
-- machine-only credentials.
+- machine-only credentials;
+- ephemeral window/element IDs and coordinates;
+- final replay trust on this machine.
+
+Cloud portable definitions are revalidated on ingestion and again before serving. Cross-device imports enter local state as `imported`, not `candidate` or `trusted`. A successful verified execution on the receiving machine is required before the local recipe can become a normal candidate.
+
+Multiple devices may contribute evidence for the same portable workflow. Aggregation is contributor-limited by independent device, not workspace count, and reports `single_source | collecting | corroborated | degraded | stale`. `corroborated` is recommendation evidence only; it never grants local replay permission or bypasses context fingerprint/security checks.
+
+Contributor evidence decays without deleting provenance. By default, a contribution not refreshed for 180 days stops participating in corroboration (`CODELOCAL_PORTABLE_SKILL_EVIDENCE_MAX_AGE_DAYS`). The historical row remains available for audit. `stale` and `degraded` Cloud suggestions are not imported into a new active workspace; they must be refreshed by newer verified evidence first.
 
 ## 15.2 Context fingerprint
 

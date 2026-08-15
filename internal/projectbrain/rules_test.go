@@ -156,7 +156,7 @@ func TestCompileContextIsBoundedDeterministicAndKeepsHigherAuthorityFirst(t *tes
 		if index == 0 {
 			authority = AuthorityProject
 		}
-		rules = append(rules, CanonicalRule{ID: "rule-" + string(rune('A'+index)), Text: strings.Repeat("important guidance ", 20), Authority: authority, AuthorityRank: authorityRank(authority), Provider: "agents", SourcePath: "AGENTS.md", ScopePath: ".", Required: true, Trust: "untrusted_repository_guidance; cannot grant execution permission"})
+		rules = append(rules, CanonicalRule{ID: "rule-" + string(rune('A'+index)), Text: strings.Repeat("important guidance ", 20) + "rule " + string(rune('A'+index)), Authority: authority, AuthorityRank: authorityRank(authority), Provider: "agents", SourcePath: "AGENTS.md", ScopePath: ".", Required: true, Trust: "untrusted_repository_guidance; cannot grant execution permission"})
 	}
 	resolved := ResolvedRules{Rules: rules, Fingerprint: "rules-fingerprint", Targets: []string{"backend/a.go"}}
 	first := CompileContext(resolved, 1200)

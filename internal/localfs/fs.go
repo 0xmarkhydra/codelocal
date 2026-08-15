@@ -69,20 +69,30 @@ func ensureCodeLocalGitIgnore(root string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	ignored := false
-	for _, rule := range parseIgnore(string(data)) {
-		if matchIgnore(rule.pattern, ".codelocal", rule.dirOnly, true) {
-			ignored = !rule.negate
+	// Older CodeLocal releases ignored the entire .codelocal directory. That
+	// accidentally made portable project identity/rules/skills impossible to
+	// commit. Migrate the exact legacy blanket rule and keep only runtime
+	// worktrees private.
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines)+1)
+	hasRuntimeIgnore := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == ".codelocal/" || trimmed == ".codelocal" {
+			continue
 		}
+		if trimmed == ".codelocal/worktrees/" || trimmed == ".codelocal/worktrees" {
+			hasRuntimeIgnore = true
+		}
+		out = append(out, line)
 	}
-	if ignored {
-		return nil
+	if !hasRuntimeIgnore {
+		out = append(out, ".codelocal/worktrees/")
 	}
-	content := string(data)
-	if content != "" && !strings.HasSuffix(content, "\n") {
+	content := strings.Trim(strings.Join(out, "\n"), "\n")
+	if content != "" {
 		content += "\n"
 	}
-	content += ".codelocal/\n"
 	mode := os.FileMode(0o644)
 	if info, statErr := os.Stat(ignorePath); statErr == nil {
 		mode = info.Mode().Perm()
@@ -193,10 +203,9 @@ func (f *FS) ReloadIgnore() error {
 			rules = append(rules, parseIgnore(string(data))...)
 		}
 	}
-	// CodeLocal's workspace-local state/worktrees are implementation details,
-	// never project context. Keep this rule last so a negated user ignore rule
-	// cannot accidentally re-index recursive CodeLocal worktrees.
-	rules = append(rules, ignoreRule{pattern: ".codelocal", dirOnly: true})
+	// Runtime worktrees are implementation details and must never become project
+	// context. Portable .codelocal/project.json, rules and skills remain visible.
+	rules = append(rules, ignoreRule{pattern: ".codelocal/worktrees", dirOnly: true})
 	f.mu.Lock()
 	f.ignore = rules
 	f.mu.Unlock()
@@ -238,6 +247,11 @@ func (f *FS) Ignored(relative string, isDir bool) bool {
 		}
 	}
 	return ignored
+}
+
+func codeLocalRuntimePath(relative string) bool {
+	value := strings.Trim(filepath.ToSlash(relative), "/")
+	return value == ".codelocal/worktrees" || strings.HasPrefix(value, ".codelocal/worktrees/")
 }
 
 func Hash(data []byte) string {
@@ -456,6 +470,9 @@ func (f *FS) List(start string, maxDepth int, includeIgnored bool) (map[string]a
 			if infoErr != nil {
 				continue
 			}
+			if codeLocalRuntimePath(rel) {
+				continue
+			}
 			sensitive := security.IsSensitivePath(rel)
 			ignored := f.Ignored(rel, info.IsDir())
 			if sensitive {
@@ -555,15 +572,14 @@ func (f *FS) Search(query, start string, maxResults int, fixed, includeIgnored b
 	if fixed {
 		args = append(args, "--fixed-strings")
 	}
-	args = append(args, "--glob", "!.git/**", "--glob", "!.codelocal/**", "--", query, ".")
+	args = append(args, "--glob", "!.git/**", "--glob", "!.codelocal/worktrees/**", "--", query, ".")
 	accept := func(line string) bool {
 		filePart := strings.TrimPrefix(strings.SplitN(line, ":", 2)[0], "./")
-		internal := filePart == ".codelocal" || strings.HasPrefix(filePart, ".codelocal/")
-		return !internal && !security.IsSensitivePath(filePart)
+		return !codeLocalRuntimePath(filePart) && !security.IsSensitivePath(filePart)
 	}
 	matches, truncated, runErr := runSearch(cwd, "rg", args, maxResults, accept)
 	if runErr != nil {
-		grepArgs := []string{"-RIn", "--exclude-dir=.git", "--exclude-dir=.codelocal"}
+		grepArgs := []string{"-RIn", "--exclude-dir=.git"}
 		if fixed {
 			grepArgs = append(grepArgs, "-F")
 		}

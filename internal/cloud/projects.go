@@ -21,12 +21,17 @@ type Project struct {
 }
 
 type ProjectBinding struct {
-	ProjectID        string   `json:"projectId"`
-	ProjectName      string   `json:"projectName"`
-	Source           string   `json:"source"`
-	Confidence       float64  `json:"confidence"`
-	RepositoryIDs    []string `json:"repositoryIds,omitempty"`
-	MatchedRepoCount int      `json:"matchedRepoCount,omitempty"`
+	ProjectID              string            `json:"projectId"`
+	ProjectName            string            `json:"projectName"`
+	Source                 string            `json:"source"`
+	Confidence             float64           `json:"confidence"`
+	RepositoryIDs          []string          `json:"repositoryIds,omitempty"`
+	RepositoryIDMap        map[string]string `json:"repositoryIdMap,omitempty"`
+	MatchedRepoCount       int               `json:"matchedRepoCount,omitempty"`
+	MarkerStatus           string            `json:"markerStatus,omitempty"`
+	MarkerReason           string            `json:"markerReason,omitempty"`
+	RemoteAliasMatchCount  int               `json:"remoteAliasMatchCount,omitempty"`
+	LineageAliasMatchCount int               `json:"lineageAliasMatchCount,omitempty"`
 }
 
 type KnowledgeNode struct {
@@ -279,45 +284,60 @@ func (s *Store) ResolveWorkspaceProject(ctx context.Context, userID, deviceID, w
 	if userID == "" || deviceID == "" || workspaceID == "" {
 		return ProjectBinding{}, errors.New("project resolution requires user, device and workspace")
 	}
-	if len(snapshot.Repositories) > 64 {
-		snapshot.Repositories = snapshot.Repositories[:64]
-	}
+	snapshot.Repositories = normalizeRepositoryAliases(snapshot.Repositories)
 	now := time.Now().UnixMilli()
 	name := safeProjectName(snapshot.SuggestedName)
-	markerID := safeMarkerProjectID(snapshot.MarkerProjectID)
+	claim := markerClaimFromSnapshot(snapshot)
 	existingBinding, err := s.WorkspaceProject(ctx, userID, deviceID, workspaceID)
 	if err != nil {
 		return ProjectBinding{}, err
 	}
-	if markerID == "" && len(snapshot.Repositories) == 0 {
+	if len(snapshot.Repositories) == 0 {
 		if existingBinding != nil {
-			return *existingBinding, nil
+			binding := *existingBinding
+			if claim.Present {
+				binding.MarkerStatus = "rejected"
+				binding.MarkerReason = "marker_missing_repository_evidence"
+			}
+			return binding, nil
 		}
 		return ProjectBinding{}, nil
 	}
-	remoteIDs := remoteRepositoryIDs(snapshot.Repositories)
-	lineages := repositoryLineages(snapshot.Repositories)
+	remoteAliases, err := s.remoteRepositoryAliases(ctx, userID, repositoryRemotes(snapshot.Repositories))
+	if err != nil {
+		return ProjectBinding{}, err
+	}
+	resolution := applyRemoteAliasResolution(snapshot.Repositories, remoteAliases)
+	remoteIDs := remoteRepositoryIDs(resolution.Repositories)
+	lineages := uniqueRepositoryLineages(resolution.Repositories)
+	candidates, err := s.matchingProjects(ctx, userID, remoteIDs)
+	if err != nil {
+		return ProjectBinding{}, err
+	}
 
 	projectID := ""
 	projectName := name
 	source := "created"
 	confidence := 1.0
 	matchedCount := 0
-	candidates := []projectCandidate{}
+	markerStatus := ""
+	markerReason := ""
 
-	if markerID != "" {
-		projectID = markerID
+	markerProjectID, markerProjectName, status, reason, markerMatched, err := s.resolveMarkerClaim(ctx, userID, claim, candidates, resolution.Repositories)
+	if err != nil {
+		return ProjectBinding{}, err
+	}
+	markerStatus, markerReason = status, reason
+	if markerProjectID != "" {
+		projectID = markerProjectID
+		projectName = markerProjectName
 		source = "marker"
-		if existing, err := s.projectByID(ctx, userID, markerID); err != nil {
-			return ProjectBinding{}, err
-		} else if existing != nil {
-			projectName = existing.Name
+		if claim.Legacy {
+			source = "legacy-marker"
 		}
-	} else {
-		candidates, err = s.matchingProjects(ctx, userID, remoteIDs)
-		if err != nil {
-			return ProjectBinding{}, err
-		}
+		matchedCount = markerMatched
+	}
+	if projectID == "" {
 		if candidate, ok := chooseProjectCandidate(candidates, len(remoteIDs)); ok {
 			projectID = candidate.ProjectID
 			projectName = candidate.Name
@@ -326,11 +346,8 @@ func (s *Store) ResolveWorkspaceProject(ctx context.Context, userID, deviceID, w
 			matchedCount = candidate.Matched
 		}
 	}
-	// A previously bound workspace is a strong continuity signal when the new
-	// snapshot is only a partial checkout (for example BIDDI 1/8 repos) or when
-	// a remote URL changed but Git lineage stayed the same. We use this only when
-	// no other project already produced a strong repository-set match, so a
-	// genuinely repurposed folder can still rebind safely.
+	// A previously bound workspace is continuity evidence only when current
+	// repository aliases or a unique lineage inside that same project agree.
 	if projectID == "" && existingBinding != nil {
 		if candidate, ok := existingProjectCandidate(candidates, existingBinding.ProjectID, len(remoteIDs)); ok {
 			projectID = existingBinding.ProjectID
@@ -338,15 +355,13 @@ func (s *Store) ResolveWorkspaceProject(ctx context.Context, userID, deviceID, w
 			source = "existing-workspace"
 			matchedCount = candidate.Matched
 			confidence = candidate.Coverage
-			if len(remoteIDs) == 0 {
-				confidence = existingBinding.Confidence
-			}
 		}
 		if projectID == "" {
-			lineageMatched, lineageErr := s.projectLineageOverlap(ctx, userID, existingBinding.ProjectID, lineages)
+			lineageAliases, lineageErr := s.projectLineageRepositoryAliases(ctx, userID, existingBinding.ProjectID, lineages)
 			if lineageErr != nil {
 				return ProjectBinding{}, lineageErr
 			}
+			lineageMatched := uniqueLineageRepositoryCount(lineageAliases)
 			if lineageMatched > 0 {
 				projectID = existingBinding.ProjectID
 				projectName = existingBinding.ProjectName
@@ -362,6 +377,15 @@ func (s *Store) ResolveWorkspaceProject(ctx context.Context, userID, deviceID, w
 	if projectID == "" {
 		projectID = "prj_" + RandomHex(12)
 	}
+	// Once the logical project is known, a unique lineage alias inside that
+	// project can rescue a renamed/migrated remote without using lineage as a
+	// global fork-merging heuristic.
+	lineageAliases, err := s.projectLineageRepositoryAliases(ctx, userID, projectID, lineages)
+	if err != nil {
+		return ProjectBinding{}, err
+	}
+	resolution = applyProjectLineageResolution(resolution, lineageAliases)
+	resolution.Repositories = dedupeCanonicalRepositories(resolution.Repositories)
 
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -380,7 +404,7 @@ ON CONFLICT(user_id,project_id) DO UPDATE SET last_seen_at=GREATEST(codelocal_pr
 	if _, err := tx.Exec(ctx, `DELETE FROM codelocal_workspace_repositories WHERE user_id=$1 AND device_id=$2 AND workspace_id=$3`, userID, deviceID, workspaceID); err != nil {
 		return ProjectBinding{}, err
 	}
-	for _, repo := range snapshot.Repositories {
+	for _, repo := range resolution.Repositories {
 		if strings.TrimSpace(repo.ID) == "" {
 			continue
 		}
@@ -395,6 +419,9 @@ ON CONFLICT(user_id,repository_id) DO UPDATE SET
  remote=COALESCE(EXCLUDED.remote,codelocal_repositories.remote),
  lineage=COALESCE(EXCLUDED.lineage,codelocal_repositories.lineage),
  last_seen_at=GREATEST(codelocal_repositories.last_seen_at,EXCLUDED.last_seen_at)`, userID, repo.ID, repo.Remote, repo.Lineage, identitySource, now); err != nil {
+			return ProjectBinding{}, err
+		}
+		if err := persistRepositoryAliases(ctx, tx, userID, repo, now); err != nil {
 			return ProjectBinding{}, err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -441,18 +468,11 @@ WHERE pr.user_id=$1
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectBinding{}, err
 	}
-	allIDs := make([]string, 0, len(snapshot.Repositories))
-	seen := map[string]struct{}{}
-	for _, repo := range snapshot.Repositories {
-		if repo.ID == "" {
-			continue
-		}
-		if _, ok := seen[repo.ID]; ok {
-			continue
-		}
-		seen[repo.ID] = struct{}{}
-		allIDs = append(allIDs, repo.ID)
-	}
-	sort.Strings(allIDs)
-	return ProjectBinding{ProjectID: projectID, ProjectName: projectName, Source: source, Confidence: confidence, RepositoryIDs: allIDs, MatchedRepoCount: matchedCount}, nil
+	allIDs := repositoryIDs(resolution.Repositories)
+	return ProjectBinding{
+		ProjectID: projectID, ProjectName: projectName, Source: source, Confidence: confidence,
+		RepositoryIDs: allIDs, RepositoryIDMap: resolution.ObservedToCanonical, MatchedRepoCount: matchedCount,
+		MarkerStatus: markerStatus, MarkerReason: markerReason,
+		RemoteAliasMatchCount: resolution.RemoteAliasMatched, LineageAliasMatchCount: resolution.LineageAliasMatched,
+	}, nil
 }

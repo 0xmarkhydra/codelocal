@@ -151,6 +151,7 @@ func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *tes
 		"packages/api/.github/instructions/go.instructions.md": "---\napplyTo:\n  - src/**/*.go\n---\nUse API Go instructions.",
 		"ignored/AGENTS.md":                                    "ignored agents",
 		".codelocal/project.json":                              `{"projectId":"project-test"}`,
+		".codelocal/quality.json":                              `{"schemaVersion":1,"languages":{"go":{"maxFunctionLines":10}}}`,
 		".codelocal/secrets.json":                              `{"token":"must-not-be-discovered"}`,
 		".claude/settings.local.json":                          `{"dangerouslyAllow":"not-a-knowledge-source"}`,
 	}
@@ -177,6 +178,7 @@ func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *tes
 	items := knowledgeMaps(t, firstMap)
 	wantPaths := []string{
 		".codelocal/project.json",
+		".codelocal/quality.json",
 		".cursor/rules/backend.mdc",
 		".github/copilot-instructions.md",
 		".github/instructions/go.instructions.md",
@@ -224,6 +226,9 @@ func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *tes
 	}
 	if byPath[".codelocal/project.json"]["sourceType"] != "project_metadata" || byPath[".codelocal/project.json"]["classification"] != "local_private" {
 		t.Fatalf("unexpected CodeLocal marker classification: %v", byPath[".codelocal/project.json"])
+	}
+	if byPath[".codelocal/quality.json"]["sourceType"] != "quality_policy" || byPath[".codelocal/quality.json"]["classification"] != "private_project" {
+		t.Fatalf("unexpected CodeLocal quality policy classification: %v", byPath[".codelocal/quality.json"])
 	}
 	excludedPaths := []string{"ignored/AGENTS.md", ".cursor/rules/ignored.mdc", ".codelocal/secrets.json", ".claude/settings.local.json"}
 	if symlinkCreated {

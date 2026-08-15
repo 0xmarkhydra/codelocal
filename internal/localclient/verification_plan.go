@@ -72,7 +72,7 @@ func changedPathsFromGitStatus(root string) []string {
 		}
 		path = strings.Trim(path, `"`)
 		path = filepath.ToSlash(path)
-		if path == "" || strings.HasSuffix(path, "/") || strings.HasPrefix(path, ".codelocal/") {
+		if path == "" || strings.HasSuffix(path, "/") || path == ".codelocal/worktrees" || strings.HasPrefix(path, ".codelocal/worktrees/") {
 			continue
 		}
 		if _, ok := seen[path]; ok {

@@ -160,21 +160,42 @@ func learnedSkillMetadataSnapshot(store *learnedskills.Store, deviceID, workspac
 		return items, ""
 	}
 	for _, recipe := range recipes {
-		items = append(items, cloud.LearnedSkillMetadata{
+		metadata := cloud.LearnedSkillMetadata{
 			ID: recipe.ID, Intent: recipe.Intent, TaskKind: recipe.TaskKind, Status: string(recipe.Status), Confidence: recipe.Confidence,
 			SuccessCount: recipe.SuccessCount, FailureCount: recipe.FailureCount, StepCount: len(recipe.Steps), UpdatedAt: recipe.UpdatedAt, LastUsedAt: recipe.LastUsedAt,
-		})
-		signature = append(signature, fmt.Sprintf("%s:%s:%d:%d:%d:%d:%d", recipe.ID, recipe.Status, recipe.SuccessCount, recipe.FailureCount, len(recipe.Steps), recipe.UpdatedAt, recipe.LastUsedAt))
+		}
+		portableID := ""
+		if recipe.Context != nil {
+			if portable, ok, _ := learnedskills.PortableRecipeFor(recipe, recipe.Context.ProjectID); ok {
+				metadata.Portable = &portable
+				portableID = portable.ID
+			}
+		}
+		items = append(items, metadata)
+		signature = append(signature, fmt.Sprintf("%s:%s:%s:%d:%d:%d:%d:%d", recipe.ID, portableID, recipe.Status, recipe.SuccessCount, recipe.FailureCount, len(recipe.Steps), recipe.UpdatedAt, recipe.LastUsedAt))
 	}
 	sort.Strings(signature)
 	return items, strings.Join(signature, "|")
 }
 
 type workspaceSyncResponse struct {
-	Knowledge    map[string]cloud.KnowledgeManifestSyncResult `json:"knowledge"`
-	ProjectBrain *struct {
+	Knowledge      map[string]cloud.KnowledgeManifestSyncResult `json:"knowledge"`
+	PortableSkills map[string][]learnedskills.PortableRecipe    `json:"portableSkills"`
+	ProjectBrain   *struct {
 		CloudSyncEnabled bool `json:"cloudSyncEnabled"`
 	} `json:"projectBrain,omitempty"`
+}
+
+func portableSkillImportAllowed(recipe learnedskills.PortableRecipe) bool {
+	if recipe.Evidence == nil {
+		return true
+	}
+	switch recipe.Evidence.Health {
+	case "stale", "degraded":
+		return false
+	default:
+		return true
+	}
 }
 
 const controlPlaneRefreshInterval = 5 * time.Minute
@@ -296,6 +317,50 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 	var response workspaceSyncResponse
 	if err := r.post(ctx, "/api/client/workspaces/sync", payload, &response); err != nil {
 		return nil, err
+	}
+
+	// Pull portable project recipes only into already-active workspaces. Sleeping
+	// projects stay asleep, and imported recipes remain non-replayable until a
+	// successful local execution replaces them with a verified candidate.
+	r.mu.Lock()
+	activeWorkers := make(map[string]*WorkspaceWorker, len(r.workers))
+	for id, worker := range r.workers {
+		activeWorkers[id] = worker
+	}
+	r.mu.Unlock()
+	for workspaceID, recipes := range response.PortableSkills {
+		worker := activeWorkers[workspaceID]
+		if worker == nil || worker.Engine == nil || worker.Engine.Skills == nil {
+			continue
+		}
+		workspaceKey := r.Options.Credential.DeviceID + "::" + workspaceID
+		contexts := map[string]*learnedskills.ContextFingerprint{}
+		imported := 0
+		for _, portable := range recipes {
+			if !portableSkillImportAllowed(portable) {
+				continue
+			}
+			taskKind := strings.TrimSpace(portable.TaskKind)
+			localContext, cached := contexts[taskKind]
+			if !cached {
+				localContext = worker.Engine.LearnedSkillContext(taskKind)
+				contexts[taskKind] = localContext
+			}
+			if localContext == nil {
+				continue
+			}
+			_, changed, importErr := worker.Engine.Skills.ImportPortable(workspaceKey, portable.ProjectID, portable, localContext)
+			if importErr != nil {
+				slog.Debug("portable learned skill import skipped", "workspaceId", workspaceID, "error", importErr)
+				continue
+			}
+			if changed {
+				imported++
+			}
+		}
+		if imported > 0 {
+			slog.Info("portable learned skills imported as untrusted local suggestions", "workspaceId", workspaceID, "count", imported)
+		}
 	}
 
 	r.mu.Lock()

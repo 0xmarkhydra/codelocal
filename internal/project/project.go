@@ -137,6 +137,10 @@ func knowledgeSourceForPath(rel string) (knowledgeSourceCandidate, bool) {
 		candidate.Provider = "github-copilot"
 		candidate.SourceType = "instructions"
 		candidate.ScopePath = copilotInstructionsScope
+	case lower == ".codelocal/quality.json":
+		candidate.Provider = "codelocal"
+		candidate.SourceType = "quality_policy"
+		candidate.Classification = "private_project"
 	case lower == ".codelocal/project.json":
 		candidate.Provider = "codelocal"
 		candidate.SourceType = "project_metadata"
@@ -289,10 +293,12 @@ func (e *Engine) scan() (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// .codelocal is deliberately excluded from the normal project index. The
-	// explicit project marker is safe metadata used by project identity, so
-	// include only this known file without recursively scanning local state.
+	// Runtime-only .codelocal/worktrees stays excluded, while these explicitly
+	// known portable project files participate in Project Brain discovery. The
+	// marker remains local-private identity metadata; quality policy is safe to
+	// sync as private project configuration and is still validated by its owner.
 	addKnowledgeSource(filepath.Join(e.FS.Root, ".codelocal", "project.json"), ".codelocal/project.json")
+	addKnowledgeSource(filepath.Join(e.FS.Root, ".codelocal", "quality.json"), ".codelocal/quality.json")
 	sort.Slice(knowledgeSources, func(i, j int) bool {
 		if knowledgeSources[i].Path != knowledgeSources[j].Path {
 			return knowledgeSources[i].Path < knowledgeSources[j].Path

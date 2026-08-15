@@ -26,6 +26,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
 	"github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/oauth"
@@ -242,6 +243,8 @@ func (s *Server) routes() {
 	mux.Handle("GET /dashboard/usage", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/admin", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /api/status", s.WebAuth.Require(http.HandlerFunc(s.apiStatus)))
+	mux.Handle("GET /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesGet)))
+	mux.Handle("POST /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesPost)))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /assets/{name}", s.asset)
 	mux.HandleFunc("GET /pair/approve", s.pairApproveGet)
@@ -545,6 +548,24 @@ func usageRow(label string, value cloud.MCPUsageSummary) string {
 	return `<div class="row"><div class="row-title">` + ui.Escape(label) + ` · ~` + fmt.Sprintf("%d", value.TotalTokensEst) + ` tokens</div><div class="row-meta mono">` + fmt.Sprintf("%d", value.Calls) + ` tool calls · ChatGPT → CodeLocal ~` + fmt.Sprintf("%d", value.InputTokensEst) + ` · CodeLocal → ChatGPT ~` + fmt.Sprintf("%d", value.OutputTokensEst) + `</div></div>`
 }
 
+func schemaMigrationPayload(status cloud.SchemaMigrationStatus, err error) map[string]any {
+	payload := map[string]any{
+		"available":            err == nil,
+		"currentVersion":       status.CurrentVersion,
+		"targetVersion":        status.TargetVersion,
+		"appliedCount":         status.AppliedCount,
+		"upToDate":             err == nil && status.UpToDate,
+		"projectBrainPlanHash": status.ProjectBrainPlanHash,
+	}
+	if status.TargetVersion == 0 {
+		payload["targetVersion"] = cloud.LatestSchemaMigrationVersion()
+	}
+	if status.ProjectBrainPlanHash == "" {
+		payload["projectBrainPlanHash"] = cloud.ProjectBrainMigrationPlanHash()
+	}
+	return payload
+}
+
 func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.identity(r)
 	if !ok {
@@ -556,14 +577,20 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 	usage24h, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-24*time.Hour).UnixMilli())
 	usage30d, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-30*24*time.Hour).UnixMilli())
 	usageAll, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, 0)
+	schemaStatus, schemaErr := s.Store.SchemaMigrationStatus(r.Context())
+	durableLearning, _ := s.Store.DurableOutboxHealth(r.Context(), identity.User.ID)
+	_, canonicalGraphFreshness, _ := s.Store.CanonicalGraphFreshness(r.Context(), identity.User.ID)
 	for i := range devices {
 		devices[i].SecretHash = ""
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"user":       map[string]any{"id": identity.User.ID, "email": identity.User.Email},
-		"workspaces": workspaces,
-		"devices":    devices,
-		"gateway":    s.InstanceID,
+		"user":                    map[string]any{"id": identity.User.ID, "email": identity.User.Email},
+		"workspaces":              workspaces,
+		"devices":                 devices,
+		"gateway":                 s.InstanceID,
+		"schemaMigration":         schemaMigrationPayload(schemaStatus, schemaErr),
+		"durableLearning":         durableLearning,
+		"canonicalGraphFreshness": canonicalGraphFreshness,
 		"mcpTokenUsage": map[string]any{
 			"estimated": true,
 			"scope":     "MCP payload only; not full ChatGPT model/billing tokens",
@@ -574,9 +601,18 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
+	schemaCtx, schemaCancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+	schemaStatus, schemaErr := s.Store.SchemaMigrationStatus(schemaCtx)
+	schemaCancel()
+	outboxCtx, outboxCancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+	durableLearning, _ := s.Store.DurableOutboxHealth(outboxCtx, "")
+	outboxCancel()
+	graphCtx, graphCancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+	_, canonicalGraphFreshness, _ := s.Store.CanonicalGraphFreshness(graphCtx, "")
+	graphCancel()
 	agentMemory := map[string]any{"enabled": s.Memory != nil}
 	if s.Memory != nil {
 		agentMemory["vectorAvailable"] = s.Memory.VectorAvailable()
@@ -600,9 +636,12 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 			"sysBytes":       mem.Sys,
 			"gcCycles":       mem.NumGC,
 		},
-		"goroutines":  runtime.NumGoroutine(),
-		"agentMemory": agentMemory,
-		"toolSurface": s.MCP.ToolSurface(),
+		"goroutines":              runtime.NumGoroutine(),
+		"agentMemory":             agentMemory,
+		"schemaMigration":         schemaMigrationPayload(schemaStatus, schemaErr),
+		"durableLearning":         durableLearning,
+		"canonicalGraphFreshness": canonicalGraphFreshness,
+		"toolSurface":             s.MCP.ToolSurface(),
 	})
 }
 
@@ -824,7 +863,8 @@ func (s *Server) knowledgeSync(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_binding_unavailable"})
 		return
 	}
-	result, err := s.Store.SyncKnowledgeDelta(r.Context(), device.UserID, device.DeviceID, input.WorkspaceID, binding.ProjectID, input.ProjectIdentity.Repositories, input.Delta)
+	canonicalRepositories := cloud.CanonicalizeProjectRepositories(input.ProjectIdentity.Repositories, binding.RepositoryIDMap)
+	result, err := s.Store.SyncKnowledgeDelta(r.Context(), device.UserID, device.DeviceID, input.WorkspaceID, binding.ProjectID, canonicalRepositories, input.Delta)
 	if err != nil {
 		slog.Warn("project brain delta sync failed; runtime remains usable", "workspaceId", input.WorkspaceID, "projectId", binding.ProjectID, "error", err)
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "knowledge_sync_failed"})
@@ -861,6 +901,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	ids := make([]string, 0, len(input.Workspaces))
 	synced := 0
 	knowledgeResults := map[string]cloud.KnowledgeManifestSyncResult{}
+	portableSkillResults := map[string][]learnedskills.PortableRecipe{}
 	validID := regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`)
 	for _, item := range input.Workspaces {
 		if !validID.MatchString(item.WorkspaceID) {
@@ -898,7 +939,8 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("workspace project identity resolution failed; workspace remains usable", "workspaceId", item.WorkspaceID, "error", bindingErr)
 		}
 		if brainEnabled && bindingErr == nil && binding.ProjectID != "" && item.KnowledgeManifest != nil {
-			result, knowledgeErr := s.Store.SyncKnowledgeManifest(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, binding.ProjectID, item.ProjectIdentity.Repositories, *item.KnowledgeManifest)
+			canonicalRepositories := cloud.CanonicalizeProjectRepositories(item.ProjectIdentity.Repositories, binding.RepositoryIDMap)
+			result, knowledgeErr := s.Store.SyncKnowledgeManifest(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, binding.ProjectID, canonicalRepositories, *item.KnowledgeManifest)
 			if knowledgeErr != nil {
 				// Knowledge is an enrichment layer. Legacy clients may still attach a
 				// full manifest to workspace sync, but a transient Project Brain/DB
@@ -908,8 +950,20 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 				knowledgeResults[item.WorkspaceID] = result
 			}
 		}
-		if err := s.Store.SyncLearnedSkillMetadata(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, item.LearnedSkills); err != nil {
+		projectID := ""
+		if bindingErr == nil {
+			projectID = binding.ProjectID
+		}
+		if err := s.Store.SyncLearnedSkillMetadata(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, projectID, item.LearnedSkills); err != nil {
 			slog.Warn("learned skill metadata sync failed; local skills remain authoritative", "workspaceId", item.WorkspaceID, "error", err)
+		}
+		if projectID != "" {
+			portable, portableErr := s.Store.ProjectPortableLearnedSkills(r.Context(), device.UserID, projectID, 32)
+			if portableErr != nil {
+				slog.Warn("portable learned skill lookup failed; workspace remains usable", "workspaceId", item.WorkspaceID, "projectId", projectID, "error", portableErr)
+			} else if len(portable) > 0 {
+				portableSkillResults[item.WorkspaceID] = portable
+			}
 		}
 		synced++
 	}
@@ -928,7 +982,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	_ = s.Activation.Heartbeat(r.Context(), device.UserID, device.DeviceID, ids, 45*time.Second)
 	s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "runtime.workspaces_synced", DeviceID: device.DeviceID, Detail: map[string]any{"count": synced, "removed": len(removed)}})
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"synced": synced, "removed": len(removed), "knowledge": knowledgeResults, "syncedAt": time.Now().UnixMilli(),
+		"synced": synced, "removed": len(removed), "knowledge": knowledgeResults, "portableSkills": portableSkillResults, "syncedAt": time.Now().UnixMilli(),
 		"projectBrain": map[string]any{"cloudSyncEnabled": brainEnabled},
 	})
 }

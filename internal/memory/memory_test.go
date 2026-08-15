@@ -142,6 +142,57 @@ func TestRankExcludesIncompatibleBranchScopedMemory(t *testing.T) {
 	}
 }
 
+func TestRankSuppressesLegacyOperationalNoiseWithoutDeletingLegitimateKnowledge(t *testing.T) {
+	now := time.Now().UnixMilli()
+	base := Record{Scope: ScopeProject, ProjectID: "project-a", SourceType: "task", CreatedAt: now, UpdatedAt: now, Confidence: .9, Importance: .9, LexicalScore: 1, VectorScore: 1, Lifecycle: LifecycleActive}
+	noise := []Record{
+		{ID: "edit", Summary: "Files edited for task: Fix login"},
+		{ID: "verify", Summary: "Verification evidence refreshed; more checks may still be required for task: Fix login"},
+		{ID: "ready", Summary: "Fresh verification evidence reached the ready quality gate for task: Fix login"},
+		{ID: "terminal", Summary: "Agent quality gate reached ready state for task: Fix login"},
+		{ID: "failed", Summary: "edit.apply failed while working on task: Fix login"},
+	}
+	records := make([]Record, 0, len(noise)+2)
+	for _, record := range noise {
+		record.Scope = base.Scope
+		record.ProjectID = base.ProjectID
+		record.SourceType = base.SourceType
+		record.CreatedAt = base.CreatedAt
+		record.UpdatedAt = base.UpdatedAt
+		record.Confidence = base.Confidence
+		record.Importance = base.Importance
+		record.LexicalScore = base.LexicalScore
+		record.VectorScore = base.VectorScore
+		record.Lifecycle = base.Lifecycle
+		records = append(records, record)
+	}
+	legitimate := base
+	legitimate.ID = "fact"
+	legitimate.SourceType = "conversation"
+	legitimate.Summary = "Files edited for task: is an example of operational noise and must not become durable knowledge."
+	records = append(records, legitimate)
+	oldUsefulEvent := base
+	oldUsefulEvent.ID = "useful-event"
+	oldUsefulEvent.Summary = "OAuth integration test failed with redirect mismatch"
+	records = append(records, oldUsefulEvent)
+	legitimateFailure := base
+	legitimateFailure.ID = "legitimate-failure"
+	legitimateFailure.Summary = "OAuth integration test failed while working on task: callback mismatch"
+	records = append(records, legitimateFailure)
+
+	ranked := Rank(records, RecallInput{ProjectID: "project-a", Limit: 20}, now)
+	if len(ranked) != 3 {
+		t.Fatalf("legacy operational noise survived recall guard: %#v", ranked)
+	}
+	seen := map[string]bool{}
+	for _, record := range ranked {
+		seen[record.ID] = true
+	}
+	if !seen["fact"] || !seen["useful-event"] || !seen["legitimate-failure"] {
+		t.Fatalf("recall guard suppressed legitimate knowledge: %#v", ranked)
+	}
+}
+
 func TestNormalizeLifecycleDefaultsLegacyRowsToActive(t *testing.T) {
 	if got := normalizeLifecycle(""); got != LifecycleActive {
 		t.Fatalf("legacy lifecycle=%q want active", got)

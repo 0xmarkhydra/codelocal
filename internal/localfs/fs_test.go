@@ -140,9 +140,17 @@ func TestCodeLocalStateIsIgnoredAndGitIgnoreIsRepaired(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".codelocal", "worktrees", "nested", "copy.go"), []byte("package nested // private-needle\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Even an accidental negation must not let recursive CodeLocal state back
-	// into the project index.
-	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("!.codelocal/\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".codelocal", "project.json"), []byte(`{"projectId":"portable-project"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".codelocal", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".codelocal", "rules", "backend.md"), []byte("portable-rule\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the legacy blanket ignore written by older CodeLocal releases.
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".codelocal/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -150,17 +158,45 @@ func TestCodeLocalStateIsIgnoredAndGitIgnoreIsRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !fs.Ignored(".codelocal", true) || !fs.Ignored(".codelocal/worktrees/nested/copy.go", false) {
-		t.Fatal("CodeLocal state must remain hard-ignored from project indexing")
+	if fs.Ignored(".codelocal/project.json", false) || fs.Ignored(".codelocal/rules/backend.md", false) {
+		t.Fatal("portable CodeLocal project identity/rules must remain indexable")
+	}
+	if !fs.Ignored(".codelocal/worktrees", true) || !fs.Ignored(".codelocal/worktrees/nested/copy.go", false) {
+		t.Fatal("CodeLocal runtime worktrees must remain hard-ignored from project indexing")
+	}
+	listed, err := fs.List(".", 4, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := listed["entries"].([]map[string]any)
+	portableSeen := false
+	for _, entry := range entries {
+		path, _ := entry["path"].(string)
+		if strings.HasPrefix(path, ".codelocal/worktrees") {
+			t.Fatalf("runtime worktree leaked into list even with includeIgnored: %q", path)
+		}
+		if path == ".codelocal/rules/backend.md" {
+			portableSeen = true
+		}
+	}
+	if !portableSeen {
+		t.Fatal("portable CodeLocal rules should remain visible to project indexing")
 	}
 	ignoreData, err := os.ReadFile(filepath.Join(root, ".gitignore"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ignoreData), ".codelocal/\n") {
-		t.Fatalf(".gitignore was not repaired: %q", string(ignoreData))
+	if strings.Contains(string(ignoreData), ".codelocal/\n") || !strings.Contains(string(ignoreData), ".codelocal/worktrees/\n") {
+		t.Fatalf(".gitignore was not migrated to runtime-only state: %q", string(ignoreData))
 	}
-	result, err := fs.Search("private-needle", ".", 20, true, true)
+	result, err := fs.Search("portable-rule", ".", 20, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches, _ := result["matches"].([]string); len(matches) != 1 {
+		t.Fatalf("portable CodeLocal rules should be searchable: %#v", matches)
+	}
+	result, err = fs.Search("private-needle", ".", 20, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}

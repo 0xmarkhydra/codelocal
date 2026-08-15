@@ -142,6 +142,8 @@ type Store struct {
 	usageQ          chan MCPUsageEvent
 	usageConsumerID string
 	usageDropped    atomic.Uint64
+	outboxWorkerID  string
+	outboxWake      chan struct{}
 }
 
 const (
@@ -189,7 +191,11 @@ func New(ctx context.Context) (*Store, error) {
 		return nil, err
 	}
 	storeCtx, cancel := context.WithCancel(ctx)
-	s := &Store{DB: db, Redis: rdb, ctx: storeCtx, cancel: cancel, usageQ: make(chan MCPUsageEvent, envInt("CODELOCAL_USAGE_LOCAL_QUEUE_SIZE", 8192)), usageConsumerID: RandomHex(12)}
+	s := &Store{
+		DB: db, Redis: rdb, ctx: storeCtx, cancel: cancel,
+		usageQ: make(chan MCPUsageEvent, envInt("CODELOCAL_USAGE_LOCAL_QUEUE_SIZE", 8192)), usageConsumerID: RandomHex(12),
+		outboxWorkerID: RandomHex(12), outboxWake: make(chan struct{}, 1),
+	}
 	if err := s.Migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
@@ -198,10 +204,12 @@ func New(ctx context.Context) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
-	s.wg.Add(3)
+	s.wg.Add(5)
 	go s.usageStreamProducer()
 	go s.usageStreamConsumer()
 	go s.retentionWorker()
+	go s.durableOutboxWorker()
+	go s.knowledgeHealthWorker()
 	return s, nil
 }
 
@@ -235,14 +243,136 @@ func (s *Store) Close() {
 	}
 }
 
+type schemaMigration struct {
+	version int
+	sql     string
+}
+
+const schemaMigrationAdvisoryLockID int64 = 0x434F44454C4F4341 // "CODELOCA"; stable across replicas.
+
+var nonTransactionalMigrationVersions = map[int]bool{14: true, 15: true, 16: true}
+
+func knowledgeV2SchemaMigrations() []schemaMigration {
+	return []schemaMigration{
+		{26, durableOutboxMigrationSQL},
+		{27, promotionCandidateMigrationSQL},
+		{28, canonicalKnowledgeMigrationSQL},
+		{29, promotionApprovalMigrationSQL},
+		{30, knowledgeHealthMigrationSQL},
+		{31, promotionSourcesMigrationSQL},
+		{32, repositoryIdentityMigrationSQL},
+		{33, knowledgeV2ReadinessMigrationSQL},
+		{34, portableLearnedSkillsMigrationSQL},
+		{35, collectiveIntelligenceMigrationSQL},
+		{36, canonicalKnowledgeGraphMigrationSQL},
+		{37, canonicalKnowledgeGraphStateMigrationSQL},
+		{38, canonicalKnowledgeEmbeddingMigrationSQL},
+	}
+}
+
+func validateSchemaMigrationPlan(migrations []schemaMigration) error {
+	if len(migrations) == 0 {
+		return errors.New("schema migration plan is empty")
+	}
+	for index, migration := range migrations {
+		expected := index + 1
+		if migration.version != expected {
+			return fmt.Errorf("schema migration plan must be contiguous: index=%d version=%d want=%d", index, migration.version, expected)
+		}
+		if strings.TrimSpace(migration.sql) == "" {
+			return fmt.Errorf("schema migration %d has empty SQL", migration.version)
+		}
+	}
+	return nil
+}
+
+type SchemaMigrationStatus struct {
+	CurrentVersion       int    `json:"currentVersion"`
+	TargetVersion        int    `json:"targetVersion"`
+	AppliedCount         int    `json:"appliedCount"`
+	UpToDate             bool   `json:"upToDate"`
+	ProjectBrainPlanHash string `json:"projectBrainPlanHash"`
+}
+
+func LatestSchemaMigrationVersion() int {
+	migrations := knowledgeV2SchemaMigrations()
+	if len(migrations) == 0 {
+		return 25
+	}
+	return migrations[len(migrations)-1].version
+}
+
+func ProjectBrainMigrationPlanHash() string {
+	hash := sha256.New()
+	for _, migration := range knowledgeV2SchemaMigrations() {
+		_, _ = fmt.Fprintf(hash, "%d\x00%s\x00", migration.version, strings.TrimSpace(migration.sql))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func schemaMigrationStatus(currentVersion, appliedCount int) SchemaMigrationStatus {
+	target := LatestSchemaMigrationVersion()
+	return SchemaMigrationStatus{
+		CurrentVersion:       currentVersion,
+		TargetVersion:        target,
+		AppliedCount:         appliedCount,
+		UpToDate:             currentVersion == target && appliedCount == target,
+		ProjectBrainPlanHash: ProjectBrainMigrationPlanHash(),
+	}
+}
+
+func validateDatabaseSchemaHistory(currentVersion, appliedCount, targetVersion int) error {
+	if currentVersion < 0 || appliedCount < 0 || targetVersion < 1 {
+		return errors.New("invalid database schema migration state")
+	}
+	if currentVersion > targetVersion {
+		return fmt.Errorf("database schema version %d is newer than binary target %d", currentVersion, targetVersion)
+	}
+	if currentVersion != appliedCount {
+		return fmt.Errorf("database schema migration history is non-contiguous: maxVersion=%d appliedCount=%d", currentVersion, appliedCount)
+	}
+	return nil
+}
+
+func (s *Store) SchemaMigrationStatus(ctx context.Context) (SchemaMigrationStatus, error) {
+	if s == nil || s.DB == nil {
+		return schemaMigrationStatus(0, 0), errors.New("schema migration store unavailable")
+	}
+	var currentVersion, appliedCount int
+	if err := s.DB.QueryRow(ctx, `SELECT COALESCE(MAX(version),0),COUNT(*) FROM codelocal_schema_migrations`).Scan(&currentVersion, &appliedCount); err != nil {
+		return schemaMigrationStatus(0, 0), err
+	}
+	return schemaMigrationStatus(currentVersion, appliedCount), nil
+}
+
 func (s *Store) Migrate(ctx context.Context) error {
-	if _, err := s.DB.Exec(ctx, `CREATE TABLE IF NOT EXISTS codelocal_schema_migrations (version INTEGER PRIMARY KEY, applied_at BIGINT NOT NULL)`); err != nil {
+	conn, err := s.DB.Acquire(ctx)
+	if err != nil {
 		return err
 	}
-	migrations := []struct {
-		version int
-		sql     string
-	}{
+	locked := false
+	defer func() {
+		if locked {
+			unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			var unlocked bool
+			if unlockErr := conn.QueryRow(unlockCtx, `SELECT pg_advisory_unlock($1)`, schemaMigrationAdvisoryLockID).Scan(&unlocked); unlockErr != nil {
+				slog.Warn("schema migration advisory unlock failed; closing dedicated session", "error", unlockErr)
+				raw := conn.Hijack()
+				_ = raw.Close(unlockCtx)
+				return
+			}
+		}
+		conn.Release()
+	}()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, schemaMigrationAdvisoryLockID); err != nil {
+		return err
+	}
+	locked = true
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS codelocal_schema_migrations (version INTEGER PRIMARY KEY, applied_at BIGINT NOT NULL)`); err != nil {
+		return err
+	}
+	migrations := []schemaMigration{
 		{1, `
 CREATE TABLE IF NOT EXISTS codelocal_users (
  id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, created_at BIGINT NOT NULL
@@ -904,25 +1034,36 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_branch
  ON codelocal_knowledge_conflicts(user_id,source_id,branch,updated_at DESC) WHERE branch IS NOT NULL;
 `},
 	}
-	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
+	migrations = append(migrations, knowledgeV2SchemaMigrations()...)
+	if err := validateSchemaMigrationPlan(migrations); err != nil {
+		return err
+	}
+	targetVersion := migrations[len(migrations)-1].version
+	var currentVersion, appliedCount int
+	if err := conn.QueryRow(ctx, `SELECT COALESCE(MAX(version),0),COUNT(*) FROM codelocal_schema_migrations`).Scan(&currentVersion, &appliedCount); err != nil {
+		return err
+	}
+	if err := validateDatabaseSchemaHistory(currentVersion, appliedCount, targetVersion); err != nil {
+		return err
+	}
 	for _, migration := range migrations {
 		var exists bool
-		if err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM codelocal_schema_migrations WHERE version=$1)`, migration.version).Scan(&exists); err != nil {
+		if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM codelocal_schema_migrations WHERE version=$1)`, migration.version).Scan(&exists); err != nil {
 			return err
 		}
 		if exists {
 			continue
 		}
-		if nonTransactionalMigrations[migration.version] {
-			if _, err := s.DB.Exec(ctx, migration.sql); err != nil {
+		if nonTransactionalMigrationVersions[migration.version] {
+			if _, err := conn.Exec(ctx, migration.sql); err != nil {
 				return err
 			}
-			if _, err := s.DB.Exec(ctx, `INSERT INTO codelocal_schema_migrations(version,applied_at) VALUES($1,$2) ON CONFLICT(version) DO NOTHING`, migration.version, time.Now().UnixMilli()); err != nil {
+			if _, err := conn.Exec(ctx, `INSERT INTO codelocal_schema_migrations(version,applied_at) VALUES($1,$2) ON CONFLICT(version) DO NOTHING`, migration.version, time.Now().UnixMilli()); err != nil {
 				return err
 			}
 			continue
 		}
-		tx, err := s.DB.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return err
 		}
@@ -936,6 +1077,16 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_branch
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
+	}
+	var finalVersion, finalCount int
+	if err := conn.QueryRow(ctx, `SELECT COALESCE(MAX(version),0),COUNT(*) FROM codelocal_schema_migrations`).Scan(&finalVersion, &finalCount); err != nil {
+		return err
+	}
+	if err := validateDatabaseSchemaHistory(finalVersion, finalCount, targetVersion); err != nil {
+		return err
+	}
+	if finalVersion != targetVersion || finalCount != targetVersion {
+		return fmt.Errorf("schema migration incomplete: currentVersion=%d appliedCount=%d targetVersion=%d", finalVersion, finalCount, targetVersion)
 	}
 	return nil
 }
@@ -2060,6 +2211,14 @@ func (s *Store) retentionWorker() {
 			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_pairings WHERE expires_at < $1 OR (claimed_at IS NOT NULL AND claimed_at < $2)`, time.Now().UnixMilli(), time.Now().Add(-24*time.Hour).UnixMilli())
 			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_oauth_codes WHERE expires_at < $1`, time.Now().UnixMilli())
 			_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_mcp_usage_batches WHERE processed_at < $1`, time.Now().Add(-35*24*time.Hour).UnixMilli())
+			if days := envInt("CODELOCAL_OUTBOX_RETENTION_DAYS", 14); days > 0 {
+				cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
+				_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_durable_outbox WHERE status IN ('processed','dead') AND updated_at < $1`, cutoff)
+			}
+			if days := envInt("CODELOCAL_KNOWLEDGE_V2_SHADOW_RETENTION_DAYS", 30); days > 0 {
+				cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
+				_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_knowledge_shadow_metrics WHERE last_sample_at < $1`, cutoff)
+			}
 			if days := envInt("CODELOCAL_AUDIT_RETENTION_DAYS", 90); days > 0 {
 				_, _ = s.DB.Exec(ctx, `DELETE FROM codelocal_audit_logs WHERE created_at < $1`, time.Now().Add(-time.Duration(days)*24*time.Hour).UnixMilli())
 			}
