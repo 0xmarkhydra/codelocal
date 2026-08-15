@@ -6,6 +6,8 @@ Owner: CodeLocal
 Primary implementation target: native Go runtime + CodeLocal Cloud
 
 > This document exists so the architectural intent is not lost across chats, machines, branches, or future refactors. When implementation details conflict with this document, either update this document with a dated decision or explicitly document why the implementation diverged.
+>
+> The provider-neutral multi-agent execution layer is specified separately in [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md). Project Brain owns durable intelligence; Universal Agent Runtime owns execution/routing across Codex, Claude, Cosine and future coding engines.
 
 ---
 
@@ -1692,6 +1694,43 @@ Exit gate:
 
 - CodeLocal can sit above multiple coding environments without forcing migration.
 
+## PB13 — Universal Agent Runtime / coding-engine router
+
+Detailed source of truth: [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md).
+
+Goal:
+
+```text
+One CodeLocal interface
+        ↓
+Codex / Claude / Cosine / Gemini / future coding agents
+        ↓
+One Project Brain + one verification/security layer
+```
+
+Tasks:
+
+- canonical Agent Adapter/session/event contracts;
+- engine discovery, version and capability probing;
+- provider-owned authentication handoff;
+- structured integrations first, PTY fallback only when necessary;
+- Project Brain Context Compiler handoff to every provider;
+- provider-neutral process/session lifecycle;
+- independent CodeLocal verification after provider execution;
+- provider-neutral Experience recording;
+- deterministic engine selection before learned routing;
+- conservative routing learned from verified outcomes;
+- cross-provider task handoff/resume;
+- isolated worktrees for parallel mutating agents;
+- explicit security classification when a provider subprocess cannot be fully mediated.
+
+Exit gate:
+
+- a user can perform supported coding workflows through `codelocal agent` without learning provider-specific invocation syntax;
+- changing agent engines does not reset project rules, memory, decisions, experiences or skills;
+- provider self-reported completion never bypasses CodeLocal verification;
+- no supported agent can weaken CodeLocal's required local security/approval boundary.
+
 ---
 
 # 26. Definition of "smarter than current coding agents"
@@ -2053,6 +2092,12 @@ Reason: Project Brain exists to remove repeated rediscovery, not to create giant
 
 Reason: CodeLocal can improve whichever strong model the user chooses.
 
+## D13 — Coding agents are interchangeable workers behind CodeLocal
+
+Reason: durable project identity, rules, memory, experiences, skills, verification and user continuity must survive a change from Codex to Claude, Cosine or a future agent. Universal Agent Runtime is therefore a first-class subsystem, while provider-specific engines remain replaceable adapters.
+
+Detailed design: [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md).
+
 ---
 
 # 35. What NOT to do
@@ -2138,9 +2183,11 @@ PB10 Knowledge Graph control plane
 PB11 organization/team knowledge
   ↓
 PB12 adapter ecosystem/export
+  ↓
+PB13 Universal Agent Runtime / coding-engine router
 ```
 
-PB4 may move earlier if cross-device conflicts become common during development.
+PB4 may move earlier if cross-device conflicts become common during development. PB13 should begin its UAR0/UAR1 architecture work once PB1-PB6 interfaces are stable enough to supply canonical project identity, rules and compiled context; full learned routing should wait for verified Experience data.
 
 ---
 
