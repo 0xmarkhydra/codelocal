@@ -660,6 +660,102 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_memories_project
 CREATE INDEX IF NOT EXISTS idx_codelocal_memories_repository
  ON codelocal_memories(user_id,project_id,repository_id,updated_at DESC) WHERE scope='repository';
 `},
+		{20, `
+CREATE TABLE IF NOT EXISTS codelocal_knowledge_sources (
+ user_id TEXT NOT NULL,
+ source_id TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ repository_id TEXT,
+ provider TEXT NOT NULL,
+ source_type TEXT NOT NULL,
+ canonical_path TEXT NOT NULL,
+ classification TEXT NOT NULL CHECK (classification IN ('public_project','team_project','private_project','local_private','sensitive')),
+ status TEXT NOT NULL CHECK (status IN ('active','stale','conflicted','superseded','revoked')),
+ active_revision_id TEXT,
+ created_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ valid_from BIGINT NOT NULL,
+ valid_to BIGINT,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ PRIMARY KEY(user_id,source_id),
+ FOREIGN KEY(user_id,project_id) REFERENCES codelocal_projects(user_id,project_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,project_id,repository_id) REFERENCES codelocal_project_repositories(user_id,project_id,repository_id) ON DELETE CASCADE,
+ CHECK (BTRIM(provider) <> ''),
+ CHECK (BTRIM(source_type) <> ''),
+ CHECK (BTRIM(canonical_path) <> ''),
+ CHECK (valid_to IS NULL OR valid_to >= valid_from)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codelocal_knowledge_sources_identity
+ ON codelocal_knowledge_sources(user_id,project_id,(COALESCE(repository_id,'')),provider,source_type,canonical_path);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_sources_project
+ ON codelocal_knowledge_sources(user_id,project_id,last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_sources_repository
+ ON codelocal_knowledge_sources(user_id,project_id,repository_id,last_seen_at DESC) WHERE repository_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_sources_status
+ ON codelocal_knowledge_sources(user_id,status,last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS codelocal_knowledge_source_revisions (
+ user_id TEXT NOT NULL,
+ revision_id TEXT NOT NULL,
+ source_id TEXT NOT NULL,
+ content_hash TEXT,
+ semantic_hash TEXT,
+ parser_fingerprint TEXT NOT NULL,
+ adapter_version TEXT NOT NULL,
+ parser_version TEXT NOT NULL,
+ semantic_normalizer_version TEXT NOT NULL,
+ git_blob_oid TEXT,
+ tombstone BOOLEAN NOT NULL DEFAULT FALSE,
+ created_at BIGINT NOT NULL,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ PRIMARY KEY(user_id,revision_id),
+ FOREIGN KEY(user_id,source_id) REFERENCES codelocal_knowledge_sources(user_id,source_id) ON DELETE CASCADE,
+ CHECK (BTRIM(parser_fingerprint) <> ''),
+ CHECK (BTRIM(adapter_version) <> ''),
+ CHECK (BTRIM(parser_version) <> ''),
+ CHECK (BTRIM(semantic_normalizer_version) <> ''),
+ CHECK ((tombstone=TRUE AND content_hash IS NULL AND semantic_hash IS NULL) OR (tombstone=FALSE AND content_hash IS NOT NULL AND BTRIM(content_hash) <> ''))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codelocal_knowledge_revisions_fingerprint
+ ON codelocal_knowledge_source_revisions(user_id,source_id,(COALESCE(content_hash,'')),(COALESCE(semantic_hash,'')),parser_fingerprint,adapter_version,parser_version,semantic_normalizer_version,tombstone);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_revisions_source
+ ON codelocal_knowledge_source_revisions(user_id,source_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS codelocal_knowledge_source_observations (
+ user_id TEXT NOT NULL,
+ observation_id TEXT NOT NULL,
+ source_id TEXT NOT NULL,
+ revision_id TEXT NOT NULL,
+ base_revision_id TEXT,
+ device_id TEXT,
+ workspace_id TEXT,
+ branch TEXT,
+ git_commit TEXT,
+ first_seen_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ PRIMARY KEY(user_id,observation_id),
+ FOREIGN KEY(user_id,source_id) REFERENCES codelocal_knowledge_sources(user_id,source_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,revision_id) REFERENCES codelocal_knowledge_source_revisions(user_id,revision_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,base_revision_id) REFERENCES codelocal_knowledge_source_revisions(user_id,revision_id)
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_observations_source
+ ON codelocal_knowledge_source_observations(user_id,source_id,last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_observations_revision
+ ON codelocal_knowledge_source_observations(user_id,revision_id,last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_observations_branch
+ ON codelocal_knowledge_source_observations(user_id,source_id,branch,last_seen_at DESC) WHERE branch IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION codelocal_reject_knowledge_revision_update() RETURNS trigger AS $$
+BEGIN
+ RAISE EXCEPTION 'knowledge source revisions are immutable';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_codelocal_knowledge_revision_immutable ON codelocal_knowledge_source_revisions;
+CREATE TRIGGER trg_codelocal_knowledge_revision_immutable
+ BEFORE UPDATE ON codelocal_knowledge_source_revisions
+ FOR EACH ROW EXECUTE FUNCTION codelocal_reject_knowledge_revision_update();
+`},
 	}
 	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
 	for _, migration := range migrations {

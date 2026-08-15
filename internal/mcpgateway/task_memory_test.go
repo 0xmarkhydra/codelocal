@@ -465,3 +465,32 @@ func TestRememberConversationMemoryRequiresWorkspaceForWorkspaceScope(t *testing
 		t.Fatalf("rejected memory should not partially ingest: %#v", memory.inputs)
 	}
 }
+
+func BenchmarkProjectBrainContextCompactionBaseline(b *testing.B) {
+	records := make([]longmemory.Record, 64)
+	for i := range records {
+		records[i] = longmemory.Record{
+			ID:         "memory",
+			Scope:      longmemory.ScopeProject,
+			Level:      longmemory.LevelScenario,
+			Kind:       "project_fact",
+			SourceType: "task",
+			Summary:    strings.Repeat("project context fact with enough detail to exercise compaction ", 8) + string(rune(0x1000+i)),
+			Branch:     "dev",
+			Files:      []string{"internal/payment/service.go", "internal/payment/service_test.go", "internal/payment/repository.go"},
+			Score:      1 - float64(i)/100,
+		}
+	}
+	selected := compactLongTermMemory(records)
+	selectedRunes := 0
+	for _, record := range selected {
+		selectedRunes += runeLen(record.Summary)
+	}
+	b.ReportMetric(float64(len(records)), "candidate-memories")
+	b.ReportMetric(float64(len(selected)), "selected-memories")
+	b.ReportMetric(float64(selectedRunes), "selected-summary-runes")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = compactLongTermMemory(records)
+	}
+}
