@@ -1453,6 +1453,7 @@ CODELOCAL_KNOWLEDGE_AUTO_PROMOTION
 CODELOCAL_CODE_QUALITY_POLICY
 CODELOCAL_CANONICAL_EMBEDDINGS
 CODELOCAL_CANONICAL_EMBEDDING_SHADOW
+CODELOCAL_CANONICAL_SEMANTIC_HYBRID
 CODELOCAL_COLLECTIVE_INTELLIGENCE
 CODELOCAL_COLLECTIVE_CONTRIBUTION
 ```
@@ -1464,7 +1465,7 @@ Rollout rules:
 - auto-promotion can be disabled independently;
 - canonical embeddings are a rebuildable derived index and default OFF;
 - semantic query shadowing has a separate cost/rollout switch and never changes model context;
-- live/hybrid canonical retrieval must not depend on semantic vectors until shadow benchmark/readiness explicitly passes;
+- the semantic Hybrid canary defaults OFF and can use vectors only after base V2 readiness, current embedding freshness, and semantic-shadow readiness all pass; any failure falls back to deterministic Hybrid;
 - collective contribution and collective serving are separate switches;
 - quality policy can begin report-only before enforcement;
 - kill switch must not require DB downgrade.
@@ -1792,7 +1793,7 @@ v38 canonical embedding projection state + on-demand vector schema
 v39 canonical semantic-shadow aggregate metrics
 ```
 
-v38/v39 are strictly derived-index rollout infrastructure. Canonical Knowledge V2 remains authoritative. Embedding provider calls are batched outside database transactions, the canonical source snapshot is revalidated before vector commit, model version is explicit, semantic shadow is separately opt-in, and semantic hits are not injected into live/hybrid context yet.
+v38/v39 are strictly derived-index rollout infrastructure. Canonical Knowledge V2 remains authoritative. Embedding provider calls are batched outside database transactions, the canonical source snapshot is revalidated before vector commit, model version is explicit, and semantic shadow is separately opt-in. A semantic Hybrid canary is also explicit-only and remains inert unless base V2 readiness, vector freshness, and semantic-shadow readiness all pass; errors/timeouts/no eligible high-similarity claims fall back to deterministic Hybrid, and the canonical supplement cap remains two.
 
 ---
 

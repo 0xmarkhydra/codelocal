@@ -940,7 +940,7 @@ func (s *Service) recallLongTermMemory(ctx context.Context, userID, deviceID, wo
 	// legacy ranked output, while a ready project may receive at most two
 	// high-confidence canonical supplements. Legacy graph context remains the
 	// graph source until Knowledge V2 graph projection has its own rollout gate.
-	records = s.maybeApplyHybridCanonicalRecall(recallCtx, canonicalInput, records)
+	records = s.maybeApplyHybridCanonicalRecall(recallCtx, canonicalInput, state.Task, records)
 	s.maybeShadowCanonicalRecall(canonicalInput, len(records))
 	s.maybeRunCanonicalSemanticShadow(canonicalInput, state.Task)
 	return records, graph

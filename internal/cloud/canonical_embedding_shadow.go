@@ -72,8 +72,10 @@ type CanonicalEmbeddingShadowMetrics struct {
 	LastSampleAt            int64 `json:"lastSampleAt"`
 }
 
+const CanonicalEmbeddingShadowSlowDuration = 400 * time.Millisecond
+
 func canonicalEmbeddingShadowSlowDuration() time.Duration {
-	return 900 * time.Millisecond
+	return CanonicalEmbeddingShadowSlowDuration
 }
 
 func normalizeCanonicalEmbeddingShadowSample(sample CanonicalEmbeddingShadowSample) (CanonicalEmbeddingShadowSample, error) {

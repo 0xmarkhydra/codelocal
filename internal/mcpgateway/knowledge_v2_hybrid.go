@@ -133,9 +133,12 @@ func sameMemoryRecordIDs(left, right []longmemory.Record) bool {
 	return true
 }
 
-func (s *Service) maybeApplyHybridCanonicalRecall(parent context.Context, input cloud.CanonicalKnowledgeRecallInput, legacy []longmemory.Record) []longmemory.Record {
+func (s *Service) maybeApplyHybridCanonicalRecall(parent context.Context, input cloud.CanonicalKnowledgeRecallInput, query string, legacy []longmemory.Record) []longmemory.Record {
 	if s == nil || s.Store == nil || knowledgeV2ReadMode() != knowledgeV2ReadModeHybrid || strings.TrimSpace(input.ProjectID) == "" {
 		return legacy
+	}
+	if semantic, applied := s.maybeApplySemanticHybridCanonicalRecall(parent, input, query, legacy); applied {
+		return semantic
 	}
 	ctx, cancel := context.WithTimeout(parent, knowledgeV2HybridTimeout)
 	defer cancel()

@@ -3,7 +3,17 @@ package cloud
 import (
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestCanonicalEmbeddingShadowSlowThresholdIsStrict(t *testing.T) {
+	if CanonicalEmbeddingShadowSlowDuration != 400*time.Millisecond {
+		t.Fatalf("semantic shadow slow constant=%s", CanonicalEmbeddingShadowSlowDuration)
+	}
+	if got := canonicalEmbeddingShadowSlowDuration(); got != CanonicalEmbeddingShadowSlowDuration {
+		t.Fatalf("semantic shadow slow threshold=%s", got)
+	}
+}
 
 func TestCanonicalEmbeddingShadowSampleNormalizationIsBounded(t *testing.T) {
 	valid, err := normalizeCanonicalEmbeddingShadowSample(CanonicalEmbeddingShadowSample{
