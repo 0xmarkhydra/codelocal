@@ -34,9 +34,10 @@ func (s *Server) knowledgeDashboard(w http.ResponseWriter, r *http.Request, iden
 	durableLearning, _ := s.Store.DurableOutboxHealth(r.Context(), identity.User.ID)
 	_, canonicalGraphFreshness, _ := s.Store.CanonicalGraphFreshness(r.Context(), identity.User.ID)
 	_, canonicalEmbeddingFreshness, _ := s.Store.CanonicalEmbeddingFreshness(r.Context(), identity.User.ID)
+	semanticCanary, _ := s.Store.CanonicalSemanticCanaryMetrics(r.Context(), identity.User.ID)
 	preference, _ := s.Store.CollectivePreference(r.Context(), identity.User.ID)
 	recommendations, _ := s.Store.CollectiveRecommendations(r.Context(), identity.User.ID, 6)
-	statusCards := durableLearningHealthCard(durableLearning) + canonicalGraphFreshnessCard(canonicalGraphFreshness) + canonicalEmbeddingFreshnessCard(canonicalEmbeddingFreshness) + collectivePreferencesCard(identity, preference) + collectiveRecommendationsCard(preference, recommendations)
+	statusCards := durableLearningHealthCard(durableLearning) + canonicalGraphFreshnessCard(canonicalGraphFreshness) + canonicalEmbeddingFreshnessCard(canonicalEmbeddingFreshness) + canonicalSemanticCanaryCard(semanticCanary) + collectivePreferencesCard(identity, preference) + collectiveRecommendationsCard(preference, recommendations)
 	raw, _ := json.Marshal(graph)
 	body := statusCards + fmt.Sprintf(`
 <style>

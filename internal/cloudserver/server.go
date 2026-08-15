@@ -581,6 +581,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 	durableLearning, _ := s.Store.DurableOutboxHealth(r.Context(), identity.User.ID)
 	_, canonicalGraphFreshness, _ := s.Store.CanonicalGraphFreshness(r.Context(), identity.User.ID)
 	_, canonicalEmbeddingFreshness, _ := s.Store.CanonicalEmbeddingFreshness(r.Context(), identity.User.ID)
+	semanticCanary, _ := s.Store.CanonicalSemanticCanaryMetrics(r.Context(), identity.User.ID)
 	for i := range devices {
 		devices[i].SecretHash = ""
 	}
@@ -593,6 +594,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 		"durableLearning":             durableLearning,
 		"canonicalGraphFreshness":     canonicalGraphFreshness,
 		"canonicalEmbeddingFreshness": canonicalEmbeddingFreshness,
+		"canonicalSemanticCanary":     semanticCanary,
 		"mcpTokenUsage": map[string]any{
 			"estimated": true,
 			"scope":     "MCP payload only; not full ChatGPT model/billing tokens",
@@ -618,6 +620,9 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	embeddingCtx, embeddingCancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
 	_, canonicalEmbeddingFreshness, _ := s.Store.CanonicalEmbeddingFreshness(embeddingCtx, "")
 	embeddingCancel()
+	canaryCtx, canaryCancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+	semanticCanary, _ := s.Store.CanonicalSemanticCanaryMetrics(canaryCtx, "")
+	canaryCancel()
 	agentMemory := map[string]any{"enabled": s.Memory != nil}
 	if s.Memory != nil {
 		agentMemory["vectorAvailable"] = s.Memory.VectorAvailable()
@@ -647,6 +652,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"durableLearning":             durableLearning,
 		"canonicalGraphFreshness":     canonicalGraphFreshness,
 		"canonicalEmbeddingFreshness": canonicalEmbeddingFreshness,
+		"canonicalSemanticCanary":     semanticCanary,
 		"toolSurface":                 s.MCP.ToolSurface(),
 	})
 }

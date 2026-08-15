@@ -92,15 +92,17 @@ func TestGuardedSemanticHybridUsesOnlyHighSimilarityHighConfidenceClaimsAndKeeps
 	}
 }
 
-func TestGuardedSemanticHybridErrorsFailSoftToLegacy(t *testing.T) {
+func TestGuardedSemanticHybridErrorsAndTimeoutsFailSoftToLegacy(t *testing.T) {
 	legacy := hybridLegacyRecords(2)
 	cases := []struct {
 		name   string
 		reader *fakeCanonicalSemanticHybridReader
 		reason string
 	}{
-		{name: "readiness", reader: &fakeCanonicalSemanticHybridReader{semanticReadinessErr: errors.New("metrics unavailable")}, reason: "semantic_hybrid_readiness_error"},
-		{name: "recall", reader: &fakeCanonicalSemanticHybridReader{semanticReadiness: cloud.CanonicalSemanticReadiness{Status: "ready"}, semanticRecallErr: errors.New("provider unavailable")}, reason: "semantic_hybrid_recall_error"},
+		{name: "readiness", reader: &fakeCanonicalSemanticHybridReader{semanticReadinessErr: errors.New("metrics unavailable")}, reason: cloud.SemanticCanaryReasonReadinessError},
+		{name: "readiness timeout", reader: &fakeCanonicalSemanticHybridReader{semanticReadinessErr: context.DeadlineExceeded}, reason: cloud.SemanticCanaryReasonTimeout},
+		{name: "recall", reader: &fakeCanonicalSemanticHybridReader{semanticReadiness: cloud.CanonicalSemanticReadiness{Status: "ready"}, semanticRecallErr: errors.New("provider unavailable")}, reason: cloud.SemanticCanaryReasonRecallError},
+		{name: "recall timeout", reader: &fakeCanonicalSemanticHybridReader{semanticReadiness: cloud.CanonicalSemanticReadiness{Status: "ready"}, semanticRecallErr: context.DeadlineExceeded}, reason: cloud.SemanticCanaryReasonTimeout},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,5 +111,28 @@ func TestGuardedSemanticHybridErrorsFailSoftToLegacy(t *testing.T) {
 				t.Fatalf("semantic hybrid failure was not fail-soft: applied=%v reason=%q got=%#v", applied, reason, got)
 			}
 		})
+	}
+}
+
+func TestGuardedSemanticHybridDistinguishesNoUniqueClaimsAndCountsAppliedClaims(t *testing.T) {
+	legacy := hybridLegacyRecords(6)
+	legacy[0].Summary = "Payment writes require transactions."
+	reader := &fakeCanonicalSemanticHybridReader{
+		semanticReadiness: cloud.CanonicalSemanticReadiness{Status: "ready"},
+		semanticHits: []cloud.CanonicalSemanticKnowledgeHit{
+			semanticHybridHit("duplicate", " payment writes require transactions ;", .99, .95),
+		},
+	}
+	got, applied, reason := runGuardedSemanticHybridRecall(context.Background(), reader, cloud.CanonicalKnowledgeRecallInput{UserID: "user-a", ProjectID: "project-a", Limit: 6}, "payment", legacy)
+	if applied || reason != cloud.SemanticCanaryReasonNoUniqueClaims || !sameMemoryRecordIDs(got, legacy) {
+		t.Fatalf("duplicate semantic claim was not classified as no-unique: applied=%v reason=%q got=%#v", applied, reason, got)
+	}
+	merged := mergeHybridCanonicalRecords(legacy, []cloud.CanonicalKnowledgeHit{
+		hybridCanonicalHit("one", "External API calls require timeouts.", .99),
+		hybridCanonicalHit("two", "Payment retries require idempotency.", .99),
+		hybridCanonicalHit("three", "Third claim stays out.", .99),
+	}, 6)
+	if claims := semanticHybridAppliedClaims(legacy, merged); claims != 2 {
+		t.Fatalf("applied semantic claims=%d want 2: %#v", claims, merged)
 	}
 }

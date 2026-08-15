@@ -7,8 +7,8 @@ import (
 
 func TestKnowledgeV2MigrationTrainIsContiguousAndTransactional(t *testing.T) {
 	migrations := knowledgeV2SchemaMigrations()
-	if len(migrations) != 14 {
-		t.Fatalf("knowledge v2 migration count=%d want 14", len(migrations))
+	if len(migrations) != 15 {
+		t.Fatalf("knowledge v2 migration count=%d want 15", len(migrations))
 	}
 	for index, migration := range migrations {
 		want := 26 + index
@@ -74,6 +74,7 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 		37: {"codelocal_knowledge_graph_projection_state", "source_object_count", "source_revision_count", "projected_at", "references codelocal_projects"},
 		38: {"codelocal_knowledge_embedding_projection_state", "model_version", "dimensions", "source_revision_count", "projected_revision_count", "references codelocal_projects"},
 		39: {"codelocal_knowledge_embedding_shadow_metrics", "semantic_hits_total", "high_similarity_hits_total", "references codelocal_projects"},
+		40: {"codelocal_knowledge_semantic_canary_metrics", "attempts_total", "applied_count", "deterministic_fallback_count", "references codelocal_projects"},
 	}
 	for _, migration := range knowledgeV2SchemaMigrations() {
 		lower := strings.ToLower(migration.sql)
@@ -89,26 +90,26 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 	if schemaMigrationAdvisoryLockID == 0 {
 		t.Fatal("schema migration advisory lock id must be non-zero")
 	}
-	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[39] {
+	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[40] {
 		t.Fatal("new migration train unexpectedly bypasses transactional runner")
 	}
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 39 {
-		t.Fatalf("latest schema version=%d want 39", got)
+	if got := LatestSchemaMigrationVersion(); got != 40 {
+		t.Fatalf("latest schema version=%d want 40", got)
 	}
-	ready := schemaMigrationStatus(39, 39)
-	if !ready.UpToDate || ready.TargetVersion != 39 || ready.AppliedCount != 39 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(40, 40)
+	if !ready.UpToDate || ready.TargetVersion != 40 || ready.AppliedCount != 40 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
 		current int
 		count   int
 	}{
-		{current: 38, count: 38},
-		{current: 39, count: 38},
-		{current: 40, count: 40},
+		{current: 39, count: 39},
+		{current: 40, count: 39},
+		{current: 41, count: 41},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)
@@ -129,20 +130,20 @@ func TestProjectBrainMigrationPlanHashIsDeterministicAndCoversTrain(t *testing.T
 }
 
 func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
-	if err := validateDatabaseSchemaHistory(25, 25, 39); err != nil {
+	if err := validateDatabaseSchemaHistory(25, 25, 40); err != nil {
 		t.Fatalf("valid older contiguous schema rejected: %v", err)
 	}
-	if err := validateDatabaseSchemaHistory(39, 39, 39); err != nil {
+	if err := validateDatabaseSchemaHistory(40, 40, 40); err != nil {
 		t.Fatalf("target schema rejected: %v", err)
 	}
 	for _, tc := range []struct {
 		name                   string
 		current, count, target int
 	}{
-		{name: "newer database", current: 40, count: 40, target: 39},
-		{name: "missing history row", current: 39, count: 38, target: 39},
-		{name: "corrupt sparse history", current: 20, count: 19, target: 39},
-		{name: "invalid negative", current: -1, count: 0, target: 39},
+		{name: "newer database", current: 41, count: 41, target: 40},
+		{name: "missing history row", current: 40, count: 39, target: 40},
+		{name: "corrupt sparse history", current: 20, count: 19, target: 40},
+		{name: "invalid negative", current: -1, count: 0, target: 40},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {

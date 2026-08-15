@@ -1772,7 +1772,7 @@ Only after scale and measurement justify it:
 - secure aggregation;
 - federated learning/ranking.
 
-## Implemented Project Brain migration train through v39
+## Implemented Project Brain migration train through v40
 
 The current native Go implementation keeps the migration train contiguous and additive:
 
@@ -1791,9 +1791,10 @@ v36 canonical Knowledge Graph projection
 v37 canonical graph freshness state
 v38 canonical embedding projection state + on-demand vector schema
 v39 canonical semantic-shadow aggregate metrics
+v40 semantic Hybrid canary aggregate outcome telemetry
 ```
 
-v38/v39 are strictly derived-index rollout infrastructure. Canonical Knowledge V2 remains authoritative. Embedding provider calls are batched outside database transactions, the canonical source snapshot is revalidated before vector commit, model version is explicit, and semantic shadow is separately opt-in. A semantic Hybrid canary is also explicit-only and remains inert unless base V2 readiness, vector freshness, and semantic-shadow readiness all pass; errors/timeouts/no eligible high-similarity claims fall back to deterministic Hybrid, and the canonical supplement cap remains two.
+v38/v39 are strictly derived-index rollout infrastructure. Canonical Knowledge V2 remains authoritative. Embedding provider calls are batched outside database transactions, the canonical source snapshot is revalidated before vector commit, model version is explicit, and semantic shadow is separately opt-in. A semantic Hybrid canary is also explicit-only and remains inert unless base V2 readiness, vector freshness, and semantic-shadow readiness all pass; errors/timeouts/no eligible high-similarity claims fall back to deterministic Hybrid, and the canonical supplement cap remains two. v40 records only aggregate live-canary outcomes per tenant/project (attempts, applied claims, deterministic fallbacks, readiness blocks/errors, recall errors, no-hit/no-unique outcomes, timeouts, slow samples and durations). Metric writes are bounded best-effort asynchronous observability and never store query/task/summary/repository/path/symbol content or add a synchronous DB write to the prompt path.
 
 ---
 

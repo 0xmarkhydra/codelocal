@@ -281,6 +281,7 @@ func knowledgeV2SchemaMigrations() []schemaMigration {
 		{37, canonicalKnowledgeGraphStateMigrationSQL},
 		{38, canonicalKnowledgeEmbeddingMigrationSQL},
 		{39, canonicalEmbeddingShadowMigrationSQL},
+		{40, canonicalSemanticCanaryMigrationSQL},
 	}
 }
 
