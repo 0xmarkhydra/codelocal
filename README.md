@@ -1,231 +1,350 @@
-# CodeLocal / codex-mcp
+# CodeLocal
 
-Remote MCP coding bridge for ChatGPT/Codex.
+CodeLocal lets ChatGPT work on code that stays on your own machine.
+
+Website: [https://codelocal.cloud](https://codelocal.cloud/)
 
 ```text
-ChatGPT / Codex
-    | MCP over HTTPS + OAuth
-    v
-CodeLocal Cloud gateway
-    | authenticated WebSocket
-    v
-CodeLocal client on your machine
-    | local workspace tools
-    v
-PROJECT_ROOT
+You
+  ↓
+ChatGPT                     AI reasoning layer
+  ↓ MCP over HTTPS + OAuth
+CodeLocal Cloud             Go gateway, routing, auth, multi-tenant state
+  ↓ authenticated WebSocket
+CodeLocal native runtime    Go binary on your computer
+  ↓
+Authorized workspaces       files, Git, terminal, local MCP extensions
 ```
 
-The model remains the reasoning layer. CodeLocal provides local filesystem access, selective retrieval, semantic code intelligence, Git, diagnostics/tests, guarded shell/process execution, approvals, routing and observability.
+**ChatGPT is the brain. CodeLocal gives it controlled hands.** You do not need to buy or configure a separate OpenAI API key for CodeLocal, and CodeLocal does not add per-token billing. Tool calls happen inside your ChatGPT conversation and follow the normal limits of your ChatGPT plan/model/workspace.
 
-## Current version
+## Version
 
-`1.5.0-beta.2`
+`1.5.14` — next stable native Go release.
 
-This preview is intentionally conservative: sensitive paths remain blocked, risky shell operations require local approval, and OS-level sandboxing/production device-pairing are not claimed as complete yet.
+The application runtime and Cloud gateway are implemented in Go. The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 
-## Major capabilities
+## Why Go
 
-### Workspace + retrieval
+The native runtime now uses one compiled process instead of a Node.js application tree. This reduces runtime dependency surface, avoids Node heap/watcher failure modes, improves concurrency for multiple workspaces and terminals, and makes Cloud deployment a small static-style Go service.
 
+## Install
+
+Requires Node.js 20+ and npm.
+
+Install the current stable release:
+
+```bash
+npm i -g codelocal
+```
+
+Or install the beta channel:
+
+```bash
+npm i -g codelocal@beta
+```
+
+Verify the installed version:
+
+```bash
+codelocal --version
+```
+
+Authorize one or more projects:
+
+```bash
+cd /path/to/project-a
+codelocal .
+
+cd /path/to/project-b
+codelocal .
+```
+
+Start one machine runtime:
+
+```bash
+codelocal
+```
+
+On first start, CodeLocal explains and asks separately for two optional capabilities:
+
+- **Browser Automation** gives ChatGPT the compact `browser` tool for opening, inspecting, clicking, typing and taking screenshots in an isolated website session. Enabling it downloads one managed Chromium browser once; choosing No does not affect Coding.
+- **Computer Use** gives ChatGPT the compact `computer` tool for inspecting and controlling desktop apps through a bundled native helper. It does not download a browser, remains opt-in, requires the operating system's screen/accessibility permissions, and still applies action-level approvals.
+
+Run `codelocal setup` to change either choice later. Run `codelocal doctor` at any time to see whether the browser, native helper and required capabilities are ready.
+
+A single runtime can keep many workspaces authorized and activates each workspace lazily when ChatGPT needs it. You do **not** need one CodeLocal daemon per project.
+
+Useful CLI commands:
+
+```text
+codelocal --version
+codelocal setup
+codelocal status
+codelocal workspaces
+codelocal grant <path>
+codelocal ungrant <path-or-id>
+codelocal doctor <path>
+codelocal stop
+codelocal reset --all
+codelocal uninstall --all
+codelocal approvals list
+codelocal mcp list
+```
+
+Reset all local state while keeping the CLI installed:
+
+```bash
+codelocal reset --all
+```
+
+This stops the runtime and removes the local login, workspace grants, approvals, indexes, history, managed browser runtime and capability choices. The next `codelocal` run starts first-time setup again. Use `--yes` only for intentional non-interactive cleanup.
+
+Remove both local state and the globally installed npm package:
+
+```bash
+codelocal uninstall --all
+```
+
+Operating-system privacy permissions such as macOS Accessibility and Screen Recording remain controlled by the OS and are not silently changed.
+
+## Update
+
+When you run `codelocal`, the CLI performs a short cached check against the configured npm release channel. If a newer CodeLocal runtime/tool release is available, it prints the installed/latest versions and the exact npm update command before starting. The result is cached privately under CodeLocal state so normal startup does not repeatedly wait on npm, and offline/update-check failures never stop the runtime. Set `CODELOCAL_UPDATE_CHECK=0` to disable this notice.
+
+CodeLocal 1.5.14 also fingerprints the public MCP tool surface. If an already-open ChatGPT thread calls an old granular tool, CodeLocal translates the call when possible and returns `CODELOCAL_TOOL_SCHEMA_STALE`; if ChatGPT calls a tool name that does not exist in the current surface, the gateway returns `CODELOCAL_TOOL_SCHEMA_MISMATCH`. In either case, reconnect the CodeLocal MCP in ChatGPT to reload the current tool/action schema. Reconnecting does not remove the local device pairing or workspace grants. Runtime capability mismatches are reported separately and include the installed client version plus the npm update command when a newer client is available.
+
+Update to the newest stable release:
+
+```bash
+npm i -g codelocal@latest
+```
+
+Short form (same stable channel):
+
+```bash
+npm i -g codelocal
+```
+
+Update to the newest beta release:
+
+```bash
+npm i -g codelocal@beta
+```
+
+After updating, verify and start CodeLocal again:
+
+```bash
+codelocal --version
+codelocal
+```
+
+A normal npm update keeps your existing CodeLocal pairing credentials and authorized workspaces.
+
+## Connect ChatGPT
+
+Add the CodeLocal MCP endpoint in ChatGPT:
+
+```text
+https://codelocal.cloud/mcp
+```
+
+OAuth signs ChatGPT into your CodeLocal account. Pairing signs your local machine into the same account. ChatGPT can only route tools to devices/workspaces belonging to that account.
+
+Typical first request:
+
+```text
+@CodeLocal inspect project_info first, understand this project, then make the requested change and run the relevant checks.
+```
+
+## Multi-workspace model
+
+CodeLocal is intentionally designed for multiple simultaneous ChatGPT threads and projects.
+
+```text
+Machine runtime
+├── Project A (sleeping/active)
+├── Project B (sleeping/active)
+└── Project C (sleeping/active)
+```
+
+The Cloud gateway routes by:
+
+```text
+user + device + workspace
+```
+
+MCP sessions use `workspace(action=list)`, `workspace(action=select)` and the returned `workspaceKey`. Selection is scoped to the MCP session, while passing `workspaceKey` keeps an individual call explicit and thread-safe.
+
+## Native Go capabilities
+
+### Files and retrieval
+
+- workspace boundary enforcement and symlink escape protection
 - `.gitignore`-aware listing/search
-- targeted reads of ignored dependency/generated files when explicitly requested
-- sensitive-path policy independent from `.gitignore`
-- binary detection
-- file metadata, SHA-256 hash and mtime
-- line-range reads
-- conflict-safe write/edit with `expectedHash`
-- scoped `AGENTS.md`/repo instructions
+- sensitive-path blocking independent of `.gitignore`
+- UTF-8/binary detection
+- line-range and batch reads
+- SHA-256 stale-write protection
+- exact edits, unified patches and transactional structured edits
+- scoped `AGENTS.md` discovery
 
-### Dependencies
+### Project intelligence
 
-- inspect installed Node dependency metadata
-- targeted dependency file reads
-- dependency-only search
+- project/language/framework/manifests map
+- symbols, definitions, references, hover-like structural context
+- import/call graph fallback
+- diagnostics and verification snapshots
+- dependency inspection for Node, Go, Rust and Python
+- installed formatter support for Go, Rust, Dart, Python, C/C++ and Node projects
 
-### Semantic code intelligence
+The native structural engine always works without a language server. Dedicated LSP integration remains an incremental enhancement rather than a requirement for the coding loop.
 
-TypeScript/JavaScript semantic index backed by the TypeScript compiler API:
+### Terminal and Git
 
-- symbols
-- definitions/declarations
-- references
-- callers/callees
-- import/export graph
-- TypeScript diagnostics
+- concurrent non-PTY and PTY processes
+- incremental output cursors
+- stdin, resize, signals, cancellation and process listing
+- deterministic command risk classification
+- one-time ChatGPT approvals for critical actions
+- workspace-scoped remembered approvals for repeatable reviewed actions
+- local redacted terminal/audit history
+- non-force Git stage/unstage/commit/push controls
+- persistent idempotency journal for side-effecting tool calls
 
-Other languages continue to work through filesystem/search/shell/toolchain commands; dedicated semantic backends can be added progressively.
+### Local MCP hub
 
-### Tests + Git
-
-- detect likely test/lint/typecheck/build commands
-- find likely related tests
-- run affected test command
-- `git status`
-- `git diff`
-- `git log`
-- `git show`
-- `git blame`
-- per-file history
-
-### Runtime
-
-- guarded local shell
-- incremental process output cursors
-- real-time stdout/stderr mirrored to the local terminal
-- process list/stdin/kill
-- local approval prompts for package changes, Git writes, migrations, network commands and recursive deletes
-- hard blocks for obvious credential/system/disk escape commands unless explicitly unsafe mode is enabled
-
-### Multi-device / multi-workspace routing
-
-A client registers:
-
-```text
-deviceId + workspaceId + workspaceName
-```
-
-MCP sessions can use:
-
-```text
-list_devices
-list_workspaces
-select_workspace
-workspace_info
-```
-
-If exactly one workspace is online it is selected implicitly. If more than one is online the model must select one explicitly.
-
-## Server
-
-Production gateway:
-
-```text
-https://codelocal.cloud/mcp
-```
-
-ChatGPT -> server authentication uses OAuth.
-
-Local client -> server authentication currently uses `DEVICE_TOKEN`. This is still preview-level device auth; production per-device pairing/rotation is a later hardening step.
-
-## Install client
+CodeLocal can connect other MCP servers installed on the user's machine while keeping their configuration local-only.
 
 ```bash
-git clone https://github.com/0xmarkhydra/codex-mcp.git
-cd codex-mcp
-npm install
+codelocal mcp add <name> -- <command> [args...]
+codelocal mcp add <name> --url <https://server/mcp>
+codelocal mcp list
+codelocal mcp search <query>
 ```
 
-For an existing clone:
+Secrets are referenced from environment variables; they are not copied to CodeLocal Cloud.
+
+### Cloud
+
+- Go HTTP/WebSocket server
+- OAuth + PKCE for ChatGPT MCP authorization
+- password sessions + CSRF protection
+- device pairing credentials
+- PostgreSQL durable account/device/workspace state
+- Redis activation, rate-limit and cross-replica gateway routing
+- lazy workspace activation
+- horizontal gateway ownership/routing
+- client-version update notices
+- optional Go `pprof` endpoint behind `CODELOCAL_ENABLE_PPROF=1`
+
+## Security model
+
+`.gitignore` is a retrieval rule, not a security boundary. Sensitive locations such as private key material, credential stores and `.env` secrets remain blocked separately.
+
+Terminal commands run on the host after CodeLocal policy checks. CodeLocal does not pretend that policy-only execution is an OS sandbox. Critical operations still require fresh confirmation; safe/reviewable repeat actions can be remembered only for the specific local workspace.
+
+## Development
+
+Requires Go 1.25+.
 
 ```bash
-cd ~/Documents/codex-mcp
-git pull
-npm install
+go test ./...
+go vet ./...
+go build ./cmd/...
 ```
 
-## Run client against a project
+### Compact MCP tool surface
 
-Example:
+The Cloud gateway exposes exactly 19 domain tools: `device`, `workspace`,
+`project`, `context`, `agent`, `read`, `search`, `dependency`, `lsp`, `edit`,
+`verify`, `git`, `terminal`, `process`, `approvals`, `security`, `mcp`, `browser`
+and `computer`.
+
+The 98 granular runtime commands are not advertised as top-level tools and cannot be
+re-enabled by configuration. Their granular command names remain only as the
+private Cloud-to-native runtime protocol, so capability is preserved without
+adding model-facing schema or tool-selection cost.
+
+Performance-sensitive defaults are intentionally bounded:
+
+- `CODELOCAL_READ_CONCURRENCY=6` controls parallel workers inside `read_files`;
+- `CODELOCAL_USAGE_LOCAL_QUEUE_SIZE=8192` controls the non-blocking usage ingress;
+- `CODELOCAL_USAGE_STREAM_MAXLEN=1000000` bounds the approximate Redis Stream length.
+
+Usage writes never block an MCP response. They flow through the local queue and
+Redis Stream to a single leased, idempotent PostgreSQL batch consumer. File and
+search reads can fan out; edits, Git mutations and process writes remain ordered.
+
+Build the cross-platform npm staging package:
 
 ```bash
-PROJECT_ROOT="$HOME/Desktop/BIDDI" \
-SERVER_URL="wss://codelocal.cloud/client" \
-DEVICE_TOKEN="YOUR_DEVICE_TOKEN" \
-CODELOCAL_ALLOW_SHELL=1 \
-CODELOCAL_DEVICE_ID="macbook-pro" \
-CODELOCAL_WORKSPACE_ID="biddi" \
-CODELOCAL_WORKSPACE_NAME="BIDDI" \
-npm run client
+go run ./cmd/release
+npm pack --dry-run ./.release/npm
 ```
 
-Useful optional variables:
+Cloud container:
+
+```bash
+docker build -t codelocal-cloud .
+```
+
+The production container runs `cmd/codelocal-cloud`; Railway is configured through `railway.json`.
+
+## Publishing a new npm release
+
+Maintainers can publish stable or beta with one command:
+
+```bash
+npm run release:npm
+```
+
+The release helper asks for the channel:
 
 ```text
-CODELOCAL_APPROVAL_MODE=prompt   # default: prompt; other supported preview values: deny, auto
-CODELOCAL_ALLOW_DANGEROUS=0      # default; do not enable casually
-CODELOCAL_MIRROR_PROCESS_OUTPUT=1
-CODELOCAL_LOG_LEVEL=info
+CodeLocal npm release
+
+  1) latest (stable) [default]
+  2) beta
+
+Choose channel [1]:
 ```
 
-Expected startup logs are JSON structured events such as:
+Press **Enter** to publish `latest`, or choose `2` for `beta`.
+
+The helper automatically:
+
+- checks versions already published on npm
+- chooses the next available version
+- synchronizes `package.json`, `package-lock.json` and `internal/version/version.go`
+- rebuilds `.release/npm`
+- generates the correct install command in the npm README
+- runs tests/vet and package validation
+- publishes with the correct `latest` or `beta` npm dist-tag
+
+For a stable release, the generated npm README contains:
+
+```bash
+npm i -g codelocal
+```
+
+For a beta release:
+
+```bash
+npm i -g codelocal@beta
+```
+
+## Release model
+
+The public npm package remains `codelocal`. A release contains prebuilt native binaries for:
 
 ```text
-client.started
-client.connecting
-client.registered
+darwin-arm64
+darwin-x64
+linux-arm64
+linux-x64
+windows-arm64
+windows-x64
 ```
 
-When ChatGPT runs a command, stdout/stderr also appears locally with a process prefix.
-
-## ChatGPT setup
-
-Create/connect the developer MCP app with:
-
-```text
-https://codelocal.cloud/mcp
-```
-
-Authentication: OAuth.
-
-After a tool/schema update, reconnect/refresh the MCP app so ChatGPT discovers the latest tool list.
-
-## Recommended first prompt
-
-```text
-Use CodeLocal.
-Inspect project_info and repo instructions first.
-Analyze the architecture before editing.
-Use semantic/reference tools and targeted reads rather than reading the entire repository.
-Run appropriate diagnostics/tests, then show git diff.
-Do not perform risky operations unless needed.
-```
-
-## Retrieval policy
-
-`.gitignore` controls normal retrieval/indexing, not security.
-
-```text
-Normal source
-  -> list/search normally
-
-Ignored dependency/build/cache
-  -> excluded from normal scans
-  -> targeted read/search allowed when needed
-
-Sensitive credentials/secrets
-  -> blocked independently of .gitignore
-```
-
-Typical blocked sensitive paths include `.env*` (except templates/examples), `.ssh`, `.aws`, `.gnupg`, private key files and obvious credential files.
-
-## Safety notes
-
-The current client enforces workspace path boundaries for filesystem tools and applies command-policy checks for shell commands. A shell process is still a local OS process, so this preview should not be described as a complete native OS sandbox.
-
-Do not expose device credentials publicly. Rotate the preview `DEVICE_TOKEN` before broader use.
-
-## What is still not claimed as production-complete
-
-- native OS sandbox parity across macOS/Linux/Windows
-- fully persistent per-device pairing/revocation database
-- true PTY resize/control parity for all interactive terminal applications
-- dedicated LSP daemon integrations for every language
-- durable server state across replicas/restarts
-
-These are intentionally separated from the already-working coding loop rather than faked behind tool names.
-
-## Coding loop target
-
-```text
-understand task
--> project_info + instructions
--> semantic symbols/references/import graph
--> targeted file/range/dependency reads
--> diagnostics/build/tests
--> edit with hash/conflict protection
--> re-run diagnostics/tests
--> git diff/history
--> explain result
-```
-
-See `ROADMAP.md` for design rationale and hardening work.
+The launcher selects the binary matching `process.platform` and `process.arch`. This preserves the existing `npm i -g codelocal` UX while the actual CodeLocal application runs natively in Go.

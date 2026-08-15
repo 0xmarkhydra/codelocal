@@ -8,7 +8,7 @@ const MAX_PROCESSES = Number(process.env.CODELOCAL_MAX_PROCESSES ?? 64);
 type Status = "running" | "exited" | "cancelled" | "failed";
 type ExecutionMode = "host-policy";
 
-type StreamBuffer = { text: string; baseOffset: number; totalBytes: number };
+type StreamBuffer = { data: Buffer; baseOffset: number; totalBytes: number };
 
 type PtyLike = {
   pid: number;
@@ -23,6 +23,7 @@ export type ProcessRecord = {
   processId: string;
   workspaceKey: string;
   ownerSessionId?: string;
+  requestId?: string;
   pid: number | null;
   command: string;
   cwd: string;
@@ -34,6 +35,7 @@ export type ProcessRecord = {
   stdout: StreamBuffer;
   stderr: StreamBuffer;
   timeoutAt: number | null;
+  timeoutTimer?: NodeJS.Timeout;
   pty: boolean;
   executionMode: ExecutionMode;
   child?: ChildProcessWithoutNullStreams;
@@ -41,23 +43,23 @@ export type ProcessRecord = {
 };
 
 function append(buffer: StreamBuffer, value: string) {
-  const bytes = Buffer.byteLength(value, "utf8");
-  buffer.totalBytes += bytes;
-  buffer.text += value;
-  const currentBytes = Buffer.byteLength(buffer.text, "utf8");
-  if (currentBytes > MAX_BUFFER_BYTES) {
-    const keep = buffer.text.slice(-MAX_BUFFER_BYTES);
-    const keptBytes = Buffer.byteLength(keep, "utf8");
-    buffer.baseOffset += currentBytes - keptBytes;
-    buffer.text = keep;
-  }
+  const chunk = Buffer.from(value, "utf8");
+  buffer.totalBytes += chunk.length;
+  buffer.data = buffer.data.length ? Buffer.concat([buffer.data, chunk]) : chunk;
+  if (buffer.data.length <= MAX_BUFFER_BYTES) return;
+
+  let start = buffer.data.length - MAX_BUFFER_BYTES;
+  while (start < buffer.data.length && (buffer.data[start] & 0xc0) === 0x80) start++;
+  buffer.baseOffset += start;
+  buffer.data = buffer.data.subarray(start);
 }
 
 function readBuffer(buffer: StreamBuffer, cursor?: number) {
   const requested = Math.max(cursor ?? buffer.baseOffset, buffer.baseOffset);
-  const relative = Math.max(0, requested - buffer.baseOffset);
+  let relative = Math.max(0, Math.min(buffer.data.length, requested - buffer.baseOffset));
+  while (relative < buffer.data.length && (buffer.data[relative] & 0xc0) === 0x80) relative++;
   return {
-    text: buffer.text.slice(relative),
+    text: buffer.data.subarray(relative).toString("utf8"),
     cursor: buffer.totalBytes,
     truncatedBeforeCursor: (cursor ?? buffer.baseOffset) < buffer.baseOffset,
   };
@@ -102,11 +104,12 @@ export class ProcessManager {
     if (this.records.size >= MAX_PROCESSES) throw new Error(`Too many active CodeLocal processes (${MAX_PROCESSES}).`);
   }
 
-  private baseRecord(command: string, cwd: string, executionMode: ExecutionMode, ownerSessionId?: string): ProcessRecord {
+  private baseRecord(command: string, cwd: string, executionMode: ExecutionMode, ownerSessionId?: string, requestId?: string): ProcessRecord {
     return {
       processId: randomUUID(),
       workspaceKey: this.workspaceKey,
       ownerSessionId,
+      requestId,
       pid: null,
       command,
       cwd,
@@ -115,8 +118,8 @@ export class ProcessManager {
       status: "running",
       exitCode: null,
       signal: null,
-      stdout: { text: "", baseOffset: 0, totalBytes: 0 },
-      stderr: { text: "", baseOffset: 0, totalBytes: 0 },
+      stdout: { data: Buffer.alloc(0), baseOffset: 0, totalBytes: 0 },
+      stderr: { data: Buffer.alloc(0), baseOffset: 0, totalBytes: 0 },
       timeoutAt: null,
       pty: false,
       executionMode,
@@ -132,13 +135,20 @@ export class ProcessManager {
   private notifySettled(record: ProcessRecord) {
     if (this.settledNotified.has(record.processId)) return;
     this.settledNotified.add(record.processId);
+    if (record.timeoutTimer) {
+      clearTimeout(record.timeoutTimer);
+      record.timeoutTimer = undefined;
+    }
+    if (record.requestId && this.requestToProcess.get(record.requestId) === record.processId) {
+      this.requestToProcess.delete(record.requestId);
+    }
     Promise.resolve(this.onSettled?.(record)).catch(() => undefined);
   }
 
   async start(command: string, options: { cwd: string; timeoutMs?: number; ownerSessionId?: string; requestId?: string; usePty?: boolean; cols?: number; rows?: number }) {
     this.prune();
     const executionMode: ExecutionMode = "host-policy";
-    const record = this.baseRecord(command, options.cwd, executionMode, options.ownerSessionId);
+    const record = this.baseRecord(command, options.cwd, executionMode, options.ownerSessionId, options.requestId);
     this.records.set(record.processId, record);
     if (options.requestId) this.requestToProcess.set(options.requestId, record.processId);
 
@@ -179,8 +189,10 @@ export class ProcessManager {
     }) as ChildProcessWithoutNullStreams;
     record.child = child;
     record.pid = child.pid ?? null;
-    child.stdout.on("data", (d) => this.emit(record, "stdout", d.toString()));
-    child.stderr.on("data", (d) => this.emit(record, "stderr", d.toString()));
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (d) => this.emit(record, "stdout", String(d)));
+    child.stderr.on("data", (d) => this.emit(record, "stderr", String(d)));
     child.on("error", (error) => {
       record.status = "failed";
       record.exitCode = -1;
@@ -200,10 +212,11 @@ export class ProcessManager {
   private scheduleTimeout(record: ProcessRecord, timeoutMs?: number) {
     if (!timeoutMs || timeoutMs <= 0) return;
     record.timeoutAt = Date.now() + timeoutMs;
-    setTimeout(() => {
+    record.timeoutTimer = setTimeout(() => {
       const current = this.records.get(record.processId);
       if (current?.status === "running") this.cancel(record.processId, "timeout");
-    }, timeoutMs).unref?.();
+    }, timeoutMs);
+    record.timeoutTimer.unref?.();
   }
 
   snapshot(processId: string, cursors: { stdout?: number; stderr?: number } = {}) {
@@ -290,5 +303,16 @@ export class ProcessManager {
     const processId = this.requestToProcess.get(requestId);
     if (!processId) return { cancelled: false, reason: "no process associated with request" };
     return this.cancel(processId, reason);
+  }
+
+  stopAll(reason = "runtime shutdown") {
+    let cancelled = 0;
+    for (const record of this.records.values()) {
+      if (record.status !== "running") continue;
+      this.cancel(record.processId, reason);
+      cancelled++;
+    }
+    this.requestToProcess.clear();
+    return { cancelled };
   }
 }

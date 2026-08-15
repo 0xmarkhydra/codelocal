@@ -40,6 +40,7 @@ export type ClientCapabilities = {
 export type RegisterMessage = {
   type: "register";
   protocolVersion: number;
+  clientVersion?: string;
   token?: string;
   credentialId?: string;
   credentialSecret?: string;

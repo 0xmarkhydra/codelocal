@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { cloudStore, type CloudUser } from "./cloud-store.js";
 import { authPage, escapeHtml } from "./web-ui.js";
+import { rateLimit } from "./rate-limit.js";
 
 const scrypt = promisify(scryptCallback);
 const SESSION_COOKIE = "codelocal_session";
@@ -133,13 +134,28 @@ function authForm(mode: "login" | "signup", csrf: string, next: string, error?: 
 export const webAuthRouter = express.Router();
 webAuthRouter.use(express.urlencoded({ extended: false, limit: "64kb" }));
 
+const loginIpRateLimit = rateLimit({ scope: "auth-login-ip", limit: 40, windowSeconds: 10 * 60 });
+const loginAccountRateLimit = rateLimit({
+  scope: "auth-login-account",
+  limit: 12,
+  windowSeconds: 10 * 60,
+  subject: (req) => String(req.body?.email ?? "invalid").trim().toLowerCase().slice(0, 254) || "invalid",
+});
+const signupIpRateLimit = rateLimit({ scope: "auth-signup-ip", limit: 20, windowSeconds: 60 * 60 });
+const signupAccountRateLimit = rateLimit({
+  scope: "auth-signup-account",
+  limit: 4,
+  windowSeconds: 60 * 60,
+  subject: (req) => String(req.body?.email ?? "invalid").trim().toLowerCase().slice(0, 254) || "invalid",
+});
+
 webAuthRouter.get("/login", async (req, res) => {
   if (await getWebIdentity(req)) { res.redirect(302, safeNext(req.query.next)); return; }
   const csrf = ensureCsrf(req, res);
   res.type("html").send(authForm("login", csrf, safeNext(req.query.next)));
 });
 
-webAuthRouter.post("/login", async (req, res) => {
+webAuthRouter.post("/login", loginIpRateLimit, loginAccountRateLimit, async (req, res) => {
   const csrf = ensureCsrf(req, res);
   const next = safeNext(req.body?.next);
   if (!verifyCsrf(req)) { res.status(403).type("html").send(authForm("login", csrf, next, "Security token expired. Please try again.")); return; }
@@ -171,7 +187,7 @@ webAuthRouter.get("/signup", async (req, res) => {
   res.type("html").send(authForm("signup", csrf, safeNext(req.query.next)));
 });
 
-webAuthRouter.post("/signup", async (req, res) => {
+webAuthRouter.post("/signup", signupIpRateLimit, signupAccountRateLimit, async (req, res) => {
   const csrf = ensureCsrf(req, res);
   const next = safeNext(req.body?.next);
   if (!verifyCsrf(req)) { res.status(403).type("html").send(authForm("signup", csrf, next, "Security token expired. Please try again.")); return; }

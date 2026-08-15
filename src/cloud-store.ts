@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 
@@ -76,9 +76,23 @@ export class CloudStore {
   private redis: RedisClientType | null = null;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  private deviceDbTouch = new Map<string, number>();
+  private workspaceDbTouch = new Map<string, number>();
+  private readonly dbTouchIntervalMs = Math.max(5_000, Number(process.env.CODELOCAL_DB_TOUCH_INTERVAL_MS ?? 60_000) || 60_000);
 
   get enabled() {
     return !!process.env.DATABASE_URL && !!process.env.REDIS_URL;
+  }
+
+  private shouldPersistTouch(cache: Map<string, number>, key: string, now: number) {
+    const previous = cache.get(key) ?? 0;
+    if (now - previous < this.dbTouchIntervalMs) return false;
+    cache.set(key, now);
+    if (cache.size > 10_000) {
+      const cutoff = now - Math.max(this.dbTouchIntervalMs * 4, 10 * 60_000);
+      for (const [entry, at] of cache) if (at < cutoff) cache.delete(entry);
+    }
+    return true;
   }
 
   async init() {
@@ -117,6 +131,8 @@ export class CloudStore {
     await this.pool?.end().catch(() => undefined);
     this.redis = null;
     this.pool = null;
+    this.deviceDbTouch.clear();
+    this.workspaceDbTouch.clear();
     this.initialized = false;
   }
 
@@ -128,6 +144,24 @@ export class CloudStore {
   private cache() {
     if (!this.redis) throw new Error("CloudStore Redis is not initialized.");
     return this.redis;
+  }
+
+  async rateLimit(scope: string, identifier: string, limit: number, windowSeconds: number) {
+    await this.init();
+    const safeScope = scope.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "default";
+    const subject = createHash("sha256").update(identifier || "unknown").digest("hex").slice(0, 32);
+    const max = Math.max(1, Math.floor(limit));
+    const ttlSeconds = Math.max(1, Math.floor(windowSeconds));
+    const key = `codelocal:rate:${safeScope}:${subject}`;
+    const script = `
+      local count = redis.call('INCR', KEYS[1])
+      if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+      return count
+    `;
+    const raw = await this.cache().eval(script, { keys: [key], arguments: [String(ttlSeconds)] });
+    const count = Number(raw) || 0;
+    const retryAfterSeconds = count > max ? Math.max(1, await this.cache().ttl(key)) : 0;
+    return { allowed: count <= max, count, limit: max, retryAfterSeconds };
   }
 
   private async ensureSchema() {
@@ -222,6 +256,7 @@ export class CloudStore {
       CREATE INDEX IF NOT EXISTS idx_codelocal_pairings_expires ON codelocal_pairings(expires_at);
 
       UPDATE codelocal_workspaces SET project_root=NULL WHERE project_root IS NOT NULL;
+      DELETE FROM codelocal_audit_logs WHERE event <> 'terminal.executed';
     `);
   }
 
@@ -280,7 +315,7 @@ export class CloudStore {
   async createPairing(deviceId: string, deviceName: string, ttlMs = 10 * 60_000): Promise<CloudPairing> {
     const pairing: CloudPairing = {
       pairingId: randomUUID(),
-      code: String(Math.floor(100000 + Math.random() * 900000)),
+      code: String(randomInt(100000, 1000000)),
       deviceId,
       deviceName,
       createdAt: Date.now(),
@@ -302,7 +337,7 @@ export class CloudStore {
     const now = Date.now();
     const result = await this.db().query(
       `UPDATE codelocal_pairings SET user_id=$3, approved_at=$4
-       WHERE pairing_id=$1 AND code=$2 AND expires_at>$4 AND claimed_at IS NULL
+       WHERE pairing_id=$1 AND code=$2 AND expires_at>$4 AND approved_at IS NULL AND claimed_at IS NULL AND user_id IS NULL
        RETURNING *`,
       [pairingId, code, userId, now],
     );
@@ -348,7 +383,9 @@ export class CloudStore {
     const row = result.rows[0];
     if (!row) return null;
     const now = Date.now();
-    await this.db().query("UPDATE codelocal_devices SET last_seen_at=$2 WHERE credential_id=$1", [credentialId, now]);
+    if (this.shouldPersistTouch(this.deviceDbTouch, credentialId, now)) {
+      await this.db().query("UPDATE codelocal_devices SET last_seen_at=$2 WHERE credential_id=$1", [credentialId, now]);
+    }
     return this.mapDevice({ ...row, last_seen_at: now });
   }
 
@@ -395,7 +432,10 @@ export class CloudStore {
 
   async touchWorkspace(userId: string, deviceId: string, workspaceId: string) {
     const now = Date.now();
-    await this.db().query("UPDATE codelocal_workspaces SET last_seen_at=$4 WHERE user_id=$1 AND device_id=$2 AND workspace_id=$3", [userId, deviceId, workspaceId, now]);
+    const touchKey = `${userId}:${deviceId}:${workspaceId}`;
+    if (this.shouldPersistTouch(this.workspaceDbTouch, touchKey, now)) {
+      await this.db().query("UPDATE codelocal_workspaces SET last_seen_at=$4 WHERE user_id=$1 AND device_id=$2 AND workspace_id=$3", [userId, deviceId, workspaceId, now]);
+    }
     await this.setPresence(userId, deviceId, workspaceId);
   }
 
@@ -411,22 +451,27 @@ export class CloudStore {
     return !!(await this.cache().exists(`codelocal:presence:${userId}:${deviceId}:${workspaceId}`));
   }
 
-  async listWorkspaces(userId: string): Promise<Array<CloudWorkspace & { online: boolean }>> {
+  async listWorkspaceRecords(userId: string): Promise<CloudWorkspace[]> {
     const result = await this.db().query("SELECT * FROM codelocal_workspaces WHERE user_id=$1 ORDER BY last_seen_at DESC", [userId]);
-    return Promise.all(result.rows.map(async (row) => {
-      const workspace: CloudWorkspace = {
-        userId: row.user_id,
-        deviceId: row.device_id,
-        workspaceId: row.workspace_id,
-        workspaceName: row.workspace_name,
-        projectRoot: row.project_root ?? undefined,
-        protocolVersion: row.protocol_version ?? undefined,
-        capabilities: row.capabilities ?? {},
-        createdAt: Number(row.created_at),
-        lastSeenAt: Number(row.last_seen_at),
-      };
-      return { ...workspace, online: await this.isWorkspaceOnline(userId, workspace.deviceId, workspace.workspaceId) };
+    return result.rows.map((row) => ({
+      userId: row.user_id,
+      deviceId: row.device_id,
+      workspaceId: row.workspace_id,
+      workspaceName: row.workspace_name,
+      projectRoot: row.project_root ?? undefined,
+      protocolVersion: row.protocol_version ?? undefined,
+      capabilities: row.capabilities ?? {},
+      createdAt: Number(row.created_at),
+      lastSeenAt: Number(row.last_seen_at),
     }));
+  }
+
+  async listWorkspaces(userId: string): Promise<Array<CloudWorkspace & { online: boolean }>> {
+    const workspaces = await this.listWorkspaceRecords(userId);
+    return Promise.all(workspaces.map(async (workspace) => ({
+      ...workspace,
+      online: await this.isWorkspaceOnline(userId, workspace.deviceId, workspace.workspaceId),
+    })));
   }
 
   async reconcileWorkspacesForDevice(userId: string, deviceId: string, authorizedWorkspaceIds: readonly string[]) {
@@ -509,11 +554,9 @@ export class CloudStore {
     }
   }
 
-  async audit(userId: string | undefined, event: string, detail: Record<string, unknown> = {}, deviceId?: string, workspaceId?: string) {
-    await this.db().query(
-      "INSERT INTO codelocal_audit_logs(id,user_id,event,device_id,workspace_id,detail,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
-      [randomUUID(), userId ?? null, event, deviceId ?? null, workspaceId ?? null, JSON.stringify(detail), Date.now()],
-    );
+  async audit(_userId: string | undefined, _event: string, _detail: Record<string, unknown> = {}, _deviceId?: string, _workspaceId?: string) {
+    // Cloud audit storage is disabled. Keep this method as a no-op so legacy
+    // server call sites cannot write security/terminal metadata to PostgreSQL.
   }
 
   async recentAudit(userId: string, limit = 50) {
@@ -522,6 +565,31 @@ export class CloudStore {
       [userId, Math.max(1, Math.min(limit, 200))],
     );
     return result.rows.map((row) => ({ id: row.id, event: row.event, deviceId: row.device_id, workspaceId: row.workspace_id, detail: row.detail ?? {}, createdAt: Number(row.created_at) }));
+  }
+
+  async auditPage(userId: string, page = 1, pageSize = 20) {
+    const requestedPage = Math.max(1, Math.floor(page));
+    const safePageSize = Math.max(1, Math.min(Math.floor(pageSize), 100));
+    const countResult = await this.db().query("SELECT COUNT(*) AS total FROM codelocal_audit_logs WHERE user_id=$1", [userId]);
+    const total = Number(countResult.rows[0]?.total ?? 0);
+    const totalPages = Math.max(1, Math.ceil(total / safePageSize));
+    const safePage = Math.min(requestedPage, totalPages);
+    const offset = (safePage - 1) * safePageSize;
+    const result = await this.db().query(
+      `SELECT id,event,device_id,workspace_id,detail,created_at
+       FROM codelocal_audit_logs
+       WHERE user_id=$1
+       ORDER BY created_at DESC,id DESC
+       LIMIT $2 OFFSET $3`,
+      [userId, safePageSize, offset],
+    );
+    return {
+      items: result.rows.map((row) => ({ id: row.id, event: row.event, deviceId: row.device_id, workspaceId: row.workspace_id, detail: row.detail ?? {}, createdAt: Number(row.created_at) })),
+      page: safePage,
+      pageSize: safePageSize,
+      total,
+      totalPages,
+    };
   }
 
   private mapPairing(row: any): CloudPairing | null {

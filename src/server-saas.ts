@@ -18,8 +18,9 @@ import { createDashboardRouter } from "./dashboard.js";
 import { authPage, escapeHtml, landingPage } from "./web-ui.js";
 import { bridgeMcpToolResult } from "./mcp-bridge.js";
 import { createWorkspaceRoutingState, selectWorkspaceForSession, workspaceKeyForSession, type WorkspaceRoutingState } from "./mcp-session-routing.js";
-
-const VERSION = "1.5.0-beta.2";
+import { clientReleaseManifest, evaluateClientUpdate, renderClientUpdateNotice, type ClientUpdateNotice } from "./client-update.js";
+import { VERSION } from "./version.js";
+import { rateLimit } from "./rate-limit.js";
 const PORT = Number(process.env.PORT ?? 3333);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
@@ -28,6 +29,7 @@ const HEARTBEAT_MS = Number(process.env.CODELOCAL_HEARTBEAT_MS ?? 20_000);
 const STALE_MS = Number(process.env.CODELOCAL_STALE_MS ?? 70_000);
 const WORKSPACE_ACTIVATION_TIMEOUT_MS = Number(process.env.CODELOCAL_WORKSPACE_ACTIVATION_TIMEOUT_MS ?? 30_000);
 const ALLOW_LEGACY_DEVICE_TOKEN = process.env.ALLOW_LEGACY_DEVICE_TOKEN === "1" && !!DEVICE_TOKEN;
+const CLIENT_RELEASE = clientReleaseManifest();
 const deviceStore = new CloudDeviceStore();
 
 await cloudStore.init();
@@ -46,6 +48,7 @@ type ClientRecord = {
   projectRoot?: string;
   credentialId?: string;
   protocolVersion: number;
+  clientVersion?: string;
   capabilities: ClientCapabilities;
   ws: WebSocket;
   connectedAt: number;
@@ -71,7 +74,20 @@ const pending = new Map<string, Pending>();
 const transports: Record<string, TransportRecord> = {};
 
 function clientKey(userId: string, deviceId: string, workspaceId: string) { return `${userId}::${deviceId}::${workspaceId}`; }
-function textResult(value: unknown) { return { content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] }; }
+function textResult(value: unknown, notice?: ClientUpdateNotice | null) {
+  const content: Array<{ type: "text"; text: string }> = [];
+  if (notice) content.push({ type: "text", text: renderClientUpdateNotice(notice) });
+  content.push({ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) });
+  return { content };
+}
+function prependNotice(result: any, notice?: ClientUpdateNotice | null) {
+  if (!notice) return result;
+  return { ...result, content: [{ type: "text" as const, text: renderClientUpdateNotice(notice) }, ...(Array.isArray(result?.content) ? result.content : [])] };
+}
+function clientUpdateStatus(clientVersion?: string) {
+  const notice = evaluateClientUpdate(clientVersion, CLIENT_RELEASE);
+  return notice ? { level: notice.level, installedVersion: notice.installedVersion, latestVersion: notice.latestVersion, minimumVersion: notice.minimumVersion, updateCommand: notice.updateCommand, restartCommand: notice.restartCommand } : null;
+}
 function availableClients(userId: string) { return [...clients.values()].filter((client) => client.userId === userId && client.ws.readyState === client.ws.OPEN); }
 function equalSecret(a: string, b: string) { const aa = Buffer.from(a); const bb = Buffer.from(b); return aa.length === bb.length && timingSafeEqual(aa, bb); }
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -86,23 +102,33 @@ function splitWorkspaceRoutingArgs(args: unknown) {
 }
 
 async function workspaceCatalog(userId: string) {
-  const workspaces = await cloudStore.listWorkspaces(userId);
+  const workspaces = await cloudStore.listWorkspaceRecords(userId);
+  const deviceIds = [...new Set(workspaces.map((workspace) => workspace.deviceId))];
+  const runtimeStates = new Map(await Promise.all(deviceIds.map(async (deviceId) => {
+    const runtimeOnline = await runtimeActivationStore.isOnline(userId, deviceId).catch(() => false);
+    const authorizedIds = runtimeOnline ? await runtimeActivationStore.authorizedIds(userId, deviceId).catch(() => null) : null;
+    return [deviceId, { runtimeOnline, authorizedIds: new Set(authorizedIds ?? []) }] as const;
+  })));
   const output = [] as Array<Record<string, unknown>>;
   for (const workspace of workspaces) {
     const key = clientKey(userId, workspace.deviceId, workspace.workspaceId);
     const active = clients.get(key);
-    const runtimeOnline = await runtimeActivationStore.isOnline(userId, workspace.deviceId).catch(() => false);
-    const authorizedNow = runtimeOnline ? await runtimeActivationStore.isAuthorized(userId, workspace.deviceId, workspace.workspaceId).catch(() => false) : null;
-    if (!active && runtimeOnline && authorizedNow === false) continue;
+    const storedClientVersion = typeof workspace.capabilities?.clientVersion === "string" ? workspace.capabilities.clientVersion : undefined;
+    const currentClientVersion = active?.clientVersion ?? storedClientVersion;
+    const runtimeState = runtimeStates.get(workspace.deviceId) ?? { runtimeOnline: false, authorizedIds: new Set<string>() };
+    const authorizedNow = runtimeState.runtimeOnline ? runtimeState.authorizedIds.has(workspace.workspaceId) : null;
+    if (!active && runtimeState.runtimeOnline && authorizedNow === false) continue;
     output.push({
       key,
       deviceId: workspace.deviceId,
       deviceName: active?.deviceName ?? workspace.deviceId,
       workspaceId: workspace.workspaceId,
       workspaceName: workspace.workspaceName,
-      status: active ? "active" : runtimeOnline ? "sleeping" : "device_offline",
-      runtimeOnline,
+      status: active ? "active" : runtimeState.runtimeOnline ? "sleeping" : "device_offline",
+      runtimeOnline: runtimeState.runtimeOnline,
       authorized: active ? true : authorizedNow,
+      clientVersion: currentClientVersion ?? null,
+      update: clientUpdateStatus(currentClientVersion),
       projectRoot: active?.projectRoot ?? null,
       capabilities: active?.capabilities ?? workspace.capabilities ?? {},
       lastSeenAt: active?.lastSeenAt ?? workspace.lastSeenAt,
@@ -147,14 +173,16 @@ async function activateWorkspace(userId: string, key: string) {
   throw new Error(`Workspace activation timed out after ${WORKSPACE_ACTIVATION_TIMEOUT_MS}ms. Keep \`codelocal\` running on ${workspace.deviceId} and try again.`);
 }
 
+function isTerminalExecutionTool(tool: string) {
+  return tool === "run_command" || tool === "exec_start" || tool === "pty_start";
+}
+
 async function callClient(userId: string, tool: string, args: unknown, selectedKey: string | null, options: { signal?: AbortSignal; sessionId?: string } = {}) {
   const client = selectedKey ? await activateWorkspace(userId, selectedKey) : resolveClient(userId, selectedKey);
   const requestId = randomUUID();
   const startedAt = Date.now();
   const idempotencyKey = isSideEffectingTool(tool) ? requestId : undefined;
   log("info", "tool.dispatch", { requestId, tool, userId, mcpSessionId: options.sessionId ?? null, selectedWorkspaceKey: selectedKey, clientKey: client.key, args: summarizeToolArgs(tool, args), pending: pending.size });
-  await audit({ event: "gateway.tool.dispatch", requestId, workspaceKey: client.key, tool });
-  await cloudStore.audit(userId, "gateway.tool.dispatch", { requestId, tool }, client.deviceId, client.workspaceId).catch(() => undefined);
 
   const result = new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -176,26 +204,47 @@ async function callClient(userId: string, tool: string, args: unknown, selectedK
   });
 
   client.ws.send(JSON.stringify({ type: "tool_call", protocolVersion: PROTOCOL_VERSION, requestId, id: requestId, sessionId: options.sessionId, workspaceKey: client.key, tool, args, idempotencyKey, deadline: Date.now() + TOOL_TIMEOUT_MS }));
-  return result;
+  return { result: await result, client };
 }
 
 function createMcpServer(userId: string, routing: WorkspaceRoutingState) {
   const server = new McpServer({ name: "codelocal", version: VERSION });
+  const shownUpdateNotices = new Set<string>();
+  const LOCAL_RESULT = Symbol("codelocal-local-result");
+  const claimUpdateNotice = (client?: ClientRecord | null) => {
+    if (!client) return null;
+    const notice = evaluateClientUpdate(client.clientVersion, CLIENT_RELEASE);
+    if (!notice) return null;
+    const key = `${client.key}:${notice.key}`;
+    if (shownUpdateNotices.has(key)) return null;
+    shownUpdateNotices.add(key);
+    return notice;
+  };
+  const nextUpdateClient = () => availableClients(userId).find((client) => {
+    const notice = evaluateClientUpdate(client.clientVersion, CLIENT_RELEASE);
+    return notice && !shownUpdateNotices.has(`${client.key}:${notice.key}`);
+  });
+  const localResult = (value: unknown, client?: ClientRecord | null) => ({ [LOCAL_RESULT]: true, value, client });
   const workspaceRoutingSchema = z.string().min(1).optional().describe("Exact workspace key returned by select_workspace. Pass it to keep routing explicit across multiple active projects, ChatGPT threads or fresh MCP sessions.");
   const localTool = (name: string, title: string, description: string, inputSchema: Record<string, any>, handler: (args: any, extra: any) => unknown | Promise<unknown>) => {
-    server.registerTool(name, { title, description, inputSchema }, async (args: any, extra: any) => textResult(await handler(args, extra)));
+    server.registerTool(name, { title, description, inputSchema }, async (args: any, extra: any) => {
+      const handled: any = await handler(args, extra);
+      if (handled?.[LOCAL_RESULT]) return textResult(handled.value, claimUpdateNotice(handled.client));
+      return textResult(handled);
+    });
   };
   const remote = (name: string, title: string, description: string, schema: Record<string, any>) => {
     const inputSchema = Object.prototype.hasOwnProperty.call(schema, "workspaceKey") ? schema : { ...schema, workspaceKey: workspaceRoutingSchema };
     server.registerTool(name, { title, description: `${description} When multiple workspaces are active, pass workspaceKey returned by select_workspace so this call stays bound to the intended project even across separate ChatGPT threads or MCP sessions.`, inputSchema }, async (args: any, extra: any) => {
       const { workspaceKey, forwardedArgs } = splitWorkspaceRoutingArgs(args);
       const selectedWorkspaceKey = workspaceKeyForSession(routing, workspaceKey);
-      const result = await callClient(userId, name, forwardedArgs, selectedWorkspaceKey, { signal: extra?.signal, sessionId: extra?.sessionId });
+      const dispatched = await callClient(userId, name, forwardedArgs, selectedWorkspaceKey, { signal: extra?.signal, sessionId: extra?.sessionId });
+      const notice = claimUpdateNotice(dispatched.client);
       if (name === "mcp_call") {
-        const bridged = bridgeMcpToolResult(result);
-        return (bridged ?? textResult(result)) as any;
+        const bridged = bridgeMcpToolResult(dispatched.result);
+        return (bridged ? prependNotice(bridged, notice) : textResult(dispatched.result, notice)) as any;
       }
-      return textResult(result);
+      return textResult(dispatched.result, notice);
     });
   };
 
@@ -203,38 +252,38 @@ function createMcpServer(userId: string, routing: WorkspaceRoutingState) {
     const grouped = new Map<string, any[]>();
     for (const client of availableClients(userId)) {
       const list = grouped.get(client.deviceId) ?? [];
-      list.push({ workspaceId: client.workspaceId, workspaceName: client.workspaceName, key: client.key, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, capabilities: client.capabilities, lastSeenAt: client.lastSeenAt });
+      list.push({ workspaceId: client.workspaceId, workspaceName: client.workspaceName, key: client.key, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, clientVersion: client.clientVersion ?? null, update: clientUpdateStatus(client.clientVersion), capabilities: client.capabilities, lastSeenAt: client.lastSeenAt });
       grouped.set(client.deviceId, list);
     }
-    return { devices: [...grouped.entries()].map(([deviceId, workspaces]) => ({ deviceId, workspaces })) };
+    return localResult({ devices: [...grouped.entries()].map(([deviceId, workspaces]) => ({ deviceId, workspaces })) }, nextUpdateClient());
   });
   localTool("list_device_identities", "List paired devices", "List this account's paired device identities without secrets.", {}, () => deviceStore.listDevices(userId));
   localTool("revoke_device", "Revoke device", "Revoke one of this account's paired device credentials.", { credentialId: z.string().min(1) }, async (args) => ({ revoked: await revokeAndDisconnect(userId, args.credentialId) }));
   localTool("rename_device", "Rename device", "Rename one of this account's durable paired device identities.", { credentialId: z.string().min(1), deviceName: z.string().min(1).max(120) }, async (args) => ({ renamed: await deviceStore.rename(userId, args.credentialId, args.deviceName) }));
-  localTool("list_workspaces", "List authorized workspaces", "List workspaces previously granted on CodeLocal devices. Sleeping workspaces can be activated without the user changing terminal directories. Each returned key can be used as workspaceKey for explicit thread-safe routing.", {}, async () => ({ selectedWorkspace: routing.selectedWorkspaceKey, workspaces: await workspaceCatalog(userId) }));
+  localTool("list_workspaces", "List authorized workspaces", "List workspaces previously granted on CodeLocal devices. Sleeping workspaces can be activated without the user changing terminal directories. Each returned key can be used as workspaceKey for explicit thread-safe routing.", {}, async () => localResult({ selectedWorkspace: routing.selectedWorkspaceKey, workspaces: await workspaceCatalog(userId) }, nextUpdateClient()));
   localTool("select_workspace", "Select and activate workspace", "Select a workspace for this ChatGPT MCP session. Returns workspaceKey; pass it to subsequent project, Git, terminal and MCP calls when multiple projects are active or when the client starts a fresh MCP session.", { key: z.string().min(1) }, async (args, extra) => {
     const client = await activateWorkspace(userId, String(args.key));
     selectWorkspaceForSession(routing, client.key);
     log("info", "mcp.workspace_selected", { mcpSessionId: extra?.sessionId ?? null, userId, workspaceKey: client.key });
-    return { selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, workspaceId: client.workspaceId, workspaceName: client.workspaceName, status: "active" };
+    return localResult({ selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, workspaceId: client.workspaceId, workspaceName: client.workspaceName, clientVersion: client.clientVersion ?? null, update: clientUpdateStatus(client.clientVersion), status: "active" }, client);
   });
   localTool("workspace_info", "Workspace info", "Show a selected CodeLocal workspace. Pass workspaceKey for explicit routing if the current MCP session does not retain selection.", { workspaceKey: workspaceRoutingSchema }, async (args) => {
     const explicitKey = typeof args.workspaceKey === "string" && args.workspaceKey.trim() ? args.workspaceKey.trim() : null;
     const targetKey = workspaceKeyForSession(routing, explicitKey);
     const client = targetKey ? await activateWorkspace(userId, targetKey) : resolveClient(userId, null);
-    return { selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, capabilities: client.capabilities, lastSeenAt: client.lastSeenAt };
+    return localResult({ selected: client.key, workspaceKey: client.key, deviceId: client.deviceId, deviceName: client.deviceName, workspaceId: client.workspaceId, workspaceName: client.workspaceName, projectRoot: client.projectRoot ?? null, protocolVersion: client.protocolVersion, clientVersion: client.clientVersion ?? null, update: clientUpdateStatus(client.clientVersion), capabilities: client.capabilities, lastSeenAt: client.lastSeenAt }, client);
   });
 
-  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, host execution policy, approval memory and instructions. Call first after selecting a workspace.", {});
+  remote("project_info", "Project info", "Inspect workspace capabilities, project map, semantic providers, host execution policy, approval memory and instructions. Call first after selecting a workspace. For coding/debug/refactor tasks, follow it with context_for_task before broad file listing, text search, or multi-file reads.", {});
   remote("project_map", "Project map", "Return cached compact project structure, languages, frameworks, commands and roots.", { force: z.boolean().default(false) });
-  remote("context_for_task", "Context for task", "Select likely relevant symbols/files for a task hint before broad repository scans.", { taskHint: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
+  remote("context_for_task", "Context for task", "Primary semantic-first retrieval step for coding, debugging, review and refactor work. Call this with the user's concrete task before broad repository scans. It returns ranked files, semantic/LSP symbols, dependency graph neighbors, diagnostics and bounded source snippets; use that packet first, then request exact definitions/references or targeted ranges only as needed.", { taskHint: z.string().min(1), limit: z.number().int().min(1).max(100).default(30) });
   remote("read_instructions", "Read instructions", "Read scoped AGENTS.md and supported coding instructions.", { path: z.string().default(".") });
-  remote("list_files", "List files", "Gitignore-aware project listing. Sensitive paths remain blocked.", { path: z.string().default("."), maxDepth: z.number().int().min(0).max(20).default(4), includeIgnored: z.boolean().default(false) });
+  remote("list_files", "List files", "Gitignore-aware project listing. Sensitive paths remain blocked. For coding tasks, prefer context_for_task first and use listing only when structural discovery is still needed.", { path: z.string().default("."), maxDepth: z.number().int().min(0).max(20).default(4), includeIgnored: z.boolean().default(false) });
   remote("file_info", "File metadata", "Read metadata/hash without source content.", { path: z.string().min(1) });
-  remote("read_file", "Read file", "Read a targeted UTF-8 file.", { path: z.string().min(1) });
-  remote("read_file_range", "Read file range", "Read a targeted line range.", { path: z.string().min(1), startLine: z.number().int().min(1), endLine: z.number().int().min(1) });
-  remote("read_files", "Read files", "Batch read targeted files.", { paths: z.array(z.string().min(1)).min(1).max(50) });
-  remote("search_code", "Search code", "Text search fallback for literal/unknown queries. Prefer semantic tools for definitions/references.", { query: z.string().min(1), path: z.string().default("."), maxResults: z.number().int().min(1).max(1000).default(200), fixedStrings: z.boolean().default(false), includeIgnored: z.boolean().default(false) });
+  remote("read_file", "Read file", "Read a targeted UTF-8 file. For coding tasks, choose the file from context_for_task or semantic navigation rather than guessing paths from a broad scan.", { path: z.string().min(1) });
+  remote("read_file_range", "Read file range", "Read a targeted line range. Prefer ranges identified by context_for_task, definitions/references, symbols or diagnostics.", { path: z.string().min(1), startLine: z.number().int().min(1), endLine: z.number().int().min(1) });
+  remote("read_files", "Read files", "Batch read targeted files. Avoid broad multi-file dumping; for coding tasks use context_for_task first and batch-read only the ranked files that still need more context.", { paths: z.array(z.string().min(1)).min(1).max(50) });
+  remote("search_code", "Search code", "Literal-text fallback for unknown strings, config keys, logs and exact text. For coding/debug/refactor discovery, call context_for_task and semantic definition/reference tools first; do not use repository-wide grep as the default context strategy.", { query: z.string().min(1), path: z.string().default("."), maxResults: z.number().int().min(1).max(1000).default(200), fixedStrings: z.boolean().default(false), includeIgnored: z.boolean().default(false) });
   remote("inspect_dependency", "Inspect dependency", "Inspect dependency metadata for Node/Python/Rust/Go.", { name: z.string().min(1), ecosystem: z.enum(["auto", "node", "python", "rust", "go"]).default("auto") });
   remote("read_dependency", "Read dependency", "Read a targeted installed Node dependency file.", { name: z.string().min(1), path: z.string().default("package.json"), startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), ecosystem: z.string().optional() });
   remote("search_dependency", "Search dependency", "Search inside one installed Node dependency.", { name: z.string().min(1), query: z.string().min(1), maxResults: z.number().int().min(1).max(500).default(100), fixedStrings: z.boolean().default(false) });
@@ -325,7 +374,7 @@ async function requestWorkspaceRevocation(userId: string, deviceId: string, work
   await runtimeActivationStore.requestRevocation(userId, deviceId, { workspaceId, requestId, requestedAt: Date.now() });
   const deadline = Date.now() + 7_000;
   while (Date.now() < deadline) {
-    const workspaces = await cloudStore.listWorkspaces(userId);
+    const workspaces = await cloudStore.listWorkspaceRecords(userId);
     if (!workspaces.some((workspace) => workspace.deviceId === deviceId && workspace.workspaceId === workspaceId)) {
       await cloudStore.audit(userId, "workspace.revoked", { requestId }, deviceId, workspaceId).catch(() => undefined);
       return;
@@ -357,12 +406,27 @@ app.use(createDashboardRouter({
   isDeviceOnline: async (userId, deviceId) => runtimeActivationStore.isOnline(userId, deviceId),
 }));
 
+const pairStartIpRateLimit = rateLimit({ scope: "pair-start-ip", limit: 40, windowSeconds: 10 * 60 });
+const pairStartDeviceRateLimit = rateLimit({
+  scope: "pair-start-device",
+  limit: 12,
+  windowSeconds: 10 * 60,
+  subject: (req) => String(req.body?.deviceId ?? "unknown").slice(0, 200) || "unknown",
+});
+const pairClaimIpRateLimit = rateLimit({ scope: "pair-claim-ip", limit: 300, windowSeconds: 60 });
+const pairClaimRequestRateLimit = rateLimit({
+  scope: "pair-claim-request",
+  limit: 120,
+  windowSeconds: 60,
+  subject: (req) => String(req.body?.pairingId ?? "unknown").slice(0, 120) || "unknown",
+});
+
 app.get("/", async (req, res) => {
   const base = (process.env.PUBLIC_BASE_URL ?? `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   res.type("html").send(landingPage({ endpoint: `${base}/mcp`, signedIn: Boolean(await getWebIdentity(req)) }));
 });
 
-app.post("/pair/start", async (req, res) => {
+app.post("/pair/start", pairStartIpRateLimit, pairStartDeviceRateLimit, async (req, res) => {
   const deviceId = String(req.body?.deviceId ?? "").trim();
   const deviceName = String(req.body?.deviceName ?? deviceId).trim().slice(0, 120);
   if (!deviceId || deviceId.length > 200) { res.status(400).json({ error: "deviceId_required" }); return; }
@@ -390,7 +454,7 @@ app.post("/pair/approve", express.urlencoded({ extended: false }), requireWebUse
   await cloudStore.audit(me.user.id, "device.pairing_approved", { deviceId: pairing.deviceId, deviceName: pairing.deviceName }, pairing.deviceId);
   res.type("html").send(authPage({ title: "Device approved", subtitle: "Return to your terminal. CodeLocal will claim its device credential automatically.", body: `<a class="btn primary" href="/dashboard/devices">View devices</a>` }));
 });
-app.post("/pair/claim", async (req, res) => {
+app.post("/pair/claim", pairClaimIpRateLimit, pairClaimRequestRateLimit, async (req, res) => {
   const credential = await deviceStore.claimPairing(String(req.body?.pairingId ?? ""), String(req.body?.code ?? ""));
   if (!credential) { res.status(400).json({ error: "pairing_not_approved_or_expired" }); return; }
   await cloudStore.audit(credential.userId, "device.paired", { credentialId: credential.credentialId, deviceName: credential.deviceName }, credential.deviceId);
@@ -410,6 +474,7 @@ app.post("/api/client/workspaces/sync", async (req, res) => {
   const device = credentialId && secret ? await deviceStore.authenticate(credentialId, secret) : null;
   if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
   const source = Array.isArray(req.body?.workspaces) ? req.body.workspaces.slice(0, 500) : [];
+  const syncedClientVersion = typeof req.body?.clientVersion === "string" && req.body.clientVersion.trim() ? req.body.clientVersion.trim().slice(0, 80) : undefined;
   let synced = 0;
   const authorizedWorkspaceIds: string[] = [];
   for (const item of source) {
@@ -420,12 +485,13 @@ app.post("/api/client/workspaces/sync", async (req, res) => {
     const key = clientKey(device.userId, device.deviceId, workspaceId);
     const active = clients.get(key);
     if (!active) {
-      await cloudStore.upsertWorkspace({ userId: device.userId, deviceId: device.deviceId, workspaceId, workspaceName, protocolVersion: PROTOCOL_VERSION, capabilities: { authorized: true, sleeping: true } });
+      await cloudStore.upsertWorkspace({ userId: device.userId, deviceId: device.deviceId, workspaceId, workspaceName, protocolVersion: PROTOCOL_VERSION, capabilities: { authorized: true, sleeping: true, ...(syncedClientVersion ? { clientVersion: syncedClientVersion } : {}) } });
       await cloudStore.clearPresence(device.userId, device.deviceId, workspaceId);
     }
     synced++;
   }
   const removed = await cloudStore.reconcileWorkspacesForDevice(device.userId, device.deviceId, authorizedWorkspaceIds);
+  await runtimeActivationStore.heartbeat(device.userId, device.deviceId, authorizedWorkspaceIds, 45);
   await cloudStore.audit(device.userId, "runtime.workspaces_synced", { count: synced, removed: removed.length }, device.deviceId).catch(() => undefined);
   res.json({ synced, removed: removed.length, syncedAt: Date.now() });
 });
@@ -435,10 +501,14 @@ app.post("/api/client/runtime/poll", async (req, res) => {
   const device = credentialId && secret ? await deviceStore.authenticate(credentialId, secret) : null;
   if (!device) { res.status(401).json({ error: "device_auth_failed" }); return; }
   const workspaceIds = Array.isArray(req.body?.workspaceIds) ? [...new Set(req.body.workspaceIds.map(String).filter((value: string) => /^[A-Za-z0-9._-]{1,80}$/.test(value)))].slice(0, 500) : [];
-  await runtimeActivationStore.heartbeat(device.userId, device.deviceId, workspaceIds);
-  const revocation = await runtimeActivationStore.consumeRevocation(device.userId, device.deviceId);
-  const activation = revocation ? null : await runtimeActivationStore.consume(device.userId, device.deviceId);
-  if (activation && !workspaceIds.includes(activation.workspaceId)) {
+  const requestedWaitMs = Number(req.body?.waitMs ?? 0);
+  const waitMs = Number.isFinite(requestedWaitMs) ? Math.max(0, Math.min(30_000, Math.floor(requestedWaitMs))) : 0;
+  const presenceTtlSeconds = Math.max(20, Math.ceil((waitMs + 15_000) / 1000));
+  await runtimeActivationStore.heartbeat(device.userId, device.deviceId, workspaceIds, presenceTtlSeconds);
+  const next = await runtimeActivationStore.waitForNext(device.userId, device.deviceId, waitMs);
+  const revocation = next.revocation;
+  const activation = revocation ? null : next.activation;
+  if (activation && !(await runtimeActivationStore.isAuthorized(device.userId, device.deviceId, activation.workspaceId))) {
     await cloudStore.audit(device.userId, "workspace.activation_rejected", { requestId: activation.requestId, reason: "not-authorized" }, device.deviceId, activation.workspaceId).catch(() => undefined);
     res.json({ activation: null, revocation: null, now: Date.now() });
     return;
@@ -519,16 +589,18 @@ wss.on("connection", (ws) => {
       const key = clientKey(device.userId, deviceId, workspaceId);
       const existing = clients.get(key);
       if (existing && existing.ws !== ws) existing.ws.close(4001, "replaced by newer connection");
+      const clientVersion = typeof msg.clientVersion === "string" && msg.clientVersion.trim() ? msg.clientVersion.trim().slice(0, 80) : undefined;
       const record: ClientRecord = {
         key, userId: device.userId, deviceId, deviceName: String(msg.deviceName ?? device.deviceName ?? deviceId), workspaceId,
         workspaceName: String(msg.workspaceName ?? workspaceId), projectRoot: typeof msg.projectRoot === "string" ? msg.projectRoot : undefined,
-        credentialId: device.credentialId, protocolVersion: version, capabilities: msg.capabilities ?? {}, ws, connectedAt: Date.now(), lastSeenAt: Date.now(),
+        credentialId: device.credentialId, protocolVersion: version, clientVersion, capabilities: msg.capabilities ?? {}, ws, connectedAt: Date.now(), lastSeenAt: Date.now(),
       };
       clients.set(key, record); socketKeys.set(ws, key); authenticated = true; clearTimeout(authTimer);
-      await cloudStore.upsertWorkspace({ userId: record.userId, deviceId: record.deviceId, workspaceId: record.workspaceId, workspaceName: record.workspaceName, protocolVersion: record.protocolVersion, capabilities: record.capabilities });
-      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true, lazyWorkspaceActivation: true, multiTenant: true, terminalChatApproval: true } }));
-      log("info", "client.authenticated", { clientKey: key, userId: record.userId, protocolVersion: version, capabilities: record.capabilities });
-      await cloudStore.audit(record.userId, "client.connected", { protocolVersion: version }, record.deviceId, record.workspaceId).catch(() => undefined);
+      const storedCapabilities = { ...record.capabilities, ...(record.clientVersion ? { clientVersion: record.clientVersion } : {}) };
+      await cloudStore.upsertWorkspace({ userId: record.userId, deviceId: record.deviceId, workspaceId: record.workspaceId, workspaceName: record.workspaceName, protocolVersion: record.protocolVersion, capabilities: storedCapabilities });
+      ws.send(JSON.stringify({ type: "registered", protocolVersion: PROTOCOL_VERSION, serverCapabilities: { cancellation: true, idempotency: true, pairing: true, multiWorkspace: true, lazyWorkspaceActivation: true, multiTenant: true, terminalChatApproval: true, clientUpdateNotices: true } }));
+      log("info", "client.authenticated", { clientKey: key, userId: record.userId, protocolVersion: version, clientVersion: record.clientVersion ?? null, capabilities: record.capabilities });
+      await cloudStore.audit(record.userId, "client.connected", { protocolVersion: version, clientVersion: record.clientVersion ?? null }, record.deviceId, record.workspaceId).catch(() => undefined);
       return;
     }
     const key = socketKeys.get(ws);
@@ -544,7 +616,14 @@ wss.on("connection", (ws) => {
     if (!wait || !record || wait.userId !== record.userId) return;
     pending.delete(requestId); clearTimeout(wait.timer); wait.abortCleanup?.();
     const durationMs = Date.now() - wait.startedAt;
-    if (msg.ok) { wait.resolve(msg.result); log("info", "tool.complete", { requestId, tool: wait.tool, clientKey: wait.clientKey, durationMs }); }
+    if (msg.ok) {
+      wait.resolve(msg.result);
+      log("info", "tool.complete", { requestId, tool: wait.tool, clientKey: wait.clientKey, durationMs });
+      if (isTerminalExecutionTool(wait.tool)) {
+        await audit({ event: "gateway.terminal.executed", requestId, workspaceKey: wait.clientKey, tool: wait.tool });
+        await cloudStore.audit(record.userId, "terminal.executed", { requestId, tool: wait.tool }, record.deviceId, record.workspaceId).catch(() => undefined);
+      }
+    }
     else { const message = String(msg.errorMessage ?? msg.error ?? "Client tool failed"); const error = new Error(message); (error as any).code = msg.errorCode; wait.reject(error); log("error", "tool.failed", { requestId, tool: wait.tool, clientKey: wait.clientKey, durationMs, errorCode: msg.errorCode, error: message }); }
   });
   ws.on("close", () => {

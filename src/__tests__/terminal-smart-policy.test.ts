@@ -2,20 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyCommand, redactCommand } from "../security-policy.js";
 
-test("routine developer commands run without approval", () => {
+test("non-executing developer inspection commands run without approval", () => {
   for (const command of [
     "flutter analyze",
-    "flutter test",
-    "flutter run --flavor dev",
     "fvm flutter doctor",
     "dart analyze",
     "dart format .",
-    "xcodebuild -scheme Runner -configuration Debug",
     "xcrun simctl list devices",
   ]) {
     const decision = classifyCommand(command, "approval");
     assert.equal(decision.blocked, false, command);
     assert.equal(decision.requiresApproval, false, command);
+    assert.equal(decision.approvalPolicy, "none", command);
+  }
+});
+
+test("workspace code execution requires rememberable review", () => {
+  for (const command of [
+    "flutter test",
+    "flutter run --flavor dev",
+    "xcodebuild -scheme Runner -configuration Debug",
+  ]) {
+    const decision = classifyCommand(command, "approval");
+    assert.equal(decision.blocked, false, command);
+    assert.equal(decision.requiresApproval, true, command);
+    assert.equal(decision.riskLevel, "REVIEW", command);
+    assert.equal(decision.approvalPolicy, "rememberable", command);
+    assert.match(decision.approvalKey ?? "", /^workspace-exec:/, command);
   }
 });
 

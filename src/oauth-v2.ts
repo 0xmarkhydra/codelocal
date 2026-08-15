@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { cloudStore } from "./cloud-store.js";
 import { getWebIdentity, verifyCsrf } from "./saas-auth.js";
 import { authPage, escapeHtml } from "./web-ui.js";
+import { rateLimit } from "./rate-limit.js";
 
 const BASE_URL = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 const MCP_AUTH_SECRET = process.env.MCP_AUTH_SECRET ?? "";
@@ -54,9 +55,13 @@ function issueTokens(userId: string, clientId: string, resource: string, scope =
 }
 function validRedirectUri(value: string) {
   try {
-    const url = new URL(value);
+    const url = new URL(value.trim());
+    if (url.username || url.password || url.hash) return false;
     const host = url.hostname.replace(/^\[/, "").replace(/\]$/, "");
-    return url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(host));
+    if (url.protocol === "https:") return !!host;
+    if (url.protocol === "http:") return ["localhost", "127.0.0.1", "::1"].includes(host.toLowerCase());
+    if (["javascript:", "data:", "file:", "vbscript:"].includes(url.protocol.toLowerCase())) return false;
+    return !!(host || url.pathname);
   } catch { return false; }
 }
 function htmlEscape(value: string) { return escapeHtml(value); }
@@ -72,13 +77,30 @@ function loginNext(req: Request) {
 
 export const oauthRouter = express.Router();
 oauthRouter.use(express.urlencoded({ extended: false, limit: "64kb" }));
+const oauthRegisterRateLimit = rateLimit({ scope: "oauth-register-ip", limit: 30, windowSeconds: 60 });
+const oauthTokenIpRateLimit = rateLimit({ scope: "oauth-token-ip", limit: 120, windowSeconds: 60 });
+const oauthTokenClientRateLimit = rateLimit({
+  scope: "oauth-token-client",
+  limit: 60,
+  windowSeconds: 60,
+  subject: (req) => String(req.body?.client_id ?? "unknown").slice(0, 160) || "unknown",
+});
 oauthRouter.get("/.well-known/oauth-protected-resource", (_req, res) => res.json({ resource: MCP_RESOURCE, authorization_servers: [BASE_URL], scopes_supported: ["mcp:tools", "offline_access"], bearer_methods_supported: ["header"] }));
 oauthRouter.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({ issuer: BASE_URL, authorization_endpoint: `${BASE_URL}/authorize`, token_endpoint: `${BASE_URL}/token`, registration_endpoint: `${BASE_URL}/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], scopes_supported: ["mcp:tools", "offline_access"] }));
 
-oauthRouter.post("/register", express.json({ limit: "64kb" }), async (req, res) => {
-  const raw = Array.isArray(req.body?.redirect_uris) ? req.body.redirect_uris : [];
-  const redirectUris: string[] = raw.filter((value: unknown): value is string => typeof value === "string");
-  if (!redirectUris.length || redirectUris.some((redirectUri) => !validRedirectUri(redirectUri))) { res.status(400).json({ error: "invalid_redirect_uri" }); return; }
+oauthRouter.post("/register", express.json({ limit: "64kb" }), oauthRegisterRateLimit, async (req, res) => {
+  const rawRedirectUris = req.body?.redirect_uris;
+  const raw = Array.isArray(rawRedirectUris)
+    ? rawRedirectUris
+    : typeof rawRedirectUris === "string"
+      ? [rawRedirectUris]
+      : typeof req.body?.redirect_uri === "string"
+        ? [req.body.redirect_uri]
+        : [];
+  const redirectUris: string[] = raw.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0);
+  if (!redirectUris.length) { res.status(400).json({ error: "invalid_redirect_uri", error_description: "At least one redirect URI is required." }); return; }
+  const invalidIndex = redirectUris.findIndex((redirectUri) => !validRedirectUri(redirectUri));
+  if (invalidIndex >= 0) { res.status(400).json({ error: "invalid_redirect_uri", error_description: `Redirect URI at index ${invalidIndex} is not an absolute OAuth callback URI.` }); return; }
   const clientId = `codelocal_${randomBytes(24).toString("base64url")}`;
   const client = await cloudStore.createOAuthClient({ clientId, redirectUris, clientName: typeof req.body?.client_name === "string" ? req.body.client_name.slice(0, 160) : undefined });
   res.status(201).json({ client_id: client.clientId, client_name: client.clientName ?? "MCP client", redirect_uris: client.redirectUris, grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" });
@@ -129,7 +151,7 @@ oauthRouter.post("/authorize", async (req, res) => {
   res.redirect(302, target.toString());
 });
 
-oauthRouter.post("/token", async (req, res) => {
+oauthRouter.post("/token", oauthTokenIpRateLimit, oauthTokenClientRateLimit, async (req, res) => {
   res.setHeader("Cache-Control", "no-store"); res.setHeader("Pragma", "no-cache");
   const grantType = String(req.body.grant_type ?? "");
   const clientId = String(req.body.client_id ?? "");

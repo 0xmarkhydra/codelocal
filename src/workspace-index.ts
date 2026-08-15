@@ -139,6 +139,8 @@ export class WorkspaceIntelligenceIndex {
   private dirty = true;
   private scanPromise: Promise<void> | null = null;
   private cacheLoaded = false;
+  private pendingPaths = new Set<string>();
+  private fullRescanNeeded = true;
   private readonly cacheDir: string;
   private readonly cacheFile: string;
 
@@ -156,13 +158,19 @@ export class WorkspaceIntelligenceIndex {
 
   invalidate(paths?: string[]) {
     this.dirty = true;
-    if (paths?.length) for (const file of paths) this.noteChange(file);
+    if (paths?.length) {
+      for (const file of paths) this.noteChange(file);
+      return;
+    }
+    this.fullRescanNeeded = true;
+    this.pendingPaths.clear();
   }
 
   noteChange(relativePath: string) {
     const normalized = normalizeRelative(relativePath);
     if (!normalized || normalized === "." || normalized.startsWith("../")) return;
     this.recentChanges.set(normalized, Date.now());
+    this.pendingPaths.add(normalized);
     this.dirty = true;
   }
 
@@ -250,6 +258,69 @@ export class WorkspaceIntelligenceIndex {
     return { ...meta, language, kind, imports, symbols, tokens, packageName, changedAt } satisfies IndexedFile;
   }
 
+  private async scanChanged() {
+    await this.loadCache();
+    const changed = [...this.pendingPaths];
+    this.pendingPaths.clear();
+    let requiresFullScan = false;
+
+    for (const relative of changed) {
+      if (!relative || relative === "." || relative.startsWith("../") || isSensitivePath(relative)) {
+        this.files.delete(relative);
+        continue;
+      }
+      const segments = relative.split("/");
+      if (segments.some((segment) => SKIP_DIRS.has(segment)) || segments.length - 1 > this.maxDepth) {
+        this.files.delete(relative);
+        continue;
+      }
+      const absolute = path.join(this.root, relative);
+      let stat: Awaited<ReturnType<typeof fs.lstat>>;
+      try { stat = await fs.lstat(absolute); }
+      catch {
+        const prefix = `${relative}/`;
+        if ([...this.files.keys()].some((file) => file.startsWith(prefix))) {
+          requiresFullScan = true;
+          break;
+        }
+        this.files.delete(relative);
+        continue;
+      }
+      if (stat.isSymbolicLink()) {
+        this.files.delete(relative);
+        continue;
+      }
+      if (stat.isDirectory()) {
+        requiresFullScan = true;
+        break;
+      }
+      if (!stat.isFile()) {
+        this.files.delete(relative);
+        continue;
+      }
+      if (!this.files.has(relative) && this.files.size >= this.maxEntries) {
+        requiresFullScan = true;
+        break;
+      }
+      this.files.set(relative, await this.indexOne({ path: relative, size: stat.size, mtimeMs: stat.mtimeMs }, this.files.get(relative)));
+    }
+
+    if (requiresFullScan) {
+      this.fullRescanNeeded = true;
+      await this.scan();
+      return;
+    }
+
+    this.rebuildGraphMetadata();
+    this.builtAt = Date.now();
+    this.lastScanAt = this.builtAt;
+    this.dirty = false;
+    this.fullRescanNeeded = false;
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const [file, at] of this.recentChanges) if (at < cutoff) this.recentChanges.delete(file);
+    await this.persistCache();
+  }
+
   private async scan() {
     await this.loadCache();
     const discovered = await this.discover();
@@ -261,6 +332,8 @@ export class WorkspaceIntelligenceIndex {
       if (!next.has(oldPath)) this.recentChanges.set(oldPath, Date.now());
     }
     this.files = next;
+    this.pendingPaths.clear();
+    this.fullRescanNeeded = false;
     this.rebuildGraphMetadata();
     this.builtAt = Date.now();
     this.lastScanAt = this.builtAt;
@@ -312,7 +385,8 @@ export class WorkspaceIntelligenceIndex {
     if (!force && !this.dirty && now - this.lastScanAt < this.freshnessMs) return this.summary();
     if (!force && this.dirty && this.lastScanAt > 0 && now - this.lastScanAt < Math.min(this.freshnessMs, 750)) return this.summary();
     if (!this.scanPromise) {
-      this.scanPromise = this.scan().finally(() => { this.scanPromise = null; });
+      const incremental = !force && !this.fullRescanNeeded && this.pendingPaths.size > 0 && this.pendingPaths.size <= 256;
+      this.scanPromise = (incremental ? this.scanChanged() : this.scan()).finally(() => { this.scanPromise = null; });
     }
     await this.scanPromise;
     return this.summary();

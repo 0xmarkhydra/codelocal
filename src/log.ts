@@ -66,18 +66,27 @@ function compact(value: unknown, max = 76) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+export function estimateMcpTokens(value: unknown) {
+  let raw: string;
+  try { raw = JSON.stringify(value ?? null); }
+  catch { raw = String(value ?? ""); }
+  return Math.ceil([...raw].length / 4);
+}
+
+export function formatTerminalTimestamp(value = new Date()) {
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${pad(value.getMonth() + 1)}/${pad(value.getDate())}/${value.getFullYear()} - ${pad(value.getHours())}:${pad(value.getMinutes())}`;
+}
+
 export function formatToolTraceContext(fields: Record<string, unknown>) {
-  const rawSessionId = String(fields.mcpSessionId ?? fields.sessionId ?? "").trim();
-  const sessionId = rawSessionId ? rawSessionId.slice(0, 8) : "legacy";
   const workspaceName = String(fields.workspaceName ?? "").trim();
   const workspaceId = String(fields.workspaceId ?? "").trim();
-  const workspace = compact(
+  return compact(
     workspaceName && workspaceId && workspaceName !== workspaceId
       ? `${workspaceName} · ${workspaceId}`
       : workspaceName || workspaceId || fields.workspaceKey || "workspace",
     48,
   );
-  return `MCP ${sessionId} › ${workspace}`;
 }
 
 function toolDetail(args: unknown) {
@@ -186,13 +195,17 @@ function prettyLog(level: LogLevel, event: string, fields: Record<string, unknow
   }
   if (event === "tool.completed") {
     const context = formatToolTraceContext(fields);
-    console.log(`  ${paint(ansi.green, "✓")} ${dim(context)} ${dim("›")} ${bold(tool || "tool")}  ${dim(elapsed || "done")}`);
+    const tokens = Number(fields.estimatedTokens ?? 0);
+    const usage = Number.isFinite(tokens) && tokens >= 0 ? ` - ${Math.round(tokens)} token` : "";
+    console.log(`  ${paint(ansi.green, "✓")} ${dim(context)} ${dim("›")} ${bold(tool || "tool")}  ${dim(elapsed || "done")} - ${dim(formatTerminalTimestamp())}${usage}`);
     return;
   }
   if (event === "tool.failed") {
     const error = fields.error as Record<string, unknown> | undefined;
     const context = formatToolTraceContext(fields);
-    console.error(`  ${paint(ansi.red, "✕")} ${dim(context)} ${dim("›")} ${bold(tool || "tool")}  ${dim(elapsed)}${error?.message ? `  ${paint(ansi.red, compact(error.message, 72))}` : ""}`);
+    const tokens = Number(fields.estimatedTokens ?? 0);
+    const usage = Number.isFinite(tokens) && tokens >= 0 ? ` - ${Math.round(tokens)} token` : "";
+    console.error(`  ${paint(ansi.red, "✕")} ${dim(context)} ${dim("›")} ${bold(tool || "tool")}  ${dim(elapsed)} - ${dim(formatTerminalTimestamp())}${usage}${error?.message ? `  ${paint(ansi.red, compact(error.message, 72))}` : ""}`);
     return;
   }
 

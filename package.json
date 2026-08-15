@@ -1,46 +1,19 @@
 {
   "name": "codex-mcp",
-  "version": "1.5.0-beta.2",
+  "version": "1.5.14",
   "private": true,
-  "type": "module",
-  "description": "CodeLocal local development runtime and multi-tenant MCP gateway for ChatGPT with code intelligence, local execution and installable MCP extensions.",
-  "bin": {
-    "codelocal": "dist/cli-saas.js"
-  },
+  "description": "CodeLocal native Go runtime and horizontally scalable MCP gateway for ChatGPT.",
+  "license": "UNLICENSED",
   "scripts": {
-    "dev": "tsx watch src/server-saas.ts",
-    "build": "tsc --outDir dist",
-    "prepare": "npm run build",
-    "prestart": "npm run build",
-    "start": "node dist/server-saas.js",
-    "start:legacy": "node dist/server-v2.js",
-    "client": "npm run build --silent && node dist/client-entry-v2.js",
-    "doctor": "npm run build --silent && node dist/cli-saas.js doctor",
-    "typecheck": "tsc --noEmit",
-    "test": "npm run build --silent && node scripts/run-tests.mjs",
-    "ci": "npm run typecheck && npm test"
+    "build": "go build ./cmd/...",
+    "typecheck": "go vet ./...",
+    "test": "go test ./...",
+    "ci": "go test ./... && go vet ./...",
+    "build:npm": "go run ./cmd/release",
+    "release:prepare": "npm run ci && go run ./cmd/release && npm pack --dry-run ./.release/npm",
+    "release:npm": "(npm whoami --registry=https://registry.npmjs.org/ >/dev/null 2>&1 || npm login --registry=https://registry.npmjs.org/) && npm whoami --registry=https://registry.npmjs.org/ && bash ./release.sh"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.18.2",
-    "@parcel/watcher": "^2.6.0",
-    "chokidar": "^4.0.3",
-    "express": "^5.1.0",
-    "ignore": "^7.0.5",
-    "pg": "^8.16.3",
-    "redis": "^5.8.2",
-    "typescript": "^5.9.2",
-    "ws": "^8.18.3",
-    "zod": "^3.25.76"
-  },
-  "optionalDependencies": {
-    "node-pty": "^1.0.0"
-  },
-  "devDependencies": {
-    "@types/express": "^5.0.3",
-    "@types/node": "^24.3.0",
-    "@types/pg": "^8.15.5",
-    "@types/ws": "^8.18.1",
-    "tsx": "^4.20.5"
-  },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

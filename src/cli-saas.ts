@@ -7,6 +7,8 @@ import { defaultDeviceIdentity, deleteLocalCredential, loadLocalCredential, save
 import { WorkspaceRegistry } from "./workspace-registry.js";
 import { ApprovalMemory } from "./approval-memory.js";
 import { RuntimeDaemon } from "./runtime-daemon.js";
+import { acquireRuntimeLease, runtimeStateDir, runtimeSummary, sendRuntimeCommand, startRuntimeControlServer } from "./runtime-control.js";
+import { VERSION } from "./version.js";
 
 const DEFAULT_CLOUD = process.env.CODELOCAL_SERVER ?? "https://codelocal.cloud";
 
@@ -14,23 +16,23 @@ function usage() {
   console.log(`CodeLocal CLI · machine runtime
 
 Quick start:
+  cd ~/Projects/my-app
+  codelocal .
   codelocal
 
-One-time workspace access:
-  codelocal grant ~/Projects/my-app
-
-Then keep only this running:
-  codelocal
+codelocal . only authorizes the current project locally. codelocal starts the single machine runtime and connects it to ChatGPT.
 
 ChatGPT can list your previously granted workspaces and activate the one you choose in chat.
 
 Commands:
-  codelocal                       Start the machine runtime; no project cwd required
+  codelocal                       Start the single machine runtime, or reuse it if already running
+  codelocal stop                  Stop the machine runtime
+  codelocal --version             Show the installed CodeLocal version
   codelocal grant <project>       Authorize a project folder locally
   codelocal ungrant <id|project>  Remove a project's local authorization
   codelocal workspaces            List authorized local workspaces
-  codelocal .                     Backward-compatible: grant + activate current project
-  codelocal <project-path>        Backward-compatible: grant + activate a project
+  codelocal .                     Add the current project to authorized workspaces, then exit
+  codelocal <project-path>        Add a project to authorized workspaces, then exit
   codelocal login                 Open CodeLocal login
   codelocal dashboard             Open CodeLocal dashboard
   codelocal pair [gateway]        Pair this machine manually
@@ -66,6 +68,7 @@ function wsToHttp(value: string) {
 }
 
 function openBrowser(url: string) {
+  if (process.env.CODELOCAL_NO_BROWSER === "1") return false;
   try {
     let command: string;
     let args: string[];
@@ -137,50 +140,131 @@ async function validateCredential(server: string, credential: LocalDeviceCredent
   }
 }
 
-async function resolvedRuntime(serverArg?: string) {
+async function resolvedRuntime(serverArg?: string, onPhase?: (phase: "checking" | "pairing") => void) {
   // The selected gateway must come from an explicit override or this build's default.
   // Never let a credential saved for an older gateway silently retarget CodeLocal.
   const configured = serverArg || process.env.SERVER_URL || httpToWs(DEFAULT_CLOUD);
   const server = configured.startsWith("ws://") || configured.startsWith("wss://") ? configured : httpToWs(configured);
+  onPhase?.("checking");
   let credential = await loadLocalCredential(server);
   if (credential && !(await validateCredential(server, credential))) {
     console.log("Stored CodeLocal credential is no longer valid or the gateway is incompatible. Pairing this machine again…");
     await deleteLocalCredential();
     credential = null;
   }
-  if (!credential) credential = await pair(wsToHttp(server));
+  if (!credential) {
+    onPhase?.("pairing");
+    credential = await pair(wsToHttp(server));
+  }
   return { server, credential };
 }
 
-async function runRuntime(projectArg?: string, serverArg?: string) {
-  const registry = new WorkspaceRegistry();
-  let initialWorkspaceId: string | undefined;
-  if (projectArg) {
-    const granted = await registry.grant(projectArg);
-    initialWorkspaceId = granted.workspaceId;
-    console.log(`✓ Workspace granted: ${granted.workspaceName}`);
+async function runRuntime(serverArg?: string) {
+  const stateDir = runtimeStateDir();
+  const lease = await acquireRuntimeLease(VERSION, stateDir);
+  if (!lease.acquired) {
+    const existing = await runtimeSummary(stateDir);
+    console.log("✓ CodeLocal is already running on this machine.");
+    if (existing.running && existing.responsive && "detail" in existing && existing.detail && typeof existing.detail === "object") {
+      const status = existing.detail as { phase?: string; authorizedWorkspaces?: unknown[]; activeWorkspaces?: unknown[] };
+      console.log(`  Status: ${status.phase ?? "online"}`);
+      console.log(`  Workspaces: ${status.authorizedWorkspaces?.length ?? "?"} authorized · ${status.activeWorkspaces?.length ?? "?"} active`);
+    }
+    return;
   }
-  const { server, credential } = await resolvedRuntime(serverArg);
-  const daemon = new RuntimeDaemon({ baseUrl: wsToHttp(server), serverUrl: server, credential, initialWorkspaceId });
-  const stop = async () => { await daemon.stop(); process.exit(0); };
-  process.once("SIGINT", () => { void stop(); });
-  process.once("SIGTERM", () => { void stop(); });
-  await daemon.run();
+
+  type RuntimePhase = "starting" | "checking" | "pairing" | "connecting" | "online" | "stopping";
+  let phase: RuntimePhase = "starting";
+  let daemon: RuntimeDaemon | null = null;
+  let control: Awaited<ReturnType<typeof startRuntimeControlServer>> | null = null;
+  let stopping = false;
+
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    phase = "stopping";
+    await daemon?.stop().catch(() => undefined);
+    await control?.close().catch(() => undefined);
+    await lease.release().catch(() => undefined);
+  };
+  const stopAndExit = async () => { await stop(); process.exit(0); };
+
+  try {
+    control = await startRuntimeControlServer(async (command) => {
+      if (command.type === "status") {
+        return {
+          ...(daemon ? daemon.status() : { authorizedWorkspaces: [], activeWorkspaces: [] }),
+          running: true,
+          pid: process.pid,
+          phase,
+        };
+      }
+      if (command.type === "reload") {
+        if (!daemon) return { reloaded: false, pending: true, phase };
+        const workspaces = await daemon.syncRegistry(true);
+        return { reloaded: true, pending: false, authorizedWorkspaces: workspaces.length, phase };
+      }
+      if (command.type === "shutdown") {
+        setTimeout(() => { void stopAndExit(); }, 25);
+        return { stopping: true, phase: "stopping" };
+      }
+      return null;
+    }, stateDir, lease.record.instanceId);
+
+    process.once("SIGINT", () => { void stopAndExit(); });
+    process.once("SIGTERM", () => { void stopAndExit(); });
+
+    const { server, credential } = await resolvedRuntime(serverArg, (next) => { phase = next; });
+    phase = "connecting";
+    daemon = new RuntimeDaemon({
+      baseUrl: wsToHttp(server),
+      serverUrl: server,
+      credential,
+      onReady: () => { phase = "online"; },
+    });
+    await daemon.run();
+  } finally {
+    await stop();
+  }
 }
 
-async function grant(projectArg: string) {
+async function grant(projectArg: string, verb = "Granted") {
   if (!projectArg) throw new Error("Usage: codelocal grant <project-folder>");
   const entry = await new WorkspaceRegistry().grant(projectArg);
-  console.log(`✓ Granted ${entry.workspaceName}`);
+  console.log(`✓ ${verb} ${entry.workspaceName}`);
   console.log(`  ID: ${entry.workspaceId}`);
   console.log(`  Path: ${entry.localPath}`);
-  console.log("If `codelocal` is already running, it will sync this workspace shortly.");
+  const reloaded = await sendRuntimeCommand({ type: "reload" }).catch(() => null);
+  if (reloaded && typeof reloaded === "object") {
+    const result = reloaded as { reloaded?: boolean; pending?: boolean; phase?: string };
+    if (result.reloaded) console.log("✓ Running CodeLocal detected; workspace synced.");
+    else if (result.pending) console.log(`✓ Running CodeLocal detected (${result.phase ?? "starting"}); workspace queued for sync.`);
+    else console.log("✓ Running CodeLocal detected; workspace saved locally.");
+  } else {
+    const runtime = await runtimeSummary().catch(() => ({ running: false as const }));
+    if (runtime.running) console.log("Running CodeLocal detected; workspace saved locally and Cloud sync will retry automatically.");
+    else console.log("Run `codelocal` when you want to connect ChatGPT.");
+  }
+  return entry;
 }
 
 async function ungrant(identifier: string) {
   if (!identifier) throw new Error("Usage: codelocal ungrant <workspace-id|project-folder>");
   const removed = await new WorkspaceRegistry().revoke(identifier);
-  console.log(removed ? "✓ Workspace authorization removed." : "Workspace was not found in the local authorization registry.");
+  if (!removed) {
+    console.log("Workspace was not found in the local authorization registry.");
+    return;
+  }
+  console.log("✓ Workspace authorization removed.");
+  const reloaded = await sendRuntimeCommand({ type: "reload" }).catch(() => null);
+  if (reloaded && typeof reloaded === "object") {
+    const result = reloaded as { reloaded?: boolean; pending?: boolean; phase?: string };
+    if (result.reloaded) console.log("✓ Running CodeLocal detected; workspace removal synced.");
+    else if (result.pending) console.log(`✓ Running CodeLocal detected (${result.phase ?? "starting"}); removal queued for sync.`);
+  } else {
+    const runtime = await runtimeSummary().catch(() => ({ running: false as const }));
+    if (runtime.running) console.log("Running CodeLocal detected; removal is local now and Cloud sync will retry automatically.");
+  }
 }
 
 async function listWorkspaces() {
@@ -220,9 +304,11 @@ async function approvalsCommand(args: string[]) {
 async function status() {
   const credential = await loadLocalCredential();
   const workspaces = await new WorkspaceRegistry().list();
+  const runtime = await runtimeSummary();
   console.log(JSON.stringify({
     device: defaultDeviceIdentity(),
     paired: !!credential,
+    runtime,
     authorizedWorkspaces: workspaces.map(({ workspaceId, workspaceName, localPath, grantedAt, lastActivatedAt }) => ({ workspaceId, workspaceName, localPath, grantedAt, lastActivatedAt })),
     credential: credential ? {
       credentialId: credential.credentialId,
@@ -234,6 +320,11 @@ async function status() {
     } : null,
     stateDir: process.env.CODELOCAL_STATE_DIR ?? path.join(os.homedir(), ".codelocal"),
   }, null, 2));
+}
+
+async function stopRuntime() {
+  const stopped = await sendRuntimeCommand({ type: "shutdown" }).catch(() => null);
+  console.log(stopped ? "✓ CodeLocal runtime is stopping." : "CodeLocal runtime is not running.");
 }
 
 async function login(baseArg = DEFAULT_CLOUD, dashboard = false) {
@@ -256,22 +347,29 @@ async function delegateLegacyCli() {
 const [, , command, ...args] = process.argv;
 try {
   if (!command) await runRuntime();
+  else if (command === "--version" || command === "-v" || command === "version") console.log(VERSION);
   else if (command === "help" || command === "--help" || command === "-h") usage();
   else if (command === "login") await login(args[0] ?? DEFAULT_CLOUD, false);
   else if (command === "dashboard") await login(args[0] ?? DEFAULT_CLOUD, true);
   else if (command === "pair") { await pair(args[0] ?? DEFAULT_CLOUD); }
   else if (command === "status") await status();
+  else if (command === "stop") await stopRuntime();
   else if (command === "approvals") await approvalsCommand(args);
   else if (command === "workspaces") await listWorkspaces();
   else if (command === "grant") await grant(args[0]);
   else if (command === "ungrant") await ungrant(args[0]);
-  else if (command === "start") await runRuntime(args[0] ?? ".", args[1]);
+  else if (command === "start") {
+    if (args[0] && await looksLikeProjectPath(args[0])) {
+      await grant(args[0]);
+      await runRuntime(args[1]);
+    } else await runRuntime(args[0]);
+  }
   else if (command === "doctor" || command === "mcp") await delegateLegacyCli();
   else if (command === "rotate" || command === "revoke") {
     console.log("Device rotation/revocation is account-scoped in SaaS mode. Opening Security/Devices dashboard…");
     await login(DEFAULT_CLOUD, true);
   }
-  else if (await looksLikeProjectPath(command)) await runRuntime(command, args[0]);
+  else if (await looksLikeProjectPath(command)) await grant(command, "Added");
   else { usage(); process.exitCode = 1; }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

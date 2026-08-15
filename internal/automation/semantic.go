@@ -1,0 +1,317 @@
+package automation
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+const computerObserveTreeTimeout = 3 * time.Second
+
+// ComputerObservation is a compact, structured view of the current desktop
+// state. It intentionally prefers native window/accessibility metadata over a
+// screenshot so ChatGPT can reason about the UI without paying the latency and
+// token cost of vision on every step.
+type ComputerObservation struct {
+	Windows                any    `json:"windows"`
+	UITree                 any    `json:"uiTree,omitempty"`
+	UITreeError            string `json:"uiTreeError,omitempty"`
+	ScreenshotError        string `json:"screenshotError,omitempty"`
+	WindowID               string `json:"windowId,omitempty"`
+	VisionFallback         bool   `json:"visionFallback,omitempty"`
+	VisualContextAvailable bool   `json:"visualContextAvailable,omitempty"`
+	MCPImage               any    `json:"__mcpImage,omitempty"`
+}
+
+// ObserveComputer always preserves a successful window observation. When a
+// windowId is supplied but the accessibility tree is unavailable, CodeLocal
+// returns uiTreeError instead of discarding the useful window state.
+func ObserveComputer(ctx context.Context, computer *ComputerController, windowID string) (ComputerObservation, error) {
+	if computer == nil {
+		return ComputerObservation{}, errors.New("Computer Use helper unavailable")
+	}
+	windows, err := computer.Windows(ctx, false)
+	if err != nil {
+		return ComputerObservation{}, err
+	}
+	observation := ComputerObservation{Windows: windows, WindowID: strings.TrimSpace(windowID)}
+	if observation.WindowID == "" {
+		return observation, nil
+	}
+	treeCtx, cancel := context.WithTimeout(ctx, computerObserveTreeTimeout)
+	defer cancel()
+	uiTree, err := computer.UITree(treeCtx, observation.WindowID, false)
+	if err != nil {
+		observation.UITreeError = err.Error()
+		return observation, nil
+	}
+	observation.UITree = uiTree
+	if tree, ok := uiTree.(map[string]any); ok {
+		observation.VisionFallback, _ = tree["visionFallback"].(bool)
+	}
+	if observation.VisionFallback {
+		// Vision/OCR can remain entirely local. Do not silently attach a full
+		// screenshot to the MCP response: screen images may contain unrelated
+		// private applications, OTPs, credentials, or chats. The explicit
+		// computer_screenshot action remains available behind its own approval.
+		observation.VisualContextAvailable = true
+	}
+	return observation, nil
+}
+
+type semanticCandidate struct {
+	ElementID     string
+	Role          string
+	Name          string
+	Desc          string
+	Value         string
+	Bounds        any
+	Score         int
+	RunnerUpID    string
+	RunnerUpScore int
+}
+
+type windowCandidate struct {
+	WindowID      string
+	App           string
+	Title         string
+	Score         int
+	RunnerUpID    string
+	RunnerUpScore int
+}
+
+const semanticAmbiguityMargin = 8
+
+func semanticCandidateAmbiguous(best semanticCandidate) bool {
+	return best.RunnerUpID != "" && best.RunnerUpScore >= 35 && best.Score-best.RunnerUpScore < semanticAmbiguityMargin
+}
+
+func windowCandidateAmbiguous(best windowCandidate) bool {
+	return best.RunnerUpID != "" && best.RunnerUpScore >= 35 && best.Score-best.RunnerUpScore < semanticAmbiguityMargin
+}
+
+func normalizeSemanticText(value string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(value))), " ")
+}
+
+func semanticTerms(value string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, term := range strings.Fields(normalizeSemanticText(value)) {
+		if len([]rune(term)) < 2 {
+			continue
+		}
+		out[term] = struct{}{}
+	}
+	return out
+}
+
+func windowSemanticScore(target, app, title string) int {
+	combined := strings.TrimSpace(strings.TrimSpace(app) + " " + strings.TrimSpace(title))
+	score := semanticScore(target, map[string]any{"name": combined, "description": app, "value": title, "role": "window"})
+	targetTerms := semanticTerms(target)
+	combinedTerms := semanticTerms(combined)
+	titleTerms := semanticTerms(title)
+	matched := 0
+	titleMatched := 0
+	for term := range targetTerms {
+		if _, ok := combinedTerms[term]; ok {
+			matched++
+		}
+		if _, ok := titleTerms[term]; ok {
+			titleMatched++
+		}
+	}
+	if matched > 0 {
+		score = maxInt(score, 20+matched*20)
+	}
+	if titleMatched > 0 {
+		score += titleMatched * 25
+	}
+	if normalizedApp := normalizeSemanticText(app); normalizedApp != "" && strings.Contains(normalizeSemanticText(target), normalizedApp) {
+		score += 10
+	}
+	return score
+}
+
+func semanticScore(target string, node map[string]any) int {
+	target = normalizeSemanticText(target)
+	if target == "" {
+		return 0
+	}
+	name := normalizeSemanticText(fmt.Sprint(node["name"]))
+	desc := normalizeSemanticText(fmt.Sprint(node["description"]))
+	value := normalizeSemanticText(fmt.Sprint(node["value"]))
+	role := normalizeSemanticText(fmt.Sprint(node["role"]))
+	score := 0
+	for _, candidate := range []struct {
+		text   string
+		exact  int
+		inside int
+	}{
+		{name, 100, 70},
+		{desc, 85, 55},
+		{value, 65, 45},
+		{role, 35, 20},
+	} {
+		if candidate.text == "" || candidate.text == "<nil>" {
+			continue
+		}
+		if candidate.text == target {
+			score = maxInt(score, candidate.exact)
+			continue
+		}
+		if strings.Contains(candidate.text, target) || strings.Contains(target, candidate.text) {
+			score = maxInt(score, candidate.inside)
+		}
+	}
+	// Prefer interactive controls when text scores are otherwise similar.
+	if score > 0 {
+		if strings.Contains(role, "button") || strings.Contains(role, "link") || strings.Contains(role, "menu") || strings.Contains(role, "checkbox") || strings.Contains(role, "radio") {
+			score += 10
+		}
+		if enabled, ok := node["enabled"].(bool); ok && !enabled {
+			// A disabled exact label must not beat an enabled near-match.
+			score -= 60
+		}
+	}
+	return score
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func walkSemanticNodes(value any, target string, best *semanticCandidate) {
+	switch typed := value.(type) {
+	case []any:
+		for _, child := range typed {
+			walkSemanticNodes(child, target, best)
+		}
+	case map[string]any:
+		if elementID := strings.TrimSpace(fmt.Sprint(typed["elementId"])); elementID != "" && elementID != "<nil>" {
+			score := semanticScore(target, typed)
+			if score > best.Score {
+				if best.ElementID != "" && best.ElementID != elementID && best.Score > best.RunnerUpScore {
+					best.RunnerUpID = best.ElementID
+					best.RunnerUpScore = best.Score
+				}
+				best.ElementID = elementID
+				best.Role = strings.TrimSpace(fmt.Sprint(typed["role"]))
+				best.Name = strings.TrimSpace(fmt.Sprint(typed["name"]))
+				best.Desc = strings.TrimSpace(fmt.Sprint(typed["description"]))
+				best.Value = strings.TrimSpace(fmt.Sprint(typed["value"]))
+				best.Bounds = typed["bounds"]
+				best.Score = score
+			} else if elementID != best.ElementID && score > best.RunnerUpScore {
+				best.RunnerUpID = elementID
+				best.RunnerUpScore = score
+			}
+		}
+		for _, key := range []string{"nodes", "node", "children"} {
+			if child, ok := typed[key]; ok {
+				walkSemanticNodes(child, target, best)
+			}
+		}
+	}
+}
+
+func walkWindowCandidates(value any, target string, best *windowCandidate) {
+	switch typed := value.(type) {
+	case []any:
+		for _, child := range typed {
+			walkWindowCandidates(child, target, best)
+		}
+	case map[string]any:
+		windowID := strings.TrimSpace(fmt.Sprint(typed["windowId"]))
+		if windowID != "" && windowID != "<nil>" && windowID != "screen:main" {
+			app := strings.TrimSpace(fmt.Sprint(typed["app"]))
+			title := strings.TrimSpace(fmt.Sprint(typed["title"]))
+			score := windowSemanticScore(target, app, title)
+			if score > best.Score {
+				if best.WindowID != "" && best.WindowID != windowID && best.Score > best.RunnerUpScore {
+					best.RunnerUpID = best.WindowID
+					best.RunnerUpScore = best.Score
+				}
+				best.WindowID = windowID
+				best.App = app
+				best.Title = title
+				best.Score = score
+			} else if windowID != best.WindowID && score > best.RunnerUpScore {
+				best.RunnerUpID = windowID
+				best.RunnerUpScore = score
+			}
+		}
+		for _, child := range typed {
+			walkWindowCandidates(child, target, best)
+		}
+	}
+}
+
+// FindComputerWindow resolves a durable app/title hint to the current native
+// window id. Native window ids are ephemeral and must not be persisted as the
+// identity of a learned desktop skill.
+func FindComputerWindow(ctx context.Context, computer *ComputerController, target string) (map[string]any, error) {
+	if computer == nil {
+		return nil, errors.New("Computer Use helper unavailable")
+	}
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil, errors.New("window hint is required")
+	}
+	windows, err := computer.Windows(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	best := windowCandidate{}
+	walkWindowCandidates(windows, target, &best)
+	if best.WindowID == "" || best.Score < 35 {
+		return nil, fmt.Errorf("no desktop window matched %q", target)
+	}
+	if windowCandidateAmbiguous(best) {
+		return nil, fmt.Errorf("ambiguous desktop window %q: top matches %s (%d) and %s (%d) are too close", target, best.WindowID, best.Score, best.RunnerUpID, best.RunnerUpScore)
+	}
+	return map[string]any{"windowId": best.WindowID, "app": best.App, "title": best.Title, "score": best.Score}, nil
+}
+
+// FindComputerElement resolves human wording to the best accessibility element
+// in a fresh UI tree. This is a deterministic local fast-path; vision remains a
+// fallback for interfaces that expose no useful accessibility metadata.
+func FindComputerElement(ctx context.Context, computer *ComputerController, windowID, target string) (map[string]any, error) {
+	windowID = strings.TrimSpace(windowID)
+	target = strings.TrimSpace(target)
+	if windowID == "" {
+		return nil, errors.New("semantic target lookup requires windowId")
+	}
+	if target == "" {
+		return nil, errors.New("semantic target lookup requires target")
+	}
+	uiTree, err := computer.UITree(ctx, windowID, false)
+	if err != nil {
+		return nil, err
+	}
+	best := semanticCandidate{}
+	walkSemanticNodes(uiTree, target, &best)
+	if best.ElementID == "" || best.Score < 35 {
+		return nil, fmt.Errorf("no accessible UI element matched %q", target)
+	}
+	if semanticCandidateAmbiguous(best) {
+		return nil, fmt.Errorf("ambiguous accessible UI target %q: top matches %s (%d) and %s (%d) are too close", target, best.ElementID, best.Score, best.RunnerUpID, best.RunnerUpScore)
+	}
+	result := map[string]any{
+		"elementId":   best.ElementID,
+		"role":        best.Role,
+		"name":        best.Name,
+		"description": best.Desc,
+		"value":       best.Value,
+		"score":       best.Score,
+	}
+	if best.Bounds != nil {
+		result["bounds"] = best.Bounds
+	}
+	return result, nil
+}

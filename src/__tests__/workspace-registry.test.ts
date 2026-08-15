@@ -40,3 +40,24 @@ test("workspace registry refuses a whole home directory grant", async () => {
     await rm(temp, { recursive: true, force: true });
   }
 });
+
+test("workspace registry serializes concurrent grant writers", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "codelocal-workspaces-race-"));
+  try {
+    const stateFile = path.join(temp, "state", "workspaces.json");
+    const projectA = path.join(temp, "Project A");
+    const projectB = path.join(temp, "Project B");
+    await mkdir(projectA);
+    await mkdir(projectB);
+
+    const registryA = new WorkspaceRegistry(stateFile);
+    const registryB = new WorkspaceRegistry(stateFile);
+    await Promise.all([registryA.grant(projectA), registryB.grant(projectB)]);
+
+    const listed = await registryA.list();
+    assert.equal(listed.length, 2);
+    assert.deepEqual(new Set(listed.map((workspace) => workspace.workspaceName)), new Set(["Project A", "Project B"]));
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
