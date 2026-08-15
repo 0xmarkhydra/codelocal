@@ -42,6 +42,7 @@ func New(root string) (*FS, error) {
 		return nil, err
 	}
 	f := &FS{Root: real, maxReadBytes: int64(envInt("CODELOCAL_MAX_READ_BYTES", 2*1024*1024)), maxBatchBytes: int64(envInt("CODELOCAL_MAX_BATCH_BYTES", 8*1024*1024)), maxListEntries: envInt("CODELOCAL_MAX_LIST_ENTRIES", 10000), readConcurrency: envInt("CODELOCAL_READ_CONCURRENCY", 6)}
+	_ = ensureCodeLocalGitIgnore(real)
 	_ = f.ReloadIgnore()
 	return f, nil
 }
@@ -53,6 +54,40 @@ func envInt(name string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func ensureCodeLocalGitIgnore(root string) error {
+	internalDir := filepath.Join(root, ".codelocal")
+	if info, err := os.Stat(internalDir); err != nil || !info.IsDir() {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		return nil
+	}
+	ignorePath := filepath.Join(root, ".gitignore")
+	data, err := os.ReadFile(ignorePath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	ignored := false
+	for _, rule := range parseIgnore(string(data)) {
+		if matchIgnore(rule.pattern, ".codelocal", rule.dirOnly, true) {
+			ignored = !rule.negate
+		}
+	}
+	if ignored {
+		return nil
+	}
+	content := string(data)
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	content += ".codelocal/\n"
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Stat(ignorePath); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	return atomicWrite(ignorePath, []byte(content), mode)
 }
 
 func (f *FS) inside(candidate string) bool {
@@ -158,6 +193,10 @@ func (f *FS) ReloadIgnore() error {
 			rules = append(rules, parseIgnore(string(data))...)
 		}
 	}
+	// CodeLocal's workspace-local state/worktrees are implementation details,
+	// never project context. Keep this rule last so a negated user ignore rule
+	// cannot accidentally re-index recursive CodeLocal worktrees.
+	rules = append(rules, ignoreRule{pattern: ".codelocal", dirOnly: true})
 	f.mu.Lock()
 	f.ignore = rules
 	f.mu.Unlock()
@@ -516,14 +555,15 @@ func (f *FS) Search(query, start string, maxResults int, fixed, includeIgnored b
 	if fixed {
 		args = append(args, "--fixed-strings")
 	}
-	args = append(args, "--glob", "!.git/**", "--", query, ".")
+	args = append(args, "--glob", "!.git/**", "--glob", "!.codelocal/**", "--", query, ".")
 	accept := func(line string) bool {
 		filePart := strings.TrimPrefix(strings.SplitN(line, ":", 2)[0], "./")
-		return !security.IsSensitivePath(filePart)
+		internal := filePart == ".codelocal" || strings.HasPrefix(filePart, ".codelocal/")
+		return !internal && !security.IsSensitivePath(filePart)
 	}
 	matches, truncated, runErr := runSearch(cwd, "rg", args, maxResults, accept)
 	if runErr != nil {
-		grepArgs := []string{"-RIn", "--exclude-dir=.git"}
+		grepArgs := []string{"-RIn", "--exclude-dir=.git", "--exclude-dir=.codelocal"}
 		if fixed {
 			grepArgs = append(grepArgs, "-F")
 		}

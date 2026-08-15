@@ -1,6 +1,7 @@
 package mcpgateway
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -307,5 +308,128 @@ func TestAttachLongTermMemoryUsesCompactStructuredContent(t *testing.T) {
 	items, ok := root["longTermMemory"].([]map[string]any)
 	if !ok || len(items) != 1 || items[0]["summary"] != "OAuth fix verified" {
 		t.Fatalf("unexpected long-term memory projection: %#v", root["longTermMemory"])
+	}
+}
+
+type recordingLongTermMemory struct {
+	inputs       []longmemory.IngestInput
+	recallInputs []longmemory.RecallInput
+	recalls      []longmemory.Record
+}
+
+func (m *recordingLongTermMemory) Ingest(_ context.Context, input longmemory.IngestInput) (longmemory.Record, error) {
+	m.inputs = append(m.inputs, input)
+	return longmemory.Record{
+		ID:          longmemory.IdempotencyKey(input.UserID, string(input.Scope), input.WorkspaceID, input.Kind, input.Summary)[:32],
+		UserID:      input.UserID,
+		WorkspaceID: input.WorkspaceID,
+		Scope:       input.Scope,
+		TaskID:      input.TaskID,
+		Level:       input.Level,
+		Kind:        input.Kind,
+		SourceType:  input.SourceType,
+		Summary:     input.Summary,
+	}, nil
+}
+
+func (m *recordingLongTermMemory) Recall(_ context.Context, input longmemory.RecallInput) ([]longmemory.Record, error) {
+	m.recallInputs = append(m.recallInputs, input)
+	return append([]longmemory.Record(nil), m.recalls...), nil
+}
+
+func TestRememberConversationMemoryStoresGlobalSanitizedFact(t *testing.T) {
+	memory := &recordingLongTermMemory{}
+	service := &Service{Memory: memory}
+	result, err := service.rememberConversationMemory(context.Background(), "user-1", "thread-1", map[string]any{
+		"memories": []any{map[string]any{
+			"kind": "preference", "scope": "global", "summary": "Prefers Go; api_key=super-secret-value", "importance": .85, "confidence": .95,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("remember returned error result: %#v", result)
+	}
+	if len(memory.inputs) != 1 {
+		t.Fatalf("ingest count=%d want=1", len(memory.inputs))
+	}
+	input := memory.inputs[0]
+	if input.Scope != longmemory.ScopeGlobal || input.WorkspaceID != "" || input.Kind != "preference" || input.SourceType != "conversation" {
+		t.Fatalf("unexpected durable memory input: %#v", input)
+	}
+	if strings.Contains(input.Summary, "super-secret-value") || !strings.Contains(input.Summary, "[REDACTED]") {
+		t.Fatalf("conversation memory did not redact secret-like content: %q", input.Summary)
+	}
+	if input.Level != longmemory.LevelWorkspace || input.Importance != .85 || input.Confidence != .95 {
+		t.Fatalf("unexpected memory ranking metadata: %#v", input)
+	}
+}
+
+func TestRememberConversationMemoryStableKeyReplacesMutableFactIdentity(t *testing.T) {
+	memory := &recordingLongTermMemory{}
+	service := &Service{Memory: memory}
+	for _, summary := range []string{"Target 10,000 users by year end", "Target 20,000 users by year end"} {
+		result, err := service.rememberConversationMemory(context.Background(), "user-1", "thread-1", map[string]any{
+			"memories": []any{map[string]any{
+				"kind": "goal", "key": "user.goal.codelocal_users", "scope": "global", "summary": summary,
+			}},
+		})
+		if err != nil || result == nil || result.IsError {
+			t.Fatalf("remember stable fact failed: result=%#v err=%v", result, err)
+		}
+	}
+	if len(memory.inputs) != 2 {
+		t.Fatalf("ingest count=%d want=2", len(memory.inputs))
+	}
+	if memory.inputs[0].IdempotencyKey == "" || memory.inputs[0].IdempotencyKey != memory.inputs[1].IdempotencyKey {
+		t.Fatalf("stable key should preserve one durable identity across updates: %#v", memory.inputs)
+	}
+	if memory.inputs[0].Summary == memory.inputs[1].Summary {
+		t.Fatal("test must exercise a changed mutable value")
+	}
+}
+
+func TestRecallConversationMemorySupportsGlobalMemoryWithoutWorkspace(t *testing.T) {
+	memory := &recordingLongTermMemory{recalls: []longmemory.Record{{
+		ID: "global-1", UserID: "user-1", Scope: longmemory.ScopeGlobal, Level: longmemory.LevelWorkspace,
+		Kind: "preference", SourceType: "conversation", Summary: "Prefers concise answers", Score: .9,
+	}}}
+	service := &Service{Memory: memory}
+	result, err := service.recallConversationMemory(context.Background(), "user-1", "thread-1", map[string]any{"query": "answer preference"})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("global recall failed without workspace: result=%#v err=%v", result, err)
+	}
+	if len(memory.recallInputs) != 1 || memory.recallInputs[0].WorkspaceID != "" {
+		t.Fatalf("global-only recall should not require a workspace: %#v", memory.recallInputs)
+	}
+	root, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("recall missing structured content: %#v", result.StructuredContent)
+	}
+	items, ok := root["memories"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("unexpected recalled memories: %#v", root["memories"])
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok || item["summary"] != "Prefers concise answers" {
+		t.Fatalf("unexpected recalled memory item: %#v", items[0])
+	}
+}
+
+func TestRememberConversationMemoryRequiresWorkspaceForWorkspaceScope(t *testing.T) {
+	memory := &recordingLongTermMemory{}
+	service := &Service{Memory: memory}
+	result, err := service.rememberConversationMemory(context.Background(), "user-1", "thread-1", map[string]any{
+		"memories": []any{map[string]any{"kind": "decision", "scope": "workspace", "summary": "Use Go runtime"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("workspace memory without selection should be rejected: %#v", result)
+	}
+	if len(memory.inputs) != 0 {
+		t.Fatalf("rejected memory should not partially ingest: %#v", memory.inputs)
 	}
 }

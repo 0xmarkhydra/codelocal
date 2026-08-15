@@ -202,12 +202,22 @@ func autonomousStepPolicy(operation operationInvocation, args map[string]any, pl
 			return autonomousStepDecision{Reason: "autonomous edits require patch context or stale-hash protection"}
 		}
 		return autonomousStepDecision{Allowed: true, Reason: "workspace-bounded hash-safe edit"}
+	case "browser.click":
+		if strings.TrimSpace(learnedString(args["ref"])) == "" {
+			return autonomousStepDecision{Reason: "browser click requires a fresh structured element reference"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "fresh structured browser click; runtime approval remains authoritative"}
+	case "computer.click":
+		if strings.TrimSpace(learnedString(args["target"])) == "" || args["x"] != nil || args["y"] != nil || strings.TrimSpace(learnedString(args["elementId"])) != "" {
+			return autonomousStepDecision{Reason: "bounded desktop click requires a semantic target and forbids raw coordinates/element replay"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "semantic desktop click; runtime physical-input approval remains authoritative"}
 	case "terminal.run":
 		command, _ := args["command"].(string)
-		if !safeAutonomousVerificationCommand(command) {
-			return autonomousStepDecision{Reason: "terminal execution is limited to recognized verification commands"}
+		if !safeAutonomousVerificationCommand(command) && !safeLearnedAutomationCommand(command) {
+			return autonomousStepDecision{Reason: "terminal execution is limited to recognized verification or narrowly scoped automation commands"}
 		}
-		return autonomousStepDecision{Allowed: true, Reason: "recognized verification command; local execution policy remains authoritative"}
+		return autonomousStepDecision{Allowed: true, Reason: "recognized bounded command; local execution policy remains authoritative"}
 	default:
 		return autonomousStepDecision{Reason: "operation is outside the bounded autonomous allowlist"}
 	}
@@ -450,6 +460,12 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	seenMutations := map[string]struct{}{}
 	mutationEpoch := 0
 	replans := 0
+	executedModelSteps := []boundedAgentStep{}
+	var matchedSkillID string
+	var matchedSkillIntent string
+	learnedSkillUsed := false
+	learnedSkillLearned := false
+	learnedSkillApprovalBlocked := false
 
 	execute := func(source string, step boundedAgentStep) bool {
 		if ops >= maxBoundedAgentOps {
@@ -469,6 +485,9 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 			return false
 		}
 		decision := autonomousStepPolicy(operation, forward, plan)
+		if source == "learned-skill" {
+			decision = learnedSkillReplayPolicy(step, operation, forward)
+		}
 		lane := orchestration.LaneForOperation(operation.OperationID)
 		verification := operation.OperationID == "verify.changes" || (operation.OperationID == "terminal.run" && orchestration.CheckKey(fmt.Sprint(forward["command"])) != "")
 		fallback := lane != orchestration.LaneNone && lane != plan.Route.Primary && !(verification && lane == orchestration.LaneShell)
@@ -532,16 +551,47 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 		if operation.OperationID == "verify.changes" {
 			dirtySinceVerify = false
 		}
+		if source == "model" {
+			executedModelSteps = append(executedModelSteps, boundedAgentStep{Tool: step.Tool, Args: cloneArgs(step.Args)})
+		}
 		return true
 	}
 
-	for _, step := range steps {
-		if !execute("model", step) {
-			break
+	if matched, supported, matchErr := s.matchLearnedSkill(ctx, userID, session, workspaceKey, objective, string(plan.TaskKind)); matchErr == nil && supported && learnedSkillEligibleForReplay(matched) {
+		matchedSkillID = matched.ID
+		matchedSkillIntent = matched.Intent
+		replayOK := true
+		for _, skillStep := range learnedRecipeSteps(matched) {
+			if !execute("learned-skill", skillStep) {
+				replayOK = false
+				break
+			}
 		}
-		state := currentAgentState(userID, session, workspaceKey)
-		if stopWhenReady && state.AgentPhase == "finalize" && state.QualityStatus == "ready" {
-			break
+		if replayOK {
+			learnedSkillUsed = true
+			s.feedbackLearnedSkill(ctx, userID, session, workspaceKey, matched.ID, true)
+		} else if approvalRequiredResult(lastResult) {
+			learnedSkillApprovalBlocked = true
+		} else {
+			s.feedbackLearnedSkill(ctx, userID, session, workspaceKey, matched.ID, false)
+			haltReason = ""
+			seenFingerprints = map[string]int{}
+			seenMutations = map[string]struct{}{}
+			mutationEpoch = 0
+			state := currentAgentState(userID, session, workspaceKey)
+			plan = agentPlanFromState(state, caps, project)
+		}
+	}
+
+	if !learnedSkillUsed && !learnedSkillApprovalBlocked {
+		for _, step := range steps {
+			if !execute("model", step) {
+				break
+			}
+			state := currentAgentState(userID, session, workspaceKey)
+			if stopWhenReady && state.AgentPhase == "finalize" && state.QualityStatus == "ready" {
+				break
+			}
 		}
 	}
 
@@ -564,6 +614,16 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 				if stopWhenReady && state.AgentPhase == "finalize" && state.QualityStatus == "ready" {
 					break
 				}
+			}
+		}
+	}
+
+	if haltReason == "" && !learnedSkillUsed && len(executedModelSteps) > 0 {
+		if recipeSteps, verified := learnedRecipeFromAgentSteps(executedModelSteps); verified {
+			if recipe, recordErr := s.recordLearnedSkill(ctx, userID, session, workspaceKey, objective, string(plan.TaskKind), recipeSteps); recordErr == nil && recipe != nil {
+				learnedSkillLearned = true
+				matchedSkillID = recipe.ID
+				matchedSkillIntent = recipe.Intent
 			}
 		}
 	}
@@ -591,6 +651,14 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 			"grade":                           efficiency.Grade,
 			"estimatedModelRoundTripsAvoided": efficiency.EstimatedModelRoundTripsAvoided,
 		},
+	}
+	if matchedSkillID != "" {
+		payload["learnedSkill"] = map[string]any{
+			"id": matchedSkillID, "intent": matchedSkillIntent, "used": learnedSkillUsed, "learned": learnedSkillLearned,
+		}
+	}
+	if learnedSkillApprovalBlocked {
+		payload["approvalRequired"] = agentResultStructured(lastResult)
 	}
 	if responseMode == "full" {
 		payload["plan"] = plan

@@ -130,6 +130,13 @@ var macWindowState = struct {
 
 const macWindowCacheTTL = 750 * time.Millisecond
 
+const (
+	macPersistentWindowBudget   = 1800 * time.Millisecond
+	macPersistentTreeBudget     = 1500 * time.Millisecond
+	macPersistentSemanticBudget = 1500 * time.Millisecond
+	macPersistentVisionBudget   = 1500 * time.Millisecond
+)
+
 func macCachedWindows() ([]any, bool) {
 	macWindowState.RLock()
 	defer macWindowState.RUnlock()
@@ -166,7 +173,10 @@ func macWindows(ctx context.Context) (any, error) {
 	if cached, ok := macCachedWindows(); ok {
 		return cached, nil
 	}
-	if windows, persistentErr := macPersistentWindows(ctx); persistentErr == nil && len(windows) > 0 {
+	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentWindowBudget)
+	windows, persistentErr := macPersistentWindows(persistentCtx)
+	persistentCancel()
+	if persistentErr == nil && len(windows) > 0 {
 		return macRememberWindows(windows), nil
 	}
 	text, err := runOSA(ctx, "JavaScript", macWindowScript)
@@ -227,16 +237,17 @@ function run(argv){
  if(!pid||!target) throw new Error('semantic action requires pid and target');
  var se=Application('System Events'); var ps=se.applicationProcesses.whose({unixId:pid})();
  if(!ps.length) throw new Error('application process not found');
- var p=ps[0], count=0, best=null, bestScore=0;
+ var p=ps[0], count=0, best=null, bestScore=0, runnerUp=null, runnerUpScore=0;
  function walk(e,path,depth){
    if(count++>=max||depth>8)return;
    var role=safe(function(){return String(e.role())},''), name=safe(function(){return String(e.name())},''), desc=safe(function(){return String(e.description())},''), value=safe(function(){var v=e.value();return v==null?'':String(v)},''), enabled=safe(function(){return !!e.enabled()},true);
-   var s=score(target,role,name,desc,value); if(!enabled)s-=60;
+   var s=score(target,role,name,desc,value); if(!enabled)s-=60; var candidateId=String(pid)+':'+path.join('.');
    if(s>bestScore){
+     if(best){runnerUp={elementId:best.elementId};runnerUpScore=bestScore}
      var pos=safe(function(){return e.position()},null), size=safe(function(){return e.size()},null), bounds=null;
      if(pos&&size&&pos.length>=2&&size.length>=2)bounds={x:Number(pos[0]),y:Number(pos[1]),width:Number(size[0]),height:Number(size[1])};
-     best={element:e,elementId:String(pid)+':'+path.join('.'),role:role,name:name,description:desc,value:value,bounds:bounds};bestScore=s;
-   }
+     best={element:e,elementId:candidateId,role:role,name:name,description:desc,value:value,bounds:bounds};bestScore=s;
+   }else if(candidateId!==(best&&best.elementId)&&s>runnerUpScore){runnerUp={elementId:candidateId};runnerUpScore=s}
    var children=safe(function(){return e.uiElements()},[]);
    for(var i=0;i<children.length&&count<max;i++)walk(children[i],path.concat([i]),depth+1);
  }
@@ -244,6 +255,7 @@ function run(argv){
  if(windowIndex>=0){if(windowIndex>=wins.length)throw new Error('window reference is stale');walk(wins[windowIndex],[windowIndex],0)}
  else{for(var i=0;i<wins.length&&count<max;i++)walk(wins[i],[i],0)}
  if(!best||bestScore<35)throw new Error('no accessible UI element matched '+JSON.stringify(target));
+ if(runnerUp&&runnerUpScore>=35&&bestScore-runnerUpScore<8)throw new Error('ambiguous accessible UI target '+JSON.stringify(target)+': top matches '+best.elementId+' ('+bestScore+') and '+runnerUp.elementId+' ('+runnerUpScore+') are too close');
  if(op==='click'){
    try{best.element.click()}catch(e){throw new Error('background accessibility click failed: '+String(e))}
  } else if(op==='type') {
@@ -265,8 +277,11 @@ func macSemanticAction(ctx context.Context, operation, windowID, target, text st
 	if _, index, ok := macAXWindowRef(windowID); ok {
 		windowIndex = index
 	}
-	if value, persistentErr := macPersistentSemanticAction(ctx, pid, windowIndex, operation, target, text); persistentErr == nil {
-		return value, nil
+	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentSemanticBudget)
+	persistentValue, persistentErr := macPersistentSemanticAction(persistentCtx, pid, windowIndex, operation, target, text)
+	persistentCancel()
+	if persistentErr == nil {
+		return persistentValue, nil
 	}
 	// Compatibility fallback for older/macOS environments where the persistent
 	// JXA worker cannot be started. This keeps v1 behavior available without
@@ -446,7 +461,10 @@ func macVisionTree(ctx context.Context, windowID string) ([]any, error) {
 		}
 		return nil, errors.New(message)
 	}
-	if vision, persistentErr := macPersistentVisionFile(ctx, path, windowID, bounds); persistentErr == nil {
+	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentVisionBudget)
+	vision, persistentErr := macPersistentVisionFile(persistentCtx, path, windowID, bounds)
+	persistentCancel()
+	if persistentErr == nil {
 		return vision, nil
 	}
 	// Keep the original one-shot Vision path as a compatibility fallback if the
@@ -483,7 +501,9 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 	if _, index, ok := macAXWindowRef(windowID); ok {
 		windowIndex = index
 	}
-	out, persistentErr := macPersistentTree(ctx, pid, windowIndex, 500)
+	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentTreeBudget)
+	out, persistentErr := macPersistentTree(persistentCtx, pid, windowIndex, 500)
+	persistentCancel()
 	if persistentErr != nil {
 		// Preserve the v1 tree path as a compatibility fallback. The normal path
 		// keeps one JXA process warm across requests and therefore avoids process

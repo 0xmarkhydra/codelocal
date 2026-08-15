@@ -101,7 +101,9 @@ func TestRewriteLegacyToolCallLeavesCompactAndDiscoveryUntouched(t *testing.T) {
 
 func TestLegacyToolCallCompatibilityMiddleware(t *testing.T) {
 	var received []byte
+	var staleTool string
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		staleTool = staleToolSchemaFromContext(r.Context())
 		var err error
 		received, err = io.ReadAll(r.Body)
 		if err != nil {
@@ -122,5 +124,31 @@ func TestLegacyToolCallCompatibilityMiddleware(t *testing.T) {
 	name, args := callNameAndArgs(t, received)
 	if name != "device" || args["action"] != "active" {
 		t.Fatalf("unexpected rewritten call name=%q args=%#v", name, args)
+	}
+	if staleTool != "list_devices" {
+		t.Fatalf("stale tool marker=%q want list_devices", staleTool)
+	}
+}
+
+func TestLegacyToolCallCompatibilityRejectsUnknownToolWithReconnectHint(t *testing.T) {
+	nextCalled := false
+	handler := LegacyToolCallCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"browser_magic_old","arguments":{}}}`))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if nextCalled {
+		t.Fatal("unknown tool should be rejected before reaching MCP SDK")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d want 200", recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{"CODELOCAL_TOOL_SCHEMA_MISMATCH", "browser_magic_old", "Reconnect CodeLocal", "toolSurface"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("compatibility response missing %q: %s", want, body)
+		}
 	}
 }

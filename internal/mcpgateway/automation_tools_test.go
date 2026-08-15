@@ -68,6 +68,37 @@ func TestCompactBrowserForwardsVerify(t *testing.T) {
 	}
 }
 
+func TestCompactAutomationRegistryStableAcrossBrowserApprovalReplay(t *testing.T) {
+	for iteration := 0; iteration < 3; iteration++ {
+		var browserFound, computerFound bool
+		for _, tool := range compactAutomationToolDefinitions() {
+			switch tool.Name {
+			case "browser":
+				browserFound = true
+				operation, forwarded, err := tool.Resolve(map[string]any{
+					"action":        "open",
+					"url":           "https://example.com",
+					"approvalToken": "approval-token",
+				})
+				if err != nil {
+					t.Fatalf("browser approval replay did not resolve: %v", err)
+				}
+				if operation.RuntimeTool != "browser_open" {
+					t.Fatalf("unexpected browser runtime tool: %s", operation.RuntimeTool)
+				}
+				if forwarded["approvalToken"] != "approval-token" {
+					t.Fatalf("approval token was not forwarded: %#v", forwarded)
+				}
+			case "computer":
+				computerFound = true
+			}
+		}
+		if !browserFound || !computerFound {
+			t.Fatalf("automation registry changed across replay iteration %d: browser=%v computer=%v", iteration, browserFound, computerFound)
+		}
+	}
+}
+
 func TestCompactComputerSupportsSemanticTargetAndObserve(t *testing.T) {
 	var computer compactToolDef
 	for _, tool := range compactAutomationToolDefinitions() {
@@ -132,7 +163,14 @@ func TestAutomationImageMarkerBecomesMCPImageContent(t *testing.T) {
 	if !ok || structured["windowId"] != "42" {
 		t.Fatalf("image metadata missing from structured content: %#v", result.StructuredContent)
 	}
+	if _, ok := structured["codeLocalToolSurface"].(ToolSurfaceInfo); !ok {
+		t.Fatalf("image result missing tool surface metadata: %#v", result.StructuredContent)
+	}
 	if _, leaked := structured["__mcpImage"]; leaked {
 		t.Fatal("base64 transport marker must not leak into structured content")
+	}
+	text, _ := result.Content[0].(*mcp.TextContent)
+	if text != nil && strings.Contains(text.Text, PublicToolSurface().Hash) {
+		t.Fatal("tool surface hash should not be repeated in image result text")
 	}
 }

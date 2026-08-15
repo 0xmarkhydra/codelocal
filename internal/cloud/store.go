@@ -433,13 +433,130 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_memories_scope ON codelocal_memories(us
 CREATE INDEX IF NOT EXISTS idx_codelocal_memories_task ON codelocal_memories(user_id,workspace_id,task_id);
 CREATE INDEX IF NOT EXISTS idx_codelocal_memories_fts ON codelocal_memories USING GIN (to_tsvector('simple',summary));
 `},
+		{12, `
+ALTER TABLE codelocal_memories ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'workspace';
+ALTER TABLE codelocal_memories ADD COLUMN IF NOT EXISTS kind TEXT;
+ALTER TABLE codelocal_memories ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'task';
+ALTER TABLE codelocal_memories ALTER COLUMN workspace_id DROP NOT NULL;
+UPDATE codelocal_memories SET scope='workspace' WHERE scope IS NULL OR scope='';
+ALTER TABLE codelocal_memories DROP CONSTRAINT IF EXISTS codelocal_memories_scope_check;
+ALTER TABLE codelocal_memories ADD CONSTRAINT codelocal_memories_scope_check
+ CHECK ((scope='global' AND workspace_id IS NULL) OR (scope='workspace' AND workspace_id IS NOT NULL)) NOT VALID;
+ALTER TABLE codelocal_memories VALIDATE CONSTRAINT codelocal_memories_scope_check;
+
+CREATE TABLE IF NOT EXISTS codelocal_memory_nodes (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ workspace_id TEXT,
+ scope TEXT NOT NULL CHECK (scope IN ('global','workspace')),
+ kind TEXT NOT NULL,
+ canonical_name TEXT NOT NULL,
+ summary TEXT NOT NULL DEFAULT '',
+ confidence DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+ importance DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+ valid_from BIGINT NOT NULL,
+ valid_to BIGINT,
+ first_seen_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ source_type TEXT NOT NULL DEFAULT 'memory',
+ source_session_id TEXT,
+ source_memory_id TEXT REFERENCES codelocal_memories(id) ON DELETE SET NULL,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ CHECK ((scope='global' AND workspace_id IS NULL) OR (scope='workspace' AND workspace_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codelocal_memory_nodes_identity
+ ON codelocal_memory_nodes(user_id,scope,(COALESCE(workspace_id,'')),kind,canonical_name);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memory_nodes_scope
+ ON codelocal_memory_nodes(user_id,scope,workspace_id,last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memory_nodes_source_memory
+ ON codelocal_memory_nodes(user_id,source_memory_id) WHERE source_memory_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS codelocal_memory_edges (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ workspace_id TEXT,
+ scope TEXT NOT NULL CHECK (scope IN ('global','workspace')),
+ from_node_id TEXT NOT NULL REFERENCES codelocal_memory_nodes(id) ON DELETE CASCADE,
+ to_node_id TEXT NOT NULL REFERENCES codelocal_memory_nodes(id) ON DELETE CASCADE,
+ relation TEXT NOT NULL,
+ confidence DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+ importance DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+ valid_from BIGINT NOT NULL,
+ valid_to BIGINT,
+ first_seen_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ source_session_id TEXT,
+ source_memory_id TEXT REFERENCES codelocal_memories(id) ON DELETE SET NULL,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ CHECK ((scope='global' AND workspace_id IS NULL) OR (scope='workspace' AND workspace_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codelocal_memory_edges_identity
+ ON codelocal_memory_edges(user_id,scope,(COALESCE(workspace_id,'')),from_node_id,to_node_id,relation);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memory_edges_from
+ ON codelocal_memory_edges(user_id,from_node_id,last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memory_edges_to
+ ON codelocal_memory_edges(user_id,to_node_id,last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS codelocal_memory_node_aliases (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ workspace_id TEXT,
+ scope TEXT NOT NULL CHECK (scope IN ('global','workspace')),
+ node_id TEXT NOT NULL REFERENCES codelocal_memory_nodes(id) ON DELETE CASCADE,
+ alias TEXT NOT NULL,
+ created_at BIGINT NOT NULL,
+ CHECK ((scope='global' AND workspace_id IS NULL) OR (scope='workspace' AND workspace_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codelocal_memory_alias_identity
+ ON codelocal_memory_node_aliases(user_id,scope,(COALESCE(workspace_id,'')),alias);
+
+CREATE TABLE IF NOT EXISTS codelocal_memory_sources (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ workspace_id TEXT,
+ scope TEXT NOT NULL CHECK (scope IN ('global','workspace')),
+ node_id TEXT NOT NULL REFERENCES codelocal_memory_nodes(id) ON DELETE CASCADE,
+ source_type TEXT NOT NULL,
+ source_session_id TEXT,
+ source_memory_id TEXT REFERENCES codelocal_memories(id) ON DELETE CASCADE,
+ created_at BIGINT NOT NULL,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ CHECK ((scope='global' AND workspace_id IS NULL) OR (scope='workspace' AND workspace_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memory_sources_scope
+ ON codelocal_memory_sources(user_id,scope,workspace_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_memory_sources_node
+ ON codelocal_memory_sources(user_id,node_id,created_at DESC);
+`},
+		{13, `
+ALTER TABLE codelocal_memories ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0;
+UPDATE codelocal_memories SET updated_at=0 WHERE updated_at IS NULL;
+ALTER TABLE codelocal_memories ALTER COLUMN updated_at SET DEFAULT 0;
+ALTER TABLE codelocal_memories ALTER COLUMN updated_at SET NOT NULL;
+`},
+		{14, `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_codelocal_memories_idempotency_scope
+ ON codelocal_memories(user_id,scope,(COALESCE(workspace_id,'')),idempotency_key)
+ WHERE idempotency_key IS NOT NULL;`},
+		{15, `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_codelocal_memories_global
+ ON codelocal_memories(user_id,updated_at DESC) WHERE scope='global';`},
+		{16, `DROP INDEX CONCURRENTLY IF EXISTS idx_codelocal_memories_idempotency;`},
 	}
+	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
 	for _, migration := range migrations {
 		var exists bool
 		if err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM codelocal_schema_migrations WHERE version=$1)`, migration.version).Scan(&exists); err != nil {
 			return err
 		}
 		if exists {
+			continue
+		}
+		if nonTransactionalMigrations[migration.version] {
+			if _, err := s.DB.Exec(ctx, migration.sql); err != nil {
+				return err
+			}
+			if _, err := s.DB.Exec(ctx, `INSERT INTO codelocal_schema_migrations(version,applied_at) VALUES($1,$2) ON CONFLICT(version) DO NOTHING`, migration.version, time.Now().UnixMilli()); err != nil {
+				return err
+			}
 			continue
 		}
 		tx, err := s.DB.Begin(ctx)

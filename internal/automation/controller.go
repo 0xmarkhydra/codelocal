@@ -104,6 +104,12 @@ func cursorVisible(value any) bool {
 }
 
 func computerActionUsesPhysicalInput(operation string, args map[string]any, target string) bool {
+	if strings.EqualFold(stringArg(args, "windowId"), "screen:main") {
+		switch operation {
+		case "click", "type", "key", "scroll", "drag":
+			return true
+		}
+	}
 	elementID := stringArg(args, "elementId")
 	switch operation {
 	case "click":

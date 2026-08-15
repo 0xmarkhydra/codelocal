@@ -129,6 +129,46 @@ func TestSearchStopsAtRequestedResultLimit(t *testing.T) {
 	}
 }
 
+func TestCodeLocalStateIsIgnoredAndGitIgnoreIsRepaired(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".codelocal", "worktrees", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".codelocal", "worktrees", "nested", "copy.go"), []byte("package nested // private-needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Even an accidental negation must not let recursive CodeLocal state back
+	// into the project index.
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("!.codelocal/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fs, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fs.Ignored(".codelocal", true) || !fs.Ignored(".codelocal/worktrees/nested/copy.go", false) {
+		t.Fatal("CodeLocal state must remain hard-ignored from project indexing")
+	}
+	ignoreData, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ignoreData), ".codelocal/\n") {
+		t.Fatalf(".gitignore was not repaired: %q", string(ignoreData))
+	}
+	result, err := fs.Search("private-needle", ".", 20, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches, _ := result["matches"].([]string); len(matches) != 0 {
+		t.Fatalf("CodeLocal internal worktree leaked into search: %#v", matches)
+	}
+}
+
 func BenchmarkReadMany(b *testing.B) {
 	root := b.TempDir()
 	paths := make([]string, 12)

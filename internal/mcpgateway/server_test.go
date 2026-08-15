@@ -159,3 +159,15 @@ func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
 		t.Fatalf("tools/list returned %d tools, want %d", len(result.Tools), len(compactToolDefinitions()))
 	}
 }
+
+func TestTextResultWrapsTopLevelArrayStructuredContent(t *testing.T) {
+	result := textResult([]any{map[string]any{"windowId": "ax:123:0"}}, false)
+	root, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured content = %T, want object", result.StructuredContent)
+	}
+	items, ok := root["result"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("wrapped structured result = %#v", root)
+	}
+}

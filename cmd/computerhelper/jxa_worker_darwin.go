@@ -14,7 +14,10 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
+
+const macWorkerLockPoll = 10 * time.Millisecond
 
 // macPersistentWorkerScript keeps one JXA/System Events process alive for the
 // lifetime of the native computer helper. The previous implementation spawned
@@ -55,17 +58,18 @@ function tree(req){
   return {pid:pid,windowIndex:windowIndex,app:safe(function(){return String(pp.p.name())},''),nodes:nodes,truncated:count.n>=max,engine:'persistent-jxa'};
 }
 function semantic(req){
-  var pid=Number(req.pid||0),windowIndex=Number(req.windowIndex==null?-1:req.windowIndex),target=String(req.target||''),op=String(req.operation||''),text=String(req.text||''),max=Number(req.max||500),pp=processFor(pid),count=0,best=null,bestScore=0;
+  var pid=Number(req.pid||0),windowIndex=Number(req.windowIndex==null?-1:req.windowIndex),target=String(req.target||''),op=String(req.operation||''),text=String(req.text||''),max=Number(req.max||500),pp=processFor(pid),count=0,best=null,bestScore=0,runnerUp=null,runnerUpScore=0;
   if(!target)throw new Error('semantic target required');
   function walk(e,path,depth){
     if(count++>=max||depth>8)return;
     var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),value=safe(function(){var v=e.value();return v==null?'':String(v)},''),enabled=safe(function(){return !!e.enabled()},true);
-    var s=score(target,role,name,desc,value);if(!enabled)s-=60;
+    var s=score(target,role,name,desc,value);if(!enabled)s-=60;var candidateId=String(pid)+':'+path.join('.');
     if(s>bestScore){
+      if(best){runnerUp={elementId:best.elementId};runnerUpScore=bestScore}
       var pos=safe(function(){return e.position()},null),size=safe(function(){return e.size()},null),bounds=null;
       if(pos&&size&&pos.length>=2&&size.length>=2)bounds={x:Number(pos[0]),y:Number(pos[1]),width:Number(size[0]),height:Number(size[1])};
-      best={element:e,elementId:String(pid)+':'+path.join('.'),role:role,name:name,description:desc,value:value,bounds:bounds};bestScore=s;
-    }
+      best={element:e,elementId:candidateId,role:role,name:name,description:desc,value:value,bounds:bounds};bestScore=s;
+    }else if(candidateId!==(best&&best.elementId)&&s>runnerUpScore){runnerUp={elementId:candidateId};runnerUpScore=s}
     var children=safe(function(){return e.uiElements()},[]);for(var i=0;i<children.length&&count<max;i++)walk(children[i],path.concat([i]),depth+1);
   }
   var wins=safe(function(){return pp.p.windows()},[]);
@@ -76,6 +80,7 @@ function semantic(req){
     for(var i=0;i<wins.length&&count<max;i++)walk(wins[i],[i],0);
   }
   if(!best||bestScore<35)throw new Error('no accessible UI element matched '+JSON.stringify(target));
+  if(runnerUp&&runnerUpScore>=35&&bestScore-runnerUpScore<8)throw new Error('ambiguous accessible UI target '+JSON.stringify(target)+': top matches '+best.elementId+' ('+bestScore+') and '+runnerUp.elementId+' ('+runnerUpScore+') are too close');
   if(op==='click'){
     try{best.element.click()}catch(e){throw new Error('background accessibility click failed: '+String(e))}
   }else if(op==='type'){
@@ -84,9 +89,10 @@ function semantic(req){
   return {operation:op,background:true,physicalInput:false,engine:'persistent-jxa',resolvedTarget:{elementId:best.elementId,role:best.role,name:best.name,description:best.description,value:best.value,bounds:best.bounds,score:bestScore}};
 }
 function windows(){
-  var se=Application('System Events'),ps=safe(function(){return se.applicationProcesses.whose({visible:true})()},[]),out=[];
+  var se=Application('System Events'),ps=safe(function(){return se.applicationProcesses()},[]),out=[];
   for(var pi=0;pi<ps.length;pi++){
-    var p=ps[pi],pid=Number(safe(function(){return p.unixId()},0)),app=safe(function(){return String(p.name())},'');if(!pid||!app)continue;
+    var p=ps[pi],visible=safe(function(){return !!p.visible()},false);if(!visible)continue;
+    var pid=Number(safe(function(){return p.unixId()},0)),app=safe(function(){return String(p.name())},'');if(!pid||!app)continue;
     var wins=safe(function(){return p.windows()},[]);
     for(var wi=0;wi<wins.length;wi++){
       var w=wins[wi],title=safe(function(){return String(w.name())},''),pos=safe(function(){return w.position()},null),size=safe(function(){return w.size()},null);
@@ -140,6 +146,21 @@ type macJXAWorker struct {
 
 var sharedMacJXAWorker macJXAWorker
 
+func (w *macJXAWorker) lock(ctx context.Context) error {
+	ticker := time.NewTicker(macWorkerLockPoll)
+	defer ticker.Stop()
+	for {
+		if w.mu.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func (w *macJXAWorker) resetLocked() {
 	if w.stdin != nil {
 		_ = w.stdin.Close()
@@ -182,7 +203,9 @@ func (w *macJXAWorker) startLocked() error {
 }
 
 func (w *macJXAWorker) call(ctx context.Context, request map[string]any) (any, error) {
-	w.mu.Lock()
+	if err := w.lock(ctx); err != nil {
+		return nil, err
+	}
 	defer w.mu.Unlock()
 	if err := w.startLocked(); err != nil {
 		return nil, err

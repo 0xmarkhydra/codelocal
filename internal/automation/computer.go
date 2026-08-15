@@ -42,7 +42,40 @@ type sceneCacheEntry struct {
 const (
 	computerWindowCacheTTL = 750 * time.Millisecond
 	computerSceneCacheTTL  = 5 * time.Second
+	computerLockPoll       = 10 * time.Millisecond
 )
+
+func computerOperationTimeout(operation string) time.Duration {
+	switch operation {
+	case "status":
+		return 2 * time.Second
+	case "list_windows":
+		return 2500 * time.Millisecond
+	case "ui_tree":
+		return 6 * time.Second
+	case "screenshot":
+		return 8 * time.Second
+	case "semantic_click", "semantic_type":
+		return 5 * time.Second
+	default:
+		return 5 * time.Second
+	}
+}
+
+func (c *ComputerController) lockCall(ctx context.Context) error {
+	ticker := time.NewTicker(computerLockPoll)
+	defer ticker.Stop()
+	for {
+		if c.mu.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
 
 func computerHelperName() string {
 	name := "computer-" + runtime.GOOS + "-" + runtime.GOARCH
@@ -365,9 +398,13 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 		"arguments":     args,
 	}
 	raw, _ := json.Marshal(request)
-	c.mu.Lock()
+	callCtx, cancel := context.WithTimeout(ctx, computerOperationTimeout(operation))
+	defer cancel()
+	if err := c.lockCall(callCtx); err != nil {
+		return nil, fmt.Errorf("Computer Use helper busy: %w", err)
+	}
 	defer c.mu.Unlock()
-	response, err := c.callLocked(ctx, raw)
+	response, err := c.callLocked(callCtx, raw)
 	if err != nil {
 		return nil, fmt.Errorf("Computer Use helper failed: %w", err)
 	}

@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
+
+const computerObserveTreeTimeout = 3 * time.Second
 
 // ComputerObservation is a compact, structured view of the current desktop
 // state. It intentionally prefers native window/accessibility metadata over a
@@ -37,7 +40,9 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 	if observation.WindowID == "" {
 		return observation, nil
 	}
-	uiTree, err := computer.UITree(ctx, observation.WindowID, false)
+	treeCtx, cancel := context.WithTimeout(ctx, computerObserveTreeTimeout)
+	defer cancel()
+	uiTree, err := computer.UITree(treeCtx, observation.WindowID, false)
 	if err != nil {
 		observation.UITreeError = err.Error()
 		return observation, nil
@@ -57,13 +62,21 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 }
 
 type semanticCandidate struct {
-	ElementID string
-	Role      string
-	Name      string
-	Desc      string
-	Value     string
-	Bounds    any
-	Score     int
+	ElementID     string
+	Role          string
+	Name          string
+	Desc          string
+	Value         string
+	Bounds        any
+	Score         int
+	RunnerUpID    string
+	RunnerUpScore int
+}
+
+const semanticAmbiguityMargin = 8
+
+func semanticCandidateAmbiguous(best semanticCandidate) bool {
+	return best.RunnerUpID != "" && best.RunnerUpScore >= 35 && best.Score-best.RunnerUpScore < semanticAmbiguityMargin
 }
 
 func normalizeSemanticText(value string) string {
@@ -131,6 +144,10 @@ func walkSemanticNodes(value any, target string, best *semanticCandidate) {
 		if elementID := strings.TrimSpace(fmt.Sprint(typed["elementId"])); elementID != "" && elementID != "<nil>" {
 			score := semanticScore(target, typed)
 			if score > best.Score {
+				if best.ElementID != "" && best.ElementID != elementID && best.Score > best.RunnerUpScore {
+					best.RunnerUpID = best.ElementID
+					best.RunnerUpScore = best.Score
+				}
 				best.ElementID = elementID
 				best.Role = strings.TrimSpace(fmt.Sprint(typed["role"]))
 				best.Name = strings.TrimSpace(fmt.Sprint(typed["name"]))
@@ -138,6 +155,9 @@ func walkSemanticNodes(value any, target string, best *semanticCandidate) {
 				best.Value = strings.TrimSpace(fmt.Sprint(typed["value"]))
 				best.Bounds = typed["bounds"]
 				best.Score = score
+			} else if elementID != best.ElementID && score > best.RunnerUpScore {
+				best.RunnerUpID = elementID
+				best.RunnerUpScore = score
 			}
 		}
 		for _, key := range []string{"nodes", "node", "children"} {
@@ -168,6 +188,9 @@ func FindComputerElement(ctx context.Context, computer *ComputerController, wind
 	walkSemanticNodes(uiTree, target, &best)
 	if best.ElementID == "" || best.Score < 35 {
 		return nil, fmt.Errorf("no accessible UI element matched %q", target)
+	}
+	if semanticCandidateAmbiguous(best) {
+		return nil, fmt.Errorf("ambiguous accessible UI target %q: top matches %s (%d) and %s (%d) are too close", target, best.ElementID, best.Score, best.RunnerUpID, best.RunnerUpScore)
 	}
 	result := map[string]any{
 		"elementId":   best.ElementID,

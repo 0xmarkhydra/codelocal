@@ -10,19 +10,26 @@ import (
 )
 
 type Level string
+type Scope string
 
 const (
 	LevelEvent     Level = "event"
 	LevelScenario  Level = "scenario"
 	LevelWorkspace Level = "workspace"
+
+	ScopeWorkspace Scope = "workspace"
+	ScopeGlobal    Scope = "global"
 )
 
 type Record struct {
 	ID           string
 	UserID       string
 	WorkspaceID  string
+	Scope        Scope
 	TaskID       string
 	Level        Level
+	Kind         string
+	SourceType   string
 	Summary      string
 	Branch       string
 	Files        []string
@@ -30,6 +37,7 @@ type Record struct {
 	Confidence   float64
 	Importance   float64
 	CreatedAt    int64
+	UpdatedAt    int64
 	LastUsedAt   int64
 	LexicalScore float64
 	VectorScore  float64
@@ -39,8 +47,11 @@ type Record struct {
 type IngestInput struct {
 	UserID         string
 	WorkspaceID    string
+	Scope          Scope
 	TaskID         string
 	Level          Level
+	Kind           string
+	SourceType     string
 	Summary        string
 	Branch         string
 	Files          []string
@@ -156,10 +167,17 @@ func recencyScore(createdAt, now int64) float64 {
 	return 1 / (1 + ageDays/30)
 }
 
+func memoryFreshnessAt(candidate Record) int64 {
+	if candidate.UpdatedAt > 0 {
+		return candidate.UpdatedAt
+	}
+	return candidate.CreatedAt
+}
+
 func Score(candidate Record, input RecallInput, now int64) float64 {
 	return candidate.LexicalScore*0.32 +
 		candidate.VectorScore*0.36 +
-		recencyScore(candidate.CreatedAt, now)*0.10 +
+		recencyScore(memoryFreshnessAt(candidate), now)*0.10 +
 		clamp01(candidate.Confidence, 0.7)*0.08 +
 		clamp01(candidate.Importance, 0.5)*0.06 +
 		overlapScore(input.Files, candidate.Files)*0.05 +
@@ -173,7 +191,7 @@ func Rank(records []Record, input RecallInput, now int64) []Record {
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Score == out[j].Score {
-			return out[i].CreatedAt > out[j].CreatedAt
+			return memoryFreshnessAt(out[i]) > memoryFreshnessAt(out[j])
 		}
 		return out[i].Score > out[j].Score
 	})

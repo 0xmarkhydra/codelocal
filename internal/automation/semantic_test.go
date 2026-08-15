@@ -29,6 +29,21 @@ func TestWalkSemanticNodesPrefersExactInteractiveTarget(t *testing.T) {
 	}
 }
 
+func TestWalkSemanticNodesDetectsAmbiguousTopMatches(t *testing.T) {
+	tree := []any{
+		map[string]any{"elementId": "30:0", "role": "AXButton", "name": "Save", "enabled": true},
+		map[string]any{"elementId": "30:1", "role": "AXButton", "name": "Save", "enabled": true},
+	}
+	best := semanticCandidate{}
+	walkSemanticNodes(tree, "save", &best)
+	if best.ElementID == "" || best.RunnerUpID == "" {
+		t.Fatalf("expected two ranked semantic candidates, got %#v", best)
+	}
+	if !semanticCandidateAmbiguous(best) {
+		t.Fatalf("equal-strength controls must be treated as ambiguous: %#v", best)
+	}
+}
+
 func TestWalkSemanticNodesPenalizesDisabledElement(t *testing.T) {
 	tree := []any{
 		map[string]any{"elementId": "20:0", "role": "AXButton", "name": "Save", "enabled": false},

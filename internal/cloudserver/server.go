@@ -101,6 +101,40 @@ func New(ctx context.Context) (*Server, error) {
 		probeCtx, probeCancel := context.WithTimeout(ctx, 5*time.Second)
 		_ = memoryStore.ProbeVector(probeCtx)
 		probeCancel()
+
+		graphFlag := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_MEMORY_GRAPH_ENABLED")))
+		graphEnabled := graphFlag != "0" && graphFlag != "false" && graphFlag != "off"
+		memoryStore.SetGraphEnabled(graphEnabled)
+		if graphEnabled {
+			backfillCtx, backfillCancel := context.WithTimeout(ctx, 4*time.Second)
+			if count, backfillErr := memoryStore.BackfillGraph(backfillCtx, 500); backfillErr != nil && backfillCtx.Err() == nil {
+				slog.Warn("memory graph startup backfill failed; vector memory remains available", "error", backfillErr)
+			} else if count > 0 {
+				slog.Info("memory graph startup backfill projected existing memories", "count", count)
+			}
+			backfillCancel()
+			go func() {
+				backfillCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				total := 0
+				for batch := 0; batch < 10 && backfillCtx.Err() == nil; batch++ {
+					count, backfillErr := memoryStore.BackfillGraph(backfillCtx, 500)
+					if backfillErr != nil {
+						if backfillCtx.Err() == nil {
+							slog.Warn("memory graph background backfill stopped; vector memory remains available", "error", backfillErr, "projected", total)
+						}
+						return
+					}
+					total += count
+					if count < 500 {
+						if total > 0 {
+							slog.Info("memory graph background backfill complete", "projected", total)
+						}
+						return
+					}
+				}
+			}()
+		}
 	}
 	mcpService := mcpgateway.New(store, hub, workspaceService, memoryStore)
 
@@ -514,6 +548,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		agentMemory["vectorDimension"] = s.Memory.VectorDimension()
 		agentMemory["embeddingProvider"] = s.Memory.EmbeddingProvider()
 		agentMemory["embeddingModel"] = s.Memory.EmbeddingModel()
+		agentMemory["graphEnabled"] = s.Memory.GraphEnabled()
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
 		"ok":                    true,
@@ -532,6 +567,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		},
 		"goroutines":  runtime.NumGoroutine(),
 		"agentMemory": agentMemory,
+		"toolSurface": s.MCP.ToolSurface(),
 	})
 }
 

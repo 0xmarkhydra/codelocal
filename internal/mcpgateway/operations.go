@@ -37,6 +37,8 @@ var runtimeOperationIDs = map[string]string{
 	"list_workspaces":        "workspace.list",
 	"select_workspace":       "workspace.select",
 	"workspace_info":         "workspace.info",
+	"memory_remember":        "memory.remember",
+	"memory_recall":          "memory.recall",
 
 	"project_info":      "project.info",
 	"project_map":       "project.map",
@@ -150,7 +152,7 @@ func runtimeOperationID(name string) (string, bool) {
 
 func localOperationTool(name string) bool {
 	switch name {
-	case "list_devices", "list_device_identities", "revoke_device", "rename_device", "list_workspaces", "select_workspace", "workspace_info":
+	case "list_devices", "list_device_identities", "revoke_device", "rename_device", "list_workspaces", "select_workspace", "workspace_info", "memory_remember", "memory_recall":
 		return true
 	default:
 		return false
@@ -171,7 +173,7 @@ func runtimeToolMutatesState(name string) bool {
 		return true
 	}
 	switch name {
-	case "select_workspace", "revoke_device", "rename_device", "exec_write", "pty_write", "process_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
+	case "select_workspace", "memory_remember", "revoke_device", "rename_device", "exec_write", "pty_write", "process_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
 		return true
 	default:
 		return false
@@ -199,7 +201,7 @@ func runtimeToolOpenWorld(name string) bool {
 
 func runtimeToolIdempotent(name string) bool {
 	switch name {
-	case "select_workspace", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
+	case "select_workspace", "memory_remember", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
 		return true
 	default:
 		return false
