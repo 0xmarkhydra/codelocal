@@ -39,6 +39,7 @@ var runtimeOperationIDs = map[string]string{
 	"workspace_info":         "workspace.info",
 	"memory_remember":        "memory.remember",
 	"memory_recall":          "memory.recall",
+	"learned_skill_list":     "skills.list",
 
 	"project_info":      "project.info",
 	"project_map":       "project.map",
@@ -229,6 +230,8 @@ func runtimeToolCapability(name string) string {
 		return "mcpHub"
 	case "approval_list", "approval_revoke", "approval_reset":
 		return "approvalMemory"
+	case "learned_skill_list":
+		return "learnedSkills"
 	default:
 		return "filesystem"
 	}

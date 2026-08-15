@@ -2,27 +2,43 @@ package memory
 
 import "testing"
 
-func TestNormalizeScopeSeparatesGlobalAndWorkspaceMemory(t *testing.T) {
-	scope, workspace, err := normalizeScope("", "codex-mcp")
+func TestNormalizeScopeSeparatesGlobalProjectRepositoryAndWorkspaceMemory(t *testing.T) {
+	scope, workspace, project, repository, err := normalizeScope("", "codex-mcp", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scope != ScopeWorkspace || workspace != "codex-mcp" {
-		t.Fatalf("default scope = %q/%q, want workspace/codex-mcp", scope, workspace)
+	if scope != ScopeWorkspace || workspace != "codex-mcp" || project != "" || repository != "" {
+		t.Fatalf("default scope = %q/%q/%q/%q, want workspace/codex-mcp/empty/empty", scope, workspace, project, repository)
 	}
 
-	scope, workspace, err = normalizeScope(ScopeGlobal, "must-be-cleared")
+	scope, workspace, project, repository, err = normalizeScope(ScopeGlobal, "must-be-cleared", "project", "repo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scope != ScopeGlobal || workspace != "" {
-		t.Fatalf("global scope = %q/%q, want global/empty", scope, workspace)
+	if scope != ScopeGlobal || workspace != "" || project != "" || repository != "" {
+		t.Fatalf("global scope did not clear local identities: %q/%q/%q/%q", scope, workspace, project, repository)
 	}
 
-	if _, _, err := normalizeScope(ScopeWorkspace, ""); err == nil {
+	scope, workspace, project, repository, err = normalizeScope(ScopeProject, "workspace", "project-1", "repo")
+	if err != nil || scope != ScopeProject || workspace != "" || project != "project-1" || repository != "" {
+		t.Fatalf("unexpected project scope normalization: %q/%q/%q/%q %v", scope, workspace, project, repository, err)
+	}
+
+	scope, workspace, project, repository, err = normalizeScope(ScopeRepository, "workspace", "project-1", "repo-1")
+	if err != nil || scope != ScopeRepository || workspace != "" || project != "project-1" || repository != "repo-1" {
+		t.Fatalf("unexpected repository scope normalization: %q/%q/%q/%q %v", scope, workspace, project, repository, err)
+	}
+
+	if _, _, _, _, err := normalizeScope(ScopeWorkspace, "", "", ""); err == nil {
 		t.Fatal("workspace scope without workspace id should fail")
 	}
-	if _, _, err := normalizeScope(Scope("other"), "codex-mcp"); err == nil {
+	if _, _, _, _, err := normalizeScope(ScopeProject, "", "", ""); err == nil {
+		t.Fatal("project scope without project id should fail")
+	}
+	if _, _, _, _, err := normalizeScope(ScopeRepository, "", "project-1", ""); err == nil {
+		t.Fatal("repository scope without repository id should fail")
+	}
+	if _, _, _, _, err := normalizeScope(Scope("other"), "codex-mcp", "project-1", "repo-1"); err == nil {
 		t.Fatal("unknown scope should fail")
 	}
 }

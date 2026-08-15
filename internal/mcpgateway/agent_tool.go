@@ -463,6 +463,8 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	executedModelSteps := []boundedAgentStep{}
 	var matchedSkillID string
 	var matchedSkillIntent string
+	matchedSkillStepCount := 0
+	learnedSkillMatched := false
 	learnedSkillUsed := false
 	learnedSkillLearned := false
 	learnedSkillApprovalBlocked := false
@@ -560,6 +562,8 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	if matched, supported, matchErr := s.matchLearnedSkill(ctx, userID, session, workspaceKey, objective, string(plan.TaskKind)); matchErr == nil && supported && learnedSkillEligibleForReplay(matched) {
 		matchedSkillID = matched.ID
 		matchedSkillIntent = matched.Intent
+		matchedSkillStepCount = len(matched.Steps)
+		learnedSkillMatched = true
 		replayOK := true
 		for _, skillStep := range learnedRecipeSteps(matched) {
 			if !execute("learned-skill", skillStep) {
@@ -624,6 +628,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 				learnedSkillLearned = true
 				matchedSkillID = recipe.ID
 				matchedSkillIntent = recipe.Intent
+				matchedSkillStepCount = len(recipe.Steps)
 			}
 		}
 	}
@@ -654,7 +659,20 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	}
 	if matchedSkillID != "" {
 		payload["learnedSkill"] = map[string]any{
-			"id": matchedSkillID, "intent": matchedSkillIntent, "used": learnedSkillUsed, "learned": learnedSkillLearned,
+			"id":        matchedSkillID,
+			"intent":    matchedSkillIntent,
+			"source":    "local",
+			"recalled":  learnedSkillMatched,
+			"used":      learnedSkillUsed,
+			"learned":   learnedSkillLearned,
+			"relearned": learnedSkillLearned && learnedSkillMatched,
+			"stepCount": matchedSkillStepCount,
+			"reusedStepCount": func() int {
+				if learnedSkillUsed {
+					return matchedSkillStepCount
+				}
+				return 0
+			}(),
 		}
 	}
 	if learnedSkillApprovalBlocked {

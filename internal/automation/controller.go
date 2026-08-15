@@ -83,6 +83,26 @@ func (c *Controller) browserOrigin() string {
 	return c.Browser.CurrentOrigin()
 }
 
+func (c *Controller) resolveComputerWindowHint(ctx context.Context, args map[string]any) error {
+	if c == nil || c.Computer == nil || strings.TrimSpace(stringArg(args, "windowId")) != "" {
+		return nil
+	}
+	hint := strings.TrimSpace(stringArg(args, "windowHint"))
+	if hint == "" {
+		return nil
+	}
+	resolved, err := FindComputerWindow(ctx, c.Computer, hint)
+	if err != nil {
+		return err
+	}
+	windowID, _ := resolved["windowId"].(string)
+	if strings.TrimSpace(windowID) == "" {
+		return errors.New("resolved desktop window has no windowId")
+	}
+	args["windowId"] = windowID
+	return nil
+}
+
 func (c *Controller) browserActionResult(ctx context.Context, result any, verify bool) (any, error) {
 	if !verify {
 		return result, nil
@@ -240,7 +260,10 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if c.Computer == nil {
 			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
 		}
-		approved, state, err := c.authorize(Action{Domain: "computer", Operation: "observe", Origin: stringArg(args, "windowId"), Target: stringArg(args, "description")}, args)
+		if err := c.resolveComputerWindowHint(ctx, args); err != nil {
+			return nil, err
+		}
+		approved, state, err := c.authorize(Action{Domain: "computer", Operation: "observe", Origin: firstNonEmpty(stringArg(args, "windowHint"), stringArg(args, "windowId")), Target: stringArg(args, "description")}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -251,10 +274,13 @@ func (c *Controller) Handle(ctx context.Context, tool string, args map[string]an
 		if c.Computer == nil {
 			return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
 		}
+		if err := c.resolveComputerWindowHint(ctx, args); err != nil {
+			return nil, err
+		}
 		op := strings.TrimPrefix(tool, "computer_")
 		target := firstNonEmpty(stringArg(args, "target"), stringArg(args, "description"))
 		action := Action{
-			Domain: "computer", Operation: op, Origin: stringArg(args, "windowId"), Target: target, Text: stringArg(args, "text"),
+			Domain: "computer", Operation: op, Origin: firstNonEmpty(stringArg(args, "windowHint"), stringArg(args, "windowId")), Target: target, Text: stringArg(args, "text"),
 			Physical: computerActionUsesPhysicalInput(op, args, target),
 		}
 		approved, state, err := c.authorize(action, args)

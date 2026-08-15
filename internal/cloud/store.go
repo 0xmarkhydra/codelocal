@@ -57,15 +57,19 @@ type Pairing struct {
 }
 
 type Workspace struct {
-	UserID          string         `json:"userId"`
-	DeviceID        string         `json:"deviceId"`
-	WorkspaceID     string         `json:"workspaceId"`
-	WorkspaceName   string         `json:"workspaceName"`
-	ProjectRoot     string         `json:"projectRoot,omitempty"`
-	ProtocolVersion int            `json:"protocolVersion,omitempty"`
-	Capabilities    map[string]any `json:"capabilities"`
-	CreatedAt       int64          `json:"createdAt"`
-	LastSeenAt      int64          `json:"lastSeenAt"`
+	UserID            string         `json:"userId"`
+	DeviceID          string         `json:"deviceId"`
+	WorkspaceID       string         `json:"workspaceId"`
+	WorkspaceName     string         `json:"workspaceName"`
+	ProjectID         string         `json:"projectId,omitempty"`
+	ProjectName       string         `json:"projectName,omitempty"`
+	ProjectSource     string         `json:"projectSource,omitempty"`
+	ProjectConfidence float64        `json:"projectConfidence,omitempty"`
+	ProjectRoot       string         `json:"projectRoot,omitempty"`
+	ProtocolVersion   int            `json:"protocolVersion,omitempty"`
+	Capabilities      map[string]any `json:"capabilities"`
+	CreatedAt         int64          `json:"createdAt"`
+	LastSeenAt        int64          `json:"lastSeenAt"`
 }
 
 type OAuthClient struct {
@@ -540,6 +544,122 @@ ALTER TABLE codelocal_memories ALTER COLUMN updated_at SET NOT NULL;
 		{15, `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_codelocal_memories_global
  ON codelocal_memories(user_id,updated_at DESC) WHERE scope='global';`},
 		{16, `DROP INDEX CONCURRENTLY IF EXISTS idx_codelocal_memories_idempotency;`},
+		{17, `
+CREATE TABLE IF NOT EXISTS codelocal_projects (
+ user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ project_id TEXT NOT NULL,
+ name TEXT NOT NULL,
+ created_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ PRIMARY KEY(user_id,project_id)
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_projects_user_seen ON codelocal_projects(user_id,last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS codelocal_repositories (
+ user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+ repository_id TEXT NOT NULL,
+ remote TEXT,
+ lineage TEXT,
+ identity_source TEXT NOT NULL CHECK (identity_source IN ('remote','lineage')),
+ created_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ PRIMARY KEY(user_id,repository_id)
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_repositories_user_seen ON codelocal_repositories(user_id,last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS codelocal_project_repositories (
+ user_id TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ repository_id TEXT NOT NULL,
+ created_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ PRIMARY KEY(user_id,project_id,repository_id),
+ FOREIGN KEY(user_id,project_id) REFERENCES codelocal_projects(user_id,project_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,repository_id) REFERENCES codelocal_repositories(user_id,repository_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_project_repositories_repo ON codelocal_project_repositories(user_id,repository_id,project_id);
+
+CREATE TABLE IF NOT EXISTS codelocal_workspace_projects (
+ user_id TEXT NOT NULL,
+ device_id TEXT NOT NULL,
+ workspace_id TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ source TEXT NOT NULL,
+ confidence DOUBLE PRECISION NOT NULL DEFAULT 1,
+ created_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ PRIMARY KEY(user_id,device_id,workspace_id),
+ FOREIGN KEY(user_id,device_id,workspace_id) REFERENCES codelocal_workspaces(user_id,device_id,workspace_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,project_id) REFERENCES codelocal_projects(user_id,project_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_workspace_projects_project ON codelocal_workspace_projects(user_id,project_id,last_seen_at DESC);
+`},
+		{18, `
+CREATE TABLE IF NOT EXISTS codelocal_learned_skill_metadata (
+ user_id TEXT NOT NULL,
+ device_id TEXT NOT NULL,
+ workspace_id TEXT NOT NULL,
+ skill_id TEXT NOT NULL,
+ intent TEXT NOT NULL,
+ task_kind TEXT,
+ status TEXT NOT NULL,
+ confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+ success_count INTEGER NOT NULL DEFAULT 0,
+ failure_count INTEGER NOT NULL DEFAULT 0,
+ step_count INTEGER NOT NULL DEFAULT 0,
+ updated_at BIGINT NOT NULL,
+ last_used_at BIGINT NOT NULL DEFAULT 0,
+ PRIMARY KEY(user_id,device_id,workspace_id,skill_id),
+ FOREIGN KEY(user_id,device_id,workspace_id) REFERENCES codelocal_workspaces(user_id,device_id,workspace_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_learned_skill_metadata_user ON codelocal_learned_skill_metadata(user_id,last_used_at DESC,updated_at DESC);
+`},
+		{19, `
+CREATE TABLE IF NOT EXISTS codelocal_workspace_repositories (
+ user_id TEXT NOT NULL,
+ device_id TEXT NOT NULL,
+ workspace_id TEXT NOT NULL,
+ repository_id TEXT NOT NULL,
+ relative_path TEXT NOT NULL DEFAULT '.',
+ created_at BIGINT NOT NULL,
+ last_seen_at BIGINT NOT NULL,
+ PRIMARY KEY(user_id,device_id,workspace_id,repository_id),
+ FOREIGN KEY(user_id,device_id,workspace_id) REFERENCES codelocal_workspaces(user_id,device_id,workspace_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,repository_id) REFERENCES codelocal_repositories(user_id,repository_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_workspace_repositories_repo
+ ON codelocal_workspace_repositories(user_id,repository_id,last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_workspace_repositories_path
+ ON codelocal_workspace_repositories(user_id,workspace_id,relative_path);
+
+ALTER TABLE codelocal_memories ADD COLUMN IF NOT EXISTS project_id TEXT;
+ALTER TABLE codelocal_memories ADD COLUMN IF NOT EXISTS repository_id TEXT;
+ALTER TABLE codelocal_memories DROP CONSTRAINT IF EXISTS codelocal_memories_project_fk;
+ALTER TABLE codelocal_memories ADD CONSTRAINT codelocal_memories_project_fk
+ FOREIGN KEY(user_id,project_id) REFERENCES codelocal_projects(user_id,project_id) ON DELETE CASCADE NOT VALID;
+ALTER TABLE codelocal_memories VALIDATE CONSTRAINT codelocal_memories_project_fk;
+ALTER TABLE codelocal_memories DROP CONSTRAINT IF EXISTS codelocal_memories_repository_fk;
+ALTER TABLE codelocal_memories ADD CONSTRAINT codelocal_memories_repository_fk
+ FOREIGN KEY(user_id,repository_id) REFERENCES codelocal_repositories(user_id,repository_id) ON DELETE CASCADE NOT VALID;
+ALTER TABLE codelocal_memories VALIDATE CONSTRAINT codelocal_memories_repository_fk;
+ALTER TABLE codelocal_memories DROP CONSTRAINT IF EXISTS codelocal_memories_scope_check;
+ALTER TABLE codelocal_memories ADD CONSTRAINT codelocal_memories_scope_check CHECK (
+ (scope='global' AND workspace_id IS NULL AND project_id IS NULL AND repository_id IS NULL) OR
+ (scope='project' AND workspace_id IS NULL AND project_id IS NOT NULL AND repository_id IS NULL) OR
+ (scope='repository' AND workspace_id IS NULL AND project_id IS NOT NULL AND repository_id IS NOT NULL) OR
+ (scope='workspace' AND workspace_id IS NOT NULL AND project_id IS NULL AND repository_id IS NULL)
+) NOT VALID;
+ALTER TABLE codelocal_memories VALIDATE CONSTRAINT codelocal_memories_scope_check;
+
+DROP INDEX IF EXISTS idx_codelocal_memories_idempotency_scope;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codelocal_memories_idempotency_scope
+ ON codelocal_memories(user_id,scope,(COALESCE(workspace_id,'')),(COALESCE(project_id,'')),(COALESCE(repository_id,'')),idempotency_key)
+ WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_codelocal_memories_project
+ ON codelocal_memories(user_id,project_id,updated_at DESC) WHERE scope='project';
+CREATE INDEX IF NOT EXISTS idx_codelocal_memories_repository
+ ON codelocal_memories(user_id,project_id,repository_id,updated_at DESC) WHERE scope='repository';
+`},
 	}
 	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
 	for _, migration := range migrations {
@@ -1035,7 +1155,14 @@ func (s *Store) UpsertWorkspace(ctx context.Context, w Workspace) error {
 }
 
 func (s *Store) ListWorkspaceRecords(ctx context.Context, userID string) ([]Workspace, error) {
-	rows, err := s.DB.Query(ctx, `SELECT user_id,device_id,workspace_id,workspace_name,project_root,protocol_version,capabilities,created_at,last_seen_at FROM codelocal_workspaces WHERE user_id=$1 ORDER BY last_seen_at DESC`, userID)
+	rows, err := s.DB.Query(ctx, `
+SELECT w.user_id,w.device_id,w.workspace_id,w.workspace_name,w.project_root,w.protocol_version,w.capabilities,w.created_at,w.last_seen_at,
+ COALESCE(wp.project_id,''),COALESCE(p.name,''),COALESCE(wp.source,''),COALESCE(wp.confidence,0)
+FROM codelocal_workspaces w
+LEFT JOIN codelocal_workspace_projects wp ON wp.user_id=w.user_id AND wp.device_id=w.device_id AND wp.workspace_id=w.workspace_id
+LEFT JOIN codelocal_projects p ON p.user_id=wp.user_id AND p.project_id=wp.project_id
+WHERE w.user_id=$1
+ORDER BY w.last_seen_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1046,7 +1173,7 @@ func (s *Store) ListWorkspaceRecords(ctx context.Context, userID string) ([]Work
 		var projectRoot *string
 		var protocolVersion *int
 		var caps []byte
-		if err := rows.Scan(&w.UserID, &w.DeviceID, &w.WorkspaceID, &w.WorkspaceName, &projectRoot, &protocolVersion, &caps, &w.CreatedAt, &w.LastSeenAt); err != nil {
+		if err := rows.Scan(&w.UserID, &w.DeviceID, &w.WorkspaceID, &w.WorkspaceName, &projectRoot, &protocolVersion, &caps, &w.CreatedAt, &w.LastSeenAt, &w.ProjectID, &w.ProjectName, &w.ProjectSource, &w.ProjectConfidence); err != nil {
 			return nil, err
 		}
 		if projectRoot != nil {

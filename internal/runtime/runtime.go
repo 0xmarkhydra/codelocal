@@ -18,7 +18,9 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/identity"
+	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/localclient"
+	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/security"
 	usagecalc "github.com/0xmarkhydra/codelocal/internal/usage"
@@ -36,14 +38,17 @@ type Options struct {
 }
 
 type Runtime struct {
-	Options         Options
-	Registry        *workspace.Registry
-	client          *http.Client
-	mu              sync.Mutex
-	workers         map[string]*WorkspaceWorker
-	stopped         bool
-	pollCancel      context.CancelFunc
-	syncedSignature string
+	Options                 Options
+	Registry                *workspace.Registry
+	client                  *http.Client
+	mu                      sync.Mutex
+	workers                 map[string]*WorkspaceWorker
+	projectIdentities       map[string]projectidentity.Snapshot
+	stopped                 bool
+	pollCancel              context.CancelFunc
+	syncedRegistrySignature string
+	syncedSignature         string
+	lastProjectIdentitySync int64
 }
 
 type WorkspaceWorker struct {
@@ -79,7 +84,7 @@ func New(options Options) *Runtime {
 	if options.IdleWorkspace <= 0 {
 		options.IdleWorkspace = 20 * time.Minute
 	}
-	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}}
+	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}, projectIdentities: map[string]projectidentity.Snapshot{}}
 }
 func normalizeBase(value string) string { return strings.TrimRight(value, "/") }
 func wsURL(base string) string {
@@ -128,6 +133,15 @@ func (r *Runtime) post(ctx context.Context, path string, input any, output any) 
 	return nil
 }
 
+const projectIdentityRefreshInterval = 5 * time.Minute
+
+func projectIdentityRefreshDue(lastSync, now int64) bool {
+	if lastSync <= 0 {
+		return true
+	}
+	return now-lastSync >= projectIdentityRefreshInterval.Milliseconds()
+}
+
 func registrySignature(items []workspace.Workspace) string {
 	parts := make([]string, 0, len(items))
 	for _, w := range items {
@@ -137,12 +151,42 @@ func registrySignature(items []workspace.Workspace) string {
 	return strings.Join(parts, "\n")
 }
 
+func learnedSkillMetadataSnapshot(store *learnedskills.Store, deviceID, workspaceID string) ([]cloud.LearnedSkillMetadata, string) {
+	items := []cloud.LearnedSkillMetadata{}
+	signature := []string{}
+	if store == nil {
+		return items, ""
+	}
+	recipes, err := store.List(deviceID+"::"+workspaceID, 128)
+	if err != nil {
+		return items, ""
+	}
+	for _, recipe := range recipes {
+		items = append(items, cloud.LearnedSkillMetadata{
+			ID: recipe.ID, Intent: recipe.Intent, TaskKind: recipe.TaskKind, Status: string(recipe.Status), Confidence: recipe.Confidence,
+			SuccessCount: recipe.SuccessCount, FailureCount: recipe.FailureCount, StepCount: len(recipe.Steps), UpdatedAt: recipe.UpdatedAt, LastUsedAt: recipe.LastUsedAt,
+		})
+		signature = append(signature, fmt.Sprintf("%s:%s:%d:%d:%d:%d:%d", recipe.ID, recipe.Status, recipe.SuccessCount, recipe.FailureCount, len(recipe.Steps), recipe.UpdatedAt, recipe.LastUsedAt))
+	}
+	sort.Strings(signature)
+	return items, strings.Join(signature, "|")
+}
+
 func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Workspace, error) {
 	items, err := r.Registry.List()
 	if err != nil {
 		return nil, err
 	}
-	signature := registrySignature(items)
+	registrySig := registrySignature(items)
+	signature := registrySig
+	skillStore := learnedskills.New()
+	skillVersions := make([]string, 0, len(items))
+	for _, item := range items {
+		workspaceKey := r.Options.Credential.DeviceID + "::" + item.WorkspaceID
+		skillVersions = append(skillVersions, item.WorkspaceID+"="+skillStore.MetadataVersion(workspaceKey))
+	}
+	sort.Strings(skillVersions)
+	signature += "\nlearned-skills\n" + strings.Join(skillVersions, "\n")
 	authorized := make(map[string]struct{}, len(items))
 	for _, item := range items {
 		authorized[item.WorkspaceID] = struct{}{}
@@ -154,24 +198,46 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 			staleWorkers = append(staleWorkers, worker)
 		}
 	}
+	now := time.Now().UnixMilli()
 	unchanged := signature == r.syncedSignature
+	registryChanged := registrySig != r.syncedRegistrySignature
+	projectRefreshDue := force || registryChanged || projectIdentityRefreshDue(r.lastProjectIdentitySync, now)
+	cachedIdentities := make(map[string]projectidentity.Snapshot, len(r.projectIdentities))
+	for id, snapshot := range r.projectIdentities {
+		cachedIdentities[id] = snapshot
+	}
 	r.mu.Unlock()
 	for _, worker := range staleWorkers {
 		go worker.Stop("workspace authorization removed")
 	}
-	if !force && unchanged {
+	if !force && unchanged && !projectRefreshDue {
 		return items, nil
 	}
 	workspaces := make([]map[string]any, 0, len(items))
+	nextIdentities := make(map[string]projectidentity.Snapshot, len(items))
 	for _, w := range items {
-		workspaces = append(workspaces, map[string]any{"workspaceId": w.WorkspaceID, "workspaceName": w.WorkspaceName})
+		identity, cached := cachedIdentities[w.WorkspaceID]
+		if projectRefreshDue || !cached {
+			identity = projectidentity.Discover(w.LocalPath, w.WorkspaceName)
+		}
+		nextIdentities[w.WorkspaceID] = identity
+		skillMetadata, _ := learnedSkillMetadataSnapshot(skillStore, r.Options.Credential.DeviceID, w.WorkspaceID)
+		workspaces = append(workspaces, map[string]any{
+			"workspaceId": w.WorkspaceID, "workspaceName": w.WorkspaceName,
+			"projectIdentity": identity, "learnedSkills": skillMetadata,
+		})
 	}
 	payload := map[string]any{"clientVersion": version.Version, "workspaces": workspaces}
 	if err := r.post(ctx, "/api/client/workspaces/sync", payload, &map[string]any{}); err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
+	r.syncedRegistrySignature = registrySig
 	r.syncedSignature = signature
+	r.projectIdentities = nextIdentities
+	if projectRefreshDue {
+		r.lastProjectIdentitySync = now
+	}
 	r.mu.Unlock()
 	return items, nil
 }

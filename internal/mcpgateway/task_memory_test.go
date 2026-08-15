@@ -311,6 +311,36 @@ func TestAttachLongTermMemoryUsesCompactStructuredContent(t *testing.T) {
 	}
 }
 
+func TestCompactLongTermMemoryEnforcesPromptBudgetAndDeduplicates(t *testing.T) {
+	longSummary := strings.Repeat("architectural decision with useful evidence ", 80)
+	records := []longmemory.Record{
+		{ID: "one", Summary: longSummary, Files: []string{"a.go", "b.go", "c.go", "d.go", "e.go"}},
+		{ID: "duplicate", Summary: longSummary},
+		{ID: "two", Summary: strings.Repeat("repository-specific context ", 70)},
+		{ID: "three", Summary: strings.Repeat("another useful memory ", 70)},
+		{ID: "four", Summary: strings.Repeat("fourth useful memory ", 70)},
+		{ID: "five", Summary: "must be excluded by item budget"},
+	}
+	compact := compactLongTermMemory(records)
+	if len(compact) == 0 || len(compact) > longTermMemoryMaxItems {
+		t.Fatalf("unexpected compact memory count: %d", len(compact))
+	}
+	seen := map[string]struct{}{}
+	for _, record := range compact {
+		if runeLen(record.Summary) > longTermMemorySummaryMaxChar {
+			t.Fatalf("summary exceeded per-item budget: %d", runeLen(record.Summary))
+		}
+		if len(record.Files) > 4 {
+			t.Fatalf("file metadata exceeded compact limit: %#v", record.Files)
+		}
+		key := strings.ToLower(strings.Join(strings.Fields(record.Summary), " "))
+		if _, exists := seen[key]; exists {
+			t.Fatalf("duplicate memory survived compaction: %q", key)
+		}
+		seen[key] = struct{}{}
+	}
+}
+
 type recordingLongTermMemory struct {
 	inputs       []longmemory.IngestInput
 	recallInputs []longmemory.RecallInput
@@ -320,15 +350,17 @@ type recordingLongTermMemory struct {
 func (m *recordingLongTermMemory) Ingest(_ context.Context, input longmemory.IngestInput) (longmemory.Record, error) {
 	m.inputs = append(m.inputs, input)
 	return longmemory.Record{
-		ID:          longmemory.IdempotencyKey(input.UserID, string(input.Scope), input.WorkspaceID, input.Kind, input.Summary)[:32],
-		UserID:      input.UserID,
-		WorkspaceID: input.WorkspaceID,
-		Scope:       input.Scope,
-		TaskID:      input.TaskID,
-		Level:       input.Level,
-		Kind:        input.Kind,
-		SourceType:  input.SourceType,
-		Summary:     input.Summary,
+		ID:           longmemory.IdempotencyKey(input.UserID, string(input.Scope), input.WorkspaceID, input.ProjectID, input.RepositoryID, input.Kind, input.Summary)[:32],
+		UserID:       input.UserID,
+		WorkspaceID:  input.WorkspaceID,
+		ProjectID:    input.ProjectID,
+		RepositoryID: input.RepositoryID,
+		Scope:        input.Scope,
+		TaskID:       input.TaskID,
+		Level:        input.Level,
+		Kind:         input.Kind,
+		SourceType:   input.SourceType,
+		Summary:      input.Summary,
 	}, nil
 }
 

@@ -644,6 +644,22 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	}
 	audit.Write(audit.Event{Event: "tool.call", RequestID: opts.RequestID, MCPSessionID: opts.SessionID, WorkspaceKey: e.WorkspaceKey, Tool: tool, Detail: args})
 	switch tool {
+	case "learned_skill_list":
+		recipes, err := e.Skills.List(e.WorkspaceKey, asInt(args["limit"], 20))
+		if err != nil {
+			return nil, err
+		}
+		items := make([]map[string]any, 0, len(recipes))
+		for _, recipe := range recipes {
+			items = append(items, map[string]any{
+				"id": recipe.ID, "intent": recipe.Intent, "taskKind": recipe.TaskKind,
+				"status": recipe.Status, "confidence": recipe.Confidence,
+				"successCount": recipe.SuccessCount, "failureCount": recipe.FailureCount,
+				"createdAt": recipe.CreatedAt, "updatedAt": recipe.UpdatedAt, "lastUsedAt": recipe.LastUsedAt,
+				"stepCount": len(recipe.Steps), "source": "local",
+			})
+		}
+		return map[string]any{"skills": items, "source": "local"}, nil
 	case "learned_skill_match":
 		recipe, err := e.Skills.Match(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]))
 		return map[string]any{"match": recipe}, err

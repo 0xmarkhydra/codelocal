@@ -17,14 +17,18 @@ const (
 	LevelScenario  Level = "scenario"
 	LevelWorkspace Level = "workspace"
 
-	ScopeWorkspace Scope = "workspace"
-	ScopeGlobal    Scope = "global"
+	ScopeWorkspace  Scope = "workspace"
+	ScopeRepository Scope = "repository"
+	ScopeProject    Scope = "project"
+	ScopeGlobal     Scope = "global"
 )
 
 type Record struct {
 	ID           string
 	UserID       string
 	WorkspaceID  string
+	ProjectID    string
+	RepositoryID string
 	Scope        Scope
 	TaskID       string
 	Level        Level
@@ -47,6 +51,8 @@ type Record struct {
 type IngestInput struct {
 	UserID         string
 	WorkspaceID    string
+	ProjectID      string
+	RepositoryID   string
 	Scope          Scope
 	TaskID         string
 	Level          Level
@@ -62,12 +68,14 @@ type IngestInput struct {
 }
 
 type RecallInput struct {
-	UserID      string
-	WorkspaceID string
-	Query       string
-	Limit       int
-	Files       []string
-	Symbols     []string
+	UserID        string
+	WorkspaceID   string
+	ProjectID     string
+	RepositoryIDs []string
+	Query         string
+	Limit         int
+	Files         []string
+	Symbols       []string
 }
 
 var (
@@ -174,14 +182,44 @@ func memoryFreshnessAt(candidate Record) int64 {
 	return candidate.CreatedAt
 }
 
+func memoryLocalityScore(candidate Record, input RecallInput) float64 {
+	switch candidate.Scope {
+	case ScopeWorkspace:
+		if input.WorkspaceID != "" && candidate.WorkspaceID == input.WorkspaceID {
+			return 1
+		}
+		// Legacy workspace memories are admitted across workspaces only through
+		// the current project binding, so they remain useful but rank below
+		// native project/repository knowledge.
+		return .62
+	case ScopeRepository:
+		for _, id := range input.RepositoryIDs {
+			if id != "" && candidate.RepositoryID == id && candidate.ProjectID == input.ProjectID {
+				return .96
+			}
+		}
+		return .2
+	case ScopeProject:
+		if input.ProjectID != "" && candidate.ProjectID == input.ProjectID {
+			return .88
+		}
+		return .2
+	case ScopeGlobal:
+		return .45
+	default:
+		return 0
+	}
+}
+
 func Score(candidate Record, input RecallInput, now int64) float64 {
-	return candidate.LexicalScore*0.32 +
-		candidate.VectorScore*0.36 +
-		recencyScore(memoryFreshnessAt(candidate), now)*0.10 +
-		clamp01(candidate.Confidence, 0.7)*0.08 +
+	return candidate.LexicalScore*0.30 +
+		candidate.VectorScore*0.34 +
+		recencyScore(memoryFreshnessAt(candidate), now)*0.09 +
+		clamp01(candidate.Confidence, 0.7)*0.07 +
 		clamp01(candidate.Importance, 0.5)*0.06 +
 		overlapScore(input.Files, candidate.Files)*0.05 +
-		overlapScore(input.Symbols, candidate.Symbols)*0.03
+		overlapScore(input.Symbols, candidate.Symbols)*0.03 +
+		memoryLocalityScore(candidate, input)*0.06
 }
 
 func Rank(records []Record, input RecallInput, now int64) []Record {

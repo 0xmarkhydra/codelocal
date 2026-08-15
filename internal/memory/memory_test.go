@@ -70,3 +70,35 @@ func TestRankUsesUpdatedAtForMutableMemoryFreshness(t *testing.T) {
 		t.Fatal("legacy memories must fall back to created_at when updated_at is absent")
 	}
 }
+
+func TestRankBoostsCurrentRepositoryAndProjectMemory(t *testing.T) {
+	now := time.Now().UnixMilli()
+	input := RecallInput{WorkspaceID: "workspace-a", ProjectID: "project-a", RepositoryIDs: []string{"repo-a"}}
+	base := Record{CreatedAt: now, UpdatedAt: now, Confidence: .8, Importance: .8, LexicalScore: .5, VectorScore: .5}
+	repository := base
+	repository.Scope = ScopeRepository
+	repository.ProjectID = "project-a"
+	repository.RepositoryID = "repo-a"
+	project := base
+	project.Scope = ScopeProject
+	project.ProjectID = "project-a"
+	global := base
+	global.Scope = ScopeGlobal
+	if Score(repository, input, now) <= Score(project, input, now) {
+		t.Fatal("current repository memory should outrank equally relevant project memory")
+	}
+	if Score(project, input, now) <= Score(global, input, now) {
+		t.Fatal("current project memory should outrank equally relevant global memory")
+	}
+}
+
+func TestNormalizeWorkspaceRelativePathRejectsEscapes(t *testing.T) {
+	if got := normalizeWorkspaceRelativePath("services/product/main.go"); got != "services/product/main.go" {
+		t.Fatalf("unexpected normalized workspace path: %q", got)
+	}
+	for _, input := range []string{"../secret", "/etc/passwd", "./../other"} {
+		if got := normalizeWorkspaceRelativePath(input); got != "" {
+			t.Fatalf("workspace path escape must be rejected: %q -> %q", input, got)
+		}
+	}
+}

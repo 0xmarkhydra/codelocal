@@ -26,6 +26,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
 	"github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/oauth"
+	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/ui"
 	"github.com/0xmarkhydra/codelocal/internal/version"
@@ -209,6 +210,7 @@ func (s *Server) routes() {
 	mux.Handle("GET /dashboard", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/devices", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/workspaces", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
+	mux.Handle("GET /dashboard/knowledge", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/usage", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/admin", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /api/status", s.WebAuth.Require(http.HandlerFunc(s.apiStatus)))
@@ -334,6 +336,10 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/dashboard/admin" {
 		s.adminDashboard(w, r, identity)
+		return
+	}
+	if r.URL.Path == "/dashboard/knowledge" {
+		s.knowledgeDashboard(w, r, identity)
 		return
 	}
 	devices, _ := s.Store.ListDevices(r.Context(), identity.User.ID)
@@ -769,8 +775,10 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ClientVersion string `json:"clientVersion"`
 		Workspaces    []struct {
-			WorkspaceID   string `json:"workspaceId"`
-			WorkspaceName string `json:"workspaceName"`
+			WorkspaceID     string                       `json:"workspaceId"`
+			WorkspaceName   string                       `json:"workspaceName"`
+			ProjectIdentity projectidentity.Snapshot     `json:"projectIdentity"`
+			LearnedSkills   []cloud.LearnedSkillMetadata `json:"learnedSkills"`
 		} `json:"workspaces"`
 	}
 	if webutil.DecodeJSON(r, 1<<20, &input) != nil {
@@ -803,14 +811,23 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 			if input.ClientVersion != "" {
 				caps["clientVersion"] = truncate(input.ClientVersion, 80)
 			}
-			_ = s.Store.UpsertWorkspace(r.Context(), cloud.Workspace{
+			if err := s.Store.UpsertWorkspace(r.Context(), cloud.Workspace{
 				UserID:          device.UserID,
 				DeviceID:        device.DeviceID,
 				WorkspaceID:     item.WorkspaceID,
 				WorkspaceName:   name,
 				ProtocolVersion: protocol.Version,
 				Capabilities:    caps,
-			})
+			}); err != nil {
+				slog.Warn("workspace sync persistence failed", "workspaceId", item.WorkspaceID, "error", err)
+				continue
+			}
+		}
+		if _, err := s.Store.ResolveWorkspaceProject(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, item.ProjectIdentity); err != nil {
+			slog.Warn("workspace project identity resolution failed; workspace remains usable", "workspaceId", item.WorkspaceID, "error", err)
+		}
+		if err := s.Store.SyncLearnedSkillMetadata(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, item.LearnedSkills); err != nil {
+			slog.Warn("learned skill metadata sync failed; local skills remain authoritative", "workspaceId", item.WorkspaceID, "error", err)
 		}
 		synced++
 	}

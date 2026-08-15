@@ -103,3 +103,18 @@ func TestWalkSemanticNodesMatchesVisionFallbackText(t *testing.T) {
 		t.Fatalf("expected exact Vision semantic score, got %d", best.Score)
 	}
 }
+
+func TestWalkWindowCandidatesUsesStableAppAndTitleHint(t *testing.T) {
+	windows := []any{
+		map[string]any{"windowId": "101", "app": "Google Chrome", "title": "(7) Facebook"},
+		map[string]any{"windowId": "202", "app": "Google Chrome", "title": "Docs"},
+	}
+	best := windowCandidate{}
+	walkWindowCandidates(windows, "Google Chrome (3) Facebook", &best)
+	if best.WindowID != "101" {
+		t.Fatalf("expected Facebook Chrome window, got %#v", best)
+	}
+	if best.Score < 70 {
+		t.Fatalf("expected strong stable-window match, got %d", best.Score)
+	}
+}

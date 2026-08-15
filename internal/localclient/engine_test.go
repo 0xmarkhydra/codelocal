@@ -125,6 +125,25 @@ func TestLearnedSkillPrivateRuntimeOperations(t *testing.T) {
 	if !ok || matchState["match"] == nil {
 		t.Fatalf("expected private learned skill match, got %#v", matched)
 	}
+
+	listed, err := engine.Handle(context.Background(), "learned_skill_list", map[string]any{"limit": 20}, HandleOptions{RequestID: "skill-list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listState, ok := listed.(map[string]any)
+	if !ok || listState["source"] != "local" {
+		t.Fatalf("unexpected learned skill list result: %#v", listed)
+	}
+	items, ok := listState["skills"].([]map[string]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one learned skill metadata item, got %#v", listState["skills"])
+	}
+	if items[0]["intent"] != "mở BIDDI Beta" || items[0]["stepCount"] != 2 || items[0]["source"] != "local" {
+		t.Fatalf("unexpected learned skill metadata: %#v", items[0])
+	}
+	if items[0]["steps"] != nil {
+		t.Fatalf("workspace learned-skill inspection must not expose replay step bodies: %#v", items[0])
+	}
 }
 
 func TestProjectInfoReportsCurrentProtocolVersion(t *testing.T) {

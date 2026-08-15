@@ -79,6 +79,19 @@ func TestRegistrySignatureIgnoresWorkspaceOrder(t *testing.T) {
 	}
 }
 
+func TestProjectIdentityRefreshDue(t *testing.T) {
+	now := time.Now().UnixMilli()
+	if !projectIdentityRefreshDue(0, now) {
+		t.Fatal("first project identity scan must run")
+	}
+	if projectIdentityRefreshDue(now-projectIdentityRefreshInterval.Milliseconds()+1, now) {
+		t.Fatal("project identity should not rescan before the bounded refresh interval")
+	}
+	if !projectIdentityRefreshDue(now-projectIdentityRefreshInterval.Milliseconds(), now) {
+		t.Fatal("project identity must refresh when the interval elapses so newly added nested repos are discovered")
+	}
+}
+
 func TestWorkspaceWorkerStopIsConcurrentSafe(t *testing.T) {
 	runtime := New(Options{})
 	worker := &WorkspaceWorker{

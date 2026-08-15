@@ -56,21 +56,33 @@ type GraphContext struct {
 	Edges         []GraphEdge
 }
 
-func normalizeScope(scope Scope, workspaceID string) (Scope, string, error) {
+func normalizeScope(scope Scope, workspaceID, projectID, repositoryID string) (Scope, string, string, string, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
+	projectID = strings.TrimSpace(projectID)
+	repositoryID = strings.TrimSpace(repositoryID)
 	if scope == "" {
 		scope = ScopeWorkspace
 	}
 	switch scope {
 	case ScopeGlobal:
-		return ScopeGlobal, "", nil
+		return ScopeGlobal, "", "", "", nil
+	case ScopeProject:
+		if projectID == "" {
+			return "", "", "", "", errors.New("project memory requires project id")
+		}
+		return ScopeProject, "", projectID, "", nil
+	case ScopeRepository:
+		if projectID == "" || repositoryID == "" {
+			return "", "", "", "", errors.New("repository memory requires project and repository ids")
+		}
+		return ScopeRepository, "", projectID, repositoryID, nil
 	case ScopeWorkspace:
 		if workspaceID == "" {
-			return "", "", errors.New("workspace memory requires workspace id")
+			return "", "", "", "", errors.New("workspace memory requires workspace id")
 		}
-		return ScopeWorkspace, workspaceID, nil
+		return ScopeWorkspace, workspaceID, "", "", nil
 	default:
-		return "", "", errors.New("invalid memory scope")
+		return "", "", "", "", errors.New("invalid memory scope")
 	}
 }
 
@@ -340,12 +352,17 @@ ON CONFLICT(id) DO UPDATE SET
 }
 
 func graphProjection(record Record) ([]GraphNode, []GraphEdge, error) {
-	scope, workspaceID, err := normalizeScope(record.Scope, record.WorkspaceID)
+	scope, workspaceID, projectID, repositoryID, err := normalizeScope(record.Scope, record.WorkspaceID, record.ProjectID, record.RepositoryID)
 	if err != nil {
 		return nil, nil, err
 	}
 	record.Scope = scope
 	record.WorkspaceID = workspaceID
+	record.ProjectID = projectID
+	record.RepositoryID = repositoryID
+	if record.Scope == ScopeProject || record.Scope == ScopeRepository {
+		return nil, nil, errors.New("native project/repository graph projection is not enabled for this graph schema")
+	}
 	memoryNode := graphMemoryNode(record)
 	anchor := graphAnchorNode(record)
 	nodes := []GraphNode{anchor, memoryNode}
@@ -418,7 +435,7 @@ func (s *Store) BackfillGraph(ctx context.Context, limit int) (int, error) {
 	rows, err := s.db.Query(ctx, `
 SELECT m.id,m.user_id,COALESCE(m.workspace_id,''),m.scope,COALESCE(m.task_id,''),m.level,COALESCE(m.kind,''),m.source_type,m.summary,COALESCE(m.branch,''),m.files,m.symbols,m.confidence,m.importance,m.created_at,m.updated_at,m.last_used_at
 FROM codelocal_memories m
-WHERE NOT EXISTS (
+WHERE m.scope IN ('global','workspace') AND NOT EXISTS (
  SELECT 1 FROM codelocal_memory_sources s
  WHERE s.user_id=m.user_id AND s.source_memory_id=m.id
 )
@@ -459,6 +476,7 @@ func (s *Store) RecallGraphContext(ctx context.Context, input RecallInput, seeds
 	}
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.ProjectID = strings.TrimSpace(input.ProjectID)
 	if input.UserID == "" {
 		return out, nil
 	}
@@ -477,7 +495,13 @@ func (s *Store) RecallGraphContext(ctx context.Context, input RecallInput, seeds
 SELECT id,user_id,COALESCE(workspace_id,''),scope,kind,canonical_name,summary,confidence,importance,valid_from,COALESCE(valid_to,0),first_seen_at,last_seen_at,source_type,COALESCE(source_session_id,''),COALESCE(source_memory_id,'')
 FROM codelocal_memory_nodes n
 WHERE n.user_id=$1 AND n.valid_to IS NULL
- AND (n.scope='global' OR ($3<>'' AND n.scope='workspace' AND n.workspace_id=$3))
+ AND (
+  n.scope='global' OR
+  ($3<>'' AND n.scope='workspace' AND (
+    n.workspace_id=$3 OR
+    ($4<>'' AND n.workspace_id IN (SELECT workspace_id FROM codelocal_workspace_projects WHERE user_id=$1 AND project_id=$4))
+  ))
+ )
  AND (
   n.source_memory_id=ANY($2)
   OR EXISTS (
@@ -486,7 +510,7 @@ WHERE n.user_id=$1 AND n.valid_to IS NULL
   )
  )
 ORDER BY n.importance DESC,n.confidence DESC,n.last_seen_at DESC
-LIMIT $4`, input.UserID, seedMemoryIDs, input.WorkspaceID, nodeLimit)
+LIMIT $5`, input.UserID, seedMemoryIDs, input.WorkspaceID, input.ProjectID, nodeLimit)
 	if err != nil {
 		return out, err
 	}
@@ -510,10 +534,16 @@ LIMIT $4`, input.UserID, seedMemoryIDs, input.WorkspaceID, nodeLimit)
 SELECT id,user_id,COALESCE(workspace_id,''),scope,from_node_id,to_node_id,relation,confidence,importance,valid_from,COALESCE(valid_to,0),first_seen_at,last_seen_at,COALESCE(source_session_id,''),COALESCE(source_memory_id,'')
 FROM codelocal_memory_edges
 WHERE user_id=$1 AND valid_to IS NULL
- AND (scope='global' OR ($3<>'' AND scope='workspace' AND workspace_id=$3))
+ AND (
+  scope='global' OR
+  ($3<>'' AND scope='workspace' AND (
+    workspace_id=$3 OR
+    ($4<>'' AND workspace_id IN (SELECT workspace_id FROM codelocal_workspace_projects WHERE user_id=$1 AND project_id=$4))
+  ))
+ )
  AND (from_node_id=ANY($2) OR to_node_id=ANY($2))
 ORDER BY importance DESC,confidence DESC,last_seen_at DESC
-LIMIT $4`, input.UserID, seedNodeIDs, input.WorkspaceID, edgeLimit)
+LIMIT $5`, input.UserID, seedNodeIDs, input.WorkspaceID, input.ProjectID, edgeLimit)
 	if err != nil {
 		return out, err
 	}
@@ -560,10 +590,16 @@ LIMIT $4`, input.UserID, seedNodeIDs, input.WorkspaceID, edgeLimit)
 SELECT id,user_id,COALESCE(workspace_id,''),scope,from_node_id,to_node_id,relation,confidence,importance,valid_from,COALESCE(valid_to,0),first_seen_at,last_seen_at,COALESCE(source_session_id,''),COALESCE(source_memory_id,'')
 FROM codelocal_memory_edges
 WHERE user_id=$1 AND valid_to IS NULL
- AND (scope='global' OR ($3<>'' AND scope='workspace' AND workspace_id=$3))
+ AND (
+  scope='global' OR
+  ($3<>'' AND scope='workspace' AND (
+    workspace_id=$3 OR
+    ($4<>'' AND workspace_id IN (SELECT workspace_id FROM codelocal_workspace_projects WHERE user_id=$1 AND project_id=$4))
+  ))
+ )
  AND (from_node_id=ANY($2) OR to_node_id=ANY($2))
 ORDER BY importance DESC,confidence DESC,last_seen_at DESC
-LIMIT $4`, input.UserID, hopSeeds, input.WorkspaceID, secondEdgeLimit)
+LIMIT $5`, input.UserID, hopSeeds, input.WorkspaceID, input.ProjectID, secondEdgeLimit)
 		if secondErr != nil {
 			return out, secondErr
 		}
@@ -604,9 +640,15 @@ LIMIT $4`, input.UserID, hopSeeds, input.WorkspaceID, secondEdgeLimit)
 SELECT id,user_id,COALESCE(workspace_id,''),scope,kind,canonical_name,summary,confidence,importance,valid_from,COALESCE(valid_to,0),first_seen_at,last_seen_at,source_type,COALESCE(source_session_id,''),COALESCE(source_memory_id,'')
 FROM codelocal_memory_nodes
 WHERE user_id=$1 AND id=ANY($2) AND valid_to IS NULL
- AND (scope='global' OR ($3<>'' AND scope='workspace' AND workspace_id=$3))
+ AND (
+  scope='global' OR
+  ($3<>'' AND scope='workspace' AND (
+    workspace_id=$3 OR
+    ($4<>'' AND workspace_id IN (SELECT workspace_id FROM codelocal_workspace_projects WHERE user_id=$1 AND project_id=$4))
+  ))
+ )
 ORDER BY importance DESC,confidence DESC,last_seen_at DESC
-LIMIT $4`, input.UserID, connectedIDs, input.WorkspaceID, nodeLimit)
+LIMIT $5`, input.UserID, connectedIDs, input.WorkspaceID, input.ProjectID, nodeLimit)
 	if err != nil {
 		return out, err
 	}

@@ -20,22 +20,26 @@ import (
 )
 
 type Client struct {
-	Key             string
-	UserID          string
-	DeviceID        string
-	DeviceName      string
-	WorkspaceID     string
-	WorkspaceName   string
-	ProjectRoot     string
-	CredentialID    string
-	ProtocolVersion int
-	ClientVersion   string
-	Capabilities    protocol.Capabilities
-	ConnectedAt     int64
-	lastSeenAt      atomic.Int64
-	conn            *websocket.Conn
-	writeMu         sync.Mutex
-	closed          chan struct{}
+	Key               string
+	UserID            string
+	DeviceID          string
+	DeviceName        string
+	WorkspaceID       string
+	WorkspaceName     string
+	ProjectID         string
+	ProjectName       string
+	ProjectSource     string
+	ProjectConfidence float64
+	ProjectRoot       string
+	CredentialID      string
+	ProtocolVersion   int
+	ClientVersion     string
+	Capabilities      protocol.Capabilities
+	ConnectedAt       int64
+	lastSeenAt        atomic.Int64
+	conn              *websocket.Conn
+	writeMu           sync.Mutex
+	closed            chan struct{}
 }
 
 type localPending struct {
@@ -391,6 +395,12 @@ func (h *Hub) register(ctx context.Context, client *Client) error {
 		Capabilities:    caps,
 	}); err != nil {
 		return err
+	}
+	if binding, err := h.Store.WorkspaceProject(ctx, client.UserID, client.DeviceID, client.WorkspaceID); err == nil && binding != nil {
+		client.ProjectID = binding.ProjectID
+		client.ProjectName = binding.ProjectName
+		client.ProjectSource = binding.Source
+		client.ProjectConfidence = binding.Confidence
 	}
 	if h.Coordinator != nil {
 		if err := h.Coordinator.ClaimOwner(ctx, client.Key, 90*time.Second); err != nil {

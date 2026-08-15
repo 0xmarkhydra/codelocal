@@ -11,19 +11,23 @@ import (
 )
 
 type WorkspaceView struct {
-	Key             string         `json:"key"`
-	DeviceID        string         `json:"deviceId"`
-	DeviceName      string         `json:"deviceName"`
-	WorkspaceID     string         `json:"workspaceId"`
-	WorkspaceName   string         `json:"workspaceName"`
-	Status          string         `json:"status"`
-	RuntimeOnline   bool           `json:"runtimeOnline"`
-	Authorized      any            `json:"authorized"`
-	ClientVersion   string         `json:"clientVersion,omitempty"`
-	ProtocolVersion int            `json:"protocolVersion"`
-	ProjectRoot     any            `json:"projectRoot"`
-	Capabilities    map[string]any `json:"capabilities"`
-	LastSeenAt      int64          `json:"lastSeenAt"`
+	Key               string         `json:"key"`
+	DeviceID          string         `json:"deviceId"`
+	DeviceName        string         `json:"deviceName"`
+	WorkspaceID       string         `json:"workspaceId"`
+	WorkspaceName     string         `json:"workspaceName"`
+	ProjectID         string         `json:"projectId,omitempty"`
+	ProjectName       string         `json:"projectName,omitempty"`
+	ProjectSource     string         `json:"projectSource,omitempty"`
+	ProjectConfidence float64        `json:"projectConfidence,omitempty"`
+	Status            string         `json:"status"`
+	RuntimeOnline     bool           `json:"runtimeOnline"`
+	Authorized        any            `json:"authorized"`
+	ClientVersion     string         `json:"clientVersion,omitempty"`
+	ProtocolVersion   int            `json:"protocolVersion"`
+	ProjectRoot       any            `json:"projectRoot"`
+	Capabilities      map[string]any `json:"capabilities"`
+	LastSeenAt        int64          `json:"lastSeenAt"`
 }
 
 type WorkspaceService struct {
@@ -35,19 +39,23 @@ type WorkspaceService struct {
 
 func activeWorkspaceView(client *Client) *WorkspaceView {
 	return &WorkspaceView{
-		Key:             client.Key,
-		DeviceID:        client.DeviceID,
-		DeviceName:      client.DeviceName,
-		WorkspaceID:     client.WorkspaceID,
-		WorkspaceName:   client.WorkspaceName,
-		Status:          "active",
-		RuntimeOnline:   true,
-		Authorized:      true,
-		ClientVersion:   client.ClientVersion,
-		ProtocolVersion: client.ProtocolVersion,
-		ProjectRoot:     client.ProjectRoot,
-		Capabilities:    clientCapabilityMap(client),
-		LastSeenAt:      client.LastSeenAt(),
+		Key:               client.Key,
+		DeviceID:          client.DeviceID,
+		DeviceName:        client.DeviceName,
+		WorkspaceID:       client.WorkspaceID,
+		WorkspaceName:     client.WorkspaceName,
+		ProjectID:         client.ProjectID,
+		ProjectName:       client.ProjectName,
+		ProjectSource:     client.ProjectSource,
+		ProjectConfidence: client.ProjectConfidence,
+		Status:            "active",
+		RuntimeOnline:     true,
+		Authorized:        true,
+		ClientVersion:     client.ClientVersion,
+		ProtocolVersion:   client.ProtocolVersion,
+		ProjectRoot:       client.ProjectRoot,
+		Capabilities:      clientCapabilityMap(client),
+		LastSeenAt:        client.LastSeenAt(),
 	}
 }
 
@@ -132,7 +140,7 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 			projectRoot = local.ProjectRoot
 			deviceName = local.DeviceName
 		}
-		out = append(out, WorkspaceView{Key: key, DeviceID: w.DeviceID, DeviceName: deviceName, WorkspaceID: w.WorkspaceID, WorkspaceName: w.WorkspaceName, Status: status, RuntimeOnline: state.online, Authorized: authorized, ClientVersion: clientVersion, ProtocolVersion: w.ProtocolVersion, ProjectRoot: projectRoot, Capabilities: caps, LastSeenAt: w.LastSeenAt})
+		out = append(out, WorkspaceView{Key: key, DeviceID: w.DeviceID, DeviceName: deviceName, WorkspaceID: w.WorkspaceID, WorkspaceName: w.WorkspaceName, ProjectID: w.ProjectID, ProjectName: w.ProjectName, ProjectSource: w.ProjectSource, ProjectConfidence: w.ProjectConfidence, Status: status, RuntimeOnline: state.online, Authorized: authorized, ClientVersion: clientVersion, ProtocolVersion: w.ProtocolVersion, ProjectRoot: projectRoot, Capabilities: caps, LastSeenAt: w.LastSeenAt})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeenAt > out[j].LastSeenAt })
 	return out, nil

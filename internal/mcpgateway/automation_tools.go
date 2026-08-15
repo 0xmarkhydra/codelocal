@@ -60,6 +60,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 				[]string{"status", "observe", "list_windows", "ui_tree", "screenshot", "focus", "click", "type", "key", "scroll", "drag", "run"},
 				map[string]any{
 					"windowId":      str("Window identifier returned by action=observe or action=list_windows."),
+					"windowHint":    str("Stable app/title hint used to resolve a fresh windowId, especially when replaying a learned skill."),
 					"elementId":     str("Accessibility element identifier returned by action=ui_tree. Usually omit this and provide target instead."),
 					"target":        str("Semantic UI target such as Continue or Save. For click, CodeLocal resolves this against a fresh accessibility tree when elementId is omitted."),
 					"verify":        boolean("After an input action, return a fresh native observation in the same MCP call. Defaults to false."),
@@ -81,13 +82,20 @@ func compactAutomationToolDefinitions() []compactToolDef {
 			Annotations: compactAnnotations("Use desktop apps", false, true, false),
 			Resolve: func(args map[string]any) (operationInvocation, map[string]any, error) {
 				operation, forward, err := resolveAction(args, computerActions, map[string][]string{
-					"focus": {"windowId"}, "type": {"text"}, "key": {"key"},
+					"type": {"text"}, "key": {"key"},
 					"drag": {"fromX", "fromY", "toX", "toY"}, "run": {"windowId", "steps"},
 				})
 				if err != nil {
 					return operationInvocation{}, nil, err
 				}
 				action, _ := args["action"].(string)
+				if action == "focus" {
+					windowID, _ := forward["windowId"].(string)
+					windowHint, _ := forward["windowHint"].(string)
+					if strings.TrimSpace(windowID) == "" && strings.TrimSpace(windowHint) == "" {
+						return operationInvocation{}, nil, errors.New("focus requires windowId or windowHint")
+					}
+				}
 				if action == "click" {
 					elementID, _ := forward["elementId"].(string)
 					target, _ := forward["target"].(string)
@@ -100,8 +108,9 @@ func compactAutomationToolDefinitions() []compactToolDef {
 					}
 					if strings.TrimSpace(elementID) == "" && semantic != "" {
 						windowID, _ := forward["windowId"].(string)
-						if strings.TrimSpace(windowID) == "" {
-							return operationInvocation{}, nil, errors.New("semantic click requires windowId from computer action=observe or list_windows")
+						windowHint, _ := forward["windowHint"].(string)
+						if strings.TrimSpace(windowID) == "" && strings.TrimSpace(windowHint) == "" {
+							return operationInvocation{}, nil, errors.New("semantic click requires windowId or stable windowHint")
 						}
 					}
 				}

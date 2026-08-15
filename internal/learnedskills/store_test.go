@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -50,6 +51,58 @@ func TestRecordMatchAndFeedback(t *testing.T) {
 	}
 	if matched == nil || matched.FailureCount != 1 || matched.Confidence >= 0.98 {
 		t.Fatalf("failure should reduce confidence: %#v", matched)
+	}
+}
+
+func TestIntentSimilarityRewardsRepeatedTaskCoverage(t *testing.T) {
+	score := intentSimilarity("đọc thông báo Facebook", "Google Chrome Facebook Thông báo Chưa đọc")
+	if score < 0.65 {
+		t.Fatalf("short repeated task should strongly match learned UI semantics, got %.3f", score)
+	}
+	if score := intentSimilarity("Facebook", "Google Chrome Facebook Notifications Unread"); score >= 0.58 {
+		t.Fatalf("a single shared entity token should not be enough for a learned-skill match, got %.3f", score)
+	}
+}
+
+func TestMetadataVersionTracksLocalSkillFileChanges(t *testing.T) {
+	store := newTestStore(t)
+	workspaceKey := "device::metadata"
+	if got := store.MetadataVersion(workspaceKey); got != "" {
+		t.Fatalf("missing skill file should have empty metadata version, got %q", got)
+	}
+	steps := []Step{{Tool: "computer", Args: map[string]any{"action": "observe"}}}
+	recipe, err := store.Record(workspaceKey, "read notifications", "desktop", steps, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := store.MetadataVersion(workspaceKey)
+	if first == "" {
+		t.Fatal("recorded skill file must expose a cheap metadata version")
+	}
+	time.Sleep(2 * time.Millisecond)
+	if _, err := store.Feedback(workspaceKey, recipe.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if second := store.MetadataVersion(workspaceKey); second == "" || second == first {
+		t.Fatalf("skill metadata version must change after durable feedback: first=%q second=%q", first, second)
+	}
+}
+
+func TestListReturnsWorkspaceScopedLearnedSkills(t *testing.T) {
+	store := newTestStore(t)
+	steps := []Step{{Tool: "computer", Args: map[string]any{"action": "observe"}}}
+	if _, err := store.Record("device::one", "read notifications", "desktop", steps, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Record("device::two", "other task", "desktop", steps, true); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.List("device::one", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Intent != "read notifications" || items[0].WorkspaceKey != "device::one" {
+		t.Fatalf("unexpected scoped learned skill list: %#v", items)
 	}
 }
 

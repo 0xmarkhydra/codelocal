@@ -73,14 +73,66 @@ type semanticCandidate struct {
 	RunnerUpScore int
 }
 
+type windowCandidate struct {
+	WindowID      string
+	App           string
+	Title         string
+	Score         int
+	RunnerUpID    string
+	RunnerUpScore int
+}
+
 const semanticAmbiguityMargin = 8
 
 func semanticCandidateAmbiguous(best semanticCandidate) bool {
 	return best.RunnerUpID != "" && best.RunnerUpScore >= 35 && best.Score-best.RunnerUpScore < semanticAmbiguityMargin
 }
 
+func windowCandidateAmbiguous(best windowCandidate) bool {
+	return best.RunnerUpID != "" && best.RunnerUpScore >= 35 && best.Score-best.RunnerUpScore < semanticAmbiguityMargin
+}
+
 func normalizeSemanticText(value string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(value))), " ")
+}
+
+func semanticTerms(value string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, term := range strings.Fields(normalizeSemanticText(value)) {
+		if len([]rune(term)) < 2 {
+			continue
+		}
+		out[term] = struct{}{}
+	}
+	return out
+}
+
+func windowSemanticScore(target, app, title string) int {
+	combined := strings.TrimSpace(strings.TrimSpace(app) + " " + strings.TrimSpace(title))
+	score := semanticScore(target, map[string]any{"name": combined, "description": app, "value": title, "role": "window"})
+	targetTerms := semanticTerms(target)
+	combinedTerms := semanticTerms(combined)
+	titleTerms := semanticTerms(title)
+	matched := 0
+	titleMatched := 0
+	for term := range targetTerms {
+		if _, ok := combinedTerms[term]; ok {
+			matched++
+		}
+		if _, ok := titleTerms[term]; ok {
+			titleMatched++
+		}
+	}
+	if matched > 0 {
+		score = maxInt(score, 20+matched*20)
+	}
+	if titleMatched > 0 {
+		score += titleMatched * 25
+	}
+	if normalizedApp := normalizeSemanticText(app); normalizedApp != "" && strings.Contains(normalizeSemanticText(target), normalizedApp) {
+		score += 10
+	}
+	return score
 }
 
 func semanticScore(target string, node map[string]any) int {
@@ -166,6 +218,64 @@ func walkSemanticNodes(value any, target string, best *semanticCandidate) {
 			}
 		}
 	}
+}
+
+func walkWindowCandidates(value any, target string, best *windowCandidate) {
+	switch typed := value.(type) {
+	case []any:
+		for _, child := range typed {
+			walkWindowCandidates(child, target, best)
+		}
+	case map[string]any:
+		windowID := strings.TrimSpace(fmt.Sprint(typed["windowId"]))
+		if windowID != "" && windowID != "<nil>" && windowID != "screen:main" {
+			app := strings.TrimSpace(fmt.Sprint(typed["app"]))
+			title := strings.TrimSpace(fmt.Sprint(typed["title"]))
+			score := windowSemanticScore(target, app, title)
+			if score > best.Score {
+				if best.WindowID != "" && best.WindowID != windowID && best.Score > best.RunnerUpScore {
+					best.RunnerUpID = best.WindowID
+					best.RunnerUpScore = best.Score
+				}
+				best.WindowID = windowID
+				best.App = app
+				best.Title = title
+				best.Score = score
+			} else if windowID != best.WindowID && score > best.RunnerUpScore {
+				best.RunnerUpID = windowID
+				best.RunnerUpScore = score
+			}
+		}
+		for _, child := range typed {
+			walkWindowCandidates(child, target, best)
+		}
+	}
+}
+
+// FindComputerWindow resolves a durable app/title hint to the current native
+// window id. Native window ids are ephemeral and must not be persisted as the
+// identity of a learned desktop skill.
+func FindComputerWindow(ctx context.Context, computer *ComputerController, target string) (map[string]any, error) {
+	if computer == nil {
+		return nil, errors.New("Computer Use helper unavailable")
+	}
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil, errors.New("window hint is required")
+	}
+	windows, err := computer.Windows(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	best := windowCandidate{}
+	walkWindowCandidates(windows, target, &best)
+	if best.WindowID == "" || best.Score < 35 {
+		return nil, fmt.Errorf("no desktop window matched %q", target)
+	}
+	if windowCandidateAmbiguous(best) {
+		return nil, fmt.Errorf("ambiguous desktop window %q: top matches %s (%d) and %s (%d) are too close", target, best.WindowID, best.Score, best.RunnerUpID, best.RunnerUpScore)
+	}
+	return map[string]any{"windowId": best.WindowID, "app": best.App, "title": best.Title, "score": best.Score}, nil
 }
 
 // FindComputerElement resolves human wording to the best accessibility element

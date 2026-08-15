@@ -121,8 +121,19 @@ func TestCompactComputerSupportsSemanticTargetAndObserve(t *testing.T) {
 	if forwarded["target"] != "Continue" || forwarded["verify"] != true {
 		t.Fatalf("semantic click arguments were not forwarded: %#v", forwarded)
 	}
+	clickByHint, forwardedHint, err := computer.Resolve(map[string]any{"action": "click", "windowHint": "Google Chrome Facebook", "target": "Notifications", "verify": true})
+	if err != nil || clickByHint.RuntimeTool != "computer_click" {
+		t.Fatalf("semantic click by stable window hint did not resolve: %#v %v", clickByHint, err)
+	}
+	if forwardedHint["windowHint"] != "Google Chrome Facebook" || forwardedHint["target"] != "Notifications" {
+		t.Fatalf("stable window hint was not forwarded: %#v", forwardedHint)
+	}
+	focusByHint, forwardedFocus, err := computer.Resolve(map[string]any{"action": "focus", "windowHint": "Google Chrome Facebook"})
+	if err != nil || focusByHint.RuntimeTool != "computer_focus" || forwardedFocus["windowHint"] != "Google Chrome Facebook" {
+		t.Fatalf("focus by stable window hint did not resolve: %#v %#v %v", focusByHint, forwardedFocus, err)
+	}
 	if _, _, err := computer.Resolve(map[string]any{"action": "click", "target": "Continue"}); err == nil {
-		t.Fatal("semantic click without a windowId must be rejected")
+		t.Fatal("semantic click without windowId or windowHint must be rejected")
 	}
 	run, forwardedRun, err := computer.Resolve(map[string]any{
 		"action": "run", "windowId": "ax:42:0",

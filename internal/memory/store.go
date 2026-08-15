@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -197,12 +199,14 @@ func (s *Store) Ingest(ctx context.Context, input IngestInput) (Record, error) {
 	if input.SourceType == "" {
 		input.SourceType = "task"
 	}
-	scope, workspaceID, scopeErr := normalizeScope(input.Scope, input.WorkspaceID)
+	scope, workspaceID, projectID, repositoryID, scopeErr := normalizeScope(input.Scope, input.WorkspaceID, input.ProjectID, input.RepositoryID)
 	if scopeErr != nil {
 		return Record{}, scopeErr
 	}
 	input.Scope = scope
 	input.WorkspaceID = workspaceID
+	input.ProjectID = projectID
+	input.RepositoryID = repositoryID
 	if input.UserID == "" || input.Summary == "" {
 		return Record{}, errors.New("memory user and summary are required")
 	}
@@ -229,9 +233,14 @@ func (s *Store) Ingest(ctx context.Context, input IngestInput) (Record, error) {
 	}
 	now := time.Now().UnixMilli()
 	id := ""
-	if input.Scope == ScopeGlobal {
+	switch input.Scope {
+	case ScopeGlobal:
 		id = IdempotencyKey(input.UserID, "global", idempotency)[:32]
-	} else {
+	case ScopeProject:
+		id = IdempotencyKey(input.UserID, "project", input.ProjectID, idempotency)[:32]
+	case ScopeRepository:
+		id = IdempotencyKey(input.UserID, "repository", input.ProjectID, input.RepositoryID, idempotency)[:32]
+	default:
 		// Preserve the pre-graph workspace ID formula so existing rows are updated
 		// instead of duplicated after the scope migration.
 		id = IdempotencyKey(input.UserID, input.WorkspaceID, idempotency)[:32]
@@ -245,14 +254,14 @@ func (s *Store) Ingest(ctx context.Context, input IngestInput) (Record, error) {
 	var record Record
 	var filesRaw, symbolsRaw []byte
 	err := s.db.QueryRow(ctx, `
-INSERT INTO codelocal_memories(id,user_id,workspace_id,scope,task_id,level,kind,source_type,summary,branch,files,symbols,confidence,importance,idempotency_key,embedding_model,embedding_dimension,created_at,updated_at,last_used_at)
-VALUES($1,$2,NULLIF($3,''),$4,NULLIF($5,''),$6,NULLIF($7,''),$8,$9,NULLIF($10,''),$11::jsonb,$12::jsonb,$13,$14,$15,NULLIF($16,''),NULLIF($17,0),$18,$19,$20)
+INSERT INTO codelocal_memories(id,user_id,workspace_id,project_id,repository_id,scope,task_id,level,kind,source_type,summary,branch,files,symbols,confidence,importance,idempotency_key,embedding_model,embedding_dimension,created_at,updated_at,last_used_at)
+VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6,NULLIF($7,''),$8,NULLIF($9,''),$10,$11,NULLIF($12,''),$13::jsonb,$14::jsonb,$15,$16,$17,NULLIF($18,''),NULLIF($19,0),$20,$21,$22)
 ON CONFLICT(id) DO UPDATE SET
- workspace_id=EXCLUDED.workspace_id,scope=EXCLUDED.scope,task_id=EXCLUDED.task_id,level=EXCLUDED.level,kind=EXCLUDED.kind,source_type=EXCLUDED.source_type,summary=EXCLUDED.summary,branch=EXCLUDED.branch,files=EXCLUDED.files,symbols=EXCLUDED.symbols,
+ workspace_id=EXCLUDED.workspace_id,project_id=EXCLUDED.project_id,repository_id=EXCLUDED.repository_id,scope=EXCLUDED.scope,task_id=EXCLUDED.task_id,level=EXCLUDED.level,kind=EXCLUDED.kind,source_type=EXCLUDED.source_type,summary=EXCLUDED.summary,branch=EXCLUDED.branch,files=EXCLUDED.files,symbols=EXCLUDED.symbols,
  confidence=EXCLUDED.confidence,importance=EXCLUDED.importance,updated_at=EXCLUDED.updated_at,last_used_at=EXCLUDED.last_used_at
-RETURNING id,user_id,COALESCE(workspace_id,''),scope,COALESCE(task_id,''),level,COALESCE(kind,''),source_type,summary,COALESCE(branch,''),files,symbols,confidence,importance,created_at,updated_at,last_used_at`,
-		id, input.UserID, input.WorkspaceID, input.Scope, input.TaskID, input.Level, input.Kind, input.SourceType, input.Summary, input.Branch, encodeList(input.Files), encodeList(input.Symbols), input.Confidence, input.Importance, idempotency, embedderModel(s.embedder, vector), len(vector), now, now, now,
-	).Scan(&record.ID, &record.UserID, &record.WorkspaceID, &record.Scope, &record.TaskID, &record.Level, &record.Kind, &record.SourceType, &record.Summary, &record.Branch, &filesRaw, &symbolsRaw, &record.Confidence, &record.Importance, &record.CreatedAt, &record.UpdatedAt, &record.LastUsedAt)
+RETURNING id,user_id,COALESCE(workspace_id,''),COALESCE(project_id,''),COALESCE(repository_id,''),scope,COALESCE(task_id,''),level,COALESCE(kind,''),source_type,summary,COALESCE(branch,''),files,symbols,confidence,importance,created_at,updated_at,last_used_at`,
+		id, input.UserID, input.WorkspaceID, input.ProjectID, input.RepositoryID, input.Scope, input.TaskID, input.Level, input.Kind, input.SourceType, input.Summary, input.Branch, encodeList(input.Files), encodeList(input.Symbols), input.Confidence, input.Importance, idempotency, embedderModel(s.embedder, vector), len(vector), now, now, now,
+	).Scan(&record.ID, &record.UserID, &record.WorkspaceID, &record.ProjectID, &record.RepositoryID, &record.Scope, &record.TaskID, &record.Level, &record.Kind, &record.SourceType, &record.Summary, &record.Branch, &filesRaw, &symbolsRaw, &record.Confidence, &record.Importance, &record.CreatedAt, &record.UpdatedAt, &record.LastUsedAt)
 	if err != nil {
 		return Record{}, err
 	}
@@ -263,7 +272,7 @@ RETURNING id,user_id,COALESCE(workspace_id,''),scope,COALESCE(task_id,''),level,
 			slog.Warn("memory vector write failed; lexical memory remains stored", "error", err)
 		}
 	}
-	if s.GraphEnabled() {
+	if s.GraphEnabled() && (record.Scope == ScopeGlobal || record.Scope == ScopeWorkspace) {
 		if err := s.projectRecordToGraph(ctx, record); err != nil {
 			// Graph is an acceleration/association layer. A graph projection failure
 			// must never lose the durable vector/lexical memory that was already stored.
@@ -273,12 +282,102 @@ RETURNING id,user_id,COALESCE(workspace_id,''),scope,COALESCE(task_id,''),level,
 	return record, nil
 }
 
+func normalizeWorkspaceRelativePath(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	value = strings.TrimPrefix(value, "./")
+	if value == "" || strings.HasPrefix(value, "/") {
+		return ""
+	}
+	value = path.Clean(value)
+	if value == "." || value == ".." || strings.HasPrefix(value, "../") {
+		return ""
+	}
+	return value
+}
+
+// RepositoryIDsForFiles maps current workspace-relative file evidence to the
+// logical repositories discovered for the same project. Longest-prefix wins,
+// so a nested repository is preferred over the workspace-root repository.
+func (s *Store) RepositoryIDsForFiles(ctx context.Context, userID, projectID, deviceID, workspaceID string, files []string) ([]string, error) {
+	if !s.Enabled() || strings.TrimSpace(userID) == "" || strings.TrimSpace(projectID) == "" || strings.TrimSpace(deviceID) == "" || strings.TrimSpace(workspaceID) == "" || len(files) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(ctx, `
+SELECT DISTINCT wr.repository_id,wr.relative_path
+FROM codelocal_workspace_repositories wr
+JOIN codelocal_workspace_projects wp
+ ON wp.user_id=wr.user_id AND wp.device_id=wr.device_id AND wp.workspace_id=wr.workspace_id
+WHERE wr.user_id=$1 AND wr.device_id=$2 AND wr.workspace_id=$3 AND wp.project_id=$4`, strings.TrimSpace(userID), strings.TrimSpace(deviceID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type binding struct {
+		id  string
+		rel string
+	}
+	bindings := []binding{}
+	for rows.Next() {
+		var item binding
+		if err := rows.Scan(&item.id, &item.rel); err != nil {
+			return nil, err
+		}
+		item.id = strings.TrimSpace(item.id)
+		item.rel = strings.Trim(strings.ReplaceAll(strings.TrimSpace(item.rel), "\\", "/"), "/")
+		if item.rel == "" {
+			item.rel = "."
+		}
+		if item.id != "" {
+			bindings = append(bindings, item)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, rawFile := range SanitizeList(files, 50) {
+		file := normalizeWorkspaceRelativePath(rawFile)
+		if file == "" {
+			continue
+		}
+		bestID := ""
+		bestLen := -1
+		for _, candidate := range bindings {
+			matches := candidate.rel == "." || file == candidate.rel || strings.HasPrefix(file, candidate.rel+"/")
+			if !matches {
+				continue
+			}
+			length := len(candidate.rel)
+			if candidate.rel == "." {
+				length = 0
+			}
+			if length > bestLen {
+				bestID = candidate.id
+				bestLen = length
+			}
+		}
+		if bestID == "" {
+			continue
+		}
+		if _, exists := seen[bestID]; exists {
+			continue
+		}
+		seen[bestID] = struct{}{}
+		out = append(out, bestID)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 func (s *Store) Recall(ctx context.Context, input RecallInput) ([]Record, error) {
 	if !s.Enabled() {
 		return nil, nil
 	}
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.ProjectID = strings.TrimSpace(input.ProjectID)
+	input.RepositoryIDs = SanitizeList(input.RepositoryIDs, 64)
 	input.Query = SanitizeText(input.Query, 1200)
 	if input.UserID == "" || input.Query == "" {
 		return nil, nil
@@ -292,12 +391,22 @@ func (s *Store) Recall(ctx context.Context, input RecallInput) ([]Record, error)
 	}
 	candidateLimit := max(20, limit*4)
 	rows, err := s.db.Query(ctx, `
-SELECT id,user_id,COALESCE(workspace_id,''),scope,COALESCE(task_id,''),level,COALESCE(kind,''),source_type,summary,COALESCE(branch,''),files,symbols,confidence,importance,created_at,updated_at,last_used_at,
-       ts_rank_cd(to_tsvector('simple',summary),plainto_tsquery('simple',$3)) AS lexical_score
+SELECT id,user_id,COALESCE(workspace_id,''),COALESCE(project_id,''),COALESCE(repository_id,''),scope,COALESCE(task_id,''),level,COALESCE(kind,''),source_type,summary,COALESCE(branch,''),files,symbols,confidence,importance,created_at,updated_at,last_used_at,
+       ts_rank_cd(to_tsvector('simple',summary),plainto_tsquery('simple',$5)) AS lexical_score
 FROM codelocal_memories
-WHERE user_id=$1 AND (scope='global' OR ($2<>'' AND scope='workspace' AND workspace_id=$2))
-ORDER BY lexical_score DESC,CASE WHEN scope='workspace' THEN 0 ELSE 1 END,created_at DESC
-LIMIT $4`, input.UserID, input.WorkspaceID, input.Query, candidateLimit)
+WHERE user_id=$1 AND (
+ scope='global' OR
+ ($3<>'' AND scope='project' AND project_id=$3) OR
+ ($3<>'' AND scope='repository' AND project_id=$3 AND repository_id=ANY($4::text[])) OR
+ ($2<>'' AND scope='workspace' AND (
+   workspace_id=$2 OR
+   ($3<>'' AND workspace_id IN (SELECT workspace_id FROM codelocal_workspace_projects WHERE user_id=$1 AND project_id=$3))
+ ))
+)
+ORDER BY lexical_score DESC,
+ CASE WHEN workspace_id=$2 THEN 0 WHEN scope='repository' THEN 1 WHEN scope='project' THEN 2 WHEN scope='workspace' THEN 3 ELSE 4 END,
+ created_at DESC
+LIMIT $6`, input.UserID, input.WorkspaceID, input.ProjectID, input.RepositoryIDs, input.Query, candidateLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +415,7 @@ LIMIT $4`, input.UserID, input.WorkspaceID, input.Query, candidateLimit)
 	for rows.Next() {
 		var record Record
 		var filesRaw, symbolsRaw []byte
-		if err := rows.Scan(&record.ID, &record.UserID, &record.WorkspaceID, &record.Scope, &record.TaskID, &record.Level, &record.Kind, &record.SourceType, &record.Summary, &record.Branch, &filesRaw, &symbolsRaw, &record.Confidence, &record.Importance, &record.CreatedAt, &record.UpdatedAt, &record.LastUsedAt, &record.LexicalScore); err != nil {
+		if err := rows.Scan(&record.ID, &record.UserID, &record.WorkspaceID, &record.ProjectID, &record.RepositoryID, &record.Scope, &record.TaskID, &record.Level, &record.Kind, &record.SourceType, &record.Summary, &record.Branch, &filesRaw, &symbolsRaw, &record.Confidence, &record.Importance, &record.CreatedAt, &record.UpdatedAt, &record.LastUsedAt, &record.LexicalScore); err != nil {
 			return nil, err
 		}
 		record.Files = decodeList(filesRaw)
@@ -330,17 +439,26 @@ LIMIT $4`, input.UserID, input.WorkspaceID, input.Query, candidateLimit)
 		}
 		if embedErr == nil && len(queryVector) == s.VectorDimension() {
 			semantic, queryErr := s.db.Query(ctx, `
-SELECT id,user_id,COALESCE(workspace_id,''),scope,COALESCE(task_id,''),level,COALESCE(kind,''),source_type,summary,COALESCE(branch,''),files,symbols,confidence,importance,created_at,updated_at,last_used_at,
-       1-(embedding <=> $3::vector) AS vector_score
+SELECT id,user_id,COALESCE(workspace_id,''),COALESCE(project_id,''),COALESCE(repository_id,''),scope,COALESCE(task_id,''),level,COALESCE(kind,''),source_type,summary,COALESCE(branch,''),files,symbols,confidence,importance,created_at,updated_at,last_used_at,
+       1-(embedding <=> $5::vector) AS vector_score
 FROM codelocal_memories
-WHERE user_id=$1 AND (scope='global' OR ($2<>'' AND scope='workspace' AND workspace_id=$2)) AND embedding IS NOT NULL
-ORDER BY embedding <=> $3::vector,CASE WHEN scope='workspace' THEN 0 ELSE 1 END
-LIMIT $4`, input.UserID, input.WorkspaceID, vectorLiteral(queryVector), candidateLimit)
+WHERE user_id=$1 AND (
+ scope='global' OR
+ ($3<>'' AND scope='project' AND project_id=$3) OR
+ ($3<>'' AND scope='repository' AND project_id=$3 AND repository_id=ANY($4::text[])) OR
+ ($2<>'' AND scope='workspace' AND (
+   workspace_id=$2 OR
+   ($3<>'' AND workspace_id IN (SELECT workspace_id FROM codelocal_workspace_projects WHERE user_id=$1 AND project_id=$3))
+ ))
+) AND embedding IS NOT NULL
+ORDER BY embedding <=> $5::vector,
+ CASE WHEN workspace_id=$2 THEN 0 WHEN scope='repository' THEN 1 WHEN scope='project' THEN 2 WHEN scope='workspace' THEN 3 ELSE 4 END
+LIMIT $6`, input.UserID, input.WorkspaceID, input.ProjectID, input.RepositoryIDs, vectorLiteral(queryVector), candidateLimit)
 			if queryErr == nil {
 				for semantic.Next() {
 					var record Record
 					var filesRaw, symbolsRaw []byte
-					if err := semantic.Scan(&record.ID, &record.UserID, &record.WorkspaceID, &record.Scope, &record.TaskID, &record.Level, &record.Kind, &record.SourceType, &record.Summary, &record.Branch, &filesRaw, &symbolsRaw, &record.Confidence, &record.Importance, &record.CreatedAt, &record.UpdatedAt, &record.LastUsedAt, &record.VectorScore); err != nil {
+					if err := semantic.Scan(&record.ID, &record.UserID, &record.WorkspaceID, &record.ProjectID, &record.RepositoryID, &record.Scope, &record.TaskID, &record.Level, &record.Kind, &record.SourceType, &record.Summary, &record.Branch, &filesRaw, &symbolsRaw, &record.Confidence, &record.Importance, &record.CreatedAt, &record.UpdatedAt, &record.LastUsedAt, &record.VectorScore); err != nil {
 						semantic.Close()
 						return nil, err
 					}
