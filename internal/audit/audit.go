@@ -26,9 +26,13 @@ type Event struct {
 	Detail       any    `json:"detail,omitempty"`
 }
 
-var secretKeyRE = regexp.MustCompile(`(?i)token|secret|password|authorization|cookie|credentialSecret`)
+var secretKeyRE = regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?key|private[_-]?key|token|secret|password|passwd|authorization|cookie|credentialSecret)`)
 var redactTextKeyRE = regexp.MustCompile(`(?i)command|detail|query`)
-var sizeOnlyKeyRE = regexp.MustCompile(`(?i)content|patch|input|oldText|newText`)
+
+// Free-form input text can contain passwords, OTPs, messages, form values or
+// other private content. Audit the presence/size of such payloads, never the
+// payload itself.
+var sizeOnlyKeyRE = regexp.MustCompile(`(?i)^(?:content|patch|input|text|oldText|newText)$`)
 
 func Enabled() bool { return os.Getenv("CODELOCAL_AUDIT_FILE") != "0" }
 
@@ -44,7 +48,7 @@ func sanitize(value any, key string) any {
 		return nil
 	}
 	if err, ok := value.(error); ok {
-		return map[string]any{"name": reflect.TypeOf(err).String(), "message": err.Error()}
+		return map[string]any{"name": reflect.TypeOf(err).String(), "message": sanitize(err.Error(), "detail")}
 	}
 	switch v := value.(type) {
 	case string:

@@ -56,3 +56,17 @@ func TestRankFavorsRecentMemory(t *testing.T) {
 		t.Fatal("recent memory should rank above equally relevant old memory")
 	}
 }
+
+func TestRankUsesUpdatedAtForMutableMemoryFreshness(t *testing.T) {
+	now := time.Now().UnixMilli()
+	oldCreated := now - int64(180*24*time.Hour/time.Millisecond)
+	updated := Record{CreatedAt: oldCreated, UpdatedAt: now, Confidence: .7, Importance: .5, LexicalScore: .5, VectorScore: .5}
+	stale := updated
+	stale.UpdatedAt = oldCreated
+	if Score(updated, RecallInput{}, now) <= Score(stale, RecallInput{}, now) {
+		t.Fatal("recently updated mutable memory should outrank equally relevant stale memory")
+	}
+	if memoryFreshnessAt(Record{CreatedAt: 10}) != 10 {
+		t.Fatal("legacy memories must fall back to created_at when updated_at is absent")
+	}
+}

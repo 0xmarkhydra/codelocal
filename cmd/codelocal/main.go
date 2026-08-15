@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/approval"
+	"github.com/0xmarkhydra/codelocal/internal/clientupdate"
 	"github.com/0xmarkhydra/codelocal/internal/identity"
 	"github.com/0xmarkhydra/codelocal/internal/mcphub"
 	codelocalruntime "github.com/0xmarkhydra/codelocal/internal/runtime"
@@ -458,6 +459,42 @@ func loginArgs(args []string) (server string, force bool, err error) {
 		server = arg
 	}
 	return server, force, nil
+}
+
+func printStartupUpdate(parent context.Context) {
+	if !clientupdate.StartupCheckEnabled() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, 1500*time.Millisecond)
+	defer cancel()
+
+	type startupResult struct {
+		version *clientupdate.Notice
+		surface *clientupdate.SurfaceNotice
+	}
+	results := make(chan startupResult, 2)
+	go func() {
+		notice, _ := clientupdate.CheckStartup(ctx, clientupdate.StartupOptionsFromEnv(version.Version, state.Dir()))
+		results <- startupResult{version: notice}
+	}()
+	go func() {
+		notice, _ := clientupdate.CheckToolSurface(ctx, clientupdate.SurfaceOptionsForServer(authBase(""), state.Dir()))
+		results <- startupResult{surface: notice}
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case result := <-results:
+			if result.version != nil {
+				fmt.Print(clientupdate.RenderCLI(*result.version))
+			}
+			if result.surface != nil {
+				fmt.Print(clientupdate.RenderSurfaceCLI(*result.surface))
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func runRuntime(parent context.Context, server string) error {
@@ -935,6 +972,7 @@ func main() {
 	}
 	var err error
 	if len(args) == 0 {
+		printStartupUpdate(ctx)
 		err = runRuntime(ctx, "")
 	} else {
 		switch args[0] {

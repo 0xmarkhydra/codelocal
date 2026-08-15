@@ -4,7 +4,7 @@ Status: Implemented — compact public cutover complete; production measurement 
 Branch baseline: `dev`
 Baseline date: 2026-08-12
 Previous public MCP tool count: **77**
-Current public MCP tool count: **18 domain tools**
+Current public MCP tool count: **19 domain tools**
 Private native runtime commands: **77 mapped to stable operation IDs**
 
 ## 1. Why this document exists
@@ -28,7 +28,7 @@ The intended result is:
 ### 2.1 Tool count
 
 At baseline the Go MCP gateway built 77 public schemas in `toolDefinitions()`.
-That registry has been removed. `serverFor` now registers only the 16 definitions
+That registry has been removed. `serverFor` now registers only the 19 domain definitions
 from `compactToolDefinitions()`.
 
 ### 2.2 Too much implementation detail is public

@@ -55,6 +55,7 @@ type Capabilities struct {
 	MCPHub               bool                   `json:"mcpHub,omitempty"`
 	TerminalChatApproval bool                   `json:"terminalChatApproval,omitempty"`
 	TerminalHistory      bool                   `json:"terminalHistory,omitempty"`
+	LearnedSkills        bool                   `json:"learnedSkills,omitempty"`
 	Automation           AutomationCapabilities `json:"automation,omitempty"`
 }
 
@@ -120,7 +121,8 @@ func SideEffecting(tool string) bool {
 		"exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill", "exec_cancel",
 		"git_stage", "git_unstage", "git_commit", "git_push", "approval_revoke", "approval_reset", "mcp_call",
 		"browser_open", "browser_click", "browser_fill", "browser_press", "browser_close",
-		"computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run":
+		"computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run",
+		"learned_skill_record", "learned_skill_feedback":
 		return true
 	default:
 		return false

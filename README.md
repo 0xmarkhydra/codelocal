@@ -20,7 +20,7 @@ Authorized workspaces       files, Git, terminal, local MCP extensions
 
 ## Version
 
-`1.5.6` — next stable native Go release.
+`1.5.14` — next stable native Go release.
 
 The application runtime and Cloud gateway are implemented in Go. The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 
@@ -109,6 +109,10 @@ codelocal uninstall --all
 Operating-system privacy permissions such as macOS Accessibility and Screen Recording remain controlled by the OS and are not silently changed.
 
 ## Update
+
+When you run `codelocal`, the CLI performs a short cached check against the configured npm release channel. If a newer CodeLocal runtime/tool release is available, it prints the installed/latest versions and the exact npm update command before starting. The result is cached privately under CodeLocal state so normal startup does not repeatedly wait on npm, and offline/update-check failures never stop the runtime. Set `CODELOCAL_UPDATE_CHECK=0` to disable this notice.
+
+CodeLocal 1.5.14 also fingerprints the public MCP tool surface. If an already-open ChatGPT thread calls an old granular tool, CodeLocal translates the call when possible and returns `CODELOCAL_TOOL_SCHEMA_STALE`; if ChatGPT calls a tool name that does not exist in the current surface, the gateway returns `CODELOCAL_TOOL_SCHEMA_MISMATCH`. In either case, reconnect the CodeLocal MCP in ChatGPT to reload the current tool/action schema. Reconnecting does not remove the local device pairing or workspace grants. Runtime capability mismatches are reported separately and include the installed client version plus the npm update command when a newer client is available.
 
 Update to the newest stable release:
 
@@ -252,10 +256,10 @@ go build ./cmd/...
 
 ### Compact MCP tool surface
 
-The Cloud gateway exposes exactly 18 domain tools: `device`, `workspace`,
-`project`, `context`, `read`, `search`, `dependency`, `lsp`, `edit`, `verify`,
-`git`, `terminal`, `process`, `approvals`, `security`, `mcp`, `browser` and
-`computer`.
+The Cloud gateway exposes exactly 19 domain tools: `device`, `workspace`,
+`project`, `context`, `agent`, `read`, `search`, `dependency`, `lsp`, `edit`,
+`verify`, `git`, `terminal`, `process`, `approvals`, `security`, `mcp`, `browser`
+and `computer`.
 
 The 98 granular runtime commands are not advertised as top-level tools and cannot be
 re-enabled by configuration. Their granular command names remain only as the

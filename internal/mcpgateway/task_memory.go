@@ -23,6 +23,10 @@ type longTermMemoryStore interface {
 	Recall(context.Context, longmemory.RecallInput) ([]longmemory.Record, error)
 }
 
+type graphMemoryStore interface {
+	RecallGraphContext(context.Context, longmemory.RecallInput, []longmemory.Record) (longmemory.GraphContext, error)
+}
+
 var (
 	workingMemory      = taskstate.New(512)
 	memorySecretAssign = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|passwd)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)`)
@@ -519,16 +523,79 @@ func attachLongTermMemory(result *mcp.CallToolResult, records []longmemory.Recor
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		items = append(items, map[string]any{
-			"id":        record.ID,
-			"level":     record.Level,
-			"summary":   record.Summary,
-			"branch":    record.Branch,
-			"files":     record.Files,
-			"score":     record.Score,
-			"createdAt": record.CreatedAt,
+			"id":         record.ID,
+			"scope":      record.Scope,
+			"level":      record.Level,
+			"kind":       record.Kind,
+			"sourceType": record.SourceType,
+			"summary":    record.Summary,
+			"branch":     record.Branch,
+			"files":      record.Files,
+			"score":      record.Score,
+			"createdAt":  record.CreatedAt,
+			"updatedAt":  record.UpdatedAt,
 		})
 	}
 	root["longTermMemory"] = items
+	result.StructuredContent = root
+}
+
+func attachGraphMemoryContext(result *mcp.CallToolResult, graph longmemory.GraphContext) {
+	if result == nil || (len(graph.Nodes) == 0 && len(graph.Edges) == 0) {
+		return
+	}
+	root, ok := result.StructuredContent.(map[string]any)
+	if !ok || root == nil {
+		return
+	}
+	seedIDs := make(map[string]struct{}, len(graph.SeedMemoryIDs))
+	for _, id := range graph.SeedMemoryIDs {
+		seedIDs[id] = struct{}{}
+	}
+	nodes := make([]map[string]any, 0, min(len(graph.Nodes), 14))
+	for _, node := range graph.Nodes {
+		if len(nodes) >= 14 {
+			break
+		}
+		item := map[string]any{
+			"id":         node.ID,
+			"scope":      node.Scope,
+			"kind":       node.Kind,
+			"name":       node.CanonicalName,
+			"confidence": node.Confidence,
+			"importance": node.Importance,
+			"lastSeenAt": node.LastSeenAt,
+		}
+		if node.SourceMemoryID != "" {
+			item["sourceMemoryId"] = node.SourceMemoryID
+		}
+		if _, isSeed := seedIDs[node.SourceMemoryID]; !isSeed {
+			if summary := sanitizeTaskMemoryText(node.Summary); summary != "" {
+				item["summary"] = summary
+			}
+		}
+		nodes = append(nodes, item)
+	}
+	edges := make([]map[string]any, 0, min(len(graph.Edges), 20))
+	for _, edge := range graph.Edges {
+		if len(edges) >= 20 {
+			break
+		}
+		edges = append(edges, map[string]any{
+			"from":       edge.FromNodeID,
+			"to":         edge.ToNodeID,
+			"relation":   edge.Relation,
+			"scope":      edge.Scope,
+			"confidence": edge.Confidence,
+			"importance": edge.Importance,
+		})
+	}
+	root["memoryContext"] = map[string]any{
+		"mode":          "vector+graph",
+		"seedMemoryIds": graph.SeedMemoryIDs,
+		"nodes":         nodes,
+		"edges":         edges,
+	}
 	result.StructuredContent = root
 }
 
@@ -675,6 +742,7 @@ func longTermMemoryInput(userID, session, workspaceID, publicTool string, operat
 	return &longmemory.IngestInput{
 		UserID:         userID,
 		WorkspaceID:    workspaceID,
+		Scope:          longmemory.ScopeWorkspace,
 		TaskID:         session,
 		Level:          level,
 		Summary:        summary,
@@ -687,24 +755,33 @@ func longTermMemoryInput(userID, session, workspaceID, publicTool string, operat
 	}
 }
 
-func (s *Service) recallLongTermMemory(ctx context.Context, userID, workspaceID string, state taskstate.State) []longmemory.Record {
+func (s *Service) recallLongTermMemory(ctx context.Context, userID, workspaceID string, state taskstate.State) ([]longmemory.Record, longmemory.GraphContext) {
 	if s.Memory == nil || strings.TrimSpace(state.Task) == "" || strings.TrimSpace(workspaceID) == "" {
-		return nil
+		return nil, longmemory.GraphContext{}
 	}
 	recallCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 	defer cancel()
-	records, err := s.Memory.Recall(recallCtx, longmemory.RecallInput{
+	input := longmemory.RecallInput{
 		UserID:      userID,
 		WorkspaceID: workspaceID,
 		Query:       state.Task,
 		Limit:       6,
 		Files:       append([]string(nil), state.TouchedFiles...),
-	})
+	}
+	records, err := s.Memory.Recall(recallCtx, input)
 	if err != nil {
 		slog.Warn("long-term memory recall failed; continuing without cloud memory", "error", err)
-		return nil
+		return nil, longmemory.GraphContext{}
 	}
-	return records
+	graph := longmemory.GraphContext{}
+	if graphStore, ok := s.Memory.(graphMemoryStore); ok && len(records) > 0 {
+		if value, graphErr := graphStore.RecallGraphContext(recallCtx, input, records); graphErr != nil {
+			slog.Warn("memory graph recall failed; continuing with vector memory", "error", graphErr)
+		} else {
+			graph = value
+		}
+	}
+	return records, graph
 }
 
 func (s *Service) ingestLongTermMemoryAsync(userID, session, workspaceID, publicTool string, operation operationInvocation, state taskstate.State, result *mcp.CallToolResult) {
@@ -724,11 +801,209 @@ func (s *Service) ingestLongTermMemoryAsync(userID, session, workspaceID, public
 	}(*input)
 }
 
+func durableMemoryKind(value string) (string, bool) {
+	kind := strings.ToLower(strings.TrimSpace(value))
+	switch kind {
+	case "goal", "preference", "decision", "user_fact", "project_fact", "idea", "constraint", "milestone", "problem", "person", "company":
+		return kind, true
+	default:
+		return "", false
+	}
+}
+
+func durableMemoryScore(value any, fallback float64) float64 {
+	switch typed := value.(type) {
+	case float64:
+		if typed >= 0 && typed <= 1 {
+			return typed
+		}
+	case float32:
+		if typed >= 0 && typed <= 1 {
+			return float64(typed)
+		}
+	case int:
+		if typed >= 0 && typed <= 1 {
+			return float64(typed)
+		}
+	}
+	return fallback
+}
+
+func (s *Service) rememberConversationMemory(ctx context.Context, userID, session string, args map[string]any) (*mcp.CallToolResult, error) {
+	if s.Memory == nil {
+		return errorResult(fmt.Errorf("CodeLocal server memory is disabled")), nil
+	}
+	rawItems, ok := args["memories"].([]any)
+	if !ok || len(rawItems) == 0 {
+		return errorResult(fmt.Errorf("remember requires at least one memory")), nil
+	}
+	if len(rawItems) > 12 {
+		rawItems = rawItems[:12]
+	}
+
+	type candidate struct {
+		kind       string
+		key        string
+		summary    string
+		scope      longmemory.Scope
+		importance float64
+		confidence float64
+	}
+	candidates := make([]candidate, 0, len(rawItems))
+	needsWorkspace := false
+	for index, raw := range rawItems {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return errorResult(fmt.Errorf("memory %d must be an object", index+1)), nil
+		}
+		kind, valid := durableMemoryKind(fmt.Sprint(item["kind"]))
+		if !valid {
+			return errorResult(fmt.Errorf("memory %d has unsupported kind", index+1)), nil
+		}
+		memoryKey, _ := item["key"].(string)
+		memoryKey = strings.ToLower(strings.Join(strings.Fields(longmemory.SanitizeText(memoryKey, 160)), " "))
+		summary := longmemory.SanitizeText(fmt.Sprint(item["summary"]), 900)
+		if strings.TrimSpace(summary) == "" {
+			return errorResult(fmt.Errorf("memory %d requires a non-empty summary", index+1)), nil
+		}
+		scope := longmemory.Scope(strings.ToLower(strings.TrimSpace(fmt.Sprint(item["scope"]))))
+		if scope != longmemory.ScopeGlobal && scope != longmemory.ScopeWorkspace {
+			return errorResult(fmt.Errorf("memory %d scope must be global or workspace", index+1)), nil
+		}
+		if scope == longmemory.ScopeWorkspace {
+			needsWorkspace = true
+		}
+		candidates = append(candidates, candidate{
+			kind:       kind,
+			key:        memoryKey,
+			summary:    summary,
+			scope:      scope,
+			importance: durableMemoryScore(item["importance"], .75),
+			confidence: durableMemoryScore(item["confidence"], .9),
+		})
+	}
+
+	logicalWorkspaceID := ""
+	workspaceKey, _ := args["workspaceKey"].(string)
+	workspaceKey = strings.TrimSpace(workspaceKey)
+	if workspaceKey == "" {
+		workspaceKey = strings.TrimSpace(s.route(userID, session))
+	}
+	if needsWorkspace {
+		if workspaceKey == "" {
+			return errorResult(fmt.Errorf("workspace-scoped memory requires a selected workspace or workspaceKey")), nil
+		}
+		workspace, err := s.Workspaces.Activate(ctx, userID, workspaceKey)
+		if err != nil {
+			return errorResult(err), nil
+		}
+		logicalWorkspaceID = strings.TrimSpace(workspace.WorkspaceID)
+		if logicalWorkspaceID == "" {
+			return errorResult(fmt.Errorf("selected workspace has no stable workspace id")), nil
+		}
+	}
+
+	remembered := make([]map[string]any, 0, len(candidates))
+	for _, item := range candidates {
+		workspaceID := ""
+		if item.scope == longmemory.ScopeWorkspace {
+			workspaceID = logicalWorkspaceID
+		}
+		memoryIdentity := strings.ToLower(item.summary)
+		memorySymbols := []string(nil)
+		if item.key != "" {
+			memoryIdentity = "key:" + item.key
+			memorySymbols = []string{"memory-key:" + item.key}
+		}
+		record, err := s.Memory.Ingest(ctx, longmemory.IngestInput{
+			UserID:         userID,
+			WorkspaceID:    workspaceID,
+			Scope:          item.scope,
+			TaskID:         session,
+			Level:          longmemory.LevelWorkspace,
+			Kind:           item.kind,
+			SourceType:     "conversation",
+			Summary:        item.summary,
+			Symbols:        memorySymbols,
+			Confidence:     item.confidence,
+			Importance:     item.importance,
+			IdempotencyKey: longmemory.IdempotencyKey(userID, string(item.scope), workspaceID, item.kind, memoryIdentity),
+		})
+		if err != nil {
+			return errorResult(err), nil
+		}
+		remembered = append(remembered, map[string]any{
+			"id": record.ID, "scope": record.Scope, "kind": record.Kind,
+		})
+	}
+	return textResult(map[string]any{"remembered": len(remembered), "memories": remembered}, false), nil
+}
+
+func (s *Service) recallConversationMemory(ctx context.Context, userID, session string, args map[string]any) (*mcp.CallToolResult, error) {
+	if s.Memory == nil {
+		return errorResult(fmt.Errorf("CodeLocal server memory is disabled")), nil
+	}
+	query := longmemory.SanitizeText(fmt.Sprint(args["query"]), 1200)
+	if strings.TrimSpace(query) == "" {
+		return errorResult(fmt.Errorf("recall requires a non-empty query")), nil
+	}
+	limit := intValue(args["limit"])
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 20 {
+		limit = 20
+	}
+
+	logicalWorkspaceID := ""
+	workspaceKey, _ := args["workspaceKey"].(string)
+	workspaceKey = strings.TrimSpace(workspaceKey)
+	if workspaceKey == "" {
+		workspaceKey = strings.TrimSpace(s.route(userID, session))
+	}
+	if workspaceKey != "" && s.Workspaces != nil {
+		workspace, err := s.Workspaces.Activate(ctx, userID, workspaceKey)
+		if err != nil {
+			return errorResult(err), nil
+		}
+		logicalWorkspaceID = strings.TrimSpace(workspace.WorkspaceID)
+	}
+
+	recallCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+	defer cancel()
+	input := longmemory.RecallInput{UserID: userID, WorkspaceID: logicalWorkspaceID, Query: query, Limit: limit}
+	records, err := s.Memory.Recall(recallCtx, input)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, map[string]any{
+			"id": record.ID, "scope": record.Scope, "level": record.Level, "kind": record.Kind,
+			"sourceType": record.SourceType, "summary": record.Summary, "branch": record.Branch,
+			"files": record.Files, "score": record.Score, "createdAt": record.CreatedAt, "updatedAt": record.UpdatedAt,
+		})
+	}
+	result := textResult(map[string]any{
+		"query": query, "workspaceId": logicalWorkspaceID, "memories": items,
+	}, false)
+	if graphStore, ok := s.Memory.(graphMemoryStore); ok && len(records) > 0 {
+		graph, graphErr := graphStore.RecallGraphContext(recallCtx, input, records)
+		if graphErr == nil {
+			attachGraphMemoryContext(result, graph)
+		}
+	}
+	return result, nil
+}
+
 func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	session := sessionID(req)
 	workspaceKey := memoryWorkspaceKey(s, userID, session, args)
 	result, err := s.callOperation(ctx, userID, publicTool, operation, args, req)
 	attachRecoveryHint(result)
+	if operation.OperationID == "memory.remember" || operation.OperationID == "memory.recall" {
+		return result, err
+	}
 	if workspaceKey == "" {
 		workspaceKey = strings.TrimSpace(s.route(userID, session))
 	}
@@ -758,7 +1033,7 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		}
 	}
 	if publicTool == "context" && err == nil && result != nil && !result.IsError {
-		recalled := s.recallLongTermMemory(ctx, userID, logicalWorkspaceID, state)
+		recalled, graphContext := s.recallLongTermMemory(ctx, userID, logicalWorkspaceID, state)
 		if checkpoint, ok := agentCheckpointPatch(state, recalled, time.Now()); ok {
 			state = workingMemory.Update(userID, session, workspaceKey, checkpoint)
 		}
@@ -777,6 +1052,7 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		})
 		attachTaskContext(result, state, plan)
 		attachLongTermMemory(result, recalled)
+		attachGraphMemoryContext(result, graphContext)
 	}
 	attachAgentLoop(result, state)
 	s.ingestLongTermMemoryAsync(userID, session, logicalWorkspaceID, publicTool, operation, state, result)

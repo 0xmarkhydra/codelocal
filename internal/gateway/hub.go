@@ -161,6 +161,7 @@ func clientCapabilityMap(client *Client) map[string]any {
 		"mcpHub":               client.Capabilities.MCPHub,
 		"terminalChatApproval": client.Capabilities.TerminalChatApproval,
 		"terminalHistory":      client.Capabilities.TerminalHistory,
+		"learnedSkills":        client.Capabilities.LearnedSkills,
 		"automation":           automationCapabilityMap(client.Capabilities.Automation),
 	}
 	if client.ClientVersion != "" {

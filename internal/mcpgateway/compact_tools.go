@@ -3,13 +3,14 @@ package mcpgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const compactOrchestrationInstructions = `CodeLocal connects ChatGPT to explicitly authorized local workspaces. Reuse the selected workspace and prior results. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. For websites, inspect with browser snapshot/find before interacting. For desktop apps, prefer computer observe and semantic targets; use raw element IDs or coordinates only as fallbacks. Browser and Computer Use are separate opt-in domains, and first-run consent never replaces action-level approval. Avoid repeated inspection unless state changed. Local security policy and ChatGPT approvals remain authoritative for side effects.`
+const compactOrchestrationInstructions = `CodeLocal connects ChatGPT to explicitly authorized local workspaces. Reuse the selected workspace and prior results. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. For websites, inspect with browser snapshot/find before interacting. For desktop apps, prefer computer observe and semantic targets; use raw element IDs or coordinates only as fallbacks. For repeatable multi-step browser/desktop workflows, prefer agent with the concrete user objective and semantic steps so verified runs can be learned locally and replayed as a faster path on similar future requests. When the user explicitly asks to remember something, or states a durable goal, preference, constraint, milestone or confirmed project decision that materially affects future work, workspace(action=remember) can persist a compact sanitized fact to CodeLocal memory; use a stable memory key for facts whose value may change. When prior durable user/project context may materially affect an answer, workspace(action=recall) can retrieve it with a focused query, including global memory without selecting a workspace. Do not store secrets or routine small talk. Browser and Computer Use are separate opt-in domains, and first-run consent never replaces action-level approval. Avoid repeated inspection unless state changed. Local security policy and ChatGPT approvals remain authoritative for side effects.`
 
 type compactToolDef struct {
 	Name        string
@@ -63,7 +64,7 @@ func resolveAction(args map[string]any, actions map[string]string, required map[
 	action = strings.TrimSpace(action)
 	runtimeTool := actions[action]
 	if runtimeTool == "" {
-		return operationInvocation{}, nil, fmt.Errorf("unsupported action %q", action)
+		return operationInvocation{}, nil, unsupportedActionSchemaError(action)
 	}
 	forward := cloneArgs(args)
 	delete(forward, "action")
@@ -102,9 +103,22 @@ func compactToolDefinitions() []compactToolDef {
 		"required":             []string{"tool"},
 		"additionalProperties": false,
 	}
+	memoryItem := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"kind":       map[string]any{"type": "string", "enum": []string{"goal", "preference", "decision", "user_fact", "project_fact", "idea", "constraint", "milestone", "problem", "person", "company"}, "description": "Durable fact category."},
+			"key":        map[string]any{"type": "string", "minLength": 1, "maxLength": 160, "description": "Optional stable fact key. Reuse the same key when a mutable fact changes so the latest value replaces the older one, for example user.goal.codelocal_users."},
+			"summary":    map[string]any{"type": "string", "minLength": 1, "maxLength": 1200, "description": "Compact fact to remember. Never include secrets."},
+			"scope":      map[string]any{"type": "string", "enum": []string{"global", "workspace"}, "description": "Global user memory or current-workspace memory."},
+			"importance": map[string]any{"type": "number", "minimum": 0, "maximum": 1, "description": "Optional importance score."},
+			"confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1, "description": "Optional confidence score."},
+		},
+		"required":             []string{"kind", "summary", "scope"},
+		"additionalProperties": false,
+	}
 
 	deviceActions := map[string]string{"active": "list_devices", "paired": "list_device_identities", "rename": "rename_device", "revoke": "revoke_device"}
-	workspaceActions := map[string]string{"list": "list_workspaces", "select": "select_workspace", "info": "workspace_info"}
+	workspaceActions := map[string]string{"list": "list_workspaces", "select": "select_workspace", "info": "workspace_info", "remember": "memory_remember", "recall": "memory_recall"}
 	projectActions := map[string]string{"info": "project_info", "map": "project_map", "instructions": "read_instructions"}
 	readActions := map[string]string{"info": "file_info", "file": "read_file", "range": "read_file_range", "many": "read_files"}
 	searchActions := map[string]string{"files": "list_files", "text": "search_code"}
@@ -136,11 +150,16 @@ func compactToolDefinitions() []compactToolDef {
 			},
 		},
 		{
-			Name: "workspace", Title: "Manage workspaces", Description: "List, select, or inspect an authorized CodeLocal workspace. Reuse the current selection instead of selecting repeatedly.",
-			Schema:      actionSchema([]string{"list", "select", "info"}, map[string]any{"key": str("Workspace key returned by action=list.")}),
-			Annotations: compactAnnotations("Manage workspaces", false, false, false),
+			Name: "workspace", Title: "Manage workspaces and memory", Description: "List, select, inspect an authorized CodeLocal workspace, remember durable user/project facts, or recall relevant durable memory. Global recall works without a selected workspace; selecting a workspace also includes workspace-scoped memory.",
+			Schema: actionSchema([]string{"list", "select", "info", "remember", "recall"}, map[string]any{
+				"key":      str("Workspace key returned by action=list."),
+				"query":    str("Focused natural-language memory query for action=recall."),
+				"limit":    integer("Maximum recalled memories.", 1, 20),
+				"memories": map[string]any{"type": "array", "minItems": 1, "maxItems": 12, "items": memoryItem, "description": "Durable sanitized facts to persist. Global facts do not require a workspace; workspace facts use workspaceKey/current selection. Use a stable key for mutable facts so later updates replace older values."},
+			}),
+			Annotations: compactAnnotations("Manage workspaces and memory", false, false, false),
 			Resolve: func(args map[string]any) (operationInvocation, map[string]any, error) {
-				return resolveAction(args, workspaceActions, map[string][]string{"select": {"key"}})
+				return resolveAction(args, workspaceActions, map[string][]string{"select": {"key"}, "remember": {"memories"}, "recall": {"query"}})
 			},
 		},
 		{
@@ -280,21 +299,40 @@ func registerCompactTools(server *mcp.Server, service *Service, userID string) {
 	for _, def := range compactToolDefinitions() {
 		definition := def
 		server.AddTool(&mcp.Tool{Name: def.Name, Title: def.Title, Annotations: def.Annotations, Description: def.Description, InputSchema: def.Schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			legacyTool := staleToolSchemaFromContext(ctx)
+			wrap := func(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
+				if legacyTool != "" {
+					result = appendCompatibilityNotice(result, staleToolSchemaNotice(legacyTool))
+				}
+				return result, err
+			}
 			args, err := decodeArgs(req)
 			if err != nil {
-				return errorResult(err), nil
+				return wrap(errorResult(err), nil)
 			}
 			if definition.Execute != nil {
-				return definition.Execute(ctx, service, userID, args, req)
+				result, callErr := definition.Execute(ctx, service, userID, args, req)
+				return wrap(result, callErr)
 			}
 			if definition.Resolve == nil {
-				return errorResult(fmt.Errorf("compact tool %s has no resolver", definition.Name)), nil
+				return wrap(errorResult(fmt.Errorf("compact tool %s has no resolver", definition.Name)), nil)
 			}
 			operation, forward, err := definition.Resolve(args)
 			if err != nil {
-				return errorResult(err), nil
+				var schemaErr *toolSchemaMismatchError
+				if errors.As(err, &schemaErr) {
+					return wrap(textResult(map[string]any{
+						"error":       err.Error(),
+						"code":        "CODELOCAL_TOOL_SCHEMA_MISMATCH",
+						"tool":        definition.Name,
+						"toolSurface": PublicToolSurface(),
+						"action":      "reconnect_codelocal_mcp",
+					}, true), nil)
+				}
+				return wrap(errorResult(err), nil)
 			}
-			return service.callOperationRemembering(ctx, userID, definition.Name, operation, forward, req)
+			result, callErr := service.callOperationRemembering(ctx, userID, definition.Name, operation, forward, req)
+			return wrap(result, callErr)
 		})
 	}
 }

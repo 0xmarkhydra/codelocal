@@ -177,8 +177,17 @@ func (s *Service) Handler() http.Handler {
 		}
 		return s.serverFor(claims.Subject)
 	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true, MaxRequestBodyBytes: 4 << 20})
-	return statefulMCPCompatibility(stream)
+	surface := PublicToolSurface()
+	compatible := statefulMCPCompatibility(stream)
+	withSurface := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-CodeLocal-Tool-Surface-Version", fmt.Sprint(surface.Version))
+		w.Header().Set("X-CodeLocal-Tool-Surface-Hash", surface.Hash)
+		compatible.ServeHTTP(w, r)
+	})
+	return withSurface
 }
+
+func (s *Service) ToolSurface() ToolSurfaceInfo { return PublicToolSurface() }
 
 func (s *Service) serverFor(userID string) *mcp.Server {
 	s.mu.Lock()
@@ -186,7 +195,8 @@ func (s *Service) serverFor(userID string) *mcp.Server {
 	if existing := s.servers[userID]; existing != nil {
 		return existing
 	}
-	server := mcp.NewServer(&mcp.Implementation{Name: "codelocal", Version: version.Version}, &mcp.ServerOptions{Instructions: compactOrchestrationInstructions})
+	instructions := compactOrchestrationInstructions + "\n\nCompatibility: " + toolSurfaceSummary() + ". If CodeLocal reports CODELOCAL_TOOL_SCHEMA_STALE or CODELOCAL_TOOL_SCHEMA_MISMATCH, finish the current request when possible and tell the user to reconnect the CodeLocal MCP in ChatGPT so the current tool schema is loaded."
+	server := mcp.NewServer(&mcp.Implementation{Name: "codelocal", Version: version.Version}, &mcp.ServerOptions{Instructions: instructions})
 	registerCompactTools(server, s, userID)
 	s.servers[userID] = server
 	return server
@@ -210,16 +220,26 @@ func decodeArgs(req *mcp.CallToolRequest) (map[string]any, error) {
 }
 func textResultWithNotice(value any, isError bool, notice string) *mcp.CallToolResult {
 	var text string
-	var structured any
+	structured := map[string]any{}
 	if raw, err := json.Marshal(value); err == nil {
 		text = string(raw)
-		// Normalize structs and aliases to plain JSON values before handing them to
-		// MCP clients. Text stays available for compatibility, while clients that
-		// understand structuredContent do not need to parse pretty-printed JSON.
-		_ = json.Unmarshal(raw, &structured)
+		// MCP structuredContent is object-shaped. Runtime operations such as
+		// computer_list_windows legitimately return a top-level array, so keep the
+		// compatibility text unchanged but wrap non-object JSON values for clients
+		// that validate structuredContent strictly.
+		var normalized any
+		if json.Unmarshal(raw, &normalized) == nil {
+			if root, ok := normalized.(map[string]any); ok {
+				structured = root
+			} else {
+				structured["result"] = normalized
+			}
+		}
 	} else {
 		text = fmt.Sprint(value)
+		structured["result"] = text
 	}
+	structured["codeLocalToolSurface"] = PublicToolSurface()
 	if strings.TrimSpace(notice) != "" {
 		text = notice + "\n\n" + text
 	}
@@ -327,7 +347,21 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 	usageDeviceID = workspace.DeviceID
 	usageWorkspaceID = workspace.WorkspaceID
 	if err := ensureOperationSupported(operation, workspace); err != nil {
-		return errorResult(err), nil
+		compatibility := map[string]any{
+			"error":                  err.Error(),
+			"code":                   "CODELOCAL_OPERATION_UNSUPPORTED",
+			"installedClientVersion": workspace.ClientVersion,
+			"protocolVersion":        workspace.ProtocolVersion,
+			"toolSurface":            PublicToolSurface(),
+		}
+		if update := clientupdate.Evaluate(workspace.ClientVersion, s.Release); update != nil {
+			compatibility["updateAvailable"] = true
+			compatibility["latestClientVersion"] = update.LatestVersion
+			compatibility["updateCommand"] = update.UpdateCommand
+			compatibility["restartCommand"] = update.RestartCommand
+		}
+		notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
+		return textResultWithNotice(compatibility, true, notice), nil
 	}
 	requestID := cloud.RandomHex(16)
 	result, callErr := s.Hub.Call(ctx, userID, key, session, operation.RuntimeTool, args, operation.SideEffecting, requestID)
@@ -467,6 +501,10 @@ func (s *Service) callLocal(ctx context.Context, userID, session, tool string, a
 		}
 		notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
 		return textResultWithNotice(workspace, false, notice), nil
+	case "memory_remember":
+		return s.rememberConversationMemory(ctx, userID, session, args)
+	case "memory_recall":
+		return s.recallConversationMemory(ctx, userID, session, args)
 	default:
 		return errorResult(errors.New("unknown local MCP tool")), nil
 	}

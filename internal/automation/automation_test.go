@@ -74,6 +74,20 @@ func TestComputerPolicyRequiresFreshApprovalForPhysicalFallback(t *testing.T) {
 	}
 }
 
+func TestScreenMainInputIsPhysicalBeforeFirstApproval(t *testing.T) {
+	for _, operation := range []string{"click", "type"} {
+		args := map[string]any{"windowId": "screen:main"}
+		target := "Custom control"
+		if !computerActionUsesPhysicalInput(operation, args, target) {
+			t.Fatalf("screen:main %s must be classified as physical before authorization", operation)
+		}
+		decision := ClassifyAutomation(Action{Domain: "computer", Operation: operation, Origin: "screen:main", Target: target, Physical: true})
+		if decision.ApprovalPolicy != security.ApprovalAlways || !strings.Contains(decision.Reason, "physical desktop input") {
+			t.Fatalf("screen:main %s should issue one physical-input approval challenge: %+v", operation, decision)
+		}
+	}
+}
+
 func TestComputerPolicyRequiresFreshApprovalForUnscopedInput(t *testing.T) {
 	for _, action := range []Action{
 		{Domain: "computer", Operation: "click", Origin: "ax:123:0"},

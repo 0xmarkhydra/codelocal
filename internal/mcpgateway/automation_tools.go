@@ -217,6 +217,7 @@ func toolResultWithNotice(value any, isError bool, notice string) *mcp.CallToolR
 	if raw, err := json.MarshalIndent(metadata, "", "  "); err == nil {
 		text = string(raw)
 	}
+	metadata["codeLocalToolSurface"] = PublicToolSurface()
 	if strings.TrimSpace(notice) != "" {
 		text = notice + "\n\n" + text
 	}

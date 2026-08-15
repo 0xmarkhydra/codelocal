@@ -2,9 +2,12 @@ package localclient
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/0xmarkhydra/codelocal/internal/protocol"
 )
 
 func newTestEngine(t *testing.T) *Engine {
@@ -93,4 +96,59 @@ func TestSideEffectingToolIdempotencyReusesCompletedResult(t *testing.T) {
 	if string(data) != "second" {
 		t.Fatalf("idempotent retry changed file: %q", data)
 	}
+}
+
+func TestLearnedSkillPrivateRuntimeOperations(t *testing.T) {
+	engine := newTestEngine(t)
+	steps := []any{
+		map[string]any{"tool": "terminal", "args": map[string]any{"action": "run", "command": "xcrun simctl launch booted vn.infivision.biddi.dev"}},
+		map[string]any{"tool": "computer", "args": map[string]any{"action": "observe"}},
+	}
+	recorded, err := engine.Handle(context.Background(), "learned_skill_record", map[string]any{
+		"intent": "mở BIDDI Beta", "taskKind": "desktop", "steps": steps, "verified": true,
+	}, HandleOptions{RequestID: "skill-record"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordState, ok := recorded.(map[string]any)
+	if !ok || recordState["recipe"] == nil {
+		t.Fatalf("unexpected learned skill record result: %#v", recorded)
+	}
+
+	matched, err := engine.Handle(context.Background(), "learned_skill_match", map[string]any{
+		"intent": "mở app BIDDI Beta", "taskKind": "desktop",
+	}, HandleOptions{RequestID: "skill-match"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matchState, ok := matched.(map[string]any)
+	if !ok || matchState["match"] == nil {
+		t.Fatalf("expected private learned skill match, got %#v", matched)
+	}
+}
+
+func TestProjectInfoReportsCurrentProtocolVersion(t *testing.T) {
+	engine := newTestEngine(t)
+	result, err := engine.Handle(context.Background(), "project_info", nil, HandleOptions{RequestID: "project-info"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("project_info returned %T, want map", result)
+	}
+	if got := asInt(info["protocolVersion"], 0); got != protocol.Version {
+		t.Fatalf("project_info protocolVersion = %d, want %d", got, protocol.Version)
+	}
+	capabilities, ok := info["capabilities"].([]string)
+	if !ok {
+		t.Fatalf("project_info capabilities = %#v, want []string", info["capabilities"])
+	}
+	want := fmt.Sprintf("protocol-v%d", protocol.Version)
+	for _, capability := range capabilities {
+		if capability == want {
+			return
+		}
+	}
+	t.Fatalf("project_info capabilities = %#v, missing %q", capabilities, want)
 }

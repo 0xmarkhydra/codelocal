@@ -68,7 +68,8 @@ func universalCompactArgs(action string) map[string]any {
 		"content": "content", "oldText": "old", "newText": "new", "patch": "diff --git a/a b/a", "files": []any{map[string]any{"path": "file.go", "edits": []any{map[string]any{"replacement": "x"}}}},
 		"message": "commit", "command": "go test ./...", "processId": "process", "input": "input", "cols": 120, "rows": 36,
 		"server": "server", "tool": "tool", "id": "approval", "actionKey": "approval-key",
-		"url": "https://example.com", "ref": "e1", "text": "input", "windowId": "window-1", "elementId": "element-1",
+		"memories": []any{map[string]any{"kind": "goal", "summary": "Ship CodeLocal", "scope": "global"}},
+		"url":      "https://example.com", "ref": "e1", "text": "input", "windowId": "window-1", "elementId": "element-1",
 		"steps": []any{map[string]any{"action": "click", "target": "Save"}},
 		"x":     100, "y": 100, "deltaX": 0, "deltaY": 100, "fromX": 10, "fromY": 10, "toX": 100, "toY": 100,
 	}
@@ -179,7 +180,7 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return s.serverFor("test-user")
 	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
-	httpServer := httptest.NewServer(statefulMCPCompatibility(stream))
+	httpServer := httptest.NewServer(LegacyToolCallCompatibility(statefulMCPCompatibility(stream)))
 	defer httpServer.Close()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-compact-call-test", Version: "1"}, nil)
@@ -212,12 +213,28 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 		t.Fatalf("compact result should keep compact JSON text compatibility: %#v", result.Content[0])
 	}
 
+	legacy, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_devices", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("legacy tool should be translated for an already-open stale thread: %v", err)
+	}
+	if legacy.IsError || len(legacy.Content) < 2 {
+		t.Fatalf("legacy compatibility result missing notice: %#v", legacy)
+	}
+	legacyNotice, ok := legacy.Content[0].(*mcp.TextContent)
+	if !ok || !strings.Contains(legacyNotice.Text, "CODELOCAL_TOOL_SCHEMA_STALE") || !strings.Contains(legacyNotice.Text, "Reconnect") {
+		t.Fatalf("legacy compatibility notice missing reconnect guidance: %#v", legacy.Content[0])
+	}
+
 	invalid, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "device", Arguments: map[string]any{"action": "not-real"}})
 	if err != nil {
 		t.Fatalf("invalid compact action should be model-visible tool error, got protocol error: %v", err)
 	}
 	if !invalid.IsError {
 		t.Fatal("invalid compact action must return an MCP tool error")
+	}
+	invalidStructured, ok := invalid.StructuredContent.(map[string]any)
+	if !ok || invalidStructured["code"] != "CODELOCAL_TOOL_SCHEMA_MISMATCH" {
+		t.Fatalf("invalid action must be classified as schema mismatch: %#v", invalid.StructuredContent)
 	}
 }
 

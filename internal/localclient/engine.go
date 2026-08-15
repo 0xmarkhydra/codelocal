@@ -23,6 +23,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/editing"
 	"github.com/0xmarkhydra/codelocal/internal/history"
 	"github.com/0xmarkhydra/codelocal/internal/idempotency"
+	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/localfs"
 	"github.com/0xmarkhydra/codelocal/internal/mcphub"
 	processmgr "github.com/0xmarkhydra/codelocal/internal/process"
@@ -49,6 +50,7 @@ type Engine struct {
 	History       *history.Terminal
 	Journal       *idempotency.Journal
 	MCP           *mcphub.Hub
+	Skills        *learnedskills.Store
 	mu            sync.Mutex
 	baselines     map[string][]map[string]any
 }
@@ -68,7 +70,7 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	if approvalMode == "" {
 		approvalMode = "prompt"
 	}
-	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.New(fs), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), baselines: map[string][]map[string]any{}}
+	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.New(fs), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
 	engine.Processes = processmgr.NewManager(fs.Root, workspaceKey, func(record *processmgr.Record, stream, value string) {}, func(record *processmgr.Record) {
 		_, _ = terminalHistory.Finished(record)
 		engine.Project.Invalidate()
@@ -575,6 +577,27 @@ func fileEditArgs(args map[string]any) ([]editing.FileEdit, error) {
 	return out, nil
 }
 
+func learnedSkillSteps(value any) ([]learnedskills.Step, error) {
+	raw, ok := value.([]any)
+	if !ok {
+		if typed, ok := value.([]learnedskills.Step); ok {
+			return typed, nil
+		}
+		return nil, errors.New("learned skill steps must be an array")
+	}
+	steps := make([]learnedskills.Step, 0, len(raw))
+	for index, item := range raw {
+		entry := object(item)
+		tool := strings.TrimSpace(asString(entry["tool"]))
+		if tool == "" {
+			return nil, fmt.Errorf("learned skill step %d requires tool", index+1)
+		}
+		args := object(entry["args"])
+		steps = append(steps, learnedskills.Step{Tool: tool, Args: args})
+	}
+	return steps, nil
+}
+
 func (e *Engine) Handle(ctx context.Context, tool string, args map[string]any, opts HandleOptions) (any, error) {
 	key := strings.TrimSpace(opts.IdempotencyKey)
 	if !protocol.SideEffecting(tool) || key == "" {
@@ -621,11 +644,24 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	}
 	audit.Write(audit.Event{Event: "tool.call", RequestID: opts.RequestID, MCPSessionID: opts.SessionID, WorkspaceKey: e.WorkspaceKey, Tool: tool, Detail: args})
 	switch tool {
+	case "learned_skill_match":
+		recipe, err := e.Skills.Match(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]))
+		return map[string]any{"match": recipe}, err
+	case "learned_skill_record":
+		steps, err := learnedSkillSteps(args["steps"])
+		if err != nil {
+			return nil, err
+		}
+		recipe, err := e.Skills.Record(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]), steps, asBool(args["verified"], false))
+		return map[string]any{"recipe": recipe}, err
+	case "learned_skill_feedback":
+		recipe, err := e.Skills.Feedback(e.WorkspaceKey, asString(args["id"]), asBool(args["success"], false))
+		return map[string]any{"recipe": recipe}, err
 	case "project_info":
 		projectMap, _ := e.Project.Map(false)
 		instructions, _ := e.readInstructions(".")
 		branch, _ := runGit(e.Root, "branch", "--show-current")
-		return map[string]any{"protocolVersion": 2, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": projectMap, "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "rememberable approvals are stored only on this machine and scoped to the workspace", "critical actions always require fresh confirmation in ChatGPT", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": e.ApprovalMode, "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{"protocol-v2", "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "audit"}}, nil
+		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": projectMap, "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "rememberable approvals are stored only on this machine and scoped to the workspace", "critical actions always require fresh confirmation in ChatGPT", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": e.ApprovalMode, "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
 	case "project_map":
 		return e.Project.Map(asBool(args["force"], false))
 	case "context_for_task":

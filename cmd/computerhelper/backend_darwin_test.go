@@ -65,6 +65,14 @@ func TestMacSemanticFastPathDoesNotSynthesizePhysicalInput(t *testing.T) {
 	}
 }
 
+func TestMacSemanticFastPathRejectsAmbiguousTargets(t *testing.T) {
+	for _, script := range []string{macSemanticActionScript, macPersistentWorkerScript} {
+		if !strings.Contains(script, "runnerUpScore") || !strings.Contains(script, "ambiguous accessible UI target") {
+			t.Fatal("semantic accessibility fast path must reject near-tied targets instead of clicking traversal-order winners")
+		}
+	}
+}
+
 func TestMacV2CapabilitiesAdvertisePersistentEngine(t *testing.T) {
 	caps := platformCapabilities()
 	if value, _ := caps["engine"].(string); value != "computer-v2" {
@@ -75,6 +83,18 @@ func TestMacV2CapabilitiesAdvertisePersistentEngine(t *testing.T) {
 	}
 	if streaming, _ := caps["screenCaptureStreaming"].(bool); streaming {
 		t.Fatal("ScreenCaptureKit streaming must not be advertised before it is implemented")
+	}
+}
+
+func TestMacPersistentWindowEnumerationAvoidsWhoseVisibleFilter(t *testing.T) {
+	if strings.Contains(macPersistentWorkerScript, "applicationProcesses.whose({visible:true})") {
+		t.Fatal("persistent window enumeration must avoid the fragile JXA whose visible filter")
+	}
+	if !strings.Contains(macPersistentWorkerScript, "applicationProcesses()") || !strings.Contains(macPersistentWorkerScript, "p.visible()") {
+		t.Fatal("persistent window enumeration should enumerate processes then filter visibility explicitly")
+	}
+	if macPersistentWindowBudget < 1500*time.Millisecond {
+		t.Fatalf("persistent window cold-start budget too small: %s", macPersistentWindowBudget)
 	}
 }
 
