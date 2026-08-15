@@ -20,6 +20,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/identity"
 	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/localclient"
+	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/security"
@@ -44,6 +45,9 @@ type Runtime struct {
 	mu                      sync.Mutex
 	workers                 map[string]*WorkspaceWorker
 	projectIdentities       map[string]projectidentity.Snapshot
+	knowledgeManifests      map[string]projectbrain.Manifest
+	knowledgeBaseRevisions  map[string]map[string]string
+	syncedKnowledgeRoots    map[string]string
 	stopped                 bool
 	pollCancel              context.CancelFunc
 	syncedRegistrySignature string
@@ -84,7 +88,7 @@ func New(options Options) *Runtime {
 	if options.IdleWorkspace <= 0 {
 		options.IdleWorkspace = 20 * time.Minute
 	}
-	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}, projectIdentities: map[string]projectidentity.Snapshot{}}
+	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}, projectIdentities: map[string]projectidentity.Snapshot{}, knowledgeManifests: map[string]projectbrain.Manifest{}, knowledgeBaseRevisions: map[string]map[string]string{}, syncedKnowledgeRoots: map[string]string{}}
 }
 func normalizeBase(value string) string { return strings.TrimRight(value, "/") }
 func wsURL(base string) string {
@@ -172,13 +176,45 @@ func learnedSkillMetadataSnapshot(store *learnedskills.Store, deviceID, workspac
 	return items, strings.Join(signature, "|")
 }
 
+type workspaceSyncResponse struct {
+	Knowledge map[string]cloud.KnowledgeManifestSyncResult `json:"knowledge"`
+}
+
+func copyRevisionMap(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func (r *Runtime) knowledgeManifestForWorkspace(w workspace.Workspace, cached projectbrain.Manifest, reconcile bool) (projectbrain.Manifest, error) {
+	r.mu.Lock()
+	worker := r.workers[w.WorkspaceID]
+	r.mu.Unlock()
+	if worker != nil && worker.Engine != nil && worker.Engine.Project != nil {
+		projectMap, err := worker.Engine.Project.Map(false)
+		if err != nil {
+			return cached, err
+		}
+		return projectbrain.CloudSafeManifest(projectbrain.FromProjectMap(projectMap)), nil
+	}
+	if !reconcile && cached.RootHash != "" {
+		return cached, nil
+	}
+	manifest, err := projectbrain.Collect(w.LocalPath)
+	if err != nil {
+		return cached, err
+	}
+	return projectbrain.CloudSafeManifest(manifest), nil
+}
+
 func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Workspace, error) {
 	items, err := r.Registry.List()
 	if err != nil {
 		return nil, err
 	}
 	registrySig := registrySignature(items)
-	signature := registrySig
 	skillStore := learnedskills.New()
 	skillVersions := make([]string, 0, len(items))
 	for _, item := range items {
@@ -186,7 +222,7 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 		skillVersions = append(skillVersions, item.WorkspaceID+"="+skillStore.MetadataVersion(workspaceKey))
 	}
 	sort.Strings(skillVersions)
-	signature += "\nlearned-skills\n" + strings.Join(skillVersions, "\n")
+
 	authorized := make(map[string]struct{}, len(items))
 	for _, item := range items {
 		authorized[item.WorkspaceID] = struct{}{}
@@ -199,42 +235,86 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 		}
 	}
 	now := time.Now().UnixMilli()
-	unchanged := signature == r.syncedSignature
 	registryChanged := registrySig != r.syncedRegistrySignature
 	projectRefreshDue := force || registryChanged || projectIdentityRefreshDue(r.lastProjectIdentitySync, now)
 	cachedIdentities := make(map[string]projectidentity.Snapshot, len(r.projectIdentities))
 	for id, snapshot := range r.projectIdentities {
 		cachedIdentities[id] = snapshot
 	}
+	cachedManifests := make(map[string]projectbrain.Manifest, len(r.knowledgeManifests))
+	for id, manifest := range r.knowledgeManifests {
+		cachedManifests[id] = manifest
+	}
+	baseRevisions := make(map[string]map[string]string, len(r.knowledgeBaseRevisions))
+	for id, revisions := range r.knowledgeBaseRevisions {
+		baseRevisions[id] = copyRevisionMap(revisions)
+	}
+	syncedRoots := make(map[string]string, len(r.syncedKnowledgeRoots))
+	for id, root := range r.syncedKnowledgeRoots {
+		syncedRoots[id] = root
+	}
 	r.mu.Unlock()
 	for _, worker := range staleWorkers {
 		go worker.Stop("workspace authorization removed")
 	}
-	if !force && unchanged && !projectRefreshDue {
-		return items, nil
-	}
-	workspaces := make([]map[string]any, 0, len(items))
+
 	nextIdentities := make(map[string]projectidentity.Snapshot, len(items))
+	nextManifests := make(map[string]projectbrain.Manifest, len(items))
+	manifestVersions := make([]string, 0, len(items))
 	for _, w := range items {
 		identity, cached := cachedIdentities[w.WorkspaceID]
 		if projectRefreshDue || !cached {
 			identity = projectidentity.Discover(w.LocalPath, w.WorkspaceName)
 		}
 		nextIdentities[w.WorkspaceID] = identity
+		manifest, manifestErr := r.knowledgeManifestForWorkspace(w, cachedManifests[w.WorkspaceID], projectRefreshDue)
+		if manifestErr != nil {
+			slog.Debug("project knowledge manifest refresh failed; retaining prior manifest", "workspaceId", w.WorkspaceID, "error", manifestErr)
+			manifest = cachedManifests[w.WorkspaceID]
+		}
+		nextManifests[w.WorkspaceID] = manifest
+		manifestVersions = append(manifestVersions, w.WorkspaceID+"="+manifest.RootHash)
+	}
+	sort.Strings(manifestVersions)
+	signature := registrySig + "\nlearned-skills\n" + strings.Join(skillVersions, "\n") + "\nproject-knowledge\n" + strings.Join(manifestVersions, "\n")
+	r.mu.Lock()
+	unchanged := signature == r.syncedSignature
+	r.mu.Unlock()
+	if !force && unchanged && !projectRefreshDue {
+		return items, nil
+	}
+
+	workspaces := make([]map[string]any, 0, len(items))
+	for _, w := range items {
 		skillMetadata, _ := learnedSkillMetadataSnapshot(skillStore, r.Options.Credential.DeviceID, w.WorkspaceID)
-		workspaces = append(workspaces, map[string]any{
+		entry := map[string]any{
 			"workspaceId": w.WorkspaceID, "workspaceName": w.WorkspaceName,
-			"projectIdentity": identity, "learnedSkills": skillMetadata,
-		})
+			"projectIdentity": nextIdentities[w.WorkspaceID], "learnedSkills": skillMetadata,
+		}
+		manifest := nextManifests[w.WorkspaceID]
+		if manifest.RootHash != "" && (force || manifest.RootHash != syncedRoots[w.WorkspaceID]) {
+			entry["knowledgeManifest"] = projectbrain.WithBaseRevisions(manifest, baseRevisions[w.WorkspaceID])
+		}
+		workspaces = append(workspaces, entry)
 	}
 	payload := map[string]any{"clientVersion": version.Version, "workspaces": workspaces}
-	if err := r.post(ctx, "/api/client/workspaces/sync", payload, &map[string]any{}); err != nil {
+	var response workspaceSyncResponse
+	if err := r.post(ctx, "/api/client/workspaces/sync", payload, &response); err != nil {
 		return nil, err
 	}
+
 	r.mu.Lock()
 	r.syncedRegistrySignature = registrySig
 	r.syncedSignature = signature
 	r.projectIdentities = nextIdentities
+	r.knowledgeManifests = nextManifests
+	for workspaceID, result := range response.Knowledge {
+		if strings.TrimSpace(result.RootHash) == "" {
+			continue
+		}
+		r.syncedKnowledgeRoots[workspaceID] = result.RootHash
+		r.knowledgeBaseRevisions[workspaceID] = copyRevisionMap(result.ActiveRevisions)
+	}
 	if projectRefreshDue {
 		r.lastProjectIdentitySync = now
 	}

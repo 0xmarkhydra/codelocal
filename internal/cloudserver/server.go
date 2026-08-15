@@ -26,6 +26,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
 	"github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/oauth"
+	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/ui"
@@ -775,10 +776,11 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ClientVersion string `json:"clientVersion"`
 		Workspaces    []struct {
-			WorkspaceID     string                       `json:"workspaceId"`
-			WorkspaceName   string                       `json:"workspaceName"`
-			ProjectIdentity projectidentity.Snapshot     `json:"projectIdentity"`
-			LearnedSkills   []cloud.LearnedSkillMetadata `json:"learnedSkills"`
+			WorkspaceID       string                       `json:"workspaceId"`
+			WorkspaceName     string                       `json:"workspaceName"`
+			ProjectIdentity   projectidentity.Snapshot     `json:"projectIdentity"`
+			LearnedSkills     []cloud.LearnedSkillMetadata `json:"learnedSkills"`
+			KnowledgeManifest *projectbrain.Manifest       `json:"knowledgeManifest,omitempty"`
 		} `json:"workspaces"`
 	}
 	if webutil.DecodeJSON(r, 1<<20, &input) != nil {
@@ -791,6 +793,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 
 	ids := make([]string, 0, len(input.Workspaces))
 	synced := 0
+	knowledgeResults := map[string]cloud.KnowledgeManifestSyncResult{}
 	validID := regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`)
 	for _, item := range input.Workspaces {
 		if !validID.MatchString(item.WorkspaceID) {
@@ -823,8 +826,18 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		if _, err := s.Store.ResolveWorkspaceProject(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, item.ProjectIdentity); err != nil {
-			slog.Warn("workspace project identity resolution failed; workspace remains usable", "workspaceId", item.WorkspaceID, "error", err)
+		binding, bindingErr := s.Store.ResolveWorkspaceProject(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, item.ProjectIdentity)
+		if bindingErr != nil {
+			slog.Warn("workspace project identity resolution failed; workspace remains usable", "workspaceId", item.WorkspaceID, "error", bindingErr)
+		}
+		if bindingErr == nil && binding.ProjectID != "" && item.KnowledgeManifest != nil {
+			result, knowledgeErr := s.Store.SyncKnowledgeManifest(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, binding.ProjectID, item.ProjectIdentity.Repositories, *item.KnowledgeManifest)
+			if knowledgeErr != nil {
+				slog.Warn("project knowledge manifest sync failed", "workspaceId", item.WorkspaceID, "projectId", binding.ProjectID, "error", knowledgeErr)
+				webutil.JSON(w, http.StatusInternalServerError, map[string]any{"error": "knowledge_sync_failed", "workspaceId": item.WorkspaceID})
+				return
+			}
+			knowledgeResults[item.WorkspaceID] = result
 		}
 		if err := s.Store.SyncLearnedSkillMetadata(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, item.LearnedSkills); err != nil {
 			slog.Warn("learned skill metadata sync failed; local skills remain authoritative", "workspaceId", item.WorkspaceID, "error", err)
@@ -845,7 +858,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Activation.Heartbeat(r.Context(), device.UserID, device.DeviceID, ids, 45*time.Second)
 	s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "runtime.workspaces_synced", DeviceID: device.DeviceID, Detail: map[string]any{"count": synced, "removed": len(removed)}})
-	webutil.JSON(w, http.StatusOK, map[string]any{"synced": synced, "removed": len(removed), "syncedAt": time.Now().UnixMilli()})
+	webutil.JSON(w, http.StatusOK, map[string]any{"synced": synced, "removed": len(removed), "knowledge": knowledgeResults, "syncedAt": time.Now().UnixMilli()})
 }
 
 func truncate(value string, n int) string {

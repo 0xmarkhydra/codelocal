@@ -756,6 +756,29 @@ CREATE TRIGGER trg_codelocal_knowledge_revision_immutable
  BEFORE UPDATE ON codelocal_knowledge_source_revisions
  FOR EACH ROW EXECUTE FUNCTION codelocal_reject_knowledge_revision_update();
 `},
+		{21, `
+CREATE TABLE IF NOT EXISTS codelocal_knowledge_conflicts (
+ user_id TEXT NOT NULL,
+ conflict_id TEXT NOT NULL,
+ source_id TEXT NOT NULL,
+ active_revision_id TEXT NOT NULL,
+ candidate_revision_id TEXT NOT NULL,
+ status TEXT NOT NULL CHECK (status IN ('open','resolved','dismissed')),
+ created_at BIGINT NOT NULL,
+ updated_at BIGINT NOT NULL,
+ resolved_at BIGINT,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ PRIMARY KEY(user_id,conflict_id),
+ FOREIGN KEY(user_id,source_id) REFERENCES codelocal_knowledge_sources(user_id,source_id) ON DELETE CASCADE,
+ FOREIGN KEY(user_id,active_revision_id) REFERENCES codelocal_knowledge_source_revisions(user_id,revision_id),
+ FOREIGN KEY(user_id,candidate_revision_id) REFERENCES codelocal_knowledge_source_revisions(user_id,revision_id),
+ CHECK (active_revision_id <> candidate_revision_id)
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_source
+ ON codelocal_knowledge_conflicts(user_id,source_id,updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_open
+ ON codelocal_knowledge_conflicts(user_id,updated_at DESC) WHERE status='open';
+`},
 	}
 	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
 	for _, migration := range migrations {
