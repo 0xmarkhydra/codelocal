@@ -1,5 +1,7 @@
 # CodeLocal / codex-mcp Roadmap
 
+> Project Brain architecture, durable knowledge, rules/skills discovery, cross-device learning, Context Compiler, and the measurable strategy for competing beyond Codex/Claude are defined in [`PROJECT_BRAIN_MASTER_PLAN.md`](./PROJECT_BRAIN_MASTER_PLAN.md). Treat that document as the source of truth for the intelligence layer.
+
 ## Goal
 
 Build a remote MCP coding bridge that gives ChatGPT/Codex a local execution and code-intelligence layer comparable to the practical capabilities of Codex CLI, while keeping the model reasoning in ChatGPT and keeping filesystem/shell execution on the user's own machine.
