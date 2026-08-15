@@ -29,6 +29,7 @@ import (
 	processmgr "github.com/0xmarkhydra/codelocal/internal/process"
 	"github.com/0xmarkhydra/codelocal/internal/project"
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
+	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/security"
 	"github.com/0xmarkhydra/codelocal/internal/version"
@@ -496,6 +497,9 @@ func (e *Engine) attachProjectBrainContext(result map[string]any) {
 	}
 	packet := projectbrain.CompileContext(resolved, 8000)
 	result["projectBrain"] = packet
+	if branch, err := runGit(e.Root, "branch", "--show-current"); err == nil {
+		result["gitBranch"] = strings.TrimSpace(asString(branch["stdout"]))
+	}
 	if budget, ok := result["contextBudget"].(map[string]any); ok {
 		budget["projectBrainMaxChars"] = packet.Budget.MaxChars
 		budget["projectBrainUsedChars"] = packet.Budget.UsedChars
@@ -634,6 +638,75 @@ func fileEditArgs(args map[string]any) ([]editing.FileEdit, error) {
 	return out, nil
 }
 
+func stableProjectID(snapshot projectidentity.Snapshot) string {
+	if marker := strings.TrimSpace(snapshot.MarkerProjectID); marker != "" {
+		return marker
+	}
+	ids := make([]string, 0, len(snapshot.Repositories))
+	for _, repository := range snapshot.Repositories {
+		if id := strings.TrimSpace(repository.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
+	return fmt.Sprintf("reposet_%x", sum[:12])
+}
+
+func (e *Engine) currentLearnedSkillContext() *learnedskills.ContextFingerprint {
+	if e == nil || e.FS == nil || e.Project == nil {
+		return nil
+	}
+	projectMap, err := e.Project.Map(false)
+	if err != nil {
+		return nil
+	}
+	manifest := projectbrain.FromProjectMap(projectMap)
+	identity := projectidentity.Discover(e.Root, e.WorkspaceName)
+	repositoryIDs := make([]string, 0, len(identity.Repositories))
+	for _, repository := range identity.Repositories {
+		if id := strings.TrimSpace(repository.ID); id != "" {
+			repositoryIDs = append(repositoryIDs, id)
+		}
+	}
+	sort.Strings(repositoryIDs)
+	workflowFiles := map[string]string{}
+	for _, candidate := range []string{"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "go.mod", "go.sum", "Cargo.toml", "Cargo.lock", "Makefile", "Dockerfile", "railway.toml"} {
+		info, infoErr := e.FS.FileInfo(candidate)
+		if infoErr != nil {
+			continue
+		}
+		if hash := strings.TrimSpace(asString(info["hash"])); hash != "" {
+			workflowFiles[candidate] = hash
+		}
+	}
+	workflowKeys := make([]string, 0, len(workflowFiles))
+	for key := range workflowFiles {
+		workflowKeys = append(workflowKeys, key)
+	}
+	sort.Strings(workflowKeys)
+	dependencyParts := make([]string, 0, len(workflowKeys)*2)
+	for _, key := range workflowKeys {
+		dependencyParts = append(dependencyParts, key, workflowFiles[key])
+	}
+	dependencyHash := ""
+	if len(dependencyParts) > 0 {
+		sum := sha256.Sum256([]byte(strings.Join(dependencyParts, "\x00")))
+		dependencyHash = fmt.Sprintf("%x", sum[:])
+	}
+	branch := ""
+	if result, gitErr := runGit(e.Root, "branch", "--show-current"); gitErr == nil {
+		branch = strings.TrimSpace(asString(result["stdout"]))
+	}
+	return &learnedskills.ContextFingerprint{
+		ProjectID: stableProjectID(identity), RepositoryIDs: repositoryIDs, RulesHash: manifest.RootHash,
+		DependencyHash: dependencyHash, WorkflowFiles: workflowFiles, BranchPolicy: "any", Branch: branch,
+	}
+}
+
 func learnedSkillSteps(value any) ([]learnedskills.Step, error) {
 	raw, ok := value.([]any)
 	if !ok {
@@ -713,19 +786,20 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 				"status": recipe.Status, "confidence": recipe.Confidence,
 				"successCount": recipe.SuccessCount, "failureCount": recipe.FailureCount,
 				"createdAt": recipe.CreatedAt, "updatedAt": recipe.UpdatedAt, "lastUsedAt": recipe.LastUsedAt,
+				"contextHash": recipe.ContextHash, "staleReason": recipe.StaleReason,
 				"stepCount": len(recipe.Steps), "source": "local",
 			})
 		}
 		return map[string]any{"skills": items, "source": "local"}, nil
 	case "learned_skill_match":
-		recipe, err := e.Skills.Match(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]))
+		recipe, err := e.Skills.MatchWithContext(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]), e.currentLearnedSkillContext())
 		return map[string]any{"match": recipe}, err
 	case "learned_skill_record":
 		steps, err := learnedSkillSteps(args["steps"])
 		if err != nil {
 			return nil, err
 		}
-		recipe, err := e.Skills.Record(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]), steps, asBool(args["verified"], false))
+		recipe, err := e.Skills.RecordWithContext(e.WorkspaceKey, asString(args["intent"]), asString(args["taskKind"]), steps, asBool(args["verified"], false), e.currentLearnedSkillContext())
 		return map[string]any{"recipe": recipe}, err
 	case "learned_skill_feedback":
 		recipe, err := e.Skills.Feedback(e.WorkspaceKey, asString(args["id"]), asBool(args["success"], false))

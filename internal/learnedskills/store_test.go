@@ -114,6 +114,58 @@ func TestRecordRequiresVerifiedExecution(t *testing.T) {
 	}
 }
 
+func TestContextFingerprintStalesAndRevalidatesSkill(t *testing.T) {
+	store := newTestStore(t)
+	steps := []Step{{Tool: "computer", Args: map[string]any{"action": "observe"}}}
+	base := &ContextFingerprint{ProjectID: "project-a", RepositoryIDs: []string{"repo-a"}, RulesHash: "rules-a", DependencyHash: "deps-a", WorkflowFiles: map[string]string{"go.mod": "hash-a"}, BranchPolicy: "any", Branch: "dev"}
+	recipe, err := store.RecordWithContext("device::context", "inspect project", "code", steps, true, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recipe.ContextHash == "" || recipe.Context == nil {
+		t.Fatalf("context fingerprint missing: %#v", recipe)
+	}
+	matched, err := store.MatchWithContext("device::context", "inspect project", "code", base)
+	if err != nil || matched == nil {
+		t.Fatalf("same context should match: match=%#v err=%v", matched, err)
+	}
+
+	changed := *base
+	changed.RulesHash = "rules-b"
+	matched, err = store.MatchWithContext("device::context", "inspect project", "code", &changed)
+	if err != nil || matched != nil {
+		t.Fatalf("material rule change should block replay: match=%#v err=%v", matched, err)
+	}
+	items, err := store.List("device::context", 10)
+	if err != nil || len(items) != 1 || items[0].Status != StatusStale || items[0].StaleReason != "rules_changed" {
+		t.Fatalf("skill should persist stale status: %#v err=%v", items, err)
+	}
+	matched, err = store.MatchWithContext("device::context", "inspect project", "code", base)
+	if err != nil || matched == nil || matched.Status != StatusCandidate {
+		t.Fatalf("returning to compatible context should revalidate prior status: match=%#v err=%v", matched, err)
+	}
+}
+
+func TestContextFingerprintBranchPolicyAndLegacyCompatibility(t *testing.T) {
+	store := newTestStore(t)
+	steps := []Step{{Tool: "computer", Args: map[string]any{"action": "observe"}}}
+	exact := &ContextFingerprint{ProjectID: "project", RulesHash: "rules", BranchPolicy: "exact", Branch: "dev"}
+	if _, err := store.RecordWithContext("device::branch", "branch workflow", "code", steps, true, exact); err != nil {
+		t.Fatal(err)
+	}
+	other := *exact
+	other.Branch = "release"
+	if match, err := store.MatchWithContext("device::branch", "branch workflow", "code", &other); err != nil || match != nil {
+		t.Fatalf("exact branch mismatch must not replay: match=%#v err=%v", match, err)
+	}
+	if _, err := store.Record("device::legacy", "legacy workflow", "code", steps, true); err != nil {
+		t.Fatal(err)
+	}
+	if match, err := store.MatchWithContext("device::legacy", "legacy workflow", "code", &other); err != nil || match == nil {
+		t.Fatalf("legacy skill without fingerprint must remain compatible: match=%#v err=%v", match, err)
+	}
+}
+
 func TestRecipesAreWorkspaceScopedAndPrivate(t *testing.T) {
 	store := newTestStore(t)
 	steps := []Step{{Tool: "browser", Args: map[string]any{"action": "open", "url": "https://example.com"}}, {Tool: "browser", Args: map[string]any{"action": "snapshot"}}}

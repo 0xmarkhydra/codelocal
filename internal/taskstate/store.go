@@ -33,6 +33,8 @@ type State struct {
 	DiffObserved         bool      `json:"diffObserved,omitempty"`
 	QualityScore         int       `json:"qualityScore,omitempty"`
 	QualityStatus        string    `json:"qualityStatus,omitempty"`
+	RulesHash            string    `json:"rulesHash,omitempty"`
+	ContextHash          string    `json:"contextHash,omitempty"`
 	UpdatedAt            time.Time `json:"updatedAt"`
 }
 
@@ -60,6 +62,8 @@ type Patch struct {
 	DiffObserved          *bool
 	QualityScore          *int
 	QualityStatus         string
+	RulesHash             string
+	ContextHash           string
 }
 
 type Store struct {
@@ -200,6 +204,8 @@ func resetAgentState(state *State) {
 	state.DiffObserved = false
 	state.QualityScore = 0
 	state.QualityStatus = ""
+	state.RulesHash = ""
+	state.ContextHash = ""
 }
 
 func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) State {
@@ -275,6 +281,12 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 	}
 	if value := strings.TrimSpace(patch.QualityStatus); value != "" {
 		state.QualityStatus = value
+	}
+	if value := strings.TrimSpace(patch.RulesHash); value != "" {
+		state.RulesHash = value
+	}
+	if value := strings.TrimSpace(patch.ContextHash); value != "" {
+		state.ContextHash = value
 	}
 	state.UpdatedAt = now
 	s.states[key] = state

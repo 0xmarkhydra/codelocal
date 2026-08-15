@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	longmemory "github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/orchestration"
@@ -235,6 +236,12 @@ func taskPatchForOperation(publicTool string, operation operationInvocation, arg
 		if task, _ := args["taskHint"].(string); task != "" {
 			patch.Task = sanitizeTaskMemoryText(task)
 		}
+		if root := resultRoot(result); root != nil {
+			brain := nestedMap(root["projectBrain"])
+			patch.RulesHash = sanitizeTaskMemoryText(fmt.Sprint(brain["ruleFingerprint"]))
+			patch.ContextHash = sanitizeTaskMemoryText(fmt.Sprint(brain["fingerprint"]))
+			patch.Branch = sanitizeTaskMemoryText(fmt.Sprint(root["gitBranch"]))
+		}
 	}
 	if publicTool == "edit" {
 		if path, _ := args["path"].(string); strings.TrimSpace(path) != "" {
@@ -410,6 +417,8 @@ func carryTaskStatePatch(state taskstate.State) taskstate.Patch {
 		DiffObserved:          boolPointer(state.DiffObserved),
 		QualityScore:          intPointer(state.QualityScore),
 		QualityStatus:         state.QualityStatus,
+		RulesHash:             state.RulesHash,
+		ContextHash:           state.ContextHash,
 	}
 }
 
@@ -467,6 +476,8 @@ func attachTaskContext(result *mcp.CallToolResult, state taskstate.State, plan o
 		"diffObserved":         state.DiffObserved,
 		"qualityScore":         state.QualityScore,
 		"qualityStatus":        state.QualityStatus,
+		"rulesHash":            state.RulesHash,
+		"contextHash":          state.ContextHash,
 	}
 	root["routeHint"] = plan.Route
 	root["agentPlan"] = plan
@@ -880,6 +891,7 @@ func (s *Service) recallLongTermMemory(ctx context.Context, userID, deviceID, wo
 		ProjectID:     projectID,
 		RepositoryIDs: s.repositoryIDsForWorkspaceFiles(recallCtx, userID, projectID, deviceID, workspaceID, state.TouchedFiles),
 		Query:         state.Task,
+		Branch:        state.Branch,
 		Limit:         6,
 		Files:         append([]string(nil), state.TouchedFiles...),
 	}
@@ -899,10 +911,38 @@ func (s *Service) recallLongTermMemory(ctx context.Context, userID, deviceID, wo
 	return records, graph
 }
 
+func (s *Service) recordVerifiedExperienceAsync(userID, session, deviceID, workspaceID, publicTool string, state taskstate.State, result *mcp.CallToolResult) {
+	if s == nil || s.Store == nil || result == nil || result.IsError || strings.TrimSpace(state.Task) == "" || state.QualityStatus != "ready" || !state.VerificationSeen || state.DiagnosticRegression > 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		projectID := s.projectIDForWorkspace(ctx, userID, workspaceID)
+		repositoryID := ""
+		if repoIDs := s.repositoryIDsForWorkspaceFiles(ctx, userID, projectID, deviceID, workspaceID, state.TouchedFiles); len(repoIDs) == 1 {
+			repositoryID = repoIDs[0]
+		}
+		verificationSummary := fmt.Sprintf("Verified ready quality gate; quality=%d; passed=%d; required=%d; diffObserved=%t; diagnosticRegression=%d", state.QualityScore, len(state.PassedChecks), len(state.RequiredChecks), state.DiffObserved, state.DiagnosticRegression)
+		input := cloud.ExperienceInput{
+			UserID: userID, ProjectID: projectID, RepositoryID: repositoryID, WorkspaceID: workspaceID, DeviceID: deviceID,
+			TaskID: session, TaskKind: publicTool, Objective: state.Task, Branch: state.Branch,
+			Files: append([]string(nil), state.TouchedFiles...), Symbols: agentCheckpointSymbols(state), Checks: append([]string(nil), state.PassedChecks...),
+			Outcome: "succeeded", RulesHash: state.RulesHash, ContextHash: state.ContextHash, VerificationSummary: verificationSummary, Verified: true,
+			IdempotencyKey: longmemory.IdempotencyKey(userID, session, projectID, repositoryID, state.Task, state.RulesHash, state.ContextHash, "verified-ready"),
+			Metadata:       map[string]any{"qualityScore": state.QualityScore, "diffObserved": state.DiffObserved, "source": "codelocal-verification"},
+		}
+		if _, err := s.Store.RecordExperience(ctx, input); err != nil {
+			slog.Warn("verified experience record failed; tool result remains valid", "error", err)
+		}
+	}()
+}
+
 func (s *Service) ingestLongTermMemoryAsync(userID, session, deviceID, workspaceID, publicTool string, operation operationInvocation, state taskstate.State, result *mcp.CallToolResult) {
 	if s.Memory == nil {
 		return
 	}
+	s.recordVerifiedExperienceAsync(userID, session, deviceID, workspaceID, publicTool, state, result)
 	input := longTermMemoryInput(userID, session, workspaceID, publicTool, operation, state, result)
 	if input == nil {
 		return

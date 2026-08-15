@@ -779,6 +779,47 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_source
 CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_open
  ON codelocal_knowledge_conflicts(user_id,updated_at DESC) WHERE status='open';
 `},
+		{22, `
+CREATE TABLE IF NOT EXISTS codelocal_experiences (
+ user_id TEXT NOT NULL,
+ experience_id TEXT NOT NULL,
+ project_id TEXT,
+ repository_id TEXT,
+ workspace_id TEXT,
+ device_id TEXT,
+ task_id TEXT,
+ task_kind TEXT,
+ objective TEXT NOT NULL,
+ branch TEXT,
+ files JSONB NOT NULL DEFAULT '[]'::jsonb,
+ symbols JSONB NOT NULL DEFAULT '[]'::jsonb,
+ checks JSONB NOT NULL DEFAULT '[]'::jsonb,
+ outcome TEXT NOT NULL CHECK (outcome IN ('succeeded','failed')),
+ root_cause TEXT,
+ skill_id TEXT,
+ rules_hash TEXT,
+ context_hash TEXT,
+ verification_summary TEXT NOT NULL,
+ created_at BIGINT NOT NULL,
+ metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+ PRIMARY KEY(user_id,experience_id),
+ FOREIGN KEY(user_id,project_id) REFERENCES codelocal_projects(user_id,project_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_experiences_project
+ ON codelocal_experiences(user_id,project_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_codelocal_experiences_repository
+ ON codelocal_experiences(user_id,project_id,repository_id,created_at DESC) WHERE repository_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_codelocal_experiences_task
+ ON codelocal_experiences(user_id,task_kind,created_at DESC);
+`},
+		{23, `
+ALTER TABLE codelocal_memories ADD COLUMN IF NOT EXISTS lifecycle_status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE codelocal_memories DROP CONSTRAINT IF EXISTS codelocal_memories_lifecycle_status_check;
+ALTER TABLE codelocal_memories ADD CONSTRAINT codelocal_memories_lifecycle_status_check
+ CHECK (lifecycle_status IN ('observed','confirmed','active','stale','superseded','invalidated'));
+CREATE INDEX IF NOT EXISTS idx_codelocal_memories_lifecycle
+ ON codelocal_memories(user_id,lifecycle_status,updated_at DESC);
+`},
 	}
 	nonTransactionalMigrations := map[int]bool{14: true, 15: true, 16: true}
 	for _, migration := range migrations {

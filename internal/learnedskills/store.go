@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	Version           = 1
+	Version           = 2
 	StatusCandidate   = "candidate"
 	StatusTrusted     = "trusted"
+	StatusStale       = "stale"
 	maxRecipes        = 128
 	initialConfidence = 0.65
 )
@@ -31,21 +32,37 @@ type Step struct {
 	Args map[string]any `json:"args,omitempty"`
 }
 
+type ContextFingerprint struct {
+	ProjectID            string            `json:"projectId,omitempty"`
+	RepositoryIDs        []string          `json:"repositoryIds,omitempty"`
+	Module               string            `json:"module,omitempty"`
+	RulesHash            string            `json:"rulesHash,omitempty"`
+	DependencyHash       string            `json:"dependencyHash,omitempty"`
+	WorkflowFiles        map[string]string `json:"workflowFiles,omitempty"`
+	BranchPolicy         string            `json:"branchPolicy,omitempty"`
+	Branch               string            `json:"branch,omitempty"`
+	RequiredCapabilities []string          `json:"requiredCapabilities,omitempty"`
+}
+
 type Recipe struct {
-	ID           string  `json:"id"`
-	Version      int     `json:"version"`
-	WorkspaceKey string  `json:"workspaceKey"`
-	Intent       string  `json:"intent"`
-	TaskKind     string  `json:"taskKind,omitempty"`
-	Steps        []Step  `json:"steps"`
-	Confidence   float64 `json:"confidence"`
-	SuccessCount int     `json:"successCount"`
-	FailureCount int     `json:"failureCount"`
-	Status       string  `json:"status"`
-	CreatedAt    int64   `json:"createdAt"`
-	UpdatedAt    int64   `json:"updatedAt"`
-	LastUsedAt   int64   `json:"lastUsedAt,omitempty"`
-	MatchScore   float64 `json:"matchScore,omitempty"`
+	ID                string              `json:"id"`
+	Version           int                 `json:"version"`
+	WorkspaceKey      string              `json:"workspaceKey"`
+	Intent            string              `json:"intent"`
+	TaskKind          string              `json:"taskKind,omitempty"`
+	Steps             []Step              `json:"steps"`
+	Confidence        float64             `json:"confidence"`
+	SuccessCount      int                 `json:"successCount"`
+	FailureCount      int                 `json:"failureCount"`
+	Status            string              `json:"status"`
+	CreatedAt         int64               `json:"createdAt"`
+	UpdatedAt         int64               `json:"updatedAt"`
+	LastUsedAt        int64               `json:"lastUsedAt,omitempty"`
+	MatchScore        float64             `json:"matchScore,omitempty"`
+	Context           *ContextFingerprint `json:"context,omitempty"`
+	ContextHash       string              `json:"contextHash,omitempty"`
+	StatusBeforeStale string              `json:"statusBeforeStale,omitempty"`
+	StaleReason       string              `json:"staleReason,omitempty"`
 }
 
 type fileState struct {
@@ -98,7 +115,111 @@ func cloneSteps(steps []Step) []Step {
 
 func cloneRecipe(recipe Recipe) Recipe {
 	recipe.Steps = cloneSteps(recipe.Steps)
+	if recipe.Context != nil {
+		raw, _ := json.Marshal(recipe.Context)
+		var fingerprint ContextFingerprint
+		_ = json.Unmarshal(raw, &fingerprint)
+		recipe.Context = &fingerprint
+	}
 	return recipe
+}
+
+func normalizeFingerprintList(values []string) []string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeFingerprint(input *ContextFingerprint) *ContextFingerprint {
+	if input == nil {
+		return nil
+	}
+	out := *input
+	out.ProjectID = strings.TrimSpace(out.ProjectID)
+	out.RepositoryIDs = normalizeFingerprintList(out.RepositoryIDs)
+	out.Module = strings.TrimSpace(out.Module)
+	out.RulesHash = strings.TrimSpace(out.RulesHash)
+	out.DependencyHash = strings.TrimSpace(out.DependencyHash)
+	out.BranchPolicy = strings.ToLower(strings.TrimSpace(out.BranchPolicy))
+	if out.BranchPolicy == "" {
+		out.BranchPolicy = "any"
+	}
+	if out.BranchPolicy != "exact" {
+		out.BranchPolicy = "any"
+	}
+	out.Branch = strings.TrimSpace(out.Branch)
+	out.RequiredCapabilities = normalizeFingerprintList(out.RequiredCapabilities)
+	if len(out.WorkflowFiles) > 0 {
+		clean := map[string]string{}
+		for key, value := range out.WorkflowFiles {
+			key = strings.TrimSpace(strings.ReplaceAll(key, "\\", "/"))
+			value = strings.TrimSpace(value)
+			if key != "" && value != "" {
+				clean[key] = value
+			}
+		}
+		out.WorkflowFiles = clean
+	}
+	return &out
+}
+
+func FingerprintHash(input *ContextFingerprint) string {
+	input = normalizeFingerprint(input)
+	if input == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(input)
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func ContextCompatible(stored, current *ContextFingerprint) (bool, string) {
+	stored = normalizeFingerprint(stored)
+	current = normalizeFingerprint(current)
+	if stored == nil || current == nil {
+		return true, "legacy_or_unspecified_context"
+	}
+	if stored.ProjectID != "" && current.ProjectID != "" && stored.ProjectID != current.ProjectID {
+		return false, "project_changed"
+	}
+	if strings.Join(stored.RepositoryIDs, "\x00") != strings.Join(current.RepositoryIDs, "\x00") && len(stored.RepositoryIDs) > 0 && len(current.RepositoryIDs) > 0 {
+		return false, "repository_set_changed"
+	}
+	if stored.Module != "" && current.Module != "" && stored.Module != current.Module {
+		return false, "module_changed"
+	}
+	if stored.RulesHash != "" && current.RulesHash != "" && stored.RulesHash != current.RulesHash {
+		return false, "rules_changed"
+	}
+	if stored.DependencyHash != "" && current.DependencyHash != "" && stored.DependencyHash != current.DependencyHash {
+		return false, "dependencies_changed"
+	}
+	if stored.BranchPolicy == "exact" && stored.Branch != "" && current.Branch != "" && stored.Branch != current.Branch {
+		return false, "branch_changed"
+	}
+	if strings.Join(stored.RequiredCapabilities, "\x00") != strings.Join(current.RequiredCapabilities, "\x00") && len(stored.RequiredCapabilities) > 0 {
+		return false, "required_capabilities_changed"
+	}
+	if len(stored.WorkflowFiles) > 0 {
+		for key, hash := range stored.WorkflowFiles {
+			if current.WorkflowFiles[key] != hash {
+				return false, "workflow_file_changed:" + key
+			}
+		}
+	}
+	return true, "compatible"
 }
 
 func normalizeIntent(value string) string {
@@ -221,6 +342,10 @@ func (s *Store) write(workspaceKey string, recipes []Recipe) error {
 }
 
 func (s *Store) Record(workspaceKey, intent, taskKind string, steps []Step, verified bool) (*Recipe, error) {
+	return s.RecordWithContext(workspaceKey, intent, taskKind, steps, verified, nil)
+}
+
+func (s *Store) RecordWithContext(workspaceKey, intent, taskKind string, steps []Step, verified bool, contextFingerprint *ContextFingerprint) (*Recipe, error) {
 	workspaceKey = strings.TrimSpace(workspaceKey)
 	intent = strings.TrimSpace(intent)
 	if workspaceKey == "" || intent == "" {
@@ -246,7 +371,8 @@ func (s *Store) Record(workspaceKey, intent, taskKind string, steps []Step, veri
 	}
 	now := time.Now().UnixMilli()
 	id := recipeID(workspaceKey, intent, steps)
-	recipe := Recipe{ID: id, Version: Version, WorkspaceKey: workspaceKey, Intent: intent, TaskKind: strings.TrimSpace(taskKind), Steps: cloneSteps(steps), Confidence: initialConfidence, SuccessCount: 1, Status: StatusCandidate, CreatedAt: now, UpdatedAt: now, LastUsedAt: now}
+	fingerprint := normalizeFingerprint(contextFingerprint)
+	recipe := Recipe{ID: id, Version: Version, WorkspaceKey: workspaceKey, Intent: intent, TaskKind: strings.TrimSpace(taskKind), Steps: cloneSteps(steps), Confidence: initialConfidence, SuccessCount: 1, Status: StatusCandidate, CreatedAt: now, UpdatedAt: now, LastUsedAt: now, Context: fingerprint, ContextHash: FingerprintHash(fingerprint)}
 	for _, previous := range data.Recipes {
 		if previous.ID == id {
 			recipe.CreatedAt = previous.CreatedAt
@@ -301,6 +427,10 @@ func (s *Store) List(workspaceKey string, limit int) ([]Recipe, error) {
 }
 
 func (s *Store) Match(workspaceKey, intent, taskKind string) (*Recipe, error) {
+	return s.MatchWithContext(workspaceKey, intent, taskKind, nil)
+}
+
+func (s *Store) MatchWithContext(workspaceKey, intent, taskKind string, currentContext *ContextFingerprint) (*Recipe, error) {
 	workspaceKey = strings.TrimSpace(workspaceKey)
 	intent = strings.TrimSpace(intent)
 	if workspaceKey == "" || intent == "" {
@@ -313,9 +443,35 @@ func (s *Store) Match(workspaceKey, intent, taskKind string) (*Recipe, error) {
 		return nil, err
 	}
 	var best *Recipe
-	for _, item := range data.Recipes {
+	dirty := false
+	for index := range data.Recipes {
+		item := &data.Recipes[index]
 		if taskKind != "" && item.TaskKind != "" && item.TaskKind != taskKind {
 			continue
+		}
+		compatible, reason := ContextCompatible(item.Context, currentContext)
+		if !compatible {
+			if item.Status != StatusStale || item.StaleReason != reason {
+				if item.Status != StatusStale {
+					item.StatusBeforeStale = item.Status
+				}
+				item.Status = StatusStale
+				item.StaleReason = reason
+				item.UpdatedAt = time.Now().UnixMilli()
+				dirty = true
+			}
+			continue
+		}
+		if item.Status == StatusStale {
+			restored := item.StatusBeforeStale
+			if restored != StatusTrusted && restored != StatusCandidate {
+				restored = StatusCandidate
+			}
+			item.Status = restored
+			item.StatusBeforeStale = ""
+			item.StaleReason = ""
+			item.UpdatedAt = time.Now().UnixMilli()
+			dirty = true
 		}
 		similarity := intentSimilarity(intent, item.Intent)
 		score := 0.72*similarity + 0.28*item.Confidence
@@ -326,9 +482,14 @@ func (s *Store) Match(workspaceKey, intent, taskKind string) (*Recipe, error) {
 			continue
 		}
 		if best == nil || score > best.MatchScore {
-			copy := cloneRecipe(item)
+			copy := cloneRecipe(*item)
 			copy.MatchScore = score
 			best = &copy
+		}
+	}
+	if dirty {
+		if err := s.write(workspaceKey, data.Recipes); err != nil {
+			return nil, err
 		}
 	}
 	return best, nil

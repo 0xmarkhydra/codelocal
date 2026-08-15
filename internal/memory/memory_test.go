@@ -92,6 +92,38 @@ func TestRankBoostsCurrentRepositoryAndProjectMemory(t *testing.T) {
 	}
 }
 
+func TestRankPrefersExactBranchAndActiveLifecycle(t *testing.T) {
+	now := time.Now().UnixMilli()
+	input := RecallInput{Branch: "dev", ProjectID: "project-a"}
+	base := Record{Scope: ScopeProject, ProjectID: "project-a", CreatedAt: now, UpdatedAt: now, Confidence: .8, Importance: .8, LexicalScore: .5, VectorScore: .5, Lifecycle: LifecycleActive}
+	exact := base
+	exact.Branch = "dev"
+	agnostic := base
+	agnostic.Branch = ""
+	other := base
+	other.Branch = "release"
+	if Score(exact, input, now) <= Score(agnostic, input, now) || Score(agnostic, input, now) <= Score(other, input, now) {
+		t.Fatalf("branch ordering wrong exact=%.3f agnostic=%.3f other=%.3f", Score(exact, input, now), Score(agnostic, input, now), Score(other, input, now))
+	}
+	stale := exact
+	stale.Lifecycle = LifecycleStale
+	if Score(exact, input, now) <= Score(stale, input, now) {
+		t.Fatal("active memory must outrank otherwise-equal stale memory")
+	}
+	if lifecycleScore(LifecycleInvalidated) != 0 || lifecycleScore(LifecycleSuperseded) != 0 {
+		t.Fatal("invalidated/superseded lifecycle must have zero quality weight")
+	}
+}
+
+func TestNormalizeLifecycleDefaultsLegacyRowsToActive(t *testing.T) {
+	if got := normalizeLifecycle(""); got != LifecycleActive {
+		t.Fatalf("legacy lifecycle=%q want active", got)
+	}
+	if got := normalizeLifecycle(LifecycleConfirmed); got != LifecycleConfirmed {
+		t.Fatalf("confirmed lifecycle normalized to %q", got)
+	}
+}
+
 func TestNormalizeWorkspaceRelativePathRejectsEscapes(t *testing.T) {
 	if got := normalizeWorkspaceRelativePath("services/product/main.go"); got != "services/product/main.go" {
 		t.Fatalf("unexpected normalized workspace path: %q", got)

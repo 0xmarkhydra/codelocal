@@ -11,6 +11,7 @@ import (
 
 type Level string
 type Scope string
+type LifecycleStatus string
 
 const (
 	LevelEvent     Level = "event"
@@ -21,6 +22,13 @@ const (
 	ScopeRepository Scope = "repository"
 	ScopeProject    Scope = "project"
 	ScopeGlobal     Scope = "global"
+
+	LifecycleObserved    LifecycleStatus = "observed"
+	LifecycleConfirmed   LifecycleStatus = "confirmed"
+	LifecycleActive      LifecycleStatus = "active"
+	LifecycleStale       LifecycleStatus = "stale"
+	LifecycleSuperseded  LifecycleStatus = "superseded"
+	LifecycleInvalidated LifecycleStatus = "invalidated"
 )
 
 type Record struct {
@@ -36,6 +44,7 @@ type Record struct {
 	SourceType   string
 	Summary      string
 	Branch       string
+	Lifecycle    LifecycleStatus
 	Files        []string
 	Symbols      []string
 	Confidence   float64
@@ -60,6 +69,7 @@ type IngestInput struct {
 	SourceType     string
 	Summary        string
 	Branch         string
+	Lifecycle      LifecycleStatus
 	Files          []string
 	Symbols        []string
 	Confidence     float64
@@ -73,6 +83,7 @@ type RecallInput struct {
 	ProjectID     string
 	RepositoryIDs []string
 	Query         string
+	Branch        string
 	Limit         int
 	Files         []string
 	Symbols       []string
@@ -182,6 +193,47 @@ func memoryFreshnessAt(candidate Record) int64 {
 	return candidate.CreatedAt
 }
 
+func normalizeLifecycle(status LifecycleStatus) LifecycleStatus {
+	switch status {
+	case LifecycleObserved, LifecycleConfirmed, LifecycleActive, LifecycleStale, LifecycleSuperseded, LifecycleInvalidated:
+		return status
+	default:
+		return LifecycleActive
+	}
+}
+
+func lifecycleScore(status LifecycleStatus) float64 {
+	switch normalizeLifecycle(status) {
+	case LifecycleObserved:
+		return .55
+	case LifecycleConfirmed:
+		return .8
+	case LifecycleActive:
+		return 1
+	case LifecycleStale:
+		return .3
+	case LifecycleSuperseded, LifecycleInvalidated:
+		return 0
+	default:
+		return .5
+	}
+}
+
+func branchApplicabilityScore(candidate Record, input RecallInput) float64 {
+	current := strings.TrimSpace(input.Branch)
+	memoryBranch := strings.TrimSpace(candidate.Branch)
+	if memoryBranch == "" {
+		return .7
+	}
+	if current == "" {
+		return .45
+	}
+	if memoryBranch == current {
+		return 1
+	}
+	return .12
+}
+
 func memoryLocalityScore(candidate Record, input RecallInput) float64 {
 	switch candidate.Scope {
 	case ScopeWorkspace:
@@ -212,14 +264,16 @@ func memoryLocalityScore(candidate Record, input RecallInput) float64 {
 }
 
 func Score(candidate Record, input RecallInput, now int64) float64 {
-	return candidate.LexicalScore*0.30 +
-		candidate.VectorScore*0.34 +
-		recencyScore(memoryFreshnessAt(candidate), now)*0.09 +
-		clamp01(candidate.Confidence, 0.7)*0.07 +
-		clamp01(candidate.Importance, 0.5)*0.06 +
-		overlapScore(input.Files, candidate.Files)*0.05 +
-		overlapScore(input.Symbols, candidate.Symbols)*0.03 +
-		memoryLocalityScore(candidate, input)*0.06
+	return candidate.LexicalScore*0.27 +
+		candidate.VectorScore*0.30 +
+		recencyScore(memoryFreshnessAt(candidate), now)*0.08 +
+		clamp01(candidate.Confidence, 0.7)*0.06 +
+		clamp01(candidate.Importance, 0.5)*0.05 +
+		overlapScore(input.Files, candidate.Files)*0.04 +
+		overlapScore(input.Symbols, candidate.Symbols)*0.02 +
+		memoryLocalityScore(candidate, input)*0.05 +
+		branchApplicabilityScore(candidate, input)*0.07 +
+		lifecycleScore(candidate.Lifecycle)*0.06
 }
 
 func Rank(records []Record, input RecallInput, now int64) []Record {
