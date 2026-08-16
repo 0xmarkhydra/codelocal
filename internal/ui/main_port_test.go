@@ -147,12 +147,17 @@ func TestDashboardOverviewUsesHeroInsteadOfRedundantPageHeader(t *testing.T) {
 	}
 }
 
-func TestDashboardPolishRemovesDecorativeBarsAndKeepsDistinctChatGPTMark(t *testing.T) {
-	if !strings.Contains(iosDashboardTheme, `.dashboard-body .nav a.active:before{display:none}`) {
-		t.Fatal("active navigation must not render the extra left indicator bar")
-	}
-	if !strings.Contains(iosDashboardTheme, `.dashboard-body .metric-card:before{display:none}`) {
-		t.Fatal("dashboard metric cards must not render decorative color bars")
+func TestDashboardPolishUsesRestrainedSurfacesAndKeepsDistinctChatGPTMark(t *testing.T) {
+	for _, want := range []string{
+		`.dashboard-body .nav a.active:before{display:none}`,
+		`.dashboard-body .metric-card:before{display:none}`,
+		`.dashboard-body .shell:before,.dashboard-body .shell:after,.dashboard-body .main:before{display:none}`,
+		`.dashboard-body .card{border-color:#e5e7eb;border-radius:14px;background:#fff;backdrop-filter:none;`,
+		`.dashboard-body .btn.primary{border-color:#246bfd;background:#246bfd;box-shadow:none}`,
+	} {
+		if !strings.Contains(iosDashboardTheme, want) {
+			t.Fatalf("dashboard de-vibe contract missing %q", want)
+		}
 	}
 	if !strings.Contains(iosDashboardTheme, `.dashboard-body .sidebar .signout-icon{display:none}`) || !strings.Contains(iosDashboardTheme, `.dashboard-body .sidebar .signout-icon{display:grid}`) {
 		t.Fatal("desktop must use a clean sign-out label while the tablet rail keeps an accessible icon")

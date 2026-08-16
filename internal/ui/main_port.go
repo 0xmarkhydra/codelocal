@@ -98,6 +98,74 @@ const iosDashboardTheme = `
 @media(max-width:900px){.dashboard-body .overview-hero{align-items:flex-start}.dashboard-body .hero-visual,.dashboard-body .hero-flow{display:none}.dashboard-body .leaderboard-podium{grid-template-columns:1fr}.dashboard-body .podium-card.first{transform:none}.dashboard-body .admin-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.dashboard-body .shell{background:#f3f7ff}.dashboard-body .sidebar-column{height:66px;border-bottom:1px solid rgba(255,255,255,.90);background:rgba(248,251,255,.78);box-shadow:0 8px 30px rgba(60,79,126,.08);backdrop-filter:blur(28px)}.dashboard-body .sidebar{height:66px;padding:10px 13px;background:transparent}.dashboard-body .sidebar.nav-open{height:100dvh;padding-bottom:22px;background:rgba(247,250,255,.96)}.dashboard-body .brand{height:46px;padding:0 4px}.dashboard-body .brand-name{color:#16203c}.dashboard-body .mobile-nav-toggle{display:grid;border-color:rgba(83,105,157,.12);background:rgba(255,255,255,.74);box-shadow:0 6px 16px rgba(56,76,124,.07)}.dashboard-body .mobile-nav-toggle .control-icon{color:#5d6883}.dashboard-body .sidebar.nav-open .nav a{color:#52607c;background:rgba(255,255,255,.54);border-color:rgba(255,255,255,.70)}.dashboard-body .sidebar.nav-open .nav a.active{color:#145dff;background:#fff}.dashboard-body .sidebar.nav-open .sidebar-status,.dashboard-body .sidebar.nav-open .sidebar-foot{background:rgba(255,255,255,.72)}.dashboard-body .main{height:calc(100dvh - 66px);margin-top:66px;padding:22px 14px 42px}.dashboard-body .main:before{display:none}.dashboard-body .main .top{align-items:flex-start;margin-bottom:20px}.dashboard-body .h1{font-size:29px}.dashboard-body .sub{font-size:12.5px}.dashboard-body .grid{gap:13px}.dashboard-body .card{padding:19px;border-radius:19px}.dashboard-body .metric-card{min-height:126px}.dashboard-body .overview-hero{min-height:auto;padding:22px}.dashboard-body .hero-title{font-size:25px}.dashboard-body .hero-copy{font-size:12.5px}.dashboard-body .connect-visual{gap:10px;margin-bottom:20px;padding:15px;border-radius:18px}.dashboard-body .connect-app{width:62px;height:62px;border-radius:19px}.dashboard-body .connect-app img{width:44px;height:44px;border-radius:13px}.dashboard-body .connect-app .chatgpt-logo{width:44px!important;height:44px!important;padding:6px;border-radius:12px!important}.dashboard-body .connect-bridge{width:76px}.dashboard-body .connect-link-icon{width:30px;height:30px}.dashboard-body .invite-card-copy{align-items:flex-start}.dashboard-body .top-actions .btn{width:100%}.dashboard-body .invite-code-wrap{align-items:stretch}.dashboard-body .admin-stat-grid{grid-template-columns:1fr}.dashboard-body .list-toolbar{align-items:stretch}.dashboard-body .list-toolbar>.badge{align-self:flex-start}.dashboard-body .actions{width:auto}.dashboard-body .row{align-items:center}.dashboard-body .row .actions{width:auto;margin-left:auto}}
 @media(max-width:560px){.dashboard-body .search-form{display:grid;grid-template-columns:1fr 1fr}.dashboard-body .search-input{grid-column:1/-1}.dashboard-body .copy-row{gap:8px}.dashboard-body .copy-row .btn{width:100%}.dashboard-body .invite-code-wrap{flex-direction:column}.dashboard-body .invite-code{width:100%}.dashboard-body .hero-actions .btn{width:100%}.dashboard-body .row{align-items:flex-start}.dashboard-body .row .actions{width:100%;justify-content:flex-start;margin-left:0}.dashboard-body .action-menu-panel{left:0;right:auto}.dashboard-body .admin-row{grid-template-columns:1fr}.dashboard-body .admin-head{display:none}}
+
+/* De-vibe refinement: quieter surfaces, deliberate hierarchy, fewer decorative effects. */
+.dashboard-body{background:#f6f7f9;--ios-shadow:0 1px 2px rgba(16,24,40,.035)}
+.dashboard-body .shell{background:#f6f7f9}
+.dashboard-body .shell:before,.dashboard-body .shell:after,.dashboard-body .main:before{display:none}
+.dashboard-body .sidebar-column{border-right:1px solid #e6e8ec;background:#fbfbfc;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none}
+.dashboard-body .sidebar{background:#fbfbfc}
+.dashboard-body .logo{border-radius:11px;box-shadow:none}
+.dashboard-body .brand-tag{border:0;background:#eef4ff;color:#356bd7}
+.dashboard-body .nav a{border-radius:10px;transition:background .15s ease,color .15s ease}
+.dashboard-body .nav a:hover{transform:none;background:#f1f3f6;border-color:transparent;box-shadow:none}
+.dashboard-body .nav a.active{background:#eaf1ff;border-color:transparent;color:#1f5ed8;box-shadow:none}
+.dashboard-body .sidebar-status,.dashboard-body .sidebar-foot{border-color:#e6e8ec;border-radius:12px;background:#fff;box-shadow:none}
+.dashboard-body .avatar{background:#edf2fb;box-shadow:none}
+.dashboard-body .main{background:#f6f7f9}
+.dashboard-body .card{border-color:#e5e7eb;border-radius:14px;background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:0 1px 2px rgba(16,24,40,.035);transition:border-color .15s ease,box-shadow .15s ease}
+.dashboard-body .card:hover{transform:none;border-color:#d7dbe1;box-shadow:0 2px 6px rgba(16,24,40,.045)}
+.dashboard-body .card.flat{box-shadow:none}
+.dashboard-body .metric-card:after,.dashboard-body .usage-note:after,.dashboard-body .invite-card:after,.dashboard-body .overview-hero:before,.dashboard-body .overview-hero:after,.dashboard-body .connect-hero:after,.dashboard-body .podium-card:after{display:none}
+.dashboard-body .divider{background:#eceef2}
+.dashboard-body .entity-icon,.dashboard-body .connect-steps .kv-key,.dashboard-body .invite-mark,.dashboard-body .invite-avatar,.dashboard-body .podium-avatar{background:#eef3fb;box-shadow:none}
+.dashboard-body .btn{border-color:#d9dde3;border-radius:10px;background:#fff;box-shadow:none;transition:background .15s ease,border-color .15s ease,color .15s ease}
+.dashboard-body .btn:hover{transform:none;border-color:#bfc5ce;background:#fafafa;box-shadow:none}
+.dashboard-body .btn.primary{border-color:#246bfd;background:#246bfd;box-shadow:none}
+.dashboard-body .btn.primary:hover{background:#1e5fdc;box-shadow:none}
+.dashboard-body .action-menu>summary,.dashboard-body .action-menu-panel,.dashboard-body dialog{backdrop-filter:none;-webkit-backdrop-filter:none}
+.dashboard-body .code-block,.dashboard-body .invite-code,.dashboard-body .tree-node,.dashboard-body .usage-note,.dashboard-body .invite-card,.dashboard-body .admin-hero,.dashboard-body .overview-hero,.dashboard-body .connect-hero{background:#fff}
+.dashboard-body .overview-hero{border-color:#e5e7eb}
+.dashboard-body .hero-pill{border-color:#e2e5e9;background:#f7f8fa;box-shadow:none}
+.dashboard-body .hero-visual:before,.dashboard-body .hero-visual:after{display:none}
+.dashboard-body .hero-logo{border:1px solid #e2e5e9;border-radius:20px;background:#fff;box-shadow:none;backdrop-filter:none}
+.dashboard-body .flow-node,.dashboard-body .connect-app{border-color:#e4e7eb;border-radius:16px;background:#fff;box-shadow:none}
+.dashboard-body .flow-codelocal{box-shadow:none}
+.dashboard-body .flow-connector>span,.dashboard-body .connect-beam{background:#b7c6e8;box-shadow:none}
+.dashboard-body .flow-link-icon,.dashboard-body .connect-link-icon{border-color:#e4e7eb;background:#fff;box-shadow:none}
+.dashboard-body .connect-visual{border-color:#e5e7eb;border-radius:14px;background:#fafbfc;box-shadow:none}
+.dashboard-body .admin-stat,.dashboard-body .podium-card{border-color:#e5e7eb;border-radius:14px;background:#fff;box-shadow:none}
+.dashboard-body .podium-card.first{transform:none;background:#fffaf0;border-color:#f1dfb0}
+.dashboard-body .podium-medal{background:#f1f3f6}
+
+/* Landing follows the same restrained system: one brand accent, fewer floating surfaces. */
+.landing-body{--shadow:0 1px 2px rgba(16,24,40,.035);background:#f8f9fb}
+.landing-body:before,.landing-body:after{display:none}
+.landing-nav{border-bottom:1px solid #e8eaee;background:rgba(248,249,251,.94);backdrop-filter:saturate(130%) blur(18px);-webkit-backdrop-filter:saturate(130%) blur(18px);box-shadow:none}
+.landing-logo{border-radius:11px;box-shadow:none}
+.landing-body .btn{border-color:#d9dde3;border-radius:10px;background:#fff;box-shadow:none}
+.landing-body .btn:hover{transform:none;border-color:#bfc5ce;box-shadow:none}
+.landing-body .btn.primary{border-color:#126dff;background:#126dff;box-shadow:none}
+.landing-body .btn.primary:hover{background:#0d5edb;box-shadow:none}
+.landing-kicker,.trust-chip{border-color:#e2e5e9;background:#fff;box-shadow:none}
+.landing-hero h1 span{background:none;color:#126dff;-webkit-background-clip:initial;background-clip:initial}
+.hero-stage:before{display:none}
+.hero-glass{border-color:#e2e5e9;border-radius:20px;background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:0 8px 30px rgba(16,24,40,.07)}
+.hero-node,.hero-node.primary{border-color:#e4e7eb;border-radius:16px;background:#fff;box-shadow:none}
+.hero-connector:before{background:#b8c6e5;box-shadow:none}
+.hero-connector-icon{border-color:#e4e7eb;border-radius:9px;box-shadow:none}
+.hero-workspace{border-color:#e6e8ec;border-radius:12px;background:#fafbfc}
+.hero-workspace-icon{border-radius:10px;background:#eef3fb}
+.product-card,.how-card,.brain-node,.brain-principles>div,.setup-step,.plugin-panel,.security-hero,.security-card,.cta-card{border-color:#e4e7eb;background:#fff;box-shadow:none}
+.product-card:after,.security-hero:after,.cta-card:after{display:none}
+.product-card,.plugin-panel{border-radius:18px}
+.how-card,.brain-node,.setup-step,.security-card{border-radius:14px}
+.product-icon,.how-number,.step-number,.security-icon{border:0;border-radius:11px;background:#eef3fb;box-shadow:none}
+.plugin-panel-icon{border-radius:13px;box-shadow:none}
+.product-terminal,.step-code,.plugin-endpoint,.cta-command{border-color:#e5e7eb;background:#f7f8fa;box-shadow:none}
+.cta-card{border-radius:20px}
+.cta-card>.section-kicker{border-color:#e2e5e9;background:#f7f8fa}
+.cta-command,.cta-copy-button{box-shadow:none}
 `
 
 const dashboardScript = `
