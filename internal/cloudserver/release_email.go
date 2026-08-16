@@ -55,6 +55,11 @@ func releaseEmailContent(version string) (string, string) {
 	return text, html
 }
 
+func writeReleaseJSON(w http.ResponseWriter, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(value)
+}
+
 func (s *Server) releaseNotify(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(os.Getenv("CODELOCAL_RELEASE_NOTIFY_SECRET")) == "" {
 		http.Error(w, "Release notifications are not configured", http.StatusServiceUnavailable)
@@ -84,7 +89,7 @@ func (s *Server) releaseNotify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unable to check release notification state", http.StatusInternalServerError)
 		return
 	} else if sent > 0 {
-		writeJSON(w, releaseNotificationResponse{Version: input.Version, AlreadySent: true})
+		writeReleaseJSON(w, releaseNotificationResponse{Version: input.Version, AlreadySent: true})
 		return
 	}
 	lockKey := "codelocal:release-email:lock:" + input.Version
@@ -159,5 +164,5 @@ func (s *Server) releaseNotify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unable to persist release notification state", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, releaseNotificationResponse{Version: input.Version, Recipients: len(emails), BatchesSent: batchesSent})
+	writeReleaseJSON(w, releaseNotificationResponse{Version: input.Version, Recipients: len(emails), BatchesSent: batchesSent})
 }
