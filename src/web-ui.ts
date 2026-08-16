@@ -21,7 +21,7 @@ const styles = `
   --shadow:0 24px 70px rgba(0,0,0,.32);--radius:16px;--radius-sm:11px
 }
 *{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}html{background:var(--bg)}
-body{margin:0;color:var(--text);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.45;background:
+body{margin:0;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif;line-height:1.48;background:
  radial-gradient(900px 520px at 8% -14%,rgba(139,124,255,.16),transparent 60%),
  radial-gradient(760px 500px at 100% 8%,rgba(92,169,255,.08),transparent 62%),var(--bg)}
 button,input,select,textarea{font:inherit}a{color:inherit;text-decoration:none}code,.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
