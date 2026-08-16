@@ -23,11 +23,11 @@ type Message struct {
 }
 
 type resendMessage struct {
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	HTML    string `json:"html,omitempty"`
-	Text    string `json:"text,omitempty"`
+	From    string   `json:"from"`
+	To      []string `json:"to"`
+	Subject string   `json:"subject"`
+	HTML    string   `json:"html,omitempty"`
+	Text    string   `json:"text,omitempty"`
 }
 
 type Client struct {
@@ -57,7 +57,7 @@ func (c *Client) Send(ctx context.Context, message Message, idempotencyKey strin
 	if strings.TrimSpace(message.To) == "" || strings.TrimSpace(message.Subject) == "" {
 		return errors.New("email recipient and subject are required")
 	}
-	payload := resendMessage{From: c.From, To: message.To, Subject: message.Subject, HTML: message.HTML, Text: message.Text}
+	payload := resendMessage{From: c.From, To: []string{message.To}, Subject: message.Subject, HTML: message.HTML, Text: message.Text}
 	return c.post(ctx, "/emails", payload, idempotencyKey)
 }
 
@@ -73,7 +73,7 @@ func (c *Client) SendBatch(ctx context.Context, messages []Message, idempotencyK
 		if strings.TrimSpace(message.To) == "" || strings.TrimSpace(message.Subject) == "" {
 			return errors.New("email recipient and subject are required")
 		}
-		payload = append(payload, resendMessage{From: c.From, To: message.To, Subject: message.Subject, HTML: message.HTML, Text: message.Text})
+		payload = append(payload, resendMessage{From: c.From, To: []string{message.To}, Subject: message.Subject, HTML: message.HTML, Text: message.Text})
 	}
 	return c.post(ctx, "/emails/batch", payload, idempotencyKey)
 }
