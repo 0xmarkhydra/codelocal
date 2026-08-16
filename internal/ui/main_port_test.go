@@ -74,11 +74,22 @@ func TestLandingPageKeepsDocumentScroll(t *testing.T) {
 func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 	html := LandingPage(LandingOptions{Endpoint: "https://codelocal.cloud/mcp"})
 	for _, want := range []string{
-		`One MCP layer for the AI tools you use.`,
-		`One Project Brain behind them all.`,
+		`Connect every AI.`,
+		`Keep one project brain.`,
 		`AI clients ↔ MCP ↔ CodeLocal ↔ your machine`,
 		`Project Brain`,
-		`Rules · decisions · memory · skills`,
+		`Learned Skills`,
+		`Knowledge Graph`,
+		`Semantic index`,
+		`Approval + security policy outrank automation`,
+		`Your machine · local runtime`,
+		`Verification`,
+		`Verified Experience`,
+		`The complete flow`,
+		`Context compile`,
+		`Policy + approval`,
+		`Execute locally`,
+		`Learn + return`,
 		`Semantic is optional`,
 		`Authorize projects, not your whole computer.`,
 		`One lightweight machine runtime.`,
@@ -112,8 +123,10 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 	if strings.Contains(html, `class="cta-icon"`) {
 		t.Fatal("final CTA must not render the decorative sparkle icon")
 	}
-	if !strings.Contains(html, `<span>AI clients</span><span>CodeLocal</span><span>Your machine</span>`) {
-		t.Fatal("landing hero must present CodeLocal as the MCP layer between AI clients and the local machine")
+	for _, want := range []string{`class="architecture-panel"`, `class="arch-core"`, `arch-runtime`, `class="arch-cloud"`, `class="complete-flow-grid"`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("landing architecture map must expose %q", want)
+		}
 	}
 	if !strings.Contains(html, `alt="ChatGPT"`) || !strings.Contains(html, `data:image/png;base64,`) {
 		t.Fatal("landing hero must show the real ChatGPT mark")
