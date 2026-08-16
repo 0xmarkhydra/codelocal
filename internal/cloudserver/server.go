@@ -428,14 +428,34 @@ func adminStatus(user adminUserState) string {
 	return `<span class="badge muted">Offline</span>`
 }
 
+func referralInitial(email string) string {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return "?"
+	}
+	return strings.ToUpper(email[:1])
+}
+
+func referralNode(user adminUserState, depth int, hasChildren bool) string {
+	rootClass := ""
+	if depth == 0 {
+		rootClass = " referral-node-root"
+	}
+	searchText := strings.ToLower(user.Email + " " + user.ReferralCode + " " + user.ReferredByCode)
+	toggle := ""
+	if hasChildren {
+		toggle = `<button class="referral-toggle" type="button" data-referral-toggle aria-label="Collapse branch" aria-expanded="true">` + ui.Icon("chevronRight") + `</button>`
+	}
+	return `<div class="referral-node` + rootClass + `" data-referral-node data-search="` + ui.Escape(searchText) + `"><div class="referral-node-head"><span class="referral-avatar">` + ui.Escape(referralInitial(user.Email)) + `</span><div class="referral-identity"><strong title="` + ui.Escape(user.Email) + `">` + ui.Escape(user.Email) + `</strong><span class="mono">` + ui.Escape(user.ReferralCode) + `</span></div></div><div class="referral-node-foot"><span>` + fmt.Sprintf("%d direct", user.InviteCount) + `</span>` + adminStatus(user) + toggle + `</div></div>`
+}
+
 func renderReferralTree(users []adminUserState) string {
 	byCode := map[string]adminUserState{}
 	children := map[string][]adminUserState{}
 	for _, user := range users {
 		code := cloud.NormalizeReferralCode(user.ReferralCode)
 		byCode[code] = user
-		parent := cloud.NormalizeReferralCode(user.ReferredByCode)
-		children[parent] = append(children[parent], user)
+		children[cloud.NormalizeReferralCode(user.ReferredByCode)] = append(children[cloud.NormalizeReferralCode(user.ReferredByCode)], user)
 	}
 	visited := map[string]bool{}
 	var walk func(adminUserState, int) string
@@ -444,21 +464,16 @@ func renderReferralTree(users []adminUserState) string {
 			return ""
 		}
 		visited[user.ID] = true
-		code := cloud.NormalizeReferralCode(user.ReferralCode)
-		childUsers := children[code]
-		node := `<div><strong>` + ui.Escape(user.Email) + `</strong> ` + adminStatus(user) + `</div><div class="row-meta mono">code ` + ui.Escape(user.ReferralCode) + ` · ` + fmt.Sprintf("%d", user.InviteCount) + ` direct invite(s)</div>`
-		if len(childUsers) == 0 {
-			return `<div class="tree-node">` + node + `</div>`
-		}
+		childUsers := children[cloud.NormalizeReferralCode(user.ReferralCode)]
 		var nested strings.Builder
 		for _, child := range childUsers {
 			nested.WriteString(walk(child, depth+1))
 		}
-		open := ""
-		if depth == 0 {
-			open = " open"
+		childrenHTML := ""
+		if nested.Len() > 0 {
+			childrenHTML = `<div class="referral-children">` + nested.String() + `</div>`
 		}
-		return `<details class="tree-branch"` + open + `><summary class="tree-node">` + node + `<span class="tree-chevron">` + ui.Icon("chevronRight") + `</span></summary><div class="tree-children">` + nested.String() + `</div></details>`
+		return `<div class="referral-branch" data-referral-branch>` + referralNode(user, depth, nested.Len() > 0) + childrenHTML + `</div>`
 	}
 
 	var out strings.Builder
@@ -469,7 +484,7 @@ func renderReferralTree(users []adminUserState) string {
 		for _, child := range children["MMON"] {
 			nested.WriteString(walk(child, 1))
 		}
-		out.WriteString(`<details class="tree-branch" open><summary class="tree-node"><div><strong>MMON</strong> <span class="badge muted">Legacy root</span></div><span class="tree-chevron">` + ui.Icon("chevronRight") + `</span></summary><div class="tree-children">` + nested.String() + `</div></details>`)
+		out.WriteString(`<div class="referral-branch" data-referral-branch><div class="referral-node referral-node-root referral-node-legacy" data-referral-node data-search="mmon legacy root"><div class="referral-node-head"><span class="referral-avatar">M</span><div class="referral-identity"><strong>MMON</strong><span>Legacy root</span></div></div><div class="referral-node-foot"><span>Bootstrap marker</span><button class="referral-toggle" type="button" data-referral-toggle aria-label="Collapse branch" aria-expanded="true">` + ui.Icon("chevronRight") + `</button></div></div><div class="referral-children">` + nested.String() + `</div></div>`)
 	}
 	for _, user := range users {
 		if !visited[user.ID] {
@@ -543,7 +558,7 @@ func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request, identity
 		`<div class="card span12 admin-hero"><div><div class="section-kicker">Administration</div><div class="title">User network at a glance</div><div class="label">Live runtime status, MCP activity and referral growth in one place.</div></div><span class="badge blue">Admin only</span></div>` +
 		`<div class="admin-stat-grid"><div class="admin-stat"><div class="admin-stat-label">Total users</div><div class="admin-stat-value">` + fmt.Sprintf("%d", len(states)) + `</div><div class="admin-stat-sub">Registered accounts</div></div><div class="admin-stat"><div class="admin-stat-label">Active users</div><div class="admin-stat-value">` + fmt.Sprintf("%d", activeCount) + `</div><div class="admin-stat-sub">Runtime or MCP active</div></div><div class="admin-stat"><div class="admin-stat-label">Runtime online</div><div class="admin-stat-value">` + fmt.Sprintf("%d", runtimeCount) + `</div><div class="admin-stat-sub">Live machine heartbeat</div></div><div class="admin-stat"><div class="admin-stat-label">Using MCP now</div><div class="admin-stat-value">` + fmt.Sprintf("%d", usingCount) + `</div><div class="admin-stat-sub">Tool call in last 5 min</div></div></div>` +
 		`<div class="card span12"><div class="section-head"><div><div class="title">Users</div><div class="label">Search by email, referral code or inviter code. Status is computed from live runtime and MCP activity.</div></div></div>` + mainListToolbar("/dashboard/admin", queryText, len(filtered)) + `<div class="admin-table"><div class="admin-row admin-head"><div>User</div><div>Status</div><div>Referral</div><div>Last activity</div></div>` + userRows.String() + `</div>` + mainPager("/dashboard/admin", queryText, page, totalPages) + `</div>` +
-		`<div class="card span12 referral-tree-card"><div class="section-head"><div><div class="title">Referral tree</div><div class="label">Parent → child relationships. MMON remains the legacy root marker for pre-gating accounts.</div></div><span class="badge blue">` + fmt.Sprintf("%d", len(states)) + ` users</span></div><div class="divider"></div><div class="tree">` + renderReferralTree(states) + `</div></div></div>`
+		`<div class="card span12 referral-tree-card"><div class="section-head"><div><div class="title">Referral network</div><div class="label">Explore who invited whom as a relationship tree. Search a user to highlight the path back to the root.</div></div><span class="badge blue">` + fmt.Sprintf("%d", len(states)) + ` users</span></div><div class="referral-toolbar"><div class="referral-search"><span class="referral-search-icon">` + ui.Icon("search") + `</span><input class="search-input" type="search" placeholder="Find email or referral code" data-referral-query autocomplete="off"></div><div class="referral-toolbar-actions"><button class="btn small" type="button" data-referral-expand>Expand all</button><button class="btn small" type="button" data-referral-collapse>Collapse all</button></div></div><div class="referral-tree-viewport"><div class="referral-tree" data-referral-tree>` + renderReferralTree(states) + `</div></div></div></div>`
 
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
 		Title: "Administration", Active: "admin", Email: identity.User.Email, CSRF: identity.CSRF,
