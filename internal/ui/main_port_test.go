@@ -74,9 +74,9 @@ func TestLandingPageKeepsDocumentScroll(t *testing.T) {
 func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 	html := LandingPage(LandingOptions{Endpoint: "https://codelocal.cloud/mcp"})
 	for _, want := range []string{
-		`Give AI memory of your project.`,
-		`And controlled hands on your machine.`,
-		`ChatGPT ↔ CodeLocal ↔ your machine`,
+		`One MCP layer for the AI tools you use.`,
+		`One Project Brain behind them all.`,
+		`AI clients ↔ MCP ↔ CodeLocal ↔ your machine`,
 		`Project Brain`,
 		`Rules · decisions · memory · skills`,
 		`Semantic is optional`,
@@ -89,7 +89,7 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 		`codelocal uninstall --all`,
 		`Your machine is the execution boundary.`,
 		`OpenAI Plugins Directory`,
-		`Production MCP endpoint`,
+		`One remote endpoint for compatible AI clients`,
 		`Prepared for OpenAI plugin review`,
 		`sanitized durable Project Brain knowledge`,
 		`href="/privacy"`,
@@ -112,8 +112,8 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 	if strings.Contains(html, `class="cta-icon"`) {
 		t.Fatal("final CTA must not render the decorative sparkle icon")
 	}
-	if !strings.Contains(html, `class="hero-chatgpt-logo"`) || !strings.Contains(html, `data:image/png;base64,`) {
-		t.Fatal("landing hero must use the supplied ChatGPT logo artwork")
+	if !strings.Contains(html, `<span>AI clients</span><span>CodeLocal</span><span>Your machine</span>`) {
+		t.Fatal("landing hero must present CodeLocal as the MCP layer between AI clients and the local machine")
 	}
 	if !strings.Contains(html, `class="cta-command"`) || !strings.Contains(html, `data-copy-value="npm install -g codelocal"`) {
 		t.Fatal("final CTA must surface a useful copyable stable install command")

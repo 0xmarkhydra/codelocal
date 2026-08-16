@@ -1,6 +1,6 @@
 # CodeLocal
 
-CodeLocal gives ChatGPT and Codex a durable Project Brain plus controlled access to project folders you explicitly authorize on your own machine.
+CodeLocal is a universal MCP connection layer for AI coding. It connects ChatGPT, Codex, Claude and other MCP-compatible AI clients and agents to one durable Project Brain plus controlled access to project folders you explicitly authorize on your own machine.
 
 Website: [https://codelocal.cloud](https://codelocal.cloud/)
 
@@ -16,7 +16,7 @@ User documentation:
 ```text
 You
   ↓
-ChatGPT / Codex              AI reasoning layer
+MCP-compatible AI clients    ChatGPT · Codex · Claude · other agents
   ↕ MCP over HTTPS + OAuth
 CodeLocal Project Brain      durable rules, decisions, memory, Experience, skills
   ↓
@@ -29,7 +29,7 @@ Authorized workspaces        files, Git, terminal and local MCP extensions
 Verification                 evidence → verified Experience → safe learning
 ```
 
-**The AI model reasons; CodeLocal preserves project intelligence and controls execution.** You do not need to buy or configure a separate OpenAI API key for the standard ChatGPT plugin workflow, and CodeLocal does not add per-token billing to those ChatGPT tool calls.
+**The AI client/model reasons; CodeLocal provides the shared MCP layer, preserves project intelligence and controls execution.** You can switch among MCP-compatible AI clients without rebuilding CodeLocal workspace authorization or Project Brain. For the ChatGPT/Codex plugin workflow, CodeLocal does not require a separate OpenAI API key and does not add per-token billing to those tool calls.
 
 ## Version
 
@@ -81,12 +81,12 @@ codelocal
 
 On first start, CodeLocal explains and asks separately for two optional capabilities:
 
-- **Browser Automation** gives ChatGPT the compact `browser` tool for opening, inspecting, clicking, typing and taking screenshots in an isolated website session. Enabling it downloads one managed Chromium browser once; choosing No does not affect Coding.
-- **Computer Use** gives ChatGPT the compact `computer` tool for inspecting and controlling desktop apps through a bundled native helper. It does not download a browser, remains opt-in, requires the operating system's screen/accessibility permissions, and still applies action-level approvals.
+- **Browser Automation** gives connected MCP clients the compact `browser` tool for opening, inspecting, clicking, typing and taking screenshots in an isolated website session. Enabling it downloads one managed Chromium browser once; choosing No does not affect Coding.
+- **Computer Use** gives connected MCP clients the compact `computer` tool for inspecting and controlling desktop apps through a bundled native helper. It does not download a browser, remains opt-in, requires the operating system's screen/accessibility permissions, and still applies action-level approvals.
 
 Run `codelocal setup` to change either choice later. Run `codelocal doctor` at any time to see whether the browser, native helper and required capabilities are ready.
 
-A single runtime can keep many workspaces authorized and activates each workspace lazily when ChatGPT needs it. You do **not** need one CodeLocal daemon per project.
+A single runtime can keep many workspaces authorized and activates each workspace lazily when an MCP session needs it. You do **not** need one CodeLocal daemon per project or per AI client.
 
 Useful CLI commands:
 
@@ -125,7 +125,7 @@ Operating-system privacy permissions such as macOS Accessibility and Screen Reco
 
 When you run `codelocal`, the CLI performs a short cached check against the configured npm release channel. If a newer CodeLocal runtime/tool release is available, it prints the installed/latest versions and the exact npm update command before starting. The result is cached privately under CodeLocal state so normal startup does not repeatedly wait on npm, and offline/update-check failures never stop the runtime. Set `CODELOCAL_UPDATE_CHECK=0` to disable this notice.
 
-CodeLocal 1.5.14 also fingerprints the public MCP tool surface. If an already-open ChatGPT thread calls an old granular tool, CodeLocal translates the call when possible and returns `CODELOCAL_TOOL_SCHEMA_STALE`; if ChatGPT calls a tool name that does not exist in the current surface, the gateway returns `CODELOCAL_TOOL_SCHEMA_MISMATCH`. In either case, reconnect the CodeLocal MCP in ChatGPT to reload the current tool/action schema. Reconnecting does not remove the local device pairing or workspace grants. Runtime capability mismatches are reported separately and include the installed client version plus the npm update command when a newer client is available.
+CodeLocal fingerprints the public MCP tool surface. If an already-open MCP session calls an old granular tool, CodeLocal translates the call when possible and returns `CODELOCAL_TOOL_SCHEMA_STALE`; if a client calls a tool name that does not exist in the current surface, the gateway returns `CODELOCAL_TOOL_SCHEMA_MISMATCH`. In either case, refresh or reconnect CodeLocal in that AI client so it scans the current tool/action schema. Reconnecting does not remove the local device pairing or workspace grants. Runtime capability mismatches are reported separately and include the installed client version plus the npm update command when a newer client is available.
 
 Update to the newest stable release:
 
@@ -154,15 +154,17 @@ codelocal
 
 A normal npm update keeps your existing CodeLocal pairing credentials and authorized workspaces.
 
-## Connect ChatGPT
+## Connect an MCP-compatible AI client
 
-Add the CodeLocal MCP endpoint in ChatGPT:
+CodeLocal exposes one remote MCP endpoint:
 
 ```text
 https://codelocal.cloud/mcp
 ```
 
-OAuth signs ChatGPT into your CodeLocal account. Pairing signs your local machine into the same account. ChatGPT can only route tools to devices/workspaces belonging to that account.
+For ChatGPT and Codex, use the CodeLocal Plugin from the OpenAI directory when available; reviewer/developer flows can use the endpoint directly. Other MCP-compatible AI clients and coding agents can add the same remote endpoint when they support authenticated remote MCP.
+
+OAuth signs the AI client into your CodeLocal account. Pairing signs your local machine into the same account. A connected client can only route tools to devices/workspaces belonging to that account.
 
 Typical first request:
 
@@ -172,7 +174,7 @@ Typical first request:
 
 ## Multi-workspace model
 
-CodeLocal is intentionally designed for multiple simultaneous ChatGPT threads and projects.
+CodeLocal is intentionally designed for multiple simultaneous MCP sessions, AI clients and projects.
 
 ```text
 Machine runtime

@@ -6,15 +6,15 @@
 
 ## One-line positioning
 
-**A durable Project Brain and controlled local execution layer for AI coding.**
+**A universal MCP layer with one durable Project Brain and controlled local execution for AI coding.**
 
 ## Short description
 
-Give ChatGPT and Codex durable project context across conversations while keeping repository access, Git, terminal and local tools behind explicit workspace permissions and approval controls.
+Bring CodeLocal's universal MCP Project Brain to ChatGPT and Codex: keep durable project context across conversations while repository access, Git, terminal and local tools remain behind explicit workspace permissions and approval controls.
 
 ## Long description
 
-CodeLocal connects AI coding assistants to project folders you explicitly authorize on your own machine. It combines a durable Project Brain with a controlled local runtime so the assistant can understand a codebase, navigate symbols, edit files, work with Git, run guarded commands, verify changes and reuse verified project knowledge across later conversations.
+CodeLocal is a universal MCP connection layer for AI coding. This OpenAI Plugin brings that same CodeLocal Project Brain and controlled runtime to ChatGPT and Codex, while other MCP-compatible clients can connect to the same CodeLocal endpoint. The assistant can understand an authorized codebase, navigate symbols, edit files, work with Git, run guarded commands, verify changes and reuse verified project knowledge across later conversations without rebuilding that project context for every compatible AI client.
 
 Project Brain preserves useful rules, decisions, project facts, verified Experience and reusable workflows without treating every operational event as long-term memory. CodeLocal compiles a bounded task-specific context packet instead of blindly replaying the entire project history.
 

@@ -165,7 +165,7 @@ func (m *Manager) form(mode, csrf, next, errorMessage string, referralCodes ...s
 	switcher := `New to CodeLocal? <a href="/signup?next=` + url.QueryEscape(next) + `">Create an account</a>`
 	if signup {
 		title = "Create your CodeLocal account"
-		subtitle = "One account connects ChatGPT to your development machines."
+		subtitle = "One account connects MCP-compatible AI clients to your development machines."
 		button = "Create account"
 		autocomplete = "new-password"
 		switcher = `Already have an account? <a href="/login?next=` + url.QueryEscape(next) + `">Sign in</a>`

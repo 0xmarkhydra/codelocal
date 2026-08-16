@@ -28,7 +28,7 @@ func (s *Server) connectDashboard(w http.ResponseWriter, r *http.Request) {
 	body := dashboardIdentitySource(identity.User.Email) + dashboardNav(identity) + `
 <div class="grid">
   <section class="card glow span12">
-    <div class="section-head"><div><div class="section-title">Connect ChatGPT</div><div class="section-label">ChatGPT stays the AI brain. CodeLocal securely routes approved tool calls to this machine.</div></div><span class="badge green">Ready</span></div>
+    <div class="section-head"><div><div class="section-title">MCP Connections</div><div class="section-label">Connect compatible AI clients through one CodeLocal MCP layer while local execution stays permission-controlled.</div></div><span class="badge green">Ready</span></div>
     <div class="row"><div class="row-title">MCP endpoint</div><div class="row-meta mono">` + ui.Escape(endpoint) + `</div></div>
   </section>
   <section class="card span6">
@@ -36,14 +36,14 @@ func (s *Server) connectDashboard(w http.ResponseWriter, r *http.Request) {
     <div class="row"><div class="row-title mono">npm install -g codelocal</div></div>
   </section>
   <section class="card span6">
-    <div class="section-head"><div><div class="section-title">2 · Authorize folders</div><div class="section-label">Grant only projects you want ChatGPT to access.</div></div></div>
+    <div class="section-head"><div><div class="section-title">2 · Authorize folders</div><div class="section-label">Grant only projects you want connected MCP clients to access.</div></div></div>
     <div class="row"><div class="row-title mono">cd /path/to/project<br>codelocal .</div></div>
   </section>
   <section class="card span12">
     <div class="section-head"><div><div class="section-title">3 · Start one machine runtime</div><div class="section-label">One runtime can serve every folder you previously authorized. You do not need one process per workspace.</div></div></div>
-    <div class="row"><div class="row-title mono">codelocal</div><div class="row-meta">Then refresh the CodeLocal app in ChatGPT and choose the workspace you want to use.</div></div>
+    <div class="row"><div class="row-title mono">codelocal</div><div class="row-meta">Then refresh CodeLocal in your MCP client and choose the workspace you want to use for that session.</div></div>
   </section>
 </div>`
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("Connect ChatGPT · CodeLocal Cloud", "Connect ChatGPT to your local projects without a separate OpenAI API key.", body)))
+	_, _ = w.Write([]byte(ui.Page("MCP Connections · CodeLocal Cloud", "Connect MCP-compatible AI clients to your authorized local projects through one CodeLocal runtime.", body)))
 }

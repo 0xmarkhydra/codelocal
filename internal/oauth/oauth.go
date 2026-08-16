@@ -246,16 +246,16 @@ func (s *Server) Register(mux *http.ServeMux) {
 		}
 		name := client.ClientName
 		if name == "" {
-			name = "ChatGPT"
+			name = "MCP client"
 		}
-		body := `<div class="row"><div class="row-title">` + ui.Escape(name) + `</div><div class="row-meta mono">` + ui.Escape(s.Resource) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/authorize">` + hidden(map[string]string{"client_id": clientID, "redirect_uri": redirectURI, "code_challenge": challenge, "resource": resource, "scope": scope, "state": state, "csrf": identity.CSRF}) + `<button class="btn primary" type="submit">Authorize ChatGPT</button><a class="btn" href="/dashboard">Cancel</a></form>`
+		body := `<div class="row"><div class="row-title">` + ui.Escape(name) + `</div><div class="row-meta mono">` + ui.Escape(s.Resource) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/authorize">` + hidden(map[string]string{"client_id": clientID, "redirect_uri": redirectURI, "code_challenge": challenge, "resource": resource, "scope": scope, "state": state, "csrf": identity.CSRF}) + `<button class="btn primary" type="submit">Authorize MCP client</button><a class="btn" href="/dashboard">Cancel</a></form>`
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(ui.Page("Connect ChatGPT", "Signed in as "+identity.User.Email+". ChatGPT will only see devices and workspaces belonging to this CodeLocal account.", body)))
+		_, _ = w.Write([]byte(ui.Page("Authorize MCP client", "Signed in as "+identity.User.Email+". This client will only see devices and workspaces belonging to this CodeLocal account.", body)))
 	})
 	mux.HandleFunc("POST /authorize", func(w http.ResponseWriter, r *http.Request) {
 		identity, _ := s.WebAuth.Identity(r)
 		if identity == nil {
-			http.Error(w, "Sign in to CodeLocal and restart the ChatGPT connection flow.", 401)
+			http.Error(w, "Sign in to CodeLocal and restart the MCP connection flow.", 401)
 			return
 		}
 		if !s.WebAuth.VerifyCSRF(r) {

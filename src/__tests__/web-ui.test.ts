@@ -56,7 +56,7 @@ test("dashboard nav exposes only implemented product areas", () => {
     body: "",
   });
 
-  for (const visible of ["Overview", "Workspaces", "Devices", "Connect ChatGPT", "Security"]) assert.match(html, new RegExp(visible));
+  for (const visible of ["Overview", "Workspaces", "Devices", "MCP Connections", "Security"]) assert.match(html, new RegExp(visible));
   for (const hidden of ["MCP Extensions", "Billing", "Permissions", "Browser", "Simulator"]) assert.doesNotMatch(html, new RegExp(`>${hidden}<`));
 });
 
@@ -88,15 +88,15 @@ test("auth page keeps responsive overflow protection", () => {
   assert.match(html, /\.auth\{width:min\(430px,100%\)\}/);
 });
 
-test("public landing page contains the complete ChatGPT setup flow", () => {
+test("public landing page presents the universal MCP setup flow", () => {
   const html = landingPage({ endpoint: "https://codelocal.cloud/mcp", signedIn: false });
 
   for (const step of [
-    "Connect CodeLocal with ChatGPT",
+    "Connect an MCP-compatible AI client",
     "Install CodeLocal on your computer",
     "Authorize a project folder",
     "Start the machine runtime",
-    "Start working from ChatGPT",
+    "Start working from your AI client",
   ]) assert.match(html, new RegExp(step));
   assert.match(html, /npm install -g codelocal/);
   assert.doesNotMatch(html, /npm install -g codelocal@beta/);
@@ -108,16 +108,17 @@ test("public landing page contains the complete ChatGPT setup flow", () => {
   assert.match(html, /href="\/assets\/chatgpt-plugin-icon\.png"/);
   assert.match(html, /256 × 256 px/);
   assert.match(html, /Under 10 KB/);
-  assert.match(html, /I understand and want to continue/);
-  assert.match(html, /<title>CodeLocal — Let ChatGPT Code on Your Machine<\/title>/);
-  assert.match(html, /property="og:title" content="CodeLocal — Let ChatGPT Code on Your Machine"/);
-  assert.match(html, /property="og:description" content="Use ChatGPT as the AI brain for your local code\./);
+  assert.match(html, /ChatGPT \/ Codex/);
+  assert.match(html, /Other compatible clients/);
+  assert.match(html, /<title>CodeLocal — Universal MCP \+ Project Brain for AI Coding<\/title>/);
+  assert.match(html, /property="og:title" content="CodeLocal — Universal MCP \+ Project Brain for AI Coding"/);
+  assert.match(html, /property="og:description" content="Connect MCP-compatible AI clients and coding agents to one durable Project Brain/);
   assert.match(html, /property="og:image" content="https:\/\/codelocal\.cloud\/assets\/codelocal-icon\.png"/);
   assert.match(html, /name="twitter:card" content="summary"/);
   assert.match(html, /rel="canonical" href="https:\/\/codelocal\.cloud\/"/);
-  assert.match(html, /You already have ChatGPT\. Now let it code on your machine\./);
-  assert.match(html, /ChatGPT does the thinking\. CodeLocal gives it hands\./);
-  assert.match(html, /No separate OpenAI API key\. No per-token billing from CodeLocal\./);
+  assert.match(html, /One MCP layer for the AI tools you use\./);
+  assert.match(html, /Your AI client reasons\. CodeLocal provides the shared MCP layer\./);
+  assert.match(html, /No separate CodeLocal model key\. No per-token billing from CodeLocal\./);
   assert.match(html, /No separate MCP call quota from CodeLocal\./);
-  assert.match(html, /normal usage limits of your ChatGPT plan, model and workspace/);
+  assert.match(html, /limits and billing of the client or provider you choose/);
 });

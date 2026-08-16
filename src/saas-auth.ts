@@ -119,7 +119,7 @@ function authForm(mode: "login" | "signup", csrf: string, next: string, error?: 
   const signup = mode === "signup";
   return authPage({
     title: signup ? "Create your CodeLocal account" : "Welcome back",
-    subtitle: signup ? "One account connects ChatGPT to your development machines." : "Sign in to manage your devices, workspaces and MCP extensions.",
+    subtitle: signup ? "One account connects MCP-compatible AI clients to your development machines." : "Sign in to manage your devices, workspaces and MCP extensions.",
     body: `${error ? `<div class="alert">${escapeHtml(error)}</div><div style="height:14px"></div>` : ""}<form class="form" method="post" action="/${mode}">
       <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
       <input type="hidden" name="next" value="${escapeHtml(next)}">

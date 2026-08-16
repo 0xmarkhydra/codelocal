@@ -73,7 +73,7 @@ Useful beta reports include:
 
 - `codelocal --version`;
 - whether the runtime connects successfully;
-- whether ChatGPT sees the expected MCP tools/actions;
+- whether the connected AI client sees the expected MCP tools/actions;
 - workspace selection failures;
 - unexpected approval behavior;
 - Project Brain/knowledge results that are clearly stale or irrelevant;

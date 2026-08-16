@@ -142,7 +142,7 @@ func promptAutomationSetup(settings automation.Settings, environment automation.
 		fmt.Println("CodeLocal capability setup")
 	}
 	fmt.Println()
-	fmt.Println("Choose what ChatGPT may use on this computer. Coding is always available inside workspaces you explicitly authorize.")
+	fmt.Println("Choose what connected MCP clients may use on this computer. Coding is always available inside workspaces you explicitly authorize.")
 	fmt.Println()
 	fmt.Println("✓ Coding")
 	fmt.Println("  Read/edit authorized workspaces, Git and guarded terminal tools")
@@ -150,7 +150,7 @@ func promptAutomationSetup(settings automation.Settings, environment automation.
 
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Browser Automation")
-	fmt.Println("  Let ChatGPT open, inspect, click, type and screenshot websites in an isolated browser.")
+	fmt.Println("  Let compatible AI clients open, inspect, click, type and screenshot websites in an isolated browser.")
 	fmt.Println("  Downloads one managed Chromium browser on first use; Coding works without it.")
 	var err error
 	settings.Browser.Enabled, err = askYesNo(reader, "Enable Browser Automation?", settings.Browser.Enabled)
@@ -161,7 +161,7 @@ func promptAutomationSetup(settings automation.Settings, environment automation.
 
 	if environment.ComputerSupported {
 		fmt.Println("Computer Use")
-		fmt.Println("  Let ChatGPT inspect and control desktop apps using screen, pointer and keyboard tools.")
+		fmt.Println("  Let compatible AI clients inspect and control desktop apps using screen, pointer and keyboard tools.")
 		fmt.Println("  No browser download is needed; macOS/Windows/Linux permissions and action approvals still apply.")
 		settings.Computer.Enabled, err = askYesNo(reader, "Enable Computer Use?", settings.Computer.Enabled)
 		if err != nil {

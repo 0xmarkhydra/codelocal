@@ -87,7 +87,7 @@ func anyObject(description string) map[string]any {
 	return map[string]any{"type": "object", "additionalProperties": true, "description": description}
 }
 
-var workspaceKeySchema = map[string]any{"type": "string", "minLength": 1, "description": "Exact workspace key returned by workspace(action=list/select). Pass it to keep routing explicit across multiple active projects, ChatGPT threads or fresh MCP sessions."}
+var workspaceKeySchema = map[string]any{"type": "string", "minLength": 1, "description": "Exact workspace key returned by workspace(action=list/select). Pass it to keep routing explicit across multiple active projects, AI client conversations or fresh MCP sessions."}
 
 func boolPtr(value bool) *bool { return &value }
 func protocolOneRuntimeTool(name string) bool {
@@ -199,7 +199,7 @@ func (s *Service) serverFor(userID string) *mcp.Server {
 	if existing := s.servers[userID]; existing != nil {
 		return existing
 	}
-	instructions := compactOrchestrationInstructions + "\n\nCompatibility: " + toolSurfaceSummary() + ". If CodeLocal reports CODELOCAL_TOOL_SCHEMA_STALE or CODELOCAL_TOOL_SCHEMA_MISMATCH, finish the current request when possible and tell the user to reconnect the CodeLocal MCP in ChatGPT so the current tool schema is loaded."
+	instructions := compactOrchestrationInstructions + "\n\nCompatibility: " + toolSurfaceSummary() + ". If CodeLocal reports CODELOCAL_TOOL_SCHEMA_STALE or CODELOCAL_TOOL_SCHEMA_MISMATCH, finish the current request when possible and tell the user to reconnect or refresh CodeLocal in the current AI client so the latest tool schema is loaded."
 	server := mcp.NewServer(&mcp.Implementation{Name: "codelocal", Version: version.Version}, &mcp.ServerOptions{Instructions: instructions})
 	registerCompactTools(server, s, userID)
 	s.servers[userID] = server

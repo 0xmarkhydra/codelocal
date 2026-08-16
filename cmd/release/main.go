@@ -111,7 +111,7 @@ process.exit(result.status ?? 1);
 	public := map[string]any{
 		"name":        "codelocal",
 		"version":     manifest.Version,
-		"description": "Native Go runtime that securely connects ChatGPT to local development workspaces.",
+		"description": "Universal MCP runtime and durable Project Brain for AI coding clients and agents.",
 		"license":     "UNLICENSED",
 		"bin":         map[string]string{"codelocal": "bin/codelocal.js"},
 		"files":       []string{"bin/", "README.md"},
@@ -130,7 +130,7 @@ process.exit(result.status ?? 1);
 	}
 	readme := `# CodeLocal
 
-Native Go local development runtime for ChatGPT.
+Universal MCP runtime and durable Project Brain for AI coding clients and agents.
 
 Website: [https://codelocal.cloud](https://codelocal.cloud/)
 
@@ -143,9 +143,9 @@ codelocal .
 ` + "```\n\n" + "`codelocal .` only authorizes that folder locally. It does not pair the machine or connect to CodeLocal Cloud.\n\n" + `## Start CodeLocal
 
 ` + "```bash\n" + `codelocal
-` + "```\n\n" + `On first start, CodeLocal asks which local capabilities ChatGPT may use. Browser Automation lets ChatGPT inspect and interact with websites in an isolated session; if enabled, CodeLocal downloads one managed Chromium browser and shows the install progress before starting. Coding works without this optional download. Computer Use remains a separate opt-in capability and uses the native helper already bundled for the current operating system, so it does not trigger another browser download.
+` + "```\n\n" + `On first start, CodeLocal asks which local capabilities connected MCP clients may use. Browser Automation lets a compatible AI client inspect and interact with websites in an isolated session; if enabled, CodeLocal downloads one managed Chromium browser and shows the install progress before starting. Coding works without this optional download. Computer Use remains a separate opt-in capability and uses the native helper already bundled for the current operating system, so it does not trigger another browser download.
 
-The Go runtime then pairs this machine if needed, syncs authorized workspaces, and waits for ChatGPT. One machine runs one runtime; multiple workspaces activate lazily inside it.
+The Go runtime then pairs this machine if needed, syncs authorized workspaces, and waits for authenticated MCP clients. One machine runs one runtime; multiple workspaces activate lazily inside it.
 
 Use ` + "`codelocal status`" + ` to inspect it and ` + "`codelocal stop`" + ` to stop it.
 

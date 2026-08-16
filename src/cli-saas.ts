@@ -20,9 +20,9 @@ Quick start:
   codelocal .
   codelocal
 
-codelocal . only authorizes the current project locally. codelocal starts the single machine runtime and connects it to ChatGPT.
+codelocal . only authorizes the current project locally. codelocal starts the single machine runtime and connects it to CodeLocal Cloud for MCP clients.
 
-ChatGPT can list your previously granted workspaces and activate the one you choose in chat.
+Any compatible AI client connected through CodeLocal MCP can list your previously granted workspaces and activate the one you choose for that session.
 
 Commands:
   codelocal                       Start the single machine runtime, or reuse it if already running
@@ -243,7 +243,7 @@ async function grant(projectArg: string, verb = "Granted") {
   } else {
     const runtime = await runtimeSummary().catch(() => ({ running: false as const }));
     if (runtime.running) console.log("Running CodeLocal detected; workspace saved locally and Cloud sync will retry automatically.");
-    else console.log("Run `codelocal` when you want to connect ChatGPT.");
+    else console.log("Run `codelocal` when you want to make this machine available to connected MCP clients.");
   }
   return entry;
 }

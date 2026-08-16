@@ -404,7 +404,7 @@ func login(ctx context.Context, server string, force bool) error {
 	}
 	printSignedIn(credential)
 	fmt.Println("Run `codelocal` to start the machine runtime.")
-	fmt.Println("If you changed CodeLocal accounts, reconnect the CodeLocal MCP in ChatGPT so ChatGPT OAuth uses the same account.")
+	fmt.Println("If you changed CodeLocal accounts, reconnect CodeLocal in your MCP client so OAuth uses the same account as this machine.")
 	return nil
 }
 
@@ -582,7 +582,7 @@ func grant(path string) error {
 	if sendErr == nil {
 		fmt.Printf("✓ Running CodeLocal detected; workspace sync requested: %v\n", result)
 	} else {
-		fmt.Println("Run `codelocal` when you want to connect ChatGPT.")
+		fmt.Println("Run `codelocal` when you want to make this machine available to connected MCP clients.")
 	}
 	return nil
 }

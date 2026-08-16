@@ -236,7 +236,7 @@ func Render(notice Notice) string {
 		"Then run: "+notice.RestartCommand,
 		"Pairing and existing workspace grants do not need to be recreated after a normal update.",
 		urgency,
-		"Do not repeat this notice again in the same ChatGPT MCP session for this release.",
+		"Do not repeat this notice again in the same MCP session for this release.",
 		"[/CODELOCAL_UPDATE_NOTICE]",
 	)
 	return strings.Join(lines, "\n")

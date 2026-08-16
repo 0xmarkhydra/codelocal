@@ -164,7 +164,7 @@ async function status() {
 
 async function login(serverArg: string) {
   const base = normalizeBase(serverArg);
-  console.log(`Gateway: ${base}\nMCP endpoint: ${base}/mcp\nOAuth authorization happens when you connect this MCP endpoint from ChatGPT.`);
+  console.log(`Gateway: ${base}\nMCP endpoint: ${base}/mcp\nOAuth authorization happens when you connect this MCP endpoint from a compatible AI client.`);
 }
 
 function optionValues(args: string[], option: string) {

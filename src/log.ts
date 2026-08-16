@@ -119,7 +119,7 @@ export function terminalStatus(tone: TerminalTone, label: string, detail = "") {
   console.log(`  ${terminalIcon(tone)} ${bold(padded)} ${detail}`.trimEnd());
 }
 
-export function terminalHeader(title = "CodeLocal", subtitle = "Local runtime for ChatGPT") {
+export function terminalHeader(title = "CodeLocal", subtitle = "Universal MCP runtime for AI clients") {
   const width = 48;
   const top = `╭${"─".repeat(width - 2)}╮`;
   const bottom = `╰${"─".repeat(width - 2)}╯`;
@@ -175,7 +175,7 @@ function prettyLog(level: LogLevel, event: string, fields: Record<string, unknow
   if (event === "client.registered") {
     terminalStatus("success", "Cloud", `Connected ${dim(`· protocol v${fields.protocolVersion ?? "?"}`)}`);
     console.log("");
-    terminalStatus("muted", "Status", "Waiting for ChatGPT…");
+    terminalStatus("muted", "Status", "Waiting for MCP clients…");
     return;
   }
   if (event === "client.disconnected") {

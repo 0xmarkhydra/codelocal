@@ -2,12 +2,13 @@
 
 ## 1. What CodeLocal is
 
-CodeLocal lets an AI coding assistant understand and work with projects that remain on your own computer.
+CodeLocal is a universal MCP connection layer for AI coding. It lets ChatGPT, Codex, Claude and other MCP-compatible AI clients and coding agents understand and work with projects that remain on your own computer.
 
-It has two jobs:
+It has three jobs:
 
-1. give the AI controlled access to local development tools;
-2. preserve useful project knowledge across chats, models and machines through Project Brain.
+1. expose one stable MCP layer to compatible AI clients;
+2. give those clients controlled access to local development tools;
+3. preserve useful project knowledge across chats, models, clients and machines through Project Brain.
 
 You do not need to upload an entire repository to CodeLocal Cloud.
 
@@ -33,24 +34,25 @@ codelocal --version
 
 Installing another global channel replaces the currently installed global `codelocal` command. See [Beta Channel](./BETA_CHANNEL.md).
 
-## 3. Connect ChatGPT
+## 3. Connect an MCP-compatible AI client
 
-CodeLocal exposes a remote MCP endpoint:
+CodeLocal exposes one remote MCP endpoint:
 
 ```text
 https://codelocal.cloud/mcp
 ```
 
-In ChatGPT, use the Apps/custom MCP flow available to your plan or workspace. The exact UI and permissions can change over time.
+Use that same CodeLocal connection from the AI client or coding agent you prefer, provided it supports the MCP capabilities required by your workflow.
 
-Typical flow:
+### ChatGPT / Codex
 
-1. Open ChatGPT Settings → Apps.
-2. Enable Developer mode if your workspace requires it.
-3. Create a custom app and provide the CodeLocal MCP endpoint.
-4. Choose OAuth and sign in to the same CodeLocal account you use for your machines.
-5. Let ChatGPT scan the available tools/actions.
-6. Enable CodeLocal in the chat where you want to use it.
+Install CodeLocal from the OpenAI Plugins Directory when available. For reviewer/developer testing, use the custom MCP flow and authenticate with OAuth.
+
+### Other MCP-compatible clients
+
+Add the CodeLocal endpoint as a remote MCP server, choose OAuth when supported, and sign in to the same CodeLocal account used by your paired machines.
+
+Exact MCP features, approval UX and write-action support can vary by client. CodeLocal keeps the same Project Brain, workspace grants and local policy regardless of which compatible client initiates the session.
 
 ## 4. Pair one computer
 
@@ -84,9 +86,9 @@ Machine runtime
 └── Project C
 ```
 
-Workspaces sleep until selected by a ChatGPT session.
+Workspaces sleep until selected by an MCP session.
 
-## 6. Work from chat
+## 6. Work from your AI client
 
 A typical request can be as simple as:
 
@@ -172,8 +174,8 @@ codelocal approvals list
 codelocal mcp list
 ```
 
-## 11. If ChatGPT sees an old tool schema
+## 11. If an AI client sees an old tool schema
 
-CodeLocal keeps a compact public MCP surface. When the server/tool schema changes, an already-open ChatGPT app connection can sometimes still hold an older action definition.
+CodeLocal keeps a compact public MCP surface. When the server/tool schema changes, an already-open MCP connection can sometimes still hold an older action definition.
 
-Refresh/reconnect the CodeLocal app in ChatGPT so it scans the latest actions. This does not remove your local device pairing or workspace grants.
+Refresh or reconnect CodeLocal in that AI client so it scans the latest tools/actions. This does not remove your local device pairing, Project Brain or workspace grants.

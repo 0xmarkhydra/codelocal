@@ -52,7 +52,7 @@ Security policy outranks learned behavior. A remembered workflow cannot grant it
 
 ## Workspace containment
 
-A project must be explicitly authorized before it is available to ChatGPT:
+A project must be explicitly authorized before it is available to any connected MCP client:
 
 ```bash
 cd /path/to/project

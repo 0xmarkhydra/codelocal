@@ -100,16 +100,16 @@ func staleToolSchemaNotice(originalTool string) string {
 	}
 	return strings.Join([]string{
 		"[CODELOCAL_TOOL_SCHEMA_STALE]",
-		"IMPORTANT FOR CHATGPT: Tell the user this ChatGPT thread is using an older CodeLocal MCP tool schema and should reconnect CodeLocal after the current request.",
-		fmt.Sprintf("ChatGPT called legacy CodeLocal tool %q; CodeLocal translated it for compatibility.", tool),
+		"IMPORTANT FOR MCP CLIENT: Tell the user this MCP session is using an older CodeLocal tool schema and should reconnect or refresh CodeLocal after the current request.",
+		fmt.Sprintf("The MCP client called legacy CodeLocal tool %q; CodeLocal translated it for compatibility.", tool),
 		fmt.Sprintf("Current tool surface: v%d, %d tools, sha256:%s", surface.Version, surface.Count, surface.Hash),
-		"Reconnect the CodeLocal MCP in ChatGPT to load the current tools/actions. A normal reconnect does not remove local pairing or workspace grants.",
+		"Reconnect or refresh CodeLocal in the current AI client to load the latest tools/actions. A normal reconnect does not remove local pairing or workspace grants.",
 		"[/CODELOCAL_TOOL_SCHEMA_STALE]",
 	}, "\n")
 }
 
 func unknownToolSchemaMessage(tool string) string {
-	return fmt.Sprintf("Unknown CodeLocal MCP tool %q. %s. This usually means the ChatGPT thread has a stale or mismatched MCP schema. Reconnect CodeLocal in ChatGPT; if the local runtime is also outdated, run `npm i -g codelocal@latest` and then `codelocal`.", strings.TrimSpace(tool), toolSurfaceSummary())
+	return fmt.Sprintf("Unknown CodeLocal MCP tool %q. %s. This usually means the current MCP session has a stale or mismatched schema. Reconnect or refresh CodeLocal in the current AI client; if the local runtime is also outdated, run `npm i -g codelocal@latest` and then `codelocal`.", strings.TrimSpace(tool), toolSurfaceSummary())
 }
 
 type toolSchemaMismatchError struct{ message string }
@@ -117,7 +117,7 @@ type toolSchemaMismatchError struct{ message string }
 func (e *toolSchemaMismatchError) Error() string { return e.message }
 
 func unsupportedActionSchemaError(action string) error {
-	return &toolSchemaMismatchError{message: fmt.Sprintf("unsupported action %q. %s. If ChatGPT selected this action from a cached schema, reconnect CodeLocal in ChatGPT", strings.TrimSpace(action), toolSurfaceSummary())}
+	return &toolSchemaMismatchError{message: fmt.Sprintf("unsupported action %q. %s. If the MCP client selected this action from a cached schema, reconnect or refresh CodeLocal in the current AI client", strings.TrimSpace(action), toolSurfaceSummary())}
 }
 
 func appendCompatibilityNotice(result *mcp.CallToolResult, notice string) *mcp.CallToolResult {

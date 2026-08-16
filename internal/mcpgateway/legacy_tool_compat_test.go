@@ -146,7 +146,7 @@ func TestLegacyToolCallCompatibilityRejectsUnknownToolWithReconnectHint(t *testi
 		t.Fatalf("status=%d want 200", recorder.Code)
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"CODELOCAL_TOOL_SCHEMA_MISMATCH", "browser_magic_old", "Reconnect CodeLocal", "toolSurface"} {
+	for _, want := range []string{"CODELOCAL_TOOL_SCHEMA_MISMATCH", "browser_magic_old", "Reconnect or refresh CodeLocal", "toolSurface"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("compatibility response missing %q: %s", want, body)
 		}

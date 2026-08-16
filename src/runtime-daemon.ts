@@ -147,7 +147,7 @@ export class RuntimeDaemon {
     terminalStatus("success", "Cloud", "Connected");
     terminalStatus("info", "Workspaces", `${workspaces.length} authorized`);
     if (!workspaces.length) terminalStatus("warn", "Workspace", "None granted · run codelocal grant /path/to/project");
-    terminalStatus("muted", "Status", "Waiting for ChatGPT…");
+    terminalStatus("muted", "Status", "Waiting for MCP clients…");
     await this.options.onReady?.();
 
     while (!this.stopped) {
@@ -161,7 +161,7 @@ export class RuntimeDaemon {
         }
         if (message.activation?.workspaceId) {
           const workspace = await this.activate(message.activation.workspaceId);
-          terminalStatus("accent", "ChatGPT", `Activated ${workspace.workspaceName}`);
+          terminalStatus("accent", "MCP", `Activated ${workspace.workspaceName}`);
           continue;
         }
 

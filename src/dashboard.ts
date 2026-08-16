@@ -78,10 +78,10 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
     shell(res, {
       title: "Overview", active: "overview", email: me.user.email, csrf: me.csrf,
       subtitle: "A private control plane for the local machines and project folders you explicitly authorize.",
-      actions: `<a class="btn primary" href="/dashboard/connect"><span class="btn-icon">↗</span>Connect ChatGPT</a>`,
+      actions: `<a class="btn primary" href="/dashboard/connect"><span class="btn-icon">↗</span>MCP Connections</a>`,
       body: `<div class="grid">
         <div class="card metric-card span4"><div class="metric-label">Machine runtimes</div><div class="metric">${onlineDevices}</div><div class="metric-sub">${devices.filter((d) => !d.revokedAt).length} paired device${devices.filter((d) => !d.revokedAt).length === 1 ? "" : "s"}</div></div>
-        <div class="card metric-card span4"><div class="metric-label">Active workspaces</div><div class="metric">${activeWorkspaces}</div><div class="metric-sub">Loaded for a ChatGPT session</div></div>
+        <div class="card metric-card span4"><div class="metric-label">Active workspaces</div><div class="metric">${activeWorkspaces}</div><div class="metric-sub">Loaded for an MCP session</div></div>
         <div class="card metric-card span4"><div class="metric-label">Sleeping workspaces</div><div class="metric">${sleepingWorkspaces}</div><div class="metric-sub">Authorized, zero heavy runtime</div></div>
         <div class="card span12"><div class="section-head"><div><div class="title">Workspaces</div><div class="label">Only folders granted by you are visible here.</div></div><a class="btn small" href="/dashboard/workspaces">View all</a></div><div class="divider"></div><div class="list">${workspaces.slice(0, 5).map((workspace) => {
           const state = workspaceState(workspace, deviceOnline.get(workspace.deviceId) === true);
@@ -121,7 +121,7 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
     const deviceOnline = await onlineDeviceMap(me.user.id, workspaces.map((workspace) => workspace.deviceId), hooks);
     shell(res, {
       title: "Workspaces", active: "workspaces", email: me.user.email, csrf: me.csrf,
-      subtitle: "A workspace is a local project folder you granted once. Sleeping workspaces consume no heavy project runtime until ChatGPT selects them.",
+      subtitle: "A workspace is a local project folder you granted once. Sleeping workspaces consume no heavy project runtime until an MCP client selects them.",
       body: `${flash(req)}<div class="card"><div class="section-head"><div><div class="title">Authorized folders</div><div class="label">Remove access without deleting or modifying the project folder itself.</div></div><div class="badge blue">${workspaces.length} authorized</div></div><div class="divider"></div><div class="list">${workspaces.map((workspace) => {
         const runtimeOnline = deviceOnline.get(workspace.deviceId) === true;
         const state = workspaceState(workspace, runtimeOnline);
@@ -154,10 +154,10 @@ export function createDashboardRouter(hooks: DashboardHooks = {}) {
     const me = identity(res);
     const endpoint = `${PUBLIC_BASE_URL}/mcp`;
     shell(res, {
-      title: "Connect ChatGPT", active: "connect", email: me.user.email, csrf: me.csrf,
-      subtitle: "Connect the CodeLocal Cloud MCP once. Workspace choice remains scoped to each ChatGPT MCP session.",
+      title: "MCP Connections", active: "connect", email: me.user.email, csrf: me.csrf,
+      subtitle: "Connect CodeLocal once through MCP. Workspace choice remains scoped to each MCP session, regardless of the compatible AI client you use.",
       actions: `<a class="btn" href="/#setup">View full setup guide</a>`,
-      body: `<div class="grid"><div class="card span7 glow"><div class="section-head"><div><div class="title">ChatGPT MCP endpoint</div><div class="label">Use this remote MCP URL when adding CodeLocal to ChatGPT.</div></div></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">${escapeHtml(endpoint)}</div><button class="btn" type="button" data-copy-target="#mcp-endpoint">Copy</button></div><div class="divider"></div><div class="label">Authentication: <strong>OAuth</strong>. Sign in with this CodeLocal account and approve the connection when ChatGPT opens the browser.</div></div><div class="card span5"><div class="section-head"><div><div class="title">ChatGPT plugin icon</div><div class="label">256 × 256 PNG · under 10 KB.</div></div><img src="/assets/chatgpt-plugin-icon.png" alt="" style="width:56px;height:56px;border-radius:16px"></div><div class="divider"></div><a class="btn primary" href="/assets/chatgpt-plugin-icon.png" download="codelocal-chatgpt-plugin-icon.png">Download icon</a><div style="height:12px"></div><div class="label">The public setup guide includes every field to enter in ChatGPT and the complete machine pairing flow.</div></div></div>`,
+      body: `<div class="grid"><div class="card span7 glow"><div class="section-head"><div><div class="title">Universal MCP endpoint</div><div class="label">Use this remote MCP URL with any compatible AI client or coding agent.</div></div></div><div class="divider"></div><div class="copy-row"><div class="code-block" id="mcp-endpoint">${escapeHtml(endpoint)}</div><button class="btn" type="button" data-copy-target="#mcp-endpoint">Copy</button></div><div class="divider"></div><div class="label">Authentication: <strong>OAuth</strong>. Sign in with this CodeLocal account and approve the connection when your MCP client opens the browser authorization flow.</div></div><div class="card span5"><div class="section-head"><div><div class="title">OpenAI listing asset</div><div class="label">Marketplace icon for the ChatGPT / Codex distribution channel.</div></div><img src="/assets/chatgpt-plugin-icon.png" alt="" style="width:56px;height:56px;border-radius:16px"></div><div class="divider"></div><a class="btn primary" href="/assets/chatgpt-plugin-icon.png" download="codelocal-chatgpt-plugin-icon.png">Download icon</a><div style="height:12px"></div><div class="label">The public setup guide covers generic MCP clients plus the OpenAI-specific marketplace/reviewer flow.</div></div></div>`,
     });
   });
 

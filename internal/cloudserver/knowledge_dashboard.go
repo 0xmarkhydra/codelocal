@@ -39,7 +39,7 @@ func (s *Server) knowledgeDashboard(w http.ResponseWriter, r *http.Request, iden
 	recommendations, _ := s.Store.CollectiveRecommendations(r.Context(), identity.User.ID, 6)
 	statusCards := durableLearningHealthCard(durableLearning) + canonicalGraphFreshnessCard(canonicalGraphFreshness) + canonicalEmbeddingFreshnessCard(canonicalEmbeddingFreshness) + canonicalSemanticCanaryCard(semanticCanary) + collectivePreferencesCard(identity, preference) + collectiveRecommendationsCard(preference, recommendations)
 	raw, _ := json.Marshal(graph)
-	body := statusCards + fmt.Sprintf(`
+	body := fmt.Sprintf(`
 <style>
 .page-knowledge .main{padding-top:16px;padding-bottom:18px}.page-knowledge .top{display:none}.page-knowledge .main>.knowledge-card{max-width:1600px;margin-left:auto;margin-right:auto}
 .knowledge-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;max-width:1600px;margin:0 auto 10px}.knowledge-stat{min-height:72px!important;padding:11px 14px!important;border-radius:16px!important}.knowledge-stat:hover{transform:none!important}.knowledge-stat strong{display:block;font-size:22px;line-height:1;letter-spacing:-.035em}.knowledge-stat span{display:block;margin-top:7px;font-size:10.5px;color:var(--muted)}
@@ -102,6 +102,7 @@ func (s *Server) knowledgeDashboard(w http.ResponseWriter, r *http.Request, iden
  init();window.addEventListener('resize',resize);resize();requestAnimationFrame(physics);
 })();
 </script>`, statValue(graph.Stats, "projects"), statValue(graph.Stats, "repositories"), statValue(graph.Stats, "skills"), statValue(graph.Stats, "memories"), statValue(graph.Stats, "edges"), string(raw))
+	body += `<div class="card" style="max-width:1600px;margin:14px auto 10px;padding:18px"><div class="section-kicker">Brain health</div><div class="title">Diagnostics & rollout controls</div><div class="label">Operational health stays below the graph so the primary Project Brain experience remains visual and user-focused.</div></div>` + statusCards
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
 		Title: "Knowledge Graph", Active: "knowledge", Email: identity.User.Email, CSRF: identity.CSRF,
 		Subtitle: "A living map of the projects, repositories and durable knowledge CodeLocal has learned for your account.",

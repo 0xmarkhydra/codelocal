@@ -37,7 +37,7 @@ func terminalRuntimeHeader() {
 	fmt.Println()
 	fmt.Println(terminalColor(ansiMagenta, "╭"+line+"╮"))
 	fmt.Println(terminalColor(ansiMagenta, row("◆ CodeLocal")))
-	fmt.Println(terminalColor(ansiGray, row("Local runtime for ChatGPT")))
+	fmt.Println(terminalColor(ansiGray, row("Universal MCP runtime for AI clients")))
 	fmt.Println(terminalColor(ansiMagenta, "╰"+line+"╯"))
 	fmt.Println()
 	fmt.Printf("  %s %-12s %s\n\n", terminalColor(ansiGray, "◌"), terminalColor(ansiBold, "Status"), "Connecting to CodeLocal Cloud…")
@@ -47,7 +47,7 @@ func terminalRuntimeReady(workspaces int64) {
 	fmt.Printf("  %s %-12s %s\n", terminalColor(ansiGreen, "●"), terminalColor(ansiBold, "Runtime"), "Online")
 	fmt.Printf("  %s %-12s %s\n", terminalColor(ansiGreen, "●"), terminalColor(ansiBold, "Cloud"), "Connected")
 	fmt.Printf("  %s %-12s %d authorized\n", terminalColor(ansiCyan, "◇"), terminalColor(ansiBold, "Workspaces"), workspaces)
-	fmt.Printf("  %s %-12s %s\n\n", terminalColor(ansiGray, "◌"), terminalColor(ansiBold, "Status"), "Waiting for ChatGPT…")
+	fmt.Printf("  %s %-12s %s\n\n", terminalColor(ansiGray, "◌"), terminalColor(ansiBold, "Status"), "Waiting for MCP clients…")
 }
 
 type terminalRuntimeHandler struct {

@@ -33,7 +33,7 @@ func TestUnsupportedActionExplainsSchemaRecovery(t *testing.T) {
 		t.Fatal("expected compatibility error")
 	}
 	message := err.Error()
-	for _, want := range []string{"old_action", "tool surface", "reconnect CodeLocal"} {
+	for _, want := range []string{"old_action", "tool surface", "reconnect or refresh CodeLocal"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("error missing %q: %s", want, message)
 		}

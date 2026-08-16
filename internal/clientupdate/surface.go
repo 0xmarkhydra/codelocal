@@ -179,7 +179,7 @@ func RenderSurfaceCLI(notice SurfaceNotice) string {
 		"╭─ CodeLocal MCP tools changed ─────────────────────────────╮",
 		fmt.Sprintf("│  Tool surface: v%d / %d tools", notice.Current.Version, notice.Current.Count),
 		"│  CodeLocal Cloud is exposing a newer/different MCP schema.",
-		"│  Reconnect CodeLocal in ChatGPT to reload tools/actions.",
+		"│  Reconnect or refresh CodeLocal in your AI client to reload tools/actions.",
 		"│  Local pairing and workspace grants will be kept.",
 		"╰────────────────────────────────────────────────────────────╯",
 		"",

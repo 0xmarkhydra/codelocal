@@ -85,7 +85,7 @@ func TestCheckToolSurfaceAcceptsWebSocketCloudURL(t *testing.T) {
 
 func TestRenderSurfaceCLIIsActionable(t *testing.T) {
 	text := RenderSurfaceCLI(SurfaceNotice{Previous: SurfaceFingerprint{Version: 1, Hash: surfaceHashA, Count: 19}, Current: SurfaceFingerprint{Version: 1, Hash: surfaceHashB, Count: 19}})
-	for _, want := range []string{"MCP tools changed", "19 tools", "Reconnect CodeLocal in ChatGPT", "workspace grants"} {
+	for _, want := range []string{"MCP tools changed", "19 tools", "Reconnect or refresh CodeLocal in your AI client", "workspace grants"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("surface notice missing %q: %s", want, text)
 		}

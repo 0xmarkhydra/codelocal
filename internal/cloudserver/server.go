@@ -322,9 +322,9 @@ func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
 		label = "Open dashboard"
 	}
 	action := `<div class="actions"><a class="btn primary" href="` + href + `">` + label + `</a></div>`
-	body := `<div class="stack"><div class="row"><div class="row-title">You already have ChatGPT. Now let it code on your machine.</div><div class="row-meta">ChatGPT stays the AI brain. CodeLocal is the secure bridge to folders and tools you explicitly authorize.</div></div><div class="row"><div class="row-title">1 · Connect ChatGPT</div><div class="row-meta mono">` + ui.Escape(strings.TrimRight(s.WebAuth.PublicBaseURL, "/")+"/mcp") + `</div></div><div class="row"><div class="row-title">2 · Install</div><div class="row-meta mono">npm install -g codelocal</div></div><div class="row"><div class="row-title">3 · Authorize a project</div><div class="row-meta mono">cd /path/to/project<br>codelocal .</div></div><div class="row"><div class="row-title">4 · Start one machine runtime</div><div class="row-meta mono">codelocal</div></div>` + action + `</div>`
+	body := `<div class="stack"><div class="row"><div class="row-title">One MCP layer for the AI tools you use.</div><div class="row-meta">CodeLocal connects compatible AI clients to the same Project Brain, authorized folders and controlled local tools.</div></div><div class="row"><div class="row-title">1 · Connect an MCP client</div><div class="row-meta mono">` + ui.Escape(strings.TrimRight(s.WebAuth.PublicBaseURL, "/")+"/mcp") + `</div></div><div class="row"><div class="row-title">2 · Install</div><div class="row-meta mono">npm install -g codelocal</div></div><div class="row"><div class="row-title">3 · Authorize a project</div><div class="row-meta mono">cd /path/to/project<br>codelocal .</div></div><div class="row"><div class="row-title">4 · Start one machine runtime</div><div class="row-meta mono">codelocal</div></div>` + action + `</div>`
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("CodeLocal", "ChatGPT does the thinking. CodeLocal gives it hands.", body)))
+	_, _ = w.Write([]byte(ui.Page("CodeLocal", "Universal MCP + Project Brain + controlled local execution.", body)))
 }
 
 func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
@@ -391,7 +391,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		inviteSource = "Root account"
 	}
 	body.WriteString(`<div class="row"><div class="row-title">Your referral code · <span class="mono">` + ui.Escape(identity.User.ReferralCode) + `</span></div><div class="row-meta">Share this code with people you want to invite. Invited by: ` + ui.Escape(inviteSource) + `.</div></div>`)
-	body.WriteString(`<div class="row"><div class="row-title">Estimated MCP token usage</div><div class="row-meta">Counts only payload sent through CodeLocal MCP tool calls. ChatGPT does not expose the model's full conversation/billing token count to MCP servers, so these numbers are estimates rather than OpenAI billing tokens.</div></div>`)
+	body.WriteString(`<div class="row"><div class="row-title">Estimated MCP token usage</div><div class="row-meta">Counts only payload sent through CodeLocal MCP tool calls. MCP clients do not expose the model/provider's full conversation or billing token accounting to CodeLocal, so these numbers are transport estimates rather than provider billing tokens.</div></div>`)
 	body.WriteString(usageRow("Last 24 hours", usage24h))
 	body.WriteString(usageRow("Last 30 days", usage30d))
 	body.WriteString(usageRow("All time", usageAll))
@@ -550,7 +550,7 @@ func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request, identity
 }
 
 func usageRow(label string, value cloud.MCPUsageSummary) string {
-	return `<div class="row"><div class="row-title">` + ui.Escape(label) + ` · ~` + fmt.Sprintf("%d", value.TotalTokensEst) + ` tokens</div><div class="row-meta mono">` + fmt.Sprintf("%d", value.Calls) + ` tool calls · ChatGPT → CodeLocal ~` + fmt.Sprintf("%d", value.InputTokensEst) + ` · CodeLocal → ChatGPT ~` + fmt.Sprintf("%d", value.OutputTokensEst) + `</div></div>`
+	return `<div class="row"><div class="row-title">` + ui.Escape(label) + ` · ~` + fmt.Sprintf("%d", value.TotalTokensEst) + ` tokens</div><div class="row-meta mono">` + fmt.Sprintf("%d", value.Calls) + ` tool calls · MCP client → CodeLocal ~` + fmt.Sprintf("%d", value.InputTokensEst) + ` · CodeLocal → MCP client ~` + fmt.Sprintf("%d", value.OutputTokensEst) + `</div></div>`
 }
 
 func schemaMigrationPayload(status cloud.SchemaMigrationStatus, err error) map[string]any {
@@ -602,7 +602,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 		"canonicalSemanticCanary":     semanticCanary,
 		"mcpTokenUsage": map[string]any{
 			"estimated": true,
-			"scope":     "MCP payload only; not full ChatGPT model/billing tokens",
+			"scope":     "MCP payload only; not full AI model/provider billing tokens",
 			"last24h":   usage24h,
 			"last30d":   usage30d,
 			"allTime":   usageAll,

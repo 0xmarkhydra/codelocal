@@ -124,15 +124,15 @@ oauthRouter.get("/authorize", async (req, res) => {
   const hidden = { client_id: clientId, redirect_uri: redirectUri, code_challenge: codeChallenge, resource, scope, state, csrf: me.csrf };
   const hiddenInputs = Object.entries(hidden).map(([key, value]) => `<input type="hidden" name="${key}" value="${htmlEscape(value)}">`).join("\n");
   res.type("html").send(authPage({
-    title: "Connect ChatGPT",
-    subtitle: `Signed in as ${me.user.email}. ChatGPT will only see devices and workspaces belonging to this CodeLocal account.`,
-    body: `<div class="card" style="box-shadow:none;padding:16px;margin-bottom:16px"><div class="label">MCP client</div><div class="row-title" style="margin-top:4px">${htmlEscape(client.clientName ?? "ChatGPT")}</div><div class="row-meta mono">${htmlEscape(MCP_RESOURCE)}</div></div><form class="form" method="post" action="/authorize">${hiddenInputs}<button class="btn primary" type="submit">Authorize ChatGPT</button><a class="btn" href="/dashboard">Cancel</a></form>`,
+    title: "Authorize MCP client",
+    subtitle: `Signed in as ${me.user.email}. This client will only see devices and workspaces belonging to this CodeLocal account.`,
+    body: `<div class="card" style="box-shadow:none;padding:16px;margin-bottom:16px"><div class="label">MCP client</div><div class="row-title" style="margin-top:4px">${htmlEscape(client.clientName ?? "MCP client")}</div><div class="row-meta mono">${htmlEscape(MCP_RESOURCE)}</div></div><form class="form" method="post" action="/authorize">${hiddenInputs}<button class="btn primary" type="submit">Authorize MCP client</button><a class="btn" href="/dashboard">Cancel</a></form>`,
   }));
 });
 
 oauthRouter.post("/authorize", async (req, res) => {
   const me = await getWebIdentity(req);
-  if (!me) { res.status(401).send("Sign in to CodeLocal and restart the ChatGPT connection flow."); return; }
+  if (!me) { res.status(401).send("Sign in to CodeLocal and restart the MCP connection flow."); return; }
   if (!verifyCsrf(req)) { res.status(403).send("Invalid security token. Restart the authorization flow."); return; }
   const clientId = String(req.body.client_id ?? "");
   const redirectUri = String(req.body.redirect_uri ?? "");

@@ -62,7 +62,7 @@ test("codelocal . authorizes locally and exits without connecting to Cloud", asy
     assert.equal(result.error, undefined, result.error?.message);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /Added Project A/);
-    assert.match(result.stdout, /Run `codelocal` when you want to connect ChatGPT/);
+    assert.match(result.stdout, /Run `codelocal` when you want to make this machine available to connected MCP clients/);
 
     const registry = JSON.parse(await readFile(path.join(stateDir, "workspaces.json"), "utf8")) as { workspaces?: Array<{ localPath?: string }> };
     assert.equal(registry.workspaces?.length, 1);
