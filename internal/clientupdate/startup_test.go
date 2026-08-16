@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -143,7 +144,7 @@ func TestStartupCacheIsPrivateAndRenderCLIIsActionable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("cache mode=%#o want 0600", info.Mode().Perm())
 	}
 	text := RenderCLI(Notice{InstalledVersion: "1.5.13", LatestVersion: "1.5.14", UpdateCommand: "npm i -g codelocal@latest", RestartCommand: "codelocal"})

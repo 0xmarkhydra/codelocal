@@ -3,6 +3,7 @@ package learnedskills
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -196,7 +197,7 @@ func TestRecipesAreWorkspaceScopedAndPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("skill file permissions are not private: %o", info.Mode().Perm())
 	}
 }

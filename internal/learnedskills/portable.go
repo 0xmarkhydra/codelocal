@@ -153,8 +153,8 @@ func portableStep(step Step) (Step, bool, string) {
 
 func portableWorkflowPath(value string) (string, bool) {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
-	windowsAbsolute := len(value) >= 3 && value[1] == ':' && value[2] == '/'
-	if value == "" || windowsAbsolute || filepath.IsAbs(filepath.FromSlash(value)) || value == ".." || strings.HasPrefix(value, "../") {
+	driveQualified := len(value) >= 2 && value[1] == ':'
+	if value == "" || strings.HasPrefix(value, "/") || driveQualified || value == ".." || strings.HasPrefix(value, "../") {
 		return "", false
 	}
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))

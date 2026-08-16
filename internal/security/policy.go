@@ -195,6 +195,12 @@ func inside(root, candidate string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
+func crossPlatformAbsolute(value string) bool {
+	normalized := strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	windowsDrive := len(normalized) >= 3 && normalized[1] == ':' && normalized[2] == '/'
+	return strings.HasPrefix(normalized, "/") || windowsDrive
+}
+
 func pathCandidate(token string) string {
 	raw := token
 	if idx := strings.Index(token, "="); idx > 0 && strings.HasPrefix(token, "-") {
@@ -209,13 +215,23 @@ func pathCandidate(token string) string {
 	if raw == "/dev/null" || raw == "NUL" {
 		return ""
 	}
-	if raw == "~" || strings.HasPrefix(raw, "~/") || filepath.IsAbs(raw) || raw == ".." || strings.HasPrefix(raw, "../") || strings.Contains(filepath.ToSlash(raw), "/../") {
+	if raw == "~" || strings.HasPrefix(raw, "~/") || crossPlatformAbsolute(raw) || raw == ".." || strings.HasPrefix(raw, "../") || strings.Contains(filepath.ToSlash(raw), "/../") {
 		return raw
 	}
 	return ""
 }
 
 func explicitPathEscape(command string, ctx Context) string {
+	if candidate := explicitPathEscapeParsed(command, ctx); candidate != "" {
+		return candidate
+	}
+	if strings.Contains(command, "\\") {
+		return explicitPathEscapeParsed(strings.ReplaceAll(command, "\\", "/"), ctx)
+	}
+	return ""
+}
+
+func explicitPathEscapeParsed(command string, ctx Context) string {
 	if ctx.WorkspaceRoot == "" {
 		return ""
 	}
@@ -233,6 +249,9 @@ func explicitPathEscape(command string, ctx Context) string {
 		candidate := pathCandidate(token)
 		if candidate == "" {
 			continue
+		}
+		if crossPlatformAbsolute(candidate) && !filepath.IsAbs(candidate) {
+			return candidate
 		}
 		expanded := candidate
 		if candidate == "~" {

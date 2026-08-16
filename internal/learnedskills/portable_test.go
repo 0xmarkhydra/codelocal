@@ -62,7 +62,7 @@ func TestPortableRecipeRejectsSecretsEphemeralBindingsAndTerminalCommands(t *tes
 }
 
 func TestPortableRecipeRejectsUnsafeWorkflowPaths(t *testing.T) {
-	for _, path := range []string{"../secret", "/Users/me/private", "C:/Users/me/private"} {
+	for _, path := range []string{"../secret", "..\\secret", "/Users/me/private", "C:/Users/me/private", `C:\Users\me\private`, `\\server\share\private`} {
 		recipe := portableFixture("workspace")
 		recipe.Context.WorkflowFiles = map[string]string{path: "hash"}
 		if _, ok, _ := PortableRecipeFor(recipe, "project"); ok {

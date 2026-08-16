@@ -24,6 +24,16 @@ func TestPolicyBlocksEscapesAndRemembersRoutineWorkspaceExecution(t *testing.T) 
 	}
 }
 
+func TestPolicyBlocksCrossPlatformAbsolutePaths(t *testing.T) {
+	root := t.TempDir()
+	for _, candidate := range []string{"/Users/me/private", "C:/Users/me/private", `C:\Users\me\private`, `..\outside`} {
+		decision := Classify("cat "+candidate, NetworkApproval, Context{WorkspaceRoot: root, CWD: root})
+		if !decision.Blocked || decision.RiskLevel != RiskBlocked {
+			t.Fatalf("expected cross-platform path %q to be blocked: %#v", candidate, decision)
+		}
+	}
+}
+
 func TestRedaction(t *testing.T) {
 	redacted := RedactCommand("curl -H 'Authorization: Bearer abc123' https://example.test?token=secret")
 	if redacted == "" || redacted == "curl -H 'Authorization: Bearer abc123' https://example.test?token=secret" {
