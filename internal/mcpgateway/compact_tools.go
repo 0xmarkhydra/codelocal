@@ -185,7 +185,7 @@ func compactToolDefinitions() []compactToolDef {
 				"responseMode":  map[string]any{"type": "string", "enum": []string{"compact", "full"}, "description": "Response verbosity. Defaults to compact; use full for debugging/review to include the full plan and execution trace."},
 				"workspaceKey":  workspaceKeySchema,
 			}, "objective", "steps"),
-			Annotations: compactAnnotations("Run bounded agent plan", false, true, false),
+			Annotations: compactAnnotations("Run bounded agent plan", false, true, true),
 			Execute: func(ctx context.Context, service *Service, userID string, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return service.runBoundedAgent(ctx, userID, args, req)
 			},

@@ -74,9 +74,12 @@ func TestLandingPageKeepsDocumentScroll(t *testing.T) {
 func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 	html := LandingPage(LandingOptions{Endpoint: "https://codelocal.cloud/mcp"})
 	for _, want := range []string{
-		`Give ChatGPT hands on your machine.`,
-		`You keep control.`,
+		`Give AI memory of your project.`,
+		`And controlled hands on your machine.`,
 		`ChatGPT ↔ CodeLocal ↔ your machine`,
+		`Project Brain`,
+		`Rules · decisions · memory · skills`,
+		`Semantic is optional`,
 		`Authorize projects, not your whole computer.`,
 		`One lightweight machine runtime.`,
 		`Sensitive actions stay gated.`,
@@ -84,7 +87,14 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 		`Reset or uninstall CodeLocal`,
 		`codelocal reset --all`,
 		`codelocal uninstall --all`,
-		`Your machine is the security boundary.`,
+		`Your machine is the execution boundary.`,
+		`OpenAI Plugins Directory`,
+		`Production MCP endpoint`,
+		`Prepared for OpenAI plugin review`,
+		`sanitized durable Project Brain knowledge`,
+		`href="/privacy"`,
+		`href="/terms"`,
+		`href="/support"`,
 		`data-copy-value="https://codelocal.cloud/mcp"`,
 	} {
 		if !strings.Contains(html, want) {

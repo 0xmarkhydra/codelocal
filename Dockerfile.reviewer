@@ -1,0 +1,18 @@
+FROM golang:1.24-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 go build -trimpath -o /out/codelocal-reviewer ./cmd/codelocal-reviewer
+
+FROM node:22-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates git \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/codelocal-reviewer /usr/local/bin/codelocal-reviewer
+ENV CODELOCAL_ALLOW_SHELL=1 \
+    CODELOCAL_APPROVAL_MODE=prompt \
+    CODELOCAL_NETWORK=approval \
+    CODELOCAL_STATE_DIR=/var/lib/codelocal-reviewer
+CMD ["codelocal-reviewer"]

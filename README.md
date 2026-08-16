@@ -1,26 +1,39 @@
 # CodeLocal
 
-CodeLocal lets ChatGPT work on code that stays on your own machine.
+CodeLocal gives ChatGPT and Codex a durable Project Brain plus controlled access to project folders you explicitly authorize on your own machine.
 
 Website: [https://codelocal.cloud](https://codelocal.cloud/)
+
+User documentation:
+
+- [Start here](./docs/README.md)
+- [User Guide](./docs/USER_GUIDE.md)
+- [How CodeLocal Works](./docs/HOW_CODELOCAL_WORKS.md)
+- [Security & Privacy](./docs/SECURITY_AND_PRIVACY.md)
+- [Beta Channel](./docs/BETA_CHANNEL.md)
+- [OpenAI Plugin Submission Pack](./docs/plugin-submission/README.md)
 
 ```text
 You
   ↓
-ChatGPT                     AI reasoning layer
-  ↓ MCP over HTTPS + OAuth
-CodeLocal Cloud             Go gateway, routing, auth, multi-tenant state
-  ↓ authenticated WebSocket
-CodeLocal native runtime    Go binary on your computer
+ChatGPT / Codex              AI reasoning layer
+  ↕ MCP over HTTPS + OAuth
+CodeLocal Project Brain      durable rules, decisions, memory, Experience, skills
   ↓
-Authorized workspaces       files, Git, terminal, local MCP extensions
+CodeLocal Cloud              identity, routing, auth, sanitized durable project knowledge
+  ↓ authenticated runtime channel
+CodeLocal native runtime     controlled execution on your computer
+  ↓
+Authorized workspaces        files, Git, terminal and local MCP extensions
+  ↓
+Verification                 evidence → verified Experience → safe learning
 ```
 
-**ChatGPT is the brain. CodeLocal gives it controlled hands.** You do not need to buy or configure a separate OpenAI API key for CodeLocal, and CodeLocal does not add per-token billing. Tool calls happen inside your ChatGPT conversation and follow the normal limits of your ChatGPT plan/model/workspace.
+**The AI model reasons; CodeLocal preserves project intelligence and controls execution.** You do not need to buy or configure a separate OpenAI API key for the standard ChatGPT plugin workflow, and CodeLocal does not add per-token billing to those ChatGPT tool calls.
 
 ## Version
 
-`1.5.14` — next stable native Go release.
+Use `codelocal --version` for the installed runtime. Stable installs use `codelocal@latest`; reviewer and canary builds use the npm beta channel until promoted.
 
 The application runtime and Cloud gateway are implemented in Go. The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 

@@ -79,7 +79,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 					"approvalToken": approval,
 				},
 			),
-			Annotations: compactAnnotations("Use desktop apps", false, true, false),
+			Annotations: compactAnnotations("Use desktop apps", false, true, true),
 			Resolve: func(args map[string]any) (operationInvocation, map[string]any, error) {
 				operation, forward, err := resolveAction(args, computerActions, map[string][]string{
 					"type": {"text"}, "key": {"key"},
