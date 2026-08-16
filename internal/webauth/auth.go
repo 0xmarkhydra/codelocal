@@ -252,61 +252,12 @@ func (m *Manager) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(m.form("signup", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "", r.URL.Query().Get("ref"))))
 	})
-	signup := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		csrf := m.EnsureCSRF(w, r)
-		next := webutil.SafeNext(r.FormValue("next"))
-		referralCode := cloud.NormalizeReferralCode(r.FormValue("referralCode"))
-		if !m.VerifyCSRF(r) {
-			w.WriteHeader(403)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Security token expired. Please try again.", referralCode)))
-			return
-		}
-		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
-		password := r.FormValue("password")
-		if !validEmail(email) {
-			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid email address.", referralCode)))
-			return
-		}
-		if !cloud.ValidReferralCode(referralCode) {
-			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid referral code from an existing member.", referralCode)))
-			return
-		}
-		hash, salt, err := HashPassword(password)
-		if err != nil {
-			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, err.Error(), referralCode)))
-			return
-		}
-		user, err := m.Store.CreateUser(r.Context(), email, hash, salt, referralCode)
-		if err != nil {
-			message := err.Error()
-			switch message {
-			case "EMAIL_ALREADY_REGISTERED":
-				message = "An account with this email already exists."
-			case "REFERRAL_REQUIRED", "REFERRAL_INVALID":
-				message = "Referral code is invalid. Ask an existing CodeLocal member for a valid invite code."
-			case "REFERRAL_CODE_GENERATION_FAILED":
-				message = "Unable to allocate a referral code. Please try again."
-			}
-			w.WriteHeader(400)
-			_, _ = w.Write([]byte(m.form("signup", csrf, next, message, referralCode)))
-			return
-		}
-		sessionID, err := m.Store.CreateSession(r.Context(), user.ID, csrf, m.SessionTTL)
-		if err != nil {
-			http.Error(w, "Unable to create session", 500)
-			return
-		}
-		m.setCookie(w, SessionCookie, sessionID, int(m.SessionTTL.Seconds()), true)
-		m.Store.Audit(cloud.AuditEvent{UserID: user.ID, Event: "auth.register"})
-		http.Redirect(w, r, next, http.StatusSeeOther)
-	})
+	signup := http.HandlerFunc(m.signupStart)
 	mux.Handle("POST /signup", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-ip", Limit: 20, Window: time.Hour}, webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-account", Limit: 4, Window: time.Hour, Subject: func(r *http.Request) string {
 		_ = r.ParseForm()
 		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
 	}}, signup)))
+	m.registerSignupVerification(mux)
 	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) {
 		identity, _ := m.Identity(r)
 		if !m.VerifyCSRF(r) {

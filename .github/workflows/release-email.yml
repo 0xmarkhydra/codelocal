@@ -1,0 +1,72 @@
+name: Notify CodeLocal release by email
+
+on:
+  workflow_run:
+    workflows: ["Publish CodeLocal to npm"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codelocal-release-email-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    if: >-
+      github.repository == '0xmarkhydra/codex-mcp' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout released commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve released version
+        id: release
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          tag="$(git tag --points-at "$HEAD_SHA" --list 'codelocal-v*' | sort -V | tail -n 1 || true)"
+          if [[ -z "$tag" ]]; then
+            echo "No CodeLocal release tag points at $HEAD_SHA." >&2
+            exit 1
+          fi
+          version="${tag#codelocal-v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Notify registered users
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          NOTIFY_SECRET: ${{ secrets.CODELOCAL_RELEASE_NOTIFY_SECRET }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$NOTIFY_SECRET" ]]; then
+            echo '::warning::CODELOCAL_RELEASE_NOTIFY_SECRET is not configured; release email was skipped.'
+            exit 0
+          fi
+          payload="$(node -e 'process.stdout.write(JSON.stringify({version: process.env.VERSION, commit: process.env.COMMIT_SHA}))')"
+          curl --fail-with-body \
+            --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 10 \
+            --max-time 30 \
+            -H "Authorization: Bearer $NOTIFY_SECRET" \
+            -H 'Content-Type: application/json' \
+            --data "$payload" \
+            https://codelocal.cloud/internal/releases/notify
