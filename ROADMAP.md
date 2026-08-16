@@ -3,6 +3,8 @@
 > Project Brain architecture, durable knowledge, rules/skills discovery, cross-device learning, Context Compiler, and the measurable strategy for competing beyond Codex/Claude are defined in [`PROJECT_BRAIN_MASTER_PLAN.md`](./PROJECT_BRAIN_MASTER_PLAN.md). Treat that document as the source of truth for the intelligence layer.
 >
 > The management-review execution plan for Knowledge V2 hardening, Knowledge Health, Collective Intelligence, and deterministic Code Quality Policy is tracked in [`KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md`](./KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md). It is an implementation plan and does not replace the Project Brain source of truth.
+>
+> The web-first Neural Control Plane / living Project Brain dashboard redesign, including the explicit boundary between web-only phases and later npm/native realtime telemetry, is tracked in [`NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`](./NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md).
 
 ## Goal
 
