@@ -2278,7 +2278,8 @@ Canonical embeddings are a **derived/rebuildable Project Brain index**, never a 
 - freshness is reported separately as `current | stale | missing | empty` and does not degrade deterministic canonical truth;
 - semantic query shadowing is separately opt-in and aggregate-only metrics are stored by v39;
 - a semantic Hybrid canary exists but defaults OFF; it may enter model context only after base Knowledge V2 readiness, current vector freshness, and semantic-shadow readiness all report `ready`; any gate/error/timeout falls back to deterministic Hybrid unchanged;
-- v40 records aggregate canary outcomes only, with bounded asynchronous metric writes so observability never adds a synchronous DB write to the prompt path; no query/task/summary/repository/path/symbol content is stored.
+- v40 records aggregate canary outcomes only, with bounded asynchronous metric writes so observability never adds a synchronous DB write to the prompt path; no query/task/summary/repository/path/symbol content is stored;
+- the live semantic lane is additionally protected by a bounded in-memory circuit breaker: per-project aggregate metrics are refreshed asynchronously into a 30-second cache, cache miss/staleness fails closed to deterministic Hybrid, bad error/timeout/slow/readiness-block rates block semantic attempts after enough samples, and a single five-minute half-open probe permits automatic recovery without changing user configuration.
 
 This preserves the retrieval hierarchy: deterministic canonical retrieval is safe without vectors; semantic vectors are optional acceleration/ranking evidence that can be deleted and rebuilt.
 

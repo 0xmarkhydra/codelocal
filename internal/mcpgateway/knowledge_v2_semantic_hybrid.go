@@ -118,6 +118,11 @@ func (s *Service) maybeApplySemanticHybridCanonicalRecall(parent context.Context
 	if s == nil || s.Store == nil || !canonicalSemanticHybridEnabled() || strings.TrimSpace(query) == "" {
 		return legacy, false
 	}
+	gate := s.semanticCanaryGate(input)
+	if !gate.Allow {
+		slog.Debug("knowledge v2 semantic hybrid circuit breaker", "status", gate.Status)
+		return legacy, false
+	}
 	ctx, cancel := context.WithTimeout(parent, knowledgeV2SemanticHybridTimeout)
 	started := time.Now()
 	merged, applied, reason := runGuardedSemanticHybridRecall(ctx, s.Store, input, query, legacy)

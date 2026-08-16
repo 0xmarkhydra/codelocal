@@ -33,6 +33,9 @@ type Service struct {
 	servers      map[string]*mcp.Server
 	routes       map[string]map[string]string
 	shownUpdates map[string]map[string]struct{}
+
+	semanticCanaryMu    sync.Mutex
+	semanticCanaryGates map[string]semanticCanaryGateEntry
 }
 
 func New(store *cloud.Store, hub *gateway.Hub, workspaces *gateway.WorkspaceService, memories ...longTermMemoryStore) *Service {
@@ -41,14 +44,15 @@ func New(store *cloud.Store, hub *gateway.Hub, workspaces *gateway.WorkspaceServ
 		memoryStore = memories[0]
 	}
 	return &Service{
-		Store:        store,
-		Hub:          hub,
-		Workspaces:   workspaces,
-		Memory:       memoryStore,
-		Release:      clientupdate.ManifestFromEnv(),
-		servers:      map[string]*mcp.Server{},
-		routes:       map[string]map[string]string{},
-		shownUpdates: map[string]map[string]struct{}{},
+		Store:               store,
+		Hub:                 hub,
+		Workspaces:          workspaces,
+		Memory:              memoryStore,
+		Release:             clientupdate.ManifestFromEnv(),
+		servers:             map[string]*mcp.Server{},
+		routes:              map[string]map[string]string{},
+		shownUpdates:        map[string]map[string]struct{}{},
+		semanticCanaryGates: map[string]semanticCanaryGateEntry{},
 	}
 }
 

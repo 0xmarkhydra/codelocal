@@ -74,6 +74,7 @@ func TestCanonicalSemanticCanarySchemaIsAggregateOnlyTenantScopedAndAdditive(t *
 		"timeout_count",
 		"slow_count",
 		"where ($1='' or user_id=$1)",
+		"and ($2='' or project_id=$2)",
 	} {
 		if !strings.Contains(lower, required) {
 			t.Fatalf("semantic canary aggregate contract missing %q", required)

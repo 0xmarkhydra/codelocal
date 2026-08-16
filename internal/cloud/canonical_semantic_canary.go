@@ -72,7 +72,8 @@ SELECT
  COALESCE(MAX(last_duration_millis),0),COALESCE(MAX(max_duration_millis),0),COALESCE(MIN(first_sample_at),0),COALESCE(MAX(last_sample_at),0),
  COUNT(*)::bigint
 FROM codelocal_knowledge_semantic_canary_metrics
-WHERE ($1='' OR user_id=$1)`
+WHERE ($1='' OR user_id=$1)
+ AND ($2='' OR project_id=$2)`
 
 const (
 	SemanticCanaryReasonReady            = "semantic_hybrid_ready"
@@ -203,8 +204,19 @@ func scanCanonicalSemanticCanaryMetrics(row interface{ Scan(...any) error }) (Ca
 }
 
 func (s *Store) CanonicalSemanticCanaryMetrics(ctx context.Context, userID string) (CanonicalSemanticCanaryMetrics, error) {
+	return s.canonicalSemanticCanaryMetrics(ctx, userID, "")
+}
+
+func (s *Store) CanonicalSemanticCanaryProjectMetrics(ctx context.Context, userID, projectID string) (CanonicalSemanticCanaryMetrics, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(projectID) == "" {
+		return CanonicalSemanticCanaryMetrics{}, errors.New("semantic canary project metrics require user and project")
+	}
+	return s.canonicalSemanticCanaryMetrics(ctx, userID, projectID)
+}
+
+func (s *Store) canonicalSemanticCanaryMetrics(ctx context.Context, userID, projectID string) (CanonicalSemanticCanaryMetrics, error) {
 	if s == nil || s.DB == nil {
 		return CanonicalSemanticCanaryMetrics{}, errors.New("semantic canary metrics unavailable")
 	}
-	return scanCanonicalSemanticCanaryMetrics(s.DB.QueryRow(ctx, canonicalSemanticCanarySummarySQL, strings.TrimSpace(userID)))
+	return scanCanonicalSemanticCanaryMetrics(s.DB.QueryRow(ctx, canonicalSemanticCanarySummarySQL, strings.TrimSpace(userID), strings.TrimSpace(projectID)))
 }
