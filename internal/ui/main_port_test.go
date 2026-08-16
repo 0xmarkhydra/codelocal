@@ -44,6 +44,9 @@ func TestDashboardPagePinsSidebarOnDesktop(t *testing.T) {
 	if !strings.Contains(html, `aria-label="Sign out"`) || !strings.Contains(html, `title="Leaderboard"`) {
 		t.Fatal("tablet icon controls must remain discoverable and accessible")
 	}
+	if !strings.Contains(html, `<span class="brand-name">CodeLocal</span><span class="brand-tag">MCP</span>`) {
+		t.Fatal("dashboard brand lockup must reinforce the MCP product identity")
+	}
 	if !strings.Contains(mainPortExtras, `.sidebar.nav-open{height:100dvh;overflow-y:auto}`) || !strings.Contains(html, `data-nav-toggle`) {
 		t.Fatal("mobile dashboard must use a drawer instead of scrolling the desktop sidebar with page content")
 	}
@@ -79,7 +82,11 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 	for _, want := range []string{
 		`Connect every AI.`,
 		`Keep one project brain.`,
-		`AI clients ↔ MCP ↔ CodeLocal ↔ your machine`,
+		`AI client → CodeLocal → your machine`,
+		`Switch AI without rebuilding project context.`,
+		`Connect`,
+		`Govern`,
+		`Execute locally`,
 		`Project Brain`,
 		`Learned Skills`,
 		`Knowledge Graph`,
