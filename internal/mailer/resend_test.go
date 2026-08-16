@@ -12,16 +12,16 @@ func TestSendUsesResendEmailEndpointAndIdempotencyKey(t *testing.T) {
 	var got resendMessage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/emails" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer re_test" {
-			t.Fatalf("missing bearer authorization: %q", r.Header.Get("Authorization"))
+			t.Errorf("missing bearer authorization: %q", r.Header.Get("Authorization"))
 		}
 		if r.Header.Get("Idempotency-Key") != "otp-1" {
-			t.Fatalf("unexpected idempotency key: %q", r.Header.Get("Idempotency-Key"))
+			t.Errorf("unexpected idempotency key: %q", r.Header.Get("Idempotency-Key"))
 		}
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Fatal(err)
+			t.Errorf("decode request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"mail_1"}`))
@@ -33,7 +33,7 @@ func TestSendUsesResendEmailEndpointAndIdempotencyKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.From != client.From || got.To != "user@example.com" || got.Subject != "Verify" {
+	if got.From != client.From || len(got.To) != 1 || got.To[0] != "user@example.com" || got.Subject != "Verify" {
 		t.Fatalf("unexpected payload: %+v", got)
 	}
 }
