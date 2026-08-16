@@ -27,6 +27,7 @@ func main() {
 	}
 	server.RegisterDashboardExtras()
 	server.RegisterRuntimeRealtime()
+	server.RegisterReleaseEmail()
 	// Keep old per-thread ChatGPT MCP schemas functional after the compact tool
 	// migration without re-exposing the legacy granular tools in tools/list.
 	server.HTTP.Handler = mcpgateway.LegacyToolCallCompatibility(server.HTTP.Handler)
