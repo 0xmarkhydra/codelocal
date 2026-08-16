@@ -332,6 +332,9 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	allowed := map[string]string{
 		"chatgpt-plugin-icon.png": "image/png",
 		"codelocal-icon.png":      "image/png",
+		"claude.svg":              "image/svg+xml",
+		"moonshotai.svg":          "image/svg+xml",
+		"deepseek.svg":            "image/svg+xml",
 		"apple-touch-icon.png":    "image/png",
 		"favicon.ico":             "image/x-icon",
 	}

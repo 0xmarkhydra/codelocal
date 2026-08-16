@@ -115,6 +115,14 @@ func TestLandingPageMatchesIOSDashboardProductLanguage(t *testing.T) {
 	if !strings.Contains(html, `<span>AI clients</span><span>CodeLocal</span><span>Your machine</span>`) {
 		t.Fatal("landing hero must present CodeLocal as the MCP layer between AI clients and the local machine")
 	}
+	if !strings.Contains(html, `alt="ChatGPT"`) || !strings.Contains(html, `data:image/png;base64,`) {
+		t.Fatal("landing hero must show the real ChatGPT mark")
+	}
+	for _, asset := range []string{"/assets/claude.svg", "/assets/moonshotai.svg", "/assets/deepseek.svg"} {
+		if !strings.Contains(html, asset) {
+			t.Fatalf("landing hero must show the supported AI client logo %q", asset)
+		}
+	}
 	if !strings.Contains(html, `class="cta-command"`) || !strings.Contains(html, `data-copy-value="npm install -g codelocal"`) {
 		t.Fatal("final CTA must surface a useful copyable stable install command")
 	}
