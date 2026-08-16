@@ -129,6 +129,7 @@ func (s *Service) maybeApplySemanticHybridCanonicalRecall(parent context.Context
 	duration := time.Since(started)
 	cancel()
 	claims := semanticHybridAppliedClaims(legacy, merged)
+	s.observeSemanticCanaryOutcome(input, reason, duration, applied)
 	s.recordSemanticCanaryAsync(input, reason, duration, claims)
 	slog.Debug("knowledge v2 semantic hybrid canary", "applied", applied, "reason", reason, "legacyCount", len(legacy), "resultCount", len(merged), "durationMs", duration.Milliseconds())
 	return merged, applied

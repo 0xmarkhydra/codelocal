@@ -8,76 +8,124 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 )
 
-func semanticGateMetrics(attempts int64) cloud.CanonicalSemanticCanaryMetrics {
-	return cloud.CanonicalSemanticCanaryMetrics{AttemptsTotal: attempts}
+func semanticCanaryWindow(samples ...semanticCanaryOutcome) semanticCanaryRollingWindow {
+	window := semanticCanaryRollingWindow{}
+	for _, sample := range samples {
+		window = window.append(sample)
+	}
+	return window
 }
 
-func TestSemanticCanaryCircuitCollectsBeforeMinimumAndAllowsHealthyCohort(t *testing.T) {
-	collecting := semanticCanaryDecisionFromMetrics(semanticGateMetrics(semanticCanaryGateMinSamples - 1))
+func repeatedSemanticOutcome(count int, sample semanticCanaryOutcome) semanticCanaryRollingWindow {
+	window := semanticCanaryRollingWindow{}
+	for index := 0; index < count; index++ {
+		window = window.append(sample)
+	}
+	return window
+}
+
+func TestSemanticCanaryCircuitCollectsThenAllowsHealthyRollingWindow(t *testing.T) {
+	collecting := repeatedSemanticOutcome(semanticCanaryGateMinSamples-1, semanticCanaryOutcome{Applied: true}).decision()
 	if !collecting.Allow || collecting.Status != "collecting" {
-		t.Fatalf("low-sample cohort should collect: %#v", collecting)
+		t.Fatalf("low-sample rolling window should collect: %#v", collecting)
 	}
-	healthy := semanticGateMetrics(100)
-	healthy.ReadinessErrorCount = 2
-	healthy.RecallErrorCount = 2
-	healthy.TimeoutCount = 2
-	healthy.SlowCount = 10
-	healthy.ReadinessBlockedCount = 20
-	decision := semanticCanaryDecisionFromMetrics(healthy)
-	if !decision.Allow || decision.Status != "healthy" {
-		t.Fatalf("healthy canary cohort was blocked: %#v", decision)
+	healthy := repeatedSemanticOutcome(semanticCanaryGateWindowSize, semanticCanaryOutcome{Applied: true}).decision()
+	if !healthy.Allow || healthy.Status != "healthy" {
+		t.Fatalf("healthy rolling window was blocked: %#v", healthy)
 	}
 }
 
-func TestSemanticCanaryCircuitBlocksBadAggregateRates(t *testing.T) {
+func TestSemanticCanaryCircuitBlocksRecentBadRates(t *testing.T) {
 	cases := []struct {
-		name    string
-		metrics cloud.CanonicalSemanticCanaryMetrics
-		status  string
+		name   string
+		bad    semanticCanaryOutcome
+		count  int
+		status string
 	}{
-		{name: "errors", metrics: cloud.CanonicalSemanticCanaryMetrics{AttemptsTotal: 100, ReadinessErrorCount: 6, RecallErrorCount: 5}, status: "blocked_error_rate"},
-		{name: "timeouts", metrics: cloud.CanonicalSemanticCanaryMetrics{AttemptsTotal: 100, TimeoutCount: 6}, status: "blocked_timeout_rate"},
-		{name: "slow", metrics: cloud.CanonicalSemanticCanaryMetrics{AttemptsTotal: 100, SlowCount: 21}, status: "blocked_slow_rate"},
-		{name: "readiness", metrics: cloud.CanonicalSemanticCanaryMetrics{AttemptsTotal: 100, ReadinessBlockedCount: 81}, status: "blocked_readiness_rate"},
+		{name: "errors", bad: semanticCanaryOutcome{Error: true}, count: 6, status: "blocked_error_rate"},
+		{name: "timeouts", bad: semanticCanaryOutcome{Timeout: true}, count: 3, status: "blocked_timeout_rate"},
+		{name: "slow", bad: semanticCanaryOutcome{Slow: true}, count: 11, status: "blocked_slow_rate"},
+		{name: "readiness", bad: semanticCanaryOutcome{ReadinessBlocked: true}, count: 41, status: "blocked_readiness_rate"},
+		{name: "no value", bad: semanticCanaryOutcome{NoValue: true}, count: 46, status: "blocked_no_value_rate"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			decision := semanticCanaryDecisionFromMetrics(tc.metrics)
+			window := repeatedSemanticOutcome(semanticCanaryGateWindowSize-tc.count, semanticCanaryOutcome{Applied: true})
+			for index := 0; index < tc.count; index++ {
+				window = window.append(tc.bad)
+			}
+			decision := window.decision()
 			if decision.Allow || decision.Status != tc.status {
-				t.Fatalf("bad aggregate did not trip breaker: got=%#v want=%q", decision, tc.status)
+				t.Fatalf("bad recent cohort did not trip breaker: got=%#v want=%q", decision, tc.status)
 			}
 		})
 	}
 }
 
-func TestSemanticCanaryCircuitThresholdsAreStrict(t *testing.T) {
-	metrics := semanticGateMetrics(100)
-	metrics.ReadinessErrorCount = 10
-	metrics.TimeoutCount = 5
-	metrics.SlowCount = 20
-	metrics.ReadinessBlockedCount = 80
-	decision := semanticCanaryDecisionFromMetrics(metrics)
-	if !decision.Allow || decision.Status != "healthy" {
-		t.Fatalf("exact thresholds should remain allowed: %#v", decision)
+func TestSemanticCanaryCircuitReactsToBurstWithoutWaitingForDBRefresh(t *testing.T) {
+	key := semanticCanaryGateKey("user-a", "project-a")
+	s := &Service{Store: &cloud.Store{}, semanticCanaryGates: map[string]semanticCanaryGateEntry{
+		key: {Available: true, ExpiresAt: time.Now().Add(time.Minute), Window: repeatedSemanticOutcome(semanticCanaryGateMinSamples, semanticCanaryOutcome{Applied: true})},
+	}}
+	input := cloud.CanonicalKnowledgeRecallInput{UserID: "user-a", ProjectID: "project-a"}
+	for index := 0; index < 3; index++ {
+		s.observeSemanticCanaryOutcome(input, cloud.SemanticCanaryReasonTimeout, 450*time.Millisecond, false)
+	}
+	decision := s.semanticCanaryGate(input)
+	if decision.Allow || decision.Status != "blocked_timeout_rate" {
+		t.Fatalf("recent timeout burst did not trip in-memory breaker immediately: %#v", decision)
 	}
 }
 
-func TestSemanticCanaryCircuitAllowsSingleHalfOpenProbeAfterCooldown(t *testing.T) {
+func TestSemanticCanaryCircuitHonorsRetryTTLAfterRefreshFailure(t *testing.T) {
 	key := semanticCanaryGateKey("user-a", "project-a")
-	blocked := cloud.CanonicalSemanticCanaryMetrics{AttemptsTotal: 100, TimeoutCount: 20}
-	s := &Service{
-		Store: &cloud.Store{},
-		semanticCanaryGates: map[string]semanticCanaryGateEntry{
-			key: {Metrics: blocked, Available: true, ExpiresAt: time.Now().Add(time.Minute), NextProbeAt: time.Now().Add(-time.Second)},
-		},
+	s := &Service{Store: &cloud.Store{}, semanticCanaryGates: map[string]semanticCanaryGateEntry{}}
+	s.finishSemanticCanaryGateRefresh(key, cloud.CanonicalSemanticCanaryMetrics{}, false)
+	decision := s.semanticCanaryGate(cloud.CanonicalKnowledgeRecallInput{UserID: "user-a", ProjectID: "project-a"})
+	if decision.Allow || decision.Status != "cache_retry_wait" {
+		t.Fatalf("failed refresh ignored retry TTL: %#v", decision)
 	}
-	first := s.semanticCanaryGate(cloud.CanonicalKnowledgeRecallInput{UserID: "user-a", ProjectID: "project-a"})
-	if !first.Allow || first.Status != "half_open_probe" {
-		t.Fatalf("expired cooldown did not permit a half-open probe: %#v", first)
+}
+
+func TestSemanticCanaryCircuitHalfOpenSuccessResetsBadRollingWindow(t *testing.T) {
+	key := semanticCanaryGateKey("user-a", "project-a")
+	blocked := repeatedSemanticOutcome(semanticCanaryGateWindowSize, semanticCanaryOutcome{Timeout: true})
+	s := &Service{Store: &cloud.Store{}, semanticCanaryGates: map[string]semanticCanaryGateEntry{
+		key: {Available: true, ExpiresAt: time.Now().Add(time.Minute), NextProbeAt: time.Now().Add(-time.Second), Window: blocked},
+	}}
+	input := cloud.CanonicalKnowledgeRecallInput{UserID: "user-a", ProjectID: "project-a"}
+	probe := s.semanticCanaryGate(input)
+	if !probe.Allow || probe.Status != "half_open_probe" {
+		t.Fatalf("expired cooldown did not permit half-open probe: %#v", probe)
 	}
-	second := s.semanticCanaryGate(cloud.CanonicalKnowledgeRecallInput{UserID: "user-a", ProjectID: "project-a"})
-	if second.Allow || second.Status != "blocked_timeout_rate" {
-		t.Fatalf("breaker allowed repeated probe before cooldown: %#v", second)
+	s.observeSemanticCanaryOutcome(input, cloud.SemanticCanaryReasonReady, 50*time.Millisecond, true)
+	after := s.semanticCanaryGate(input)
+	if !after.Allow || after.Status != "collecting" {
+		t.Fatalf("successful half-open probe did not reset bad rolling history: %#v", after)
+	}
+}
+
+func TestSemanticCanaryCircuitHalfOpenFailureKeepsBreakerBlocked(t *testing.T) {
+	key := semanticCanaryGateKey("user-a", "project-a")
+	blocked := repeatedSemanticOutcome(semanticCanaryGateWindowSize, semanticCanaryOutcome{Timeout: true})
+	s := &Service{Store: &cloud.Store{}, semanticCanaryGates: map[string]semanticCanaryGateEntry{
+		key: {Available: true, ExpiresAt: time.Now().Add(time.Minute), NextProbeAt: time.Now().Add(-time.Second), Window: blocked},
+	}}
+	input := cloud.CanonicalKnowledgeRecallInput{UserID: "user-a", ProjectID: "project-a"}
+	if probe := s.semanticCanaryGate(input); !probe.Allow || probe.Status != "half_open_probe" {
+		t.Fatalf("half-open probe was not allowed: %#v", probe)
+	}
+	s.observeSemanticCanaryOutcome(input, cloud.SemanticCanaryReasonTimeout, 450*time.Millisecond, false)
+	after := s.semanticCanaryGate(input)
+	if after.Allow || after.Status != "blocked_timeout_rate" {
+		t.Fatalf("failed half-open probe reopened breaker: %#v", after)
+	}
+}
+
+func TestSemanticCanaryRollingWindowIsBounded(t *testing.T) {
+	window := repeatedSemanticOutcome(semanticCanaryGateWindowSize+25, semanticCanaryOutcome{Applied: true})
+	if len(window.Samples) != semanticCanaryGateWindowSize {
+		t.Fatalf("rolling window size=%d want=%d", len(window.Samples), semanticCanaryGateWindowSize)
 	}
 }
 
@@ -99,10 +147,41 @@ func TestSemanticCanaryGateCacheIsBoundedAndPreservesCurrentKey(t *testing.T) {
 	}
 }
 
-func TestSemanticCanaryGateKeyDoesNotExposeRawSeparatorAmbiguity(t *testing.T) {
+func TestSemanticCanaryGateKeyNormalizesWhitespace(t *testing.T) {
 	left := semanticCanaryGateKey(" user ", " project ")
 	right := semanticCanaryGateKey("user", "project")
 	if left != right || left != "user\x00project" {
 		t.Fatalf("unexpected semantic canary cache key: left=%q right=%q", left, right)
+	}
+}
+
+func TestSemanticCanaryOutcomeClassificationCountsNoValueAndFailures(t *testing.T) {
+	cases := []struct {
+		reason string
+		check  func(semanticCanaryOutcome) bool
+	}{
+		{cloud.SemanticCanaryReasonReady, func(o semanticCanaryOutcome) bool { return o.Applied }},
+		{cloud.SemanticCanaryReasonNotReady, func(o semanticCanaryOutcome) bool { return o.ReadinessBlocked }},
+		{cloud.SemanticCanaryReasonReadinessError, func(o semanticCanaryOutcome) bool { return o.Error }},
+		{cloud.SemanticCanaryReasonRecallError, func(o semanticCanaryOutcome) bool { return o.Error }},
+		{cloud.SemanticCanaryReasonTimeout, func(o semanticCanaryOutcome) bool { return o.Timeout }},
+		{cloud.SemanticCanaryReasonNoSimilarity, func(o semanticCanaryOutcome) bool { return o.NoValue }},
+		{cloud.SemanticCanaryReasonNoUniqueClaims, func(o semanticCanaryOutcome) bool { return o.NoValue }},
+	}
+	for _, tc := range cases {
+		outcome := semanticCanaryOutcomeFrom(tc.reason, 10*time.Millisecond, false)
+		if !tc.check(outcome) {
+			t.Fatalf("reason=%q classified incorrectly: %#v", tc.reason, outcome)
+		}
+	}
+}
+
+func TestSemanticCanaryWindowAppendCopiesTrimmedTail(t *testing.T) {
+	window := semanticCanaryWindow(semanticCanaryOutcome{Applied: true})
+	for index := 0; index < semanticCanaryGateWindowSize+5; index++ {
+		window = window.append(semanticCanaryOutcome{NoValue: index%2 == 0})
+	}
+	if len(window.Samples) != semanticCanaryGateWindowSize {
+		t.Fatalf("unexpected rolling window length: %d", len(window.Samples))
 	}
 }
