@@ -284,7 +284,10 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if ttl > 0 {
-			_ = m.savePendingSignup(r.Context(), token, pending, ttl)
+			if err := m.savePendingSignup(r.Context(), token, pending, ttl); err != nil {
+				http.Error(w, "Unable to update verification attempt", http.StatusInternalServerError)
+				return
+			}
 		}
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(m.verificationForm(csrf, token, pending.Email, "The verification code is incorrect.")))
@@ -310,7 +313,7 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) registerSignupVerification(mux *http.ServeMux) {
 	mux.HandleFunc("GET /signup/verify", m.signupVerifyGet)
-	verify := http.HandlerFunc(m.signupVerifyPost)
+	var verify http.Handler = http.HandlerFunc(m.signupVerifyPost)
 	verify = webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-verify-token", Limit: 12, Window: 10 * time.Minute, Subject: func(r *http.Request) string {
 		_ = r.ParseForm()
 		return strings.TrimSpace(r.Form.Get("token"))
