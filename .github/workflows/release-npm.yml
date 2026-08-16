@@ -1,0 +1,137 @@
+name: Publish CodeLocal to npm
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: codelocal-npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == '0xmarkhydra/codex-mcp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install --global 'npm@^11.5.1'
+          node --version
+          npm --version
+
+      - name: Read and validate release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          runtime_version="$(sed -n 's/^const Version = "\([^"]*\)"$/\1/p' internal/version/version.go)"
+
+          if [[ -z "$version" || -z "$runtime_version" ]]; then
+            echo 'Could not resolve package/runtime version.' >&2
+            exit 1
+          fi
+
+          if [[ "$version" != "$runtime_version" ]]; then
+            echo "Version mismatch: package.json=$version runtime=$runtime_version" >&2
+            exit 1
+          fi
+
+          if [[ "$version" == *-* ]]; then
+            echo "Refusing to publish prerelease $version from main as npm latest." >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether version is already published
+        id: registry
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "codelocal@$VERSION" version --prefer-online >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "codelocal@$VERSION is already on npm; publish will be skipped."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "codelocal@$VERSION is not published yet."
+          fi
+
+      - name: Build and verify release package
+        if: steps.registry.outputs.published != 'true'
+        run: npm run release:prepare
+
+      - name: Validate staged npm metadata
+        if: steps.registry.outputs.published != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          staged_version="$(node -p "require('./.release/npm/package.json').version")"
+          repository_url="$(node -p "require('./.release/npm/package.json').repository?.url || ''")"
+
+          if [[ "$staged_version" != "$VERSION" ]]; then
+            echo "Staged version mismatch: expected $VERSION, got $staged_version" >&2
+            exit 1
+          fi
+
+          if [[ "$repository_url" != 'https://github.com/0xmarkhydra/codex-mcp.git' ]]; then
+            echo "Unexpected repository.url: $repository_url" >&2
+            exit 1
+          fi
+
+          node .release/npm/bin/codelocal.js --version
+
+      - name: Publish to npm with GitHub OIDC
+        if: steps.registry.outputs.published != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: npm publish ./.release/npm --tag latest --access public
+
+      - name: Verify npm registry
+        if: steps.registry.outputs.published != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            published="$(npm view "codelocal@$VERSION" version --prefer-online 2>/dev/null || true)"
+            latest="$(npm view 'codelocal@latest' version --prefer-online 2>/dev/null || true)"
+
+            if [[ "$published" == "$VERSION" && "$latest" == "$VERSION" ]]; then
+              echo "Published codelocal@$VERSION and latest now points to it."
+              exit 0
+            fi
+
+            echo "Registry sync $attempt/20: version=${published:-pending}, latest=${latest:-pending}"
+            sleep 3
+          done
+
+          echo "npm registry did not converge to codelocal@$VERSION in time." >&2
+          exit 1

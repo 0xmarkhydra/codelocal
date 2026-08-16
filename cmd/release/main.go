@@ -113,9 +113,13 @@ process.exit(result.status ?? 1);
 		"version":     manifest.Version,
 		"description": "Universal MCP runtime and durable Project Brain for AI coding clients and agents.",
 		"license":     "UNLICENSED",
-		"bin":         map[string]string{"codelocal": "bin/codelocal.js"},
-		"files":       []string{"bin/", "README.md"},
-		"engines":     map[string]string{"node": ">=20"},
+		"repository": map[string]string{
+			"type": "git",
+			"url":  "https://github.com/0xmarkhydra/codex-mcp.git",
+		},
+		"bin":     map[string]string{"codelocal": "bin/codelocal.js"},
+		"files":   []string{"bin/", "README.md"},
+		"engines": map[string]string{"node": ">=20"},
 		"dependencies": map[string]string{
 			"@playwright/cli": "0.1.17",
 		},
