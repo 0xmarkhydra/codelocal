@@ -53,6 +53,9 @@ func TestDashboardPagePinsSidebarOnDesktop(t *testing.T) {
 	if !strings.Contains(dashboardScript, `if (event.key === 'Escape') setNavOpen(false)`) {
 		t.Fatal("mobile navigation must close with Escape")
 	}
+	if !strings.Contains(iosDashboardTheme, `@media(max-width:380px){.dashboard-body .brand-name{display:none}`) {
+		t.Fatal("very narrow dashboard headers must switch to an icon-only brand instead of truncating the wordmark")
+	}
 }
 
 func TestLandingPageKeepsDocumentScroll(t *testing.T) {
@@ -150,6 +153,9 @@ func TestLandingPageHasMobileSafeLayout(t *testing.T) {
 		`.landing-actions{align-items:stretch;flex-direction:column}`,
 		`.product-grid{grid-template-columns:1fr`,
 		`.security-points{grid-template-columns:1fr}`,
+		`.step-title{display:block`,
+		`.step-summary{display:block;margin-top:6px`,
+		`@media(max-width:540px){.landing-brand span{display:none}`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("landing page must retain mobile-safe behavior %q", want)
