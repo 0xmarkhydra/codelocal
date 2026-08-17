@@ -127,6 +127,14 @@ func repositoryAt(workspaceRoot, repoRoot string) (Repository, bool) {
 	if len(roots) > 0 {
 		lineage = strings.ToLower(strings.TrimSpace(roots[0]))
 	}
+	rel, err := filepath.Rel(workspaceRoot, repoRoot)
+	if err != nil {
+		rel = "."
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "" {
+		rel = "."
+	}
 	id := ""
 	source := ""
 	if remote != "" {
@@ -135,17 +143,12 @@ func repositoryAt(workspaceRoot, repoRoot string) (Repository, bool) {
 	} else if lineage != "" {
 		id = digest("lineage", lineage)
 		source = "lineage"
-	}
-	if id == "" {
-		return Repository{}, false
-	}
-	rel, err := filepath.Rel(workspaceRoot, repoRoot)
-	if err != nil {
-		rel = "."
-	}
-	rel = filepath.ToSlash(rel)
-	if rel == "" {
-		rel = "."
+	} else {
+		// A freshly initialized repository may have neither a remote nor a first
+		// commit yet. Keep it routable locally without leaking the absolute path;
+		// once remote/lineage evidence appears, the stronger identity takes over.
+		id = digest("local-checkout", filepath.Clean(workspaceRoot), rel)
+		source = "local_checkout"
 	}
 	return Repository{ID: id, Remote: remote, Lineage: lineage, RelativePath: rel, IdentitySource: source}, true
 }

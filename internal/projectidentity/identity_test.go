@@ -93,6 +93,24 @@ func TestDiscoverMultiRepoProjectUsesStableRepositoryIDs(t *testing.T) {
 	}
 }
 
+func TestDiscoverIncludesFreshRepositoryWithoutRemoteOrCommit(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "scratch")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "init", "-q")
+
+	got := Discover(root, "Scratch")
+	if len(got.Repositories) != 1 {
+		t.Fatalf("fresh repository must remain discoverable: %#v", got)
+	}
+	repo := got.Repositories[0]
+	if repo.RelativePath != "scratch" || repo.ID == "" || repo.IdentitySource != "local_checkout" {
+		t.Fatalf("unexpected fresh repository identity: %#v", repo)
+	}
+}
+
 func TestDiscoverReadsExplicitProjectMarker(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".codelocal"), 0o755); err != nil {
@@ -129,8 +147,8 @@ func TestDiscoverRejectsUnsafeMarkerPayload(t *testing.T) {
 		payload string
 		reason  string
 	}{
-		"unsafe-id": {`{"schemaVersion":1,"projectId":"../../other","name":"Bad"}`, "invalid_project_id"},
-		"missing-name": {`{"schemaVersion":1,"projectId":"prj_safe","name":""}`, "missing_name"},
+		"unsafe-id":     {`{"schemaVersion":1,"projectId":"../../other","name":"Bad"}`, "invalid_project_id"},
+		"missing-name":  {`{"schemaVersion":1,"projectId":"prj_safe","name":""}`, "missing_name"},
 		"future-schema": {`{"schemaVersion":2,"projectId":"prj_safe","name":"Future"}`, "unsupported_schema_version"},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -32,6 +32,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
+	"github.com/0xmarkhydra/codelocal/internal/repository"
 	"github.com/0xmarkhydra/codelocal/internal/security"
 	"github.com/0xmarkhydra/codelocal/internal/version"
 )
@@ -46,6 +47,7 @@ type Engine struct {
 	ApprovalMode  string
 	FS            *localfs.FS
 	Project       *project.Engine
+	Repositories  *repository.Registry
 	Editing       *editing.Engine
 	Processes     *processmgr.Manager
 	Approvals     *approval.Memory
@@ -70,7 +72,7 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	terminalHistory := history.New()
 	shellEnabled := os.Getenv("CODELOCAL_ALLOW_SHELL") != "0"
 	approvalMode := string(approval.ResolveMode(workspaceID))
-	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.New(fs), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
+	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.New(fs), Repositories: repository.New(fs.Root, workspaceName), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
 	engine.Processes = processmgr.NewManager(fs.Root, workspaceKey, func(record *processmgr.Record, stream, value string) {}, func(record *processmgr.Record) {
 		_, _ = terminalHistory.Finished(record)
 		engine.Project.Invalidate()
@@ -401,12 +403,12 @@ func safeGitPath(path string) error {
 	return nil
 }
 
-func (e *Engine) guardedGit(args []string, approvalToken, sessionID string) (map[string]any, error) {
+func (e *Engine) guardedGitAt(root string, args []string, approvalToken, sessionID string) (map[string]any, error) {
 	command := "git " + strings.Join(args, " ")
-	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: e.Root, CWD: e.Root})
+	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: e.Root, CWD: root})
 	if len(args) >= 3 && args[0] == "push" && decision.ApprovalPolicy == security.ApprovalRememberable && strings.HasPrefix(decision.ApprovalKey, "git.push:") {
 		remote := args[1]
-		resolved, resolveErr := runGit(e.Root, "remote", "get-url", "--push", remote)
+		resolved, resolveErr := runGit(root, "remote", "get-url", "--push", remote)
 		url := ""
 		if resolveErr == nil {
 			url = strings.TrimSpace(asString(resolved["stdout"]))
@@ -420,7 +422,7 @@ func (e *Engine) guardedGit(args []string, approvalToken, sessionID string) (map
 			decision.ApprovalKey += fmt.Sprintf(":remote-%x", digest[:8])
 		}
 	}
-	approved, state, _, err := e.authorizeDecision(command, e.Root, approvalToken, sessionID, decision)
+	approved, state, _, err := e.authorizeDecision(command, root, approvalToken, sessionID, decision)
 	if err != nil && state != nil {
 		return state, nil
 	}
@@ -430,7 +432,7 @@ func (e *Engine) guardedGit(args []string, approvalToken, sessionID string) (map
 	if !approved {
 		return state, nil
 	}
-	return runGit(e.Root, args...)
+	return runGit(root, args...)
 }
 
 func (e *Engine) readInstructions(path string) (map[string]any, error) {
@@ -1056,23 +1058,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "verify_changes":
 		return e.verifyChanges(ctx, stringSlice(args["paths"]), asString(args["baselineId"]))
 	case "git_status":
-		return runGit(e.Root, "status", "--short", "--branch")
+		return e.gitStatus(asString(args["repository"]))
 	case "git_diff":
-		gitArgs := []string{"diff", "--no-ext-diff", "--unified=3"}
-		if asBool(args["cached"], false) {
-			gitArgs = append(gitArgs, "--cached")
-		}
-		if p := asString(args["path"]); p != "" {
-			if err := safeGitPath(p); err != nil {
-				return nil, err
-			}
-			gitArgs = append(gitArgs, "--", p)
-		}
-		result, err := runGit(e.Root, gitArgs...)
-		if err == nil {
-			result["diff"] = result["output"]
-		}
-		return result, err
+		return e.gitDiff(asString(args["repository"]), asString(args["path"]), asBool(args["cached"], false))
 	case "git_log":
 		n := asInt(args["limit"], 20)
 		if n < 1 {
@@ -1081,19 +1069,28 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		if n > 100 {
 			n = 100
 		}
-		gitArgs := []string{"log", "-" + strconv.Itoa(n), "--date=iso", "--pretty=format:%h%x09%ad%x09%an%x09%s"}
-		if p := asString(args["path"]); p != "" {
-			if err := safeGitPath(p); err != nil {
-				return nil, err
-			}
-			gitArgs = append(gitArgs, "--", p)
+		path := asString(args["path"])
+		repo, repoPath, err := e.gitTarget(asString(args["repository"]), path)
+		if err != nil {
+			return nil, err
 		}
-		return runGit(e.Root, gitArgs...)
+		gitArgs := []string{"log", "-" + strconv.Itoa(n), "--date=iso", "--pretty=format:%h%x09%ad%x09%an%x09%s"}
+		if path != "" {
+			gitArgs = append(gitArgs, "--", repoPath)
+		}
+		result, err := runGit(repo.Root, gitArgs...)
+		return withRepository(result, repo), err
 	case "git_show":
-		return runGit(e.Root, "show", "--stat", "--oneline", "--decorate", defaultString(asString(args["ref"]), "HEAD"))
+		repo, _, err := e.gitTarget(asString(args["repository"]), "")
+		if err != nil {
+			return nil, err
+		}
+		result, err := runGit(repo.Root, "show", "--stat", "--oneline", "--decorate", defaultString(asString(args["ref"]), "HEAD"))
+		return withRepository(result, repo), err
 	case "git_blame":
 		path := asString(args["path"])
-		if err := safeGitPath(path); err != nil {
+		repo, repoPath, err := e.gitTarget(asString(args["repository"]), path)
+		if err != nil {
 			return nil, err
 		}
 		gitArgs := []string{"blame", "--line-porcelain"}
@@ -1101,11 +1098,13 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 			end := asInt(args["endLine"], start)
 			gitArgs = append(gitArgs, "-L", fmt.Sprintf("%d,%d", start, end))
 		}
-		gitArgs = append(gitArgs, "--", path)
-		return runGit(e.Root, gitArgs...)
+		gitArgs = append(gitArgs, "--", repoPath)
+		result, err := runGit(repo.Root, gitArgs...)
+		return withRepository(result, repo), err
 	case "git_file_history":
 		path := asString(args["path"])
-		if err := safeGitPath(path); err != nil {
+		repo, repoPath, err := e.gitTarget(asString(args["repository"]), path)
+		if err != nil {
 			return nil, err
 		}
 		n := asInt(args["limit"], 30)
@@ -1115,54 +1114,61 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		if n > 100 {
 			n = 100
 		}
-		return runGit(e.Root, "log", "--follow", "-"+strconv.Itoa(n), "--date=iso", "--pretty=format:%h%x09%ad%x09%an%x09%s", "--", path)
+		result, err := runGit(repo.Root, "log", "--follow", "-"+strconv.Itoa(n), "--date=iso", "--pretty=format:%h%x09%ad%x09%an%x09%s", "--", repoPath)
+		return withRepository(result, repo), err
 	case "git_stage":
 		paths := stringSlice(args["paths"])
 		if len(paths) == 0 {
 			return nil, errors.New("git_stage requires at least one path")
 		}
-		for _, path := range paths {
-			if err := safeGitPath(path); err != nil {
-				return nil, err
-			}
+		repo, repoPaths, err := e.gitPathsTarget(asString(args["repository"]), paths)
+		if err != nil {
+			return nil, err
 		}
-		gitArgs := append([]string{"add", "--"}, paths...)
-		return e.guardedGit(gitArgs, asString(args["approvalToken"]), opts.SessionID)
+		gitArgs := append([]string{"add", "--"}, repoPaths...)
+		result, err := e.guardedGitAt(repo.Root, gitArgs, asString(args["approvalToken"]), opts.SessionID)
+		return withRepository(result, repo), err
 	case "git_unstage":
 		paths := stringSlice(args["paths"])
 		if len(paths) == 0 {
 			return nil, errors.New("git_unstage requires at least one path")
 		}
-		for _, path := range paths {
-			if err := safeGitPath(path); err != nil {
-				return nil, err
-			}
+		repo, repoPaths, err := e.gitPathsTarget(asString(args["repository"]), paths)
+		if err != nil {
+			return nil, err
 		}
-		gitArgs := append([]string{"restore", "--staged", "--"}, paths...)
-		return e.guardedGit(gitArgs, asString(args["approvalToken"]), opts.SessionID)
+		gitArgs := append([]string{"restore", "--staged", "--"}, repoPaths...)
+		result, err := e.guardedGitAt(repo.Root, gitArgs, asString(args["approvalToken"]), opts.SessionID)
+		return withRepository(result, repo), err
 	case "git_commit":
-		staged, err := runGit(e.Root, "diff", "--cached", "--name-only")
+		repo, _, err := e.gitTarget(asString(args["repository"]), "")
+		if err != nil {
+			return nil, err
+		}
+		staged, err := runGit(repo.Root, "diff", "--cached", "--name-only")
 		if err != nil {
 			return nil, err
 		}
 		stagedPaths := strings.Fields(asString(staged["stdout"]))
 		if len(stagedPaths) == 0 {
-			return nil, errors.New("no staged changes to commit")
+			return nil, errors.New("no staged changes to commit in selected repository")
 		}
 		expected := stringSlice(args["expectedPaths"])
 		if len(expected) > 0 {
 			allowed := map[string]struct{}{}
 			for _, path := range expected {
-				if err := safeGitPath(path); err != nil {
-					return nil, err
+				expectedRepo, repoPath, resolveErr := e.gitTarget(asString(args["repository"]), path)
+				if resolveErr != nil {
+					return nil, resolveErr
 				}
-				allowed[path] = struct{}{}
+				if expectedRepo.ID != repo.ID || expectedRepo.RelativePath != repo.RelativePath {
+					return nil, errors.New("expectedPaths span repositories outside the selected commit target")
+				}
+				allowed[filepath.ToSlash(repoPath)] = struct{}{}
 			}
 			unexpected := []string{}
 			for _, path := range stagedPaths {
-				if err := safeGitPath(path); err != nil {
-					return nil, err
-				}
+				path = filepath.ToSlash(path)
 				if _, ok := allowed[path]; !ok {
 					unexpected = append(unexpected, path)
 				}
@@ -1171,10 +1177,15 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 				return nil, fmt.Errorf("unexpected staged changes: %s", strings.Join(unexpected, ", "))
 			}
 		}
-		return e.guardedGit([]string{"commit", "-m", asString(args["message"])}, asString(args["approvalToken"]), opts.SessionID)
+		result, err := e.guardedGitAt(repo.Root, []string{"commit", "-m", asString(args["message"])}, asString(args["approvalToken"]), opts.SessionID)
+		return withRepository(result, repo), err
 	case "git_push":
 		if asBool(args["force"], false) {
 			return map[string]any{"status": "blocked", "riskLevel": "BLOCKED", "reason": "force push is blocked by CodeLocal"}, nil
+		}
+		repo, _, err := e.gitTarget(asString(args["repository"]), "")
+		if err != nil {
+			return nil, err
 		}
 		gitArgs := []string{"push"}
 		if remote := asString(args["remote"]); remote != "" {
@@ -1183,7 +1194,8 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		if branch := asString(args["branch"]); branch != "" {
 			gitArgs = append(gitArgs, branch)
 		}
-		return e.guardedGit(gitArgs, asString(args["approvalToken"]), opts.SessionID)
+		result, err := e.guardedGitAt(repo.Root, gitArgs, asString(args["approvalToken"]), opts.SessionID)
+		return withRepository(result, repo), err
 	case "sandbox_info":
 		return map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy()}, nil
 	case "sandbox_smoke_test":
