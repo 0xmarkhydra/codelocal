@@ -3,7 +3,7 @@
 Status: Proposed
 Date: 2026-08-17
 Target branch: `dev`
-Scope: Add a human-readable work orchestration layer on top of CodeLocal's existing project identity, durable memory, knowledge graph, learned skills, agent loop, worktree isolation, MCP hub, approvals, verification and dashboard.
+Scope: Add a human-readable work orchestration layer on top of CodeLocal's existing project identity, durable memory, knowledge graph, learned skills, agent loop, task execution isolation, MCP hub, approvals, verification and dashboard. Local Git worktrees are the first execution backend; OpenSandbox must plug into the same private execution contract later without changing the public MCP/task model.
 
 ## 1. Goal
 
@@ -20,7 +20,10 @@ Knowledge / Memory / Project State
       v               v
    Human           AI Agent
                       |
-               isolated worktree
+              Task Execution Env
+               /              \
+      local worktree        safe sandbox
+                              (future)
                       |
                     verify
                       |
@@ -123,8 +126,11 @@ Task
 - ownerType                    none | user | agent
 - ownerId?                     logical agent/persona/session identity
 - activeSessionId?
-- worktreeId?
-- worktreePath?                local-only, never cloud-sanitized
+- executionEnvironmentId?      stable task execution binding
+- executionProvider?           local_worktree | opensandbox | future provider
+- executionMode?               trusted_local | isolated
+- worktreeId?                  local_worktree compatibility/detail only
+- worktreePath?                local-only provider detail, never cloud-sanitized
 - branchName?
 - reviewState                  none | pending | approved | changes_requested
 - verificationState            unknown | running | passed | failed
@@ -143,7 +149,9 @@ Important separation:
 
 - `projectId` is logical and cross-device.
 - `workspaceId` is a concrete authorized checkout/runtime.
-- `worktreePath` is local-only.
+- provider-specific local paths such as `worktreePath` are local-only.
+- task identity and task lifecycle must not depend on a specific execution provider.
+- OpenSandbox provider/session identifiers are execution metadata, not task identity.
 - cloud/dashboard synchronization must never leak local paths, secrets, approval tokens or learned-skill recipe internals.
 
 ## 5. Task graph integration
@@ -292,9 +300,45 @@ task
 
 Do not dump all project history into the model. Preserve the existing semantic-first retrieval strategy.
 
-## 10. Worktree lifecycle
+## 10. Task execution environment lifecycle
 
-Create an isolated worktree only when mutation is required.
+A task owns an execution bundle rather than directly owning a Git worktree. The bundle is provider-agnostic and contains one or more repository execution bindings.
+
+Initial provider:
+
+```text
+local_worktree
+```
+
+Future isolated provider:
+
+```text
+opensandbox
+```
+
+Private contract:
+
+```text
+TaskExecutionBundle
+- taskId
+- projectId
+- workspaceId
+- provider
+- mode
+- repositoryBindings[]
+- checkpointId?
+- state
+
+RepositoryExecutionBinding
+- repositoryId
+- sourceRevision
+- branchName?
+- providerBindingId
+- localPath?          local-only
+- sandboxPath?        provider-private
+```
+
+For `local_worktree`, create an isolated worktree only when mutation is required.
 
 Suggested local state:
 
@@ -302,9 +346,10 @@ Suggested local state:
 .codelocal/
   worktrees/
     <task-id>/
+      <repository-id>/
 ```
 
-User-facing UI should not need to expose this implementation path.
+User-facing UI should not need to expose implementation paths.
 
 Suggested branch naming:
 
@@ -317,29 +362,37 @@ Lifecycle:
 ```text
 Task claimed
    |
-mutation needed?
+mutation/execution needed?
    |
   yes
    v
-create worktree + branch
+Execution Router
    |
-agent edits
+   +-- trusted bounded work -> local_worktree
    |
-verify changes
+   +-- untrusted/high-risk work -> opensandbox (future)
+   |
+create/reuse execution bundle
+   |
+agent edits / executes
+   |
+verify provider result
    |
 Review
    |
-commit / push / PR only after explicit approval
+commit / push / PR or apply ChangeSet only after governed approval
 ```
 
 Requirements:
 
-- main checkout remains clean,
-- worktree is ignored from CodeLocal indexing,
+- authoritative/main checkout remains clean by default,
+- execution-provider internals are ignored from CodeLocal project indexing,
 - recursive `.codelocal/worktrees` must never leak into search/context,
-- task resumes should reuse the existing worktree when safe,
-- failed/cancelled worktrees are retained until explicit cleanup or a safe retention policy,
-- cleanup must never delete an unmerged branch without explicit confirmation.
+- task resumes should reuse a compatible execution binding when safe,
+- provider changes must not change logical task identity or Project Brain identity,
+- failed/cancelled execution environments are retained until explicit cleanup or a safe retention policy,
+- cleanup must never delete an unmerged branch or unreviewed ChangeSet without explicit confirmation,
+- OpenSandbox integration must stay behind the private execution contract defined by `OPENSANDBOX_SAFE_EXECUTION_MASTER_PLAN.md`; it must not add a parallel public MCP tool surface.
 
 ## 11. Verification gate
 
@@ -625,10 +678,14 @@ Add explicit `repositoryIds[]` when known. If unknown at creation, let semantic 
 
 For code execution:
 
-- one task may require worktrees in multiple repositories,
-- create a task execution bundle with one worktree per affected repository,
-- verification runs from the correct repository/workspace root,
-- task UI groups changed repositories under one task.
+- one task may require multiple repositories,
+- create one provider-agnostic task execution bundle with one repository binding per affected repository,
+- with `local_worktree`, each affected repository gets its own isolated worktree,
+- with `opensandbox`, the same logical bundle may be reconstructed inside one sandbox session when policy/capability allows, while preserving per-repository identity and provenance,
+- Git operations always route to the owning repository rather than the logical workspace root,
+- verification runs from the correct repository execution root,
+- task UI groups changed repositories under one task,
+- two concurrent tasks touching the same logical project must never share a mutable execution binding by default.
 
 ## 22. Dashboard UX
 
@@ -837,21 +894,29 @@ Exit criteria:
 - task start/resume gets bounded relevant context without broad scans,
 - token/schema regression is measured and acceptable.
 
-### Phase 4 — Worktree execution
+### Phase 4 — Task execution environments
+
+Current implementation scope: **local worktree only**. OpenSandbox implementation is explicitly deferred to a later milestone.
 
 Deliverables:
 
-- task execution binding,
-- isolated worktree creation/reuse,
+- provider-agnostic `TaskExecutionBundle` and `RepositoryExecutionBinding`,
+- private Execution Router contract,
+- `local_worktree` provider creation/reuse,
 - multi-repo execution bundle support,
+- per-task mutable-isolation rules so concurrent tasks do not share writable bindings,
 - branch naming,
-- safe cleanup policy,
-- UI worktree/branch state.
+- provider-safe cleanup policy,
+- UI execution/branch state,
+- compatibility seam for a future isolated provider without implementing it now.
 
 Exit criteria:
 
-- agent code changes never dirty the user's main checkout by default,
-- recursive CodeLocal worktrees remain excluded from indexing.
+- agent code changes never dirty the user's authoritative/main checkout by default,
+- two concurrent mutating tasks in the same workspace/project are isolated from each other,
+- one multi-repo task preserves repository identity across all execution bindings,
+- recursive CodeLocal worktrees remain excluded from indexing,
+- adding OpenSandbox later does not require changing task identity, Project Brain identity, public MCP task semantics, or review/verification state machines.
 
 ### Phase 5 — Verification + Review Inbox
 
