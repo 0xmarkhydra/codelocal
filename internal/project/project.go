@@ -964,80 +964,33 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 			graphEdges = append(graphEdges, e.annotateGraphEdge(map[string]any{"from": from, "to": to, "specifier": specifier}))
 		}
 	}
+	route := e.routeRepositories(task, scores, graphEdges)
+	graphEdges = filterGraphEdgesForRoute(e, graphEdges, route)
 	edgeLimit := min(40, max(12, limit*2))
 	if len(graphEdges) > edgeLimit {
 		graphEdges = graphEdges[:edgeLimit]
 	}
 
-	type scored struct {
-		path  string
-		score int
-	}
-	ranked := make([]scored, 0, len(scores))
-	for path, score := range scores {
-		if score > 0 {
-			ranked = append(ranked, scored{path, score})
-		}
-	}
-	sort.Slice(ranked, func(i, j int) bool {
-		if ranked[i].score != ranked[j].score {
-			return ranked[i].score > ranked[j].score
-		}
-		return ranked[i].path < ranked[j].path
-	})
-	if len(ranked) > limit {
-		ranked = ranked[:limit]
-	}
-
-	files := []map[string]any{}
-	snippets := []map[string]any{}
-	budget := 48000
-	used := 0
-	maxSnippetFiles := 8
-	for i, item := range ranked {
-		files = append(files, e.annotatePathMap(map[string]any{"path": item.path, "score": item.score, "reasons": unique(reasons[item.path]), "preferredLine": preferredLine[item.path]}))
-		if i >= maxSnippetFiles || used >= budget {
-			continue
-		}
-		center := preferredLine[item.path]
-		if center <= 0 {
-			center = 1
-		}
-		start := center - 30
-		if start < 1 {
-			start = 1
-		}
-		end := center + 45
-		read, err := e.FS.Read(item.path, start, end)
-		if err != nil {
-			continue
-		}
-		content, _ := read["content"].(string)
-		if len(content) > 8000 {
-			content = content[:8000]
-		}
-		if used+len(content) > budget {
-			content = content[:max(0, budget-used)]
-		}
-		used += len(content)
-		snippets = append(snippets, e.annotatePathMap(map[string]any{"path": item.path, "startLine": read["startLine"], "endLine": read["endLine"], "totalLines": read["totalLines"], "content": content, "reason": strings.Join(unique(reasons[item.path]), ", ")}))
-	}
-
+	ranked := rankContextPaths(e, scores, route, limit)
+	budget, maxSnippetFiles := 48000, 8
+	files, snippets, used, repositoryBudgets, repositoryUsed := buildRepositoryAwareContext(e, ranked, reasons, preferredLine, route, budget, maxSnippetFiles)
+	symbols = filterPathMapsForRoute(e, symbols, route)
 	symbolLimit := min(60, max(12, limit*2))
 	if len(symbols) > symbolLimit {
 		symbols = symbols[:symbolLimit]
 	}
 	projectMap, _ := e.Map(false)
 	return map[string]any{
-		"taskHint":       task,
-		"strategy":       "lsp-or-structural-symbols + literal-fallback + cached-import-graph-neighbors + symbol-centered-bounded-snippets",
-		"project":        projectMap,
-		"rankedFiles":    files,
-		"symbols":        symbols,
-		"graphEdges":     graphEdges,
-		"snippets":       snippets,
-		"contextBudget":  map[string]any{"maxChars": budget, "usedChars": used, "maxFiles": maxSnippetFiles},
-		"recommendation": "Use this semantic-first packet as the initial coding context. Follow exact definitions/references/callers/callees or targeted line reads only when needed; use search_code mainly for literal strings and unknown text.",
+		"taskHint":        task,
+		"strategy":        "lsp-or-structural-symbols + literal-fallback + cached-import-graph-neighbors + symbol-centered-bounded-snippets",
+		"project":         projectMap,
+		"rankedFiles":     files,
+		"symbols":         symbols,
+		"graphEdges":      graphEdges,
+		"snippets":        snippets,
+		"repositoryRoute": repositoryRouteMap(route, repositoryBudgets, repositoryUsed),
+		"contextBudget":   map[string]any{"maxChars": budget, "usedChars": used, "maxFiles": maxSnippetFiles, "repositoryFocused": route.Mode == "focused"},
+		"recommendation":  "Use this semantic-first packet as the initial coding context. Follow exact definitions/references/callers/callees or targeted line reads only when needed; use search_code mainly for literal strings and unknown text.",
 	}, nil
 }
 

@@ -106,9 +106,18 @@ func resolveIndexedImport(from, specifier string, knownPaths map[string]struct{}
 	return ""
 }
 
+func graphTargetIsWorkspacePath(edge map[string]any) bool {
+	to := strings.TrimSpace(fmt.Sprint(edge["to"]))
+	specifier := strings.TrimSpace(fmt.Sprint(edge["specifier"]))
+	return to != "" && to != "<nil>" && (specifier == "" || to != specifier || strings.HasPrefix(specifier, "."))
+}
+
 func (e *Engine) annotateGraphEdge(edge map[string]any) map[string]any {
 	fromRepo, fromOK := e.repositoryForPath(fmt.Sprint(edge["from"]))
-	toRepo, toOK := e.repositoryForPath(fmt.Sprint(edge["to"]))
+	toRepo, toOK := repository.Checkout{}, false
+	if graphTargetIsWorkspacePath(edge) {
+		toRepo, toOK = e.repositoryForPath(fmt.Sprint(edge["to"]))
+	}
 	if fromOK {
 		edge["fromRepositoryId"], edge["fromRepositoryPath"] = fromRepo.ID, fromRepo.RelativePath
 	}

@@ -110,10 +110,12 @@ func TestMultiRepoProjectIntelligencePreservesRepositoryOwnership(t *testing.T) 
 	root := t.TempDir()
 	web := initNestedProjectRepo(t, root, "web")
 	auth := initNestedProjectRepo(t, root, "backend/auth")
+	payment := initNestedProjectRepo(t, root, "backend/payment")
 	writeKnowledgeFixture(t, web, "package.json", `{"scripts":{"test":"node --test"}}`)
 	writeKnowledgeFixture(t, web, "src/index.ts", "import { authenticate } from '../../backend/auth/api'\nexport function loginClient() { return authenticate() }\n")
 	writeKnowledgeFixture(t, auth, "package.json", `{"scripts":{"test":"node --test"}}`)
 	writeKnowledgeFixture(t, auth, "api.ts", "export function authenticate() { return true }\n")
+	writeKnowledgeFixture(t, payment, "service.ts", "export function settleInvoice() { return true }\n")
 
 	fs, err := localfs.New(root)
 	if err != nil {
@@ -127,15 +129,15 @@ func TestMultiRepoProjectIntelligencePreservesRepositoryOwnership(t *testing.T) 
 		t.Fatal(err)
 	}
 	repositories, ok := projectMap["repositories"].([]any)
-	if !ok || len(repositories) != 2 {
-		t.Fatalf("expected two repository summaries, got %#v", projectMap["repositories"])
+	if !ok || len(repositories) != 3 {
+		t.Fatalf("expected three repository summaries, got %#v", projectMap["repositories"])
 	}
 	paths := map[string]bool{}
 	for _, raw := range repositories {
 		item, _ := raw.(map[string]any)
 		paths[fmt.Sprint(item["path"])] = true
 	}
-	if !paths["web"] || !paths["backend/auth"] {
+	if !paths["web"] || !paths["backend/auth"] || !paths["backend/payment"] {
 		t.Fatalf("repository paths missing: %#v", repositories)
 	}
 
@@ -161,7 +163,7 @@ func TestMultiRepoProjectIntelligencePreservesRepositoryOwnership(t *testing.T) 
 		t.Fatalf("expected repository-aware cross-repo import edge: %#v", edges)
 	}
 
-	packet, err := engine.ContextForTask(context.Background(), "fix authenticate login flow", 12)
+	packet, err := engine.ContextForTask(context.Background(), "fix loginClient flow", 12)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +176,42 @@ func TestMultiRepoProjectIntelligencePreservesRepositoryOwnership(t *testing.T) 
 	}
 	if !foundRankedRepo {
 		t.Fatalf("ranked file repository provenance missing: %#v", ranked)
+	}
+	for _, item := range ranked {
+		if item["repositoryPath"] == "backend/payment" {
+			t.Fatalf("unrelated payment repository leaked into focused ranked context: %#v", ranked)
+		}
+	}
+	route, ok := packet["repositoryRoute"].(map[string]any)
+	if !ok || route["mode"] != "focused" {
+		t.Fatalf("expected focused repository routing, got %#v", packet["repositoryRoute"])
+	}
+	selected, _ := route["selectedRepositories"].([]map[string]any)
+	selectedPaths := map[string]bool{}
+	authHasGraphReason := false
+	for _, item := range selected {
+		path := fmt.Sprint(item["repositoryPath"])
+		selectedPaths[path] = true
+		if maxChars, _ := item["maxChars"].(int); maxChars <= 0 {
+			t.Fatalf("focused repository must receive a positive context budget: %#v", item)
+		}
+		if path == "backend/auth" {
+			for _, reason := range item["reasons"].([]string) {
+				if reason == "cross-repository-graph" {
+					authHasGraphReason = true
+				}
+			}
+		}
+	}
+	if !selectedPaths["web"] || !selectedPaths["backend/auth"] || selectedPaths["backend/payment"] {
+		t.Fatalf("unexpected repository route: %#v", selected)
+	}
+	if !authHasGraphReason {
+		t.Fatalf("auth repository should be expanded from cross-repository graph evidence: %#v", selected)
+	}
+	budgetInfo, _ := packet["contextBudget"].(map[string]any)
+	if budgetInfo["repositoryFocused"] != true {
+		t.Fatalf("context budget must report focused routing: %#v", budgetInfo)
 	}
 }
 

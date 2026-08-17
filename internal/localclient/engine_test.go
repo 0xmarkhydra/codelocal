@@ -256,6 +256,40 @@ func TestContextForTaskIncludesBoundedProjectBrainRules(t *testing.T) {
 	}
 }
 
+func TestCompactProjectContextForRouteHidesUnselectedRepositories(t *testing.T) {
+	projectMap := map[string]any{
+		"repositories": []any{
+			map[string]any{"id": "web-id", "path": "web", "identitySource": "remote", "manifests": []any{"web/package.json"}, "modules": []any{"web/src"}},
+			map[string]any{"id": "auth-id", "path": "backend/auth", "identitySource": "remote", "manifests": []any{"backend/auth/go.mod"}, "modules": []any{"backend/auth/internal"}},
+			map[string]any{"id": "payment-id", "path": "backend/payment", "identitySource": "remote", "manifests": []any{"backend/payment/go.mod"}, "modules": []any{"backend/payment/internal"}},
+		},
+		"languages": []any{"go", "typescript"}, "frameworks": []any{}, "workspaceRoots": []any{"."}, "sourceRoots": []any{"web/src", "backend/auth/internal", "backend/payment/internal"}, "testRoots": []any{},
+	}
+	route := map[string]any{"mode": "focused", "selectedRepositories": []map[string]any{
+		{"repositoryId": "web-id", "repositoryPath": "web"},
+		{"repositoryId": "auth-id", "repositoryPath": "backend/auth"},
+	}}
+
+	compact := compactProjectContextForRoute(projectMap, route)
+	repositories, ok := compact["repositories"].([]map[string]any)
+	if !ok || len(repositories) != 2 {
+		t.Fatalf("focused compact repositories = %#v", compact["repositories"])
+	}
+	for _, repo := range repositories {
+		if repo["path"] == "backend/payment" {
+			t.Fatalf("unselected repository leaked into model-facing project context: %#v", repositories)
+		}
+	}
+	for _, raw := range compact["sourceRoots"].([]any) {
+		if raw == "backend/payment/internal" {
+			t.Fatalf("unselected repository source root leaked into compact context: %#v", compact["sourceRoots"])
+		}
+	}
+	if compact["repositoryContextFocused"] != true {
+		t.Fatalf("focused marker missing: %#v", compact)
+	}
+}
+
 func TestContextForTaskExplicitTargetsRefreshNestedRules(t *testing.T) {
 	engine := newTestEngine(t)
 	if err := os.MkdirAll(filepath.Join(engine.Root, "backend", "payments"), 0o755); err != nil {

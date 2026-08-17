@@ -568,6 +568,92 @@ func compactProjectContext(projectMap map[string]any) map[string]any {
 	return out
 }
 
+func focusedRepositoryKeys(route any) map[string]struct{} {
+	value, ok := route.(map[string]any)
+	if !ok || asString(value["mode"]) != "focused" {
+		return nil
+	}
+	keys := map[string]struct{}{}
+	appendKey := func(item map[string]any) {
+		if len(keys) >= 24 || item == nil {
+			return
+		}
+		keys[asString(item["repositoryId"])+"\x00"+asString(item["repositoryPath"])] = struct{}{}
+	}
+	switch typed := value["selectedRepositories"].(type) {
+	case []map[string]any:
+		for _, item := range typed {
+			appendKey(item)
+		}
+	case []any:
+		for _, raw := range typed {
+			if item, ok := raw.(map[string]any); ok {
+				appendKey(item)
+			}
+		}
+	}
+	return keys
+}
+
+func repositoryOwnerPath(path string, repositoryPaths []string) string {
+	path = strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./")
+	best, bestDepth := "", -1
+	for _, root := range repositoryPaths {
+		matches := root == "." || path == root || strings.HasPrefix(path, root+"/")
+		if !matches {
+			continue
+		}
+		depth := 0
+		if root != "." {
+			depth = strings.Count(root, "/") + 1
+		}
+		if depth > bestDepth {
+			best, bestDepth = root, depth
+		}
+	}
+	return best
+}
+
+func filterFocusedProjectPaths(value any, allRepositoryPaths []string, selectedPaths map[string]struct{}) []any {
+	out := []any{}
+	for _, raw := range boundedContextList(value, 64) {
+		path := strings.TrimSpace(fmt.Sprint(raw))
+		owner := repositoryOwnerPath(path, allRepositoryPaths)
+		if owner == "" {
+			out = append(out, raw)
+			continue
+		}
+		if _, ok := selectedPaths[owner]; ok {
+			out = append(out, raw)
+		}
+	}
+	return out
+}
+
+func compactProjectContextForRoute(projectMap map[string]any, route any) map[string]any {
+	out := compactProjectContext(projectMap)
+	keys := focusedRepositoryKeys(route)
+	if len(keys) == 0 {
+		return out
+	}
+	repositories, _ := out["repositories"].([]map[string]any)
+	focused, allPaths, selectedPaths := []map[string]any{}, []string{}, map[string]struct{}{}
+	for _, repo := range repositories {
+		path := asString(repo["path"])
+		allPaths = append(allPaths, path)
+		if _, ok := keys[asString(repo["id"])+"\x00"+path]; ok {
+			focused = append(focused, repo)
+			selectedPaths[path] = struct{}{}
+		}
+	}
+	out["repositories"] = focused
+	for _, key := range []string{"workspaceRoots", "sourceRoots", "testRoots", "entrypoints"} {
+		out[key] = filterFocusedProjectPaths(out[key], allPaths, selectedPaths)
+	}
+	out["repositoryContextFocused"] = true
+	return out
+}
+
 func (e *Engine) attachProjectBrainContext(result map[string]any, explicitTargets []string, taskHint string) {
 	if e == nil || e.FS == nil || result == nil {
 		return
@@ -970,7 +1056,7 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		}
 		e.attachProjectBrainContext(result, stringSlice(args["targets"]), taskHint)
 		if projectMap, ok := result["project"].(map[string]any); ok {
-			result["project"] = compactProjectContext(projectMap)
+			result["project"] = compactProjectContextForRoute(projectMap, result["repositoryRoute"])
 		}
 		return result, nil
 	case "read_instructions":
