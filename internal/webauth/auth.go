@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	SessionCookie = "codelocal_session"
-	CSRFCookie    = "codelocal_csrf"
+	SessionCookie        = "codelocal_session"
+	CSRFCookie           = "codelocal_csrf"
+	SecurityDeviceCookie = "codelocal_device"
 )
 
 var emailRE = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -29,6 +30,25 @@ type Identity struct {
 	User      cloud.User
 	SessionID string
 	CSRF      string
+	RiskUntil int64
+}
+
+func (i *Identity) RequiresReauthentication() bool {
+	return i != nil && i.RiskUntil > time.Now().UnixMilli()
+}
+
+func (m *Manager) RequireFreshSecurityContext(w http.ResponseWriter, r *http.Request, identity *Identity, nextPaths ...string) bool {
+	if identity == nil || !identity.RequiresReauthentication() {
+		return true
+	}
+	_ = m.Store.DeleteSession(r.Context(), identity.SessionID)
+	m.setCookie(w, SessionCookie, "", -1, true)
+	next := r.URL.RequestURI()
+	if len(nextPaths) > 0 && strings.TrimSpace(nextPaths[0]) != "" {
+		next = nextPaths[0]
+	}
+	http.Redirect(w, r, "/login?next="+url.QueryEscape(webutil.SafeNext(next)), http.StatusSeeOther)
+	return false
 }
 
 type contextKey string
@@ -64,6 +84,21 @@ func (m *Manager) EnsureCSRF(w http.ResponseWriter, r *http.Request) string {
 	value := randomURL(32)
 	m.setCookie(w, CSRFCookie, value, int(m.SessionTTL.Seconds()), true)
 	return value
+}
+
+func (m *Manager) EnsureSecurityDevice(w http.ResponseWriter, r *http.Request) string {
+	if cookie, err := r.Cookie(SecurityDeviceCookie); err == nil && regexp.MustCompile(`^[A-Za-z0-9_-]{24,128}$`).MatchString(cookie.Value) {
+		return cookie.Value
+	}
+	value := randomURL(32)
+	m.setCookie(w, SecurityDeviceCookie, value, int((365 * 24 * time.Hour).Seconds()), true)
+	return value
+}
+
+func (m *Manager) createBrowserSession(w http.ResponseWriter, r *http.Request, userID, csrf string) (string, error) {
+	deviceToken := m.EnsureSecurityDevice(w, r)
+	signal := webutil.RequestSecuritySignal(r, deviceToken)
+	return m.Store.CreateSessionWithSecurity(r.Context(), userID, csrf, m.SessionTTL, signal)
 }
 
 func (m *Manager) VerifyCSRF(r *http.Request) bool {
@@ -137,7 +172,28 @@ func (m *Manager) Identity(r *http.Request) (*Identity, error) {
 		_ = m.Store.DeleteSession(r.Context(), cookie.Value)
 		return nil, nil
 	}
-	return &Identity{User: *user, SessionID: cookie.Value, CSRF: state.CSRF}, nil
+	if state.Security != nil {
+		deviceToken := ""
+		if deviceCookie, cookieErr := r.Cookie(SecurityDeviceCookie); cookieErr == nil {
+			deviceToken = deviceCookie.Value
+		}
+		signal := webutil.RequestSecuritySignal(r, deviceToken)
+		decision := cloud.EvaluateSecuritySignals(*state.Security, signal)
+		if decision.HighRisk {
+			_ = m.Store.DeleteSession(r.Context(), cookie.Value)
+			return nil, nil
+		}
+		if decision.AgentChanged || decision.NetworkChanged {
+			state.Security = &signal
+			state.RiskUntil = time.Now().Add(10 * time.Minute).UnixMilli()
+			_ = m.Store.UpdateSessionState(r.Context(), cookie.Value, state)
+		}
+	}
+	riskUntil := state.RiskUntil
+	if state.Security == nil {
+		riskUntil = time.Now().Add(10 * time.Minute).UnixMilli()
+	}
+	return &Identity{User: *user, SessionID: cookie.Value, CSRF: state.CSRF, RiskUntil: riskUntil}, nil
 }
 func WithIdentity(r *http.Request, identity *Identity) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), identityKey, identity))
@@ -229,7 +285,7 @@ func (m *Manager) Register(mux *http.ServeMux) {
 			_, _ = w.Write([]byte(m.form("login", csrf, next, "Email or password is incorrect.")))
 			return
 		}
-		sessionID, err := m.Store.CreateSession(r.Context(), user.ID, csrf, m.SessionTTL)
+		sessionID, err := m.createBrowserSession(w, r, user.ID, csrf)
 		if err != nil {
 			http.Error(w, "Unable to create session", 500)
 			return

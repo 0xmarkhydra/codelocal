@@ -244,6 +244,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 			return
 		}
+		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity) {
+			return
+		}
 		name := client.ClientName
 		if name == "" {
 			name = "MCP client"
@@ -256,6 +259,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 		identity, _ := s.WebAuth.Identity(r)
 		if identity == nil {
 			http.Error(w, "Sign in to CodeLocal and restart the MCP connection flow.", 401)
+			return
+		}
+		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, "/dashboard/connect") {
 			return
 		}
 		if !s.WebAuth.VerifyCSRF(r) {

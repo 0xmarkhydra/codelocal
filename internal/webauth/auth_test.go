@@ -129,3 +129,12 @@ func TestPasswordResetDailyLimitPageExplainsLimitAndRetry(t *testing.T) {
 		}
 	}
 }
+
+func TestIdentityReauthenticationWindow(t *testing.T) {
+	if (&Identity{RiskUntil: time.Now().Add(time.Minute).UnixMilli()}).RequiresReauthentication() != true {
+		t.Fatal("active security risk must require reauthentication")
+	}
+	if (&Identity{RiskUntil: time.Now().Add(-time.Minute).UnixMilli()}).RequiresReauthentication() {
+		t.Fatal("expired security risk must not require reauthentication")
+	}
+}

@@ -34,9 +34,11 @@ type User struct {
 }
 
 type SessionState struct {
-	UserID    string `json:"userId"`
-	CSRF      string `json:"csrf"`
-	CreatedAt int64  `json:"createdAt"`
+	UserID    string          `json:"userId"`
+	CSRF      string          `json:"csrf"`
+	CreatedAt int64           `json:"createdAt"`
+	Security  *SecuritySignal `json:"security,omitempty"`
+	RiskUntil int64           `json:"riskUntil,omitempty"`
 }
 
 type Device struct {
@@ -1355,9 +1357,33 @@ func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash, pa
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID, csrf string, ttl time.Duration) (string, error) {
+	return s.CreateSessionWithSecurity(ctx, userID, csrf, ttl, SecuritySignal{})
+}
+
+func (s *Store) CreateSessionWithSecurity(ctx context.Context, userID, csrf string, ttl time.Duration, signal SecuritySignal) (string, error) {
 	id := RandomHex(40)
-	data, _ := json.Marshal(SessionState{UserID: userID, CSRF: csrf, CreatedAt: time.Now().UnixMilli()})
+	state := SessionState{UserID: userID, CSRF: csrf, CreatedAt: time.Now().UnixMilli()}
+	if signal.DeviceHash != "" || signal.AgentHash != "" || signal.NetworkHash != "" {
+		state.Security = &signal
+	}
+	data, _ := json.Marshal(state)
 	return id, s.Redis.Set(ctx, "codelocal:session:"+id, data, ttl).Err()
+}
+
+func (s *Store) UpdateSessionState(ctx context.Context, id string, state SessionState) error {
+	if id == "" {
+		return nil
+	}
+	key := "codelocal:session:" + id
+	ttl, err := s.Redis.TTL(ctx, key).Result()
+	if err != nil || ttl <= 0 {
+		return err
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.Redis.Set(ctx, key, data, ttl).Err()
 }
 
 func (s *Store) ReadSessionState(ctx context.Context, id string) (SessionState, bool, error) {
@@ -1486,6 +1512,7 @@ func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secret
 	keys := []string{"codelocal:device:" + credentialID, "codelocal:device-touch:" + credentialID}
 	if previousCredentialID != "" && previousCredentialID != credentialID {
 		keys = append(keys, "codelocal:device:"+previousCredentialID, "codelocal:device-touch:"+previousCredentialID)
+		_ = s.ClearSecurityState(ctx, "credential", previousCredentialID)
 	}
 	s.invalidateDeviceCache(keys...)
 	return &Device{CredentialID: credentialID, PreviousCredentialID: previousCredentialID, UserID: userID, DeviceID: p.DeviceID, DeviceName: p.DeviceName, SecretHash: secretHash, CreatedAt: now, LastSeenAt: now}, nil
@@ -1575,6 +1602,7 @@ func (s *Store) RevokeDevice(ctx context.Context, userID, credentialID string) (
 		return false, err
 	}
 	s.invalidateDeviceCache("codelocal:device:"+credentialID, "codelocal:device-touch:"+credentialID)
+	_ = s.ClearSecurityState(ctx, "credential", credentialID)
 	return result.RowsAffected() == 1, nil
 }
 

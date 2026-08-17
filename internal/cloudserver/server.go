@@ -722,6 +722,9 @@ func (s *Server) pairApproveGet(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 		return
 	}
+	if !s.WebAuth.RequireFreshSecurityContext(w, r, identity) {
+		return
+	}
 	body := `<div class="row"><div class="row-title">` + ui.Escape(pairing.DeviceName) + `</div><div class="row-meta mono">Device ID: ` + ui.Escape(pairing.DeviceID) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/pair/approve">` + ui.Hidden(map[string]string{"csrf": identity.CSRF, "pairingId": pairing.PairingID, "code": pairing.Code}) + `<button class="btn primary" type="submit">Approve device</button></form><div style="height:10px"></div><form method="post" action="/logout">` + ui.Hidden(map[string]string{"csrf": identity.CSRF, "next": r.URL.RequestURI()}) + `<button class="btn" type="submit">Use another account</button></form>`
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(ui.Page("Approve device", "Pair this machine with "+identity.User.Email+".", body)))
@@ -731,6 +734,10 @@ func (s *Server) pairApprovePost(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.identity(r)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	next := "/pair/approve?pairingId=" + url.QueryEscape(r.FormValue("pairingId"))
+	if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, next) {
 		return
 	}
 	if !s.WebAuth.VerifyCSRF(r) {
@@ -833,7 +840,15 @@ func (s *Server) authenticateDevice(r *http.Request) (*cloud.Device, error) {
 	if id == "" || secret == "" {
 		return nil, nil
 	}
-	return s.Store.AuthenticateDevice(r.Context(), id, cloud.HashSecret(secret))
+	device, err := s.Store.AuthenticateDevice(r.Context(), id, cloud.HashSecret(secret))
+	if err != nil || device == nil {
+		return device, err
+	}
+	decision, err := s.credentialSecurityDecision(r, id)
+	if err != nil || decision.HighRisk {
+		return nil, err
+	}
+	return device, nil
 }
 
 func (s *Server) clientAuthCheck(w http.ResponseWriter, r *http.Request) {

@@ -338,7 +338,7 @@ func (m *Manager) changePasswordPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unable to change password", http.StatusInternalServerError)
 		return
 	}
-	newSessionID, err := m.Store.CreateSession(r.Context(), identity.User.ID, identity.CSRF, m.SessionTTL)
+	newSessionID, err := m.createBrowserSession(w, r, identity.User.ID, identity.CSRF)
 	if err != nil {
 		http.Error(w, "Password changed, but unable to refresh session", http.StatusInternalServerError)
 		return

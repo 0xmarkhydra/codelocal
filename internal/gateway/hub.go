@@ -16,6 +16,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
+	"github.com/0xmarkhydra/codelocal/internal/webutil"
 	"github.com/coder/websocket"
 )
 
@@ -231,6 +232,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	device, err := h.Store.AuthenticateDevice(ctx, msg.CredentialID, secretHash)
 	if err != nil || device == nil || device.UserID == "" {
 		_ = conn.Close(websocket.StatusCode(4403), "AUTH_FAILED")
+		return
+	}
+	decision, err := h.Store.ObserveSecurityState(ctx, "credential", msg.CredentialID, webutil.RequestSecuritySignal(r, ""), 30*24*time.Hour)
+	if err != nil || decision.HighRisk {
+		_ = conn.Close(websocket.StatusCode(4403), "SECURITY_CONTEXT_MISMATCH")
 		return
 	}
 	if msg.DeviceID == "" {
