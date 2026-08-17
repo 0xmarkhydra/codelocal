@@ -39,8 +39,7 @@ func TestAgentAllowsOnlyRememberableReviewOrHigh(t *testing.T) {
 		{name: "review always", decision: security.Decision{RiskLevel: security.RiskReview, RequiresApproval: true, ApprovalPolicy: security.ApprovalAlways}, want: false},
 		{name: "blocked", decision: security.Decision{RiskLevel: security.RiskBlocked, Blocked: true, ApprovalPolicy: security.ApprovalBlocked}, want: false},
 		{name: "safe", decision: security.Decision{RiskLevel: security.RiskSafe, RequiresApproval: false, ApprovalPolicy: security.ApprovalNone}, want: false},
-	}
-	for _, tc := range tc {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := AgentAllows(ModeAgent, tc.decision); got != tc.want {
 				t.Fatalf("AgentAllows() = %v, want %v", got, tc.want)
