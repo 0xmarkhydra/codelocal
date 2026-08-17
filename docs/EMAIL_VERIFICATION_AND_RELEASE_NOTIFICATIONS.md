@@ -60,6 +60,24 @@ merge/push main
 
 Release email delivery is idempotent per version and batch. Redis stores completion markers, while each Resend batch also receives a deterministic idempotency key.
 
+Each release email includes the complete user update flow:
+
+```text
+macOS / Linux
+npm install -g codelocal@latest
+hash -r
+codelocal --version
+
+Windows PowerShell
+npm install -g codelocal@latest
+codelocal --version
+
+ChatGPT
+Settings -> Plugins -> Code -> Refresh
+```
+
+The email tells the user to restart CodeLocal after updating and verify that `codelocal --version` reports the announced release (or a newer one). `hash -r` is intentionally shown only for macOS/Linux shells.
+
 If `CODELOCAL_RELEASE_NOTIFY_SECRET` has not been added to GitHub yet, the notification workflow logs a warning and skips mail without breaking the npm release.
 
 ## Signup flow
