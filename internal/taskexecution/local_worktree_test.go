@@ -1,0 +1,151 @@
+package taskexecution
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/0xmarkhydra/codelocal/internal/repository"
+)
+
+func gitTaskTest(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=CodeLocal Test", "GIT_AUTHOR_EMAIL=test@codelocal.invalid",
+		"GIT_COMMITTER_NAME=CodeLocal Test", "GIT_COMMITTER_EMAIL=test@codelocal.invalid",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+func makeTaskRepo(t *testing.T) repository.Checkout {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitTaskTest(t, root, "init", "-q")
+	if err := os.WriteFile(filepath.Join(root, "app.txt"), []byte("main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTaskTest(t, root, "add", "app.txt")
+	gitTaskTest(t, root, "commit", "-qm", "initial")
+	return repository.Checkout{ID: "repo-a", RelativePath: ".", Root: root, IdentitySource: "lineage"}
+}
+
+func TestLocalWorktreeProviderIsolatesTwoTasksOnSameRepository(t *testing.T) {
+	ctx := context.Background()
+	repo := makeTaskRepo(t)
+	provider := NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees"))
+
+	first, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", WorkspaceID: "ws", ProjectID: "project", Repositories: []repository.Checkout{repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-b", WorkspaceKey: "workspace", WorkspaceID: "ws", ProjectID: "project", Repositories: []repository.Checkout{repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstPath := first.RepositoryBindings[0].LocalPath
+	secondPath := second.RepositoryBindings[0].LocalPath
+	if firstPath == secondPath {
+		t.Fatal("different tasks must not share a writable worktree")
+	}
+	if err := os.WriteFile(filepath.Join(firstPath, "app.txt"), []byte("task-a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secondPath, "app.txt"), []byte("task-b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mainData, err := os.ReadFile(filepath.Join(repo.Root, "app.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(mainData) != "main\n" {
+		t.Fatalf("authoritative checkout was modified: %q", mainData)
+	}
+	firstData, _ := os.ReadFile(filepath.Join(firstPath, "app.txt"))
+	secondData, _ := os.ReadFile(filepath.Join(secondPath, "app.txt"))
+	if string(firstData) != "task-a\n" || string(secondData) != "task-b\n" {
+		t.Fatalf("task worktrees were not isolated: first=%q second=%q", firstData, secondData)
+	}
+}
+
+func TestLocalWorktreeProviderReusesTaskBinding(t *testing.T) {
+	ctx := context.Background()
+	repo := makeTaskRepo(t)
+	provider := NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees"))
+	req := PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}}
+	first, err := provider.Prepare(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := provider.Prepare(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.RepositoryBindings[0].LocalPath != second.RepositoryBindings[0].LocalPath {
+		t.Fatal("task resume should reuse the existing local worktree")
+	}
+}
+
+func TestLocalWorktreeProviderRefusesDirtyAuthoritativeRepository(t *testing.T) {
+	ctx := context.Background()
+	repo := makeTaskRepo(t)
+	if err := os.WriteFile(filepath.Join(repo.Root, "app.txt"), []byte("dirty\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees"))
+	_, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}})
+	if !errors.Is(err, ErrDirtyRepository) {
+		t.Fatalf("dirty authoritative checkout must be rejected safely, got %v", err)
+	}
+}
+
+func TestCleanupRemovesMergedCleanTaskWorktree(t *testing.T) {
+	ctx := context.Background()
+	repo := makeTaskRepo(t)
+	provider := NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees"))
+	bundle, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-clean", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := bundle.RepositoryBindings[0]
+	if err := provider.Cleanup(ctx, repo, binding); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(binding.LocalPath); !os.IsNotExist(err) {
+		t.Fatalf("clean merged worktree should be removed, stat err=%v", err)
+	}
+	if gitCommandOK(ctx, repo.Root, "show-ref", "--verify", "--quiet", "refs/heads/"+binding.BranchName) {
+		t.Fatal("clean merged task branch should be deleted")
+	}
+}
+
+func TestCleanupRefusesUncommittedTaskWorktree(t *testing.T) {
+	ctx := context.Background()
+	repo := makeTaskRepo(t)
+	provider := NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees"))
+	bundle, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := bundle.RepositoryBindings[0]
+	if err := os.WriteFile(filepath.Join(binding.LocalPath, "app.txt"), []byte("dirty task\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Cleanup(ctx, repo, binding); err == nil {
+		t.Fatal("cleanup must not delete a dirty task worktree")
+	}
+	if _, err := os.Stat(binding.LocalPath); err != nil {
+		t.Fatalf("unsafe cleanup removed task worktree: %v", err)
+	}
+}

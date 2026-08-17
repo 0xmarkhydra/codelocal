@@ -370,13 +370,16 @@ Do not expose `worktreePath` as durable cloud/project identity.
 
 # 8. Local worktree provider
 
-Directory layout:
+Directory layout (current implementation target):
 
 ```text
-.codelocal/worktrees/
-  <task-id>/
-    <repository-id>/
+~/.codelocal/worktrees/
+  <workspace-digest>/
+    <task-digest>/
+      <repository-digest>/
 ```
+
+Runtime worktrees live outside the authoritative project tree. Legacy/project-local `.codelocal/worktrees/**` remains hard-excluded defensively, but new execution bindings should not be created inside the source project.
 
 Branch naming:
 
@@ -405,9 +408,11 @@ Requirements:
 - authoritative/main checkout remains clean by default;
 - two concurrent mutating tasks never share writable worktrees;
 - task resume reuses compatible task bindings;
-- recursive `.codelocal/worktrees/**` stays hard excluded from project index/search/context;
+- runtime worktrees are stored under private CodeLocal state outside the authoritative source tree;
+- legacy/project-local `.codelocal/worktrees/**` stays hard excluded from project index/search/context;
 - never delete an unmerged branch or dirty task worktree automatically without a safe policy/confirmation;
-- cleanup is idempotent.
+- cleanup is idempotent;
+- initial `local_worktree` MVP requires a clean authoritative repository before creating a new task binding; dirty authoritative-state capture is deferred to the later workspace-state/sandbox architecture rather than being emulated with hidden stash/reset mutations.
 
 ---
 
@@ -430,10 +435,10 @@ Example:
 repo-web main checkout
 
 Task A
-  -> .codelocal/worktrees/T-A/repo-web
+  -> ~/.codelocal/worktrees/<workspace>/T-A/repo-web
 
 Task B
-  -> .codelocal/worktrees/T-B/repo-web
+  -> ~/.codelocal/worktrees/<workspace>/T-B/repo-web
 ```
 
 Add task leases so two sessions cannot accidentally drive the same task concurrently.
