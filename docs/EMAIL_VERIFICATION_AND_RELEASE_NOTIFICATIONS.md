@@ -73,7 +73,7 @@ npm install -g codelocal@latest
 codelocal --version
 
 ChatGPT
-Settings -> Plugins -> Code -> Refresh
+Settings -> Plugins -> CodeLocal -> Refresh
 ```
 
 The email tells the user to restart CodeLocal after updating and verify that `codelocal --version` reports the announced release (or a newer one). `hash -r` is intentionally shown only for macOS/Linux shells.

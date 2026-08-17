@@ -12,7 +12,7 @@ func TestReleaseEmailContentIncludesUpdateAndChatGPTRefreshSteps(t *testing.T) {
 		"npm install -g codelocal@latest",
 		"hash -r",
 		"codelocal --version",
-		"Settings -> Plugins -> Code -> Refresh",
+		"Settings -> Plugins -> CodeLocal -> Refresh",
 		"1.6.0",
 	} {
 		if !strings.Contains(text, want) {
@@ -24,7 +24,7 @@ func TestReleaseEmailContentIncludesUpdateAndChatGPTRefreshSteps(t *testing.T) {
 		"npm install -g codelocal@latest",
 		"hash -r",
 		"codelocal --version",
-		"Settings → Plugins → Code → Refresh",
+		"Settings → Plugins → CodeLocal → Refresh",
 		"1.6.0",
 	} {
 		if !strings.Contains(html, want) {
