@@ -29,22 +29,19 @@ Set these only in the CodeLocal production service/environment. Never commit the
 ```text
 RESEND_API_KEY=re_...
 CODELOCAL_EMAIL_FROM=CodeLocal <noreply@updates.codelocal.cloud>
-CODELOCAL_RELEASE_NOTIFY_SECRET=<random secret of at least 32 characters>
 ```
+
+`CODELOCAL_RELEASE_NOTIFY_SECRET` may remain configured as a legacy/fallback bearer secret, but GitHub Actions no longer depends on it. Release notifications use GitHub Actions OIDC with a short-lived token scoped to the CodeLocal release workflow.
 
 `MCP_AUTH_SECRET` remains required by CodeLocal Cloud and is also used as the server-side pepper when hashing signup OTPs. The plaintext OTP is never stored in Redis.
 
 The signup verification request lives in Redis for 10 minutes. Five incorrect codes invalidate it.
 
-## GitHub Actions secret
+## GitHub Actions authentication
 
-Create this Actions secret in `0xmarkhydra/codex-mcp`:
+No repository secret is required for release notification. `.github/workflows/release-email.yml` grants `id-token: write`, requests a GitHub OIDC token with audience `codelocal-release-notify`, and sends that short-lived token to CodeLocal Cloud.
 
-```text
-CODELOCAL_RELEASE_NOTIFY_SECRET=<exact same value as Railway production>
-```
-
-Do not put `RESEND_API_KEY` in GitHub. GitHub only calls the guarded CodeLocal endpoint; the Resend key stays in the Cloud service.
+CodeLocal Cloud verifies the GitHub OIDC signature plus issuer, audience, repository, workflow ref, event name, and token time window before accepting the notification. `RESEND_API_KEY` remains only in Railway production.
 
 ## Release flow
 
@@ -78,7 +75,7 @@ Settings -> Plugins -> CodeLocal -> Refresh
 
 The email tells the user to restart CodeLocal after updating and verify that `codelocal --version` reports the announced release (or a newer one). `hash -r` is intentionally shown only for macOS/Linux shells.
 
-If `CODELOCAL_RELEASE_NOTIFY_SECRET` has not been added to GitHub yet, the notification workflow logs a warning and skips mail without breaking the npm release.
+Because the workflow now uses OIDC, a missing GitHub repository secret can no longer silently skip release email delivery.
 
 ## Signup flow
 

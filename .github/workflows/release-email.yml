@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: codelocal-release-email-${{ github.event.workflow_run.head_sha }}
@@ -52,12 +53,16 @@ jobs:
         env:
           VERSION: ${{ steps.release.outputs.version }}
           COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
-          NOTIFY_SECRET: ${{ secrets.CODELOCAL_RELEASE_NOTIFY_SECRET }}
+          OIDC_AUDIENCE: codelocal-release-notify
         run: |
           set -euo pipefail
-          if [[ -z "$NOTIFY_SECRET" ]]; then
-            echo '::warning::CODELOCAL_RELEASE_NOTIFY_SECRET is not configured; release email was skipped.'
-            exit 0
+          oidc_json="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}")"
+          oidc_token="$(OIDC_JSON="$oidc_json" node -e 'process.stdout.write(JSON.parse(process.env.OIDC_JSON).value || "")')"
+          if [[ -z "$oidc_token" ]]; then
+            echo 'GitHub OIDC token was empty.' >&2
+            exit 1
           fi
           payload="$(node -e 'process.stdout.write(JSON.stringify({version: process.env.VERSION, commit: process.env.COMMIT_SHA}))')"
           curl --fail-with-body \
@@ -66,7 +71,7 @@ jobs:
             --retry-delay 5 \
             --connect-timeout 10 \
             --max-time 30 \
-            -H "Authorization: Bearer $NOTIFY_SECRET" \
+            -H "Authorization: Bearer $oidc_token" \
             -H 'Content-Type: application/json' \
             --data "$payload" \
             https://codelocal.cloud/internal/releases/notify

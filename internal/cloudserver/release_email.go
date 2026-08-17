@@ -1,11 +1,9 @@
 package cloudserver
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -29,20 +27,6 @@ type releaseNotificationResponse struct {
 
 func (s *Server) RegisterReleaseEmail() {
 	s.Mux.HandleFunc("POST /internal/releases/notify", s.releaseNotify)
-}
-
-func releaseNotifyAuthorized(r *http.Request) bool {
-	expected := strings.TrimSpace(os.Getenv("CODELOCAL_RELEASE_NOTIFY_SECRET"))
-	if expected == "" {
-		return false
-	}
-	auth := strings.TrimSpace(r.Header.Get("Authorization"))
-	if !strings.HasPrefix(auth, "Bearer ") {
-		return false
-	}
-	actual := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-	a, b := []byte(actual), []byte(expected)
-	return len(a) == len(b) && len(a) >= 32 && subtle.ConstantTimeCompare(a, b) == 1
 }
 
 func releaseEmailContent(version string) (string, string) {
@@ -89,10 +73,6 @@ func writeReleaseJSON(w http.ResponseWriter, value any) {
 }
 
 func (s *Server) releaseNotify(w http.ResponseWriter, r *http.Request) {
-	if strings.TrimSpace(os.Getenv("CODELOCAL_RELEASE_NOTIFY_SECRET")) == "" {
-		http.Error(w, "Release notifications are not configured", http.StatusServiceUnavailable)
-		return
-	}
 	if !releaseNotifyAuthorized(r) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
