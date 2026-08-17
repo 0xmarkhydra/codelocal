@@ -31,4 +31,7 @@ func TestReleaseEmailContentIncludesUpdateAndChatGPTRefreshSteps(t *testing.T) {
 			t.Fatalf("release HTML missing %q:\n%s", want, html)
 		}
 	}
+	if strings.Contains(html, `\n`) {
+		t.Fatalf("release HTML contains a literal escaped newline: %s", html)
+	}
 }

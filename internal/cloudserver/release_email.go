@@ -57,9 +57,9 @@ This refreshes the CodeLocal app after the local runtime update.
 		`<p style="color:#555;line-height:1.6;margin:0 0 28px">A new CodeLocal npm release is ready. Update the runtime first, then refresh the CodeLocal app in ChatGPT.</p>` +
 		`<h3 style="margin:0 0 10px;font-size:17px">1. Update CodeLocal</h3>` +
 		`<p style="color:#666;font-size:14px;margin:0 0 8px">macOS / Linux</p>` +
-		`<pre style="background:#111;color:#f5f5f5;border-radius:12px;padding:16px;line-height:1.6;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0 0 16px">npm install -g codelocal@latest\nhash -r\ncodelocal --version</pre>` +
+		`<div style="background:#111;color:#f5f5f5;border-radius:12px;padding:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;line-height:1.7;margin:0 0 16px;overflow-wrap:anywhere"><div>npm install -g codelocal@latest</div><div>hash -r</div><div>codelocal --version</div></div>` +
 		`<p style="color:#666;font-size:14px;margin:0 0 8px">Windows PowerShell</p>` +
-		`<pre style="background:#111;color:#f5f5f5;border-radius:12px;padding:16px;line-height:1.6;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0 0 18px">npm install -g codelocal@latest\ncodelocal --version</pre>` +
+		`<div style="background:#111;color:#f5f5f5;border-radius:12px;padding:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;line-height:1.7;margin:0 0 18px;overflow-wrap:anywhere"><div>npm install -g codelocal@latest</div><div>codelocal --version</div></div>` +
 		`<p style="color:#666;line-height:1.6;margin:0 0 28px">Restart CodeLocal after updating. <code>codelocal --version</code> should show <strong>` + version + `</strong> or a newer release.</p>` +
 		`<h3 style="margin:0 0 10px;font-size:17px">2. Refresh the CodeLocal app in ChatGPT</h3>` +
 		`<div style="background:#f5f5f7;border-radius:12px;padding:16px;margin:0 0 12px;font-weight:600">Settings → Plugins → CodeLocal → Refresh</div>` +
