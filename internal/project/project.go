@@ -20,6 +20,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/localfs"
 	"github.com/0xmarkhydra/codelocal/internal/lsp"
+	"github.com/0xmarkhydra/codelocal/internal/repository"
 	"github.com/0xmarkhydra/codelocal/internal/security"
 )
 
@@ -29,10 +30,12 @@ type indexedSymbol struct {
 }
 
 type indexedFile struct {
-	MTimeNS int64
-	Size    int64
-	Symbols []indexedSymbol
-	Imports []string
+	MTimeNS        int64
+	Size           int64
+	RepositoryID   string
+	RepositoryPath string
+	Symbols        []indexedSymbol
+	Imports        []string
 }
 
 type knowledgeSourceCandidate struct {
@@ -186,17 +189,25 @@ func knowledgeSourceMap(candidate knowledgeSourceCandidate) map[string]any {
 }
 
 type Engine struct {
-	FS      *localfs.FS
-	LSP     *lsp.Manager
-	mu      sync.RWMutex
-	cached  map[string]any
-	builtAt int64
-	indexMu sync.Mutex
-	index   map[string]indexedFile
+	FS           *localfs.FS
+	LSP          *lsp.Manager
+	Repositories *repository.Registry
+	mu           sync.RWMutex
+	cached       map[string]any
+	builtAt      int64
+	indexMu      sync.Mutex
+	index        map[string]indexedFile
 }
 
 func New(fs *localfs.FS) *Engine {
-	return &Engine{FS: fs, LSP: lsp.NewManager(fs.Root), index: map[string]indexedFile{}}
+	return NewWithRepositories(fs, repository.New(fs.Root, filepath.Base(fs.Root)))
+}
+
+func NewWithRepositories(fs *localfs.FS, repositories *repository.Registry) *Engine {
+	if repositories == nil {
+		repositories = repository.New(fs.Root, filepath.Base(fs.Root))
+	}
+	return &Engine{FS: fs, LSP: lsp.NewManager(fs.Root), Repositories: repositories, index: map[string]indexedFile{}}
 }
 
 func (e *Engine) Close() {
@@ -313,7 +324,7 @@ func (e *Engine) scan() (map[string]any, error) {
 	}
 	knowledgeSourceMaps := make([]map[string]any, 0, len(knowledgeSources))
 	for _, candidate := range knowledgeSources {
-		knowledgeSourceMaps = append(knowledgeSourceMaps, knowledgeSourceMap(candidate))
+		knowledgeSourceMaps = append(knowledgeSourceMaps, e.annotatePathMap(knowledgeSourceMap(candidate)))
 	}
 	frameworks := detectFrameworks(e.FS.Root, manifests)
 	languageList := []string{}
@@ -341,7 +352,7 @@ func (e *Engine) scan() (map[string]any, error) {
 		commands["build"] = append(commands["build"], "flutter analyze")
 		commands["test"] = append(commands["test"], "flutter test")
 	}
-	return map[string]any{"generatedAt": time.Now().UnixMilli(), "rootName": filepath.Base(e.FS.Root), "languages": languageList, "frameworks": frameworks, "workspaceRoots": rootList, "entrypoints": entrypoints, "sourceRoots": sourceRoots(moduleList), "testRoots": testRoots(moduleList), "manifests": manifests, "knowledgeSources": knowledgeSourceMaps, "buildCommands": commands["build"], "testCommands": commands["test"], "lintCommands": commands["lint"], "typecheckCommands": commands["typecheck"], "modules": moduleList, "packageManager": packageManager(e.FS.Root), "intelligence": map[string]any{"builtAt": time.Now().UnixMilli(), "dirty": false, "files": files, "sourceFiles": sourceFiles, "knowledgeSources": len(knowledgeSourceMaps), "languages": languageList}}, nil
+	return map[string]any{"generatedAt": time.Now().UnixMilli(), "rootName": filepath.Base(e.FS.Root), "languages": languageList, "frameworks": frameworks, "workspaceRoots": rootList, "entrypoints": entrypoints, "sourceRoots": sourceRoots(moduleList), "testRoots": testRoots(moduleList), "manifests": manifests, "knowledgeSources": knowledgeSourceMaps, "repositories": e.repositorySummaries(manifests, moduleList, entrypoints), "buildCommands": commands["build"], "testCommands": commands["test"], "lintCommands": commands["lint"], "typecheckCommands": commands["typecheck"], "modules": moduleList, "packageManager": packageManager(e.FS.Root), "intelligence": map[string]any{"builtAt": time.Now().UnixMilli(), "dirty": false, "files": files, "sourceFiles": sourceFiles, "knowledgeSources": len(knowledgeSourceMaps), "repositories": len(e.Repositories.All()), "languages": languageList}}, nil
 }
 func exists(path string) bool { _, err := os.Stat(path); return err == nil }
 func keys(m map[string]struct{}) []string {
@@ -567,8 +578,11 @@ func (e *Engine) refreshStructuralIndex() error {
 			return nil
 		}
 		seen[rel] = struct{}{}
+		repositoryID, repositoryPath := e.repositoryIdentity(rel)
 		current, ok := e.index[rel]
 		if ok && current.Size == info.Size() && current.MTimeNS == info.ModTime().UnixNano() {
+			current.RepositoryID, current.RepositoryPath = repositoryID, repositoryPath
+			e.index[rel] = current
 			return nil
 		}
 		data, readErr := os.ReadFile(path)
@@ -585,7 +599,7 @@ func (e *Engine) refreshStructuralIndex() error {
 				imports = append(imports, string(match[1]))
 			}
 		}
-		e.index[rel] = indexedFile{MTimeNS: info.ModTime().UnixNano(), Size: info.Size(), Symbols: symbols, Imports: imports}
+		e.index[rel] = indexedFile{MTimeNS: info.ModTime().UnixNano(), Size: info.Size(), RepositoryID: repositoryID, RepositoryPath: repositoryPath, Symbols: symbols, Imports: imports}
 		return nil
 	})
 	if err != nil {
@@ -621,7 +635,11 @@ func (e *Engine) symbolsFromIndex(query string, limit int) []map[string]any {
 			if needle != "" && !strings.Contains(strings.ToLower(symbol.Name), needle) {
 				continue
 			}
-			out = append(out, map[string]any{"name": symbol.Name, "path": path, "line": symbol.Line, "kind": "symbol", "provider": "go-native-structure-index"})
+			item := map[string]any{"name": symbol.Name, "path": path, "line": symbol.Line, "kind": "symbol", "provider": "go-native-structure-index"}
+			if file.RepositoryID != "" {
+				item["repositoryId"], item["repositoryPath"] = file.RepositoryID, file.RepositoryPath
+			}
+			out = append(out, item)
 		}
 	}
 	e.indexMu.Unlock()
@@ -656,7 +674,7 @@ func (e *Engine) DocumentSymbols(path string, limit int) ([]map[string]any, erro
 	for _, match := range symbolRE.FindAllSubmatchIndex(data, -1) {
 		name := string(data[match[2]:match[3]])
 		line := 1 + bytes.Count(data[:match[0]], []byte("\n"))
-		out = append(out, map[string]any{"name": name, "path": path, "line": line, "kind": "symbol", "provider": "go-native-structure"})
+		out = append(out, e.annotatePathMap(map[string]any{"name": name, "path": path, "line": line, "kind": "symbol", "provider": "go-native-structure"}))
 		if limit > 0 && len(out) >= limit {
 			break
 		}
@@ -670,6 +688,7 @@ func (e *Engine) WorkspaceSymbols(ctx context.Context, query string, limit int) 
 	}
 	if e.LSP != nil {
 		if values, err := e.LSP.WorkspaceSymbols(ctx, query); err == nil && len(values) > 0 {
+			values = e.annotatePathMaps(values)
 			if len(values) > limit {
 				values = values[:limit]
 			}
@@ -688,6 +707,7 @@ func (e *Engine) DocumentSymbolsAt(ctx context.Context, path string, limit int) 
 		if values, lspErr := e.LSP.DocumentSymbols(ctx, absolute); lspErr == nil && len(values) > 0 {
 			for _, value := range values {
 				value["path"] = e.FS.Rel(absolute)
+				e.annotatePathMap(value)
 			}
 			if limit > 0 && len(values) > limit {
 				values = values[:limit]
@@ -710,6 +730,7 @@ func (e *Engine) DefinitionAt(ctx context.Context, path string, line, column int
 					if raw, ok := value["path"].(string); ok && raw != "" {
 						value["path"] = e.FS.Rel(raw)
 					}
+					e.annotatePathMap(value)
 				}
 				if limit > 0 && len(values) > limit {
 					values = values[:limit]
@@ -733,6 +754,7 @@ func (e *Engine) ReferencesAt(ctx context.Context, path string, line, column int
 					if raw, ok := value["path"].(string); ok && raw != "" {
 						value["path"] = e.FS.Rel(raw)
 					}
+					e.annotatePathMap(value)
 				}
 				if limit > 0 && len(values) > limit {
 					values = values[:limit]
@@ -756,6 +778,7 @@ func (e *Engine) ImplementationsAt(ctx context.Context, path string, line, colum
 					if raw, ok := value["path"].(string); ok && raw != "" {
 						value["path"] = e.FS.Rel(raw)
 					}
+					e.annotatePathMap(value)
 				}
 				if limit > 0 && len(values) > limit {
 					values = values[:limit]
@@ -777,7 +800,7 @@ func (e *Engine) HoverAt(ctx context.Context, path string, line, column int) (ma
 			value["path"] = e.FS.Rel(absolute)
 			value["line"] = line
 			value["column"] = column
-			return value, nil
+			return e.annotatePathMap(value), nil
 		}
 	}
 	return e.Hover(path, line, column)
@@ -818,6 +841,7 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 			found = found[:80]
 		}
 		for _, symbol := range found {
+			e.annotatePathMap(symbol)
 			file := strings.TrimPrefix(filepath.ToSlash(fmt.Sprint(symbol["path"])), "./")
 			if file == "" || file == "." || security.IsSensitivePath(file) {
 				continue
@@ -937,7 +961,7 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 			reasons[from] = append(reasons[from], "graph-neighbor:imports:"+to)
 		}
 		if fromSeed || toSeed {
-			graphEdges = append(graphEdges, map[string]any{"from": from, "to": to, "specifier": specifier})
+			graphEdges = append(graphEdges, e.annotateGraphEdge(map[string]any{"from": from, "to": to, "specifier": specifier}))
 		}
 	}
 	edgeLimit := min(40, max(12, limit*2))
@@ -971,7 +995,7 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 	used := 0
 	maxSnippetFiles := 8
 	for i, item := range ranked {
-		files = append(files, map[string]any{"path": item.path, "score": item.score, "reasons": unique(reasons[item.path]), "preferredLine": preferredLine[item.path]})
+		files = append(files, e.annotatePathMap(map[string]any{"path": item.path, "score": item.score, "reasons": unique(reasons[item.path]), "preferredLine": preferredLine[item.path]}))
 		if i >= maxSnippetFiles || used >= budget {
 			continue
 		}
@@ -996,7 +1020,7 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 			content = content[:max(0, budget-used)]
 		}
 		used += len(content)
-		snippets = append(snippets, map[string]any{"path": item.path, "startLine": read["startLine"], "endLine": read["endLine"], "totalLines": read["totalLines"], "content": content, "reason": strings.Join(unique(reasons[item.path]), ", ")})
+		snippets = append(snippets, e.annotatePathMap(map[string]any{"path": item.path, "startLine": read["startLine"], "endLine": read["endLine"], "totalLines": read["totalLines"], "content": content, "reason": strings.Join(unique(reasons[item.path]), ", ")}))
 	}
 
 	symbolLimit := min(60, max(12, limit*2))
@@ -1078,22 +1102,25 @@ func (e *Engine) ImportGraph(limit int) ([]map[string]any, error) {
 
 func (e *Engine) importGraphFromIndex(limit int) []map[string]any {
 	e.indexMu.Lock()
-	paths := make([]string, 0, len(e.index))
+	defer e.indexMu.Unlock()
+	paths, known := make([]string, 0, len(e.index)), map[string]struct{}{}
 	for path := range e.index {
-		paths = append(paths, path)
+		paths, known[path] = append(paths, path), struct{}{}
 	}
 	sort.Strings(paths)
 	edges := []map[string]any{}
 	for _, path := range paths {
 		for _, specifier := range e.index[path].Imports {
-			edges = append(edges, map[string]any{"from": path, "to": specifier, "specifier": specifier})
+			to := resolveIndexedImport(path, specifier, known)
+			if to == "" {
+				to = specifier
+			}
+			edges = append(edges, e.annotateGraphEdge(map[string]any{"from": path, "to": to, "specifier": specifier}))
 			if len(edges) >= limit {
-				e.indexMu.Unlock()
 				return edges
 			}
 		}
 	}
-	e.indexMu.Unlock()
 	return edges
 }
 

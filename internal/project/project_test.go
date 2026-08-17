@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,6 +89,91 @@ func TestContextForTaskPrefersSymbolsAndCentersSnippets(t *testing.T) {
 	}
 	if !foundEdge {
 		t.Fatalf("expected resolved settings.ts -> profile.ts graph edge, got %v", edges)
+	}
+}
+
+func initNestedProjectRepo(t *testing.T, root, relative string) string {
+	t.Helper()
+	dir := filepath.Join(root, filepath.FromSlash(relative))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v\n%s", relative, err, out)
+	}
+	return dir
+}
+
+func TestMultiRepoProjectIntelligencePreservesRepositoryOwnership(t *testing.T) {
+	root := t.TempDir()
+	web := initNestedProjectRepo(t, root, "web")
+	auth := initNestedProjectRepo(t, root, "backend/auth")
+	writeKnowledgeFixture(t, web, "package.json", `{"scripts":{"test":"node --test"}}`)
+	writeKnowledgeFixture(t, web, "src/index.ts", "import { authenticate } from '../../backend/auth/api'\nexport function loginClient() { return authenticate() }\n")
+	writeKnowledgeFixture(t, auth, "package.json", `{"scripts":{"test":"node --test"}}`)
+	writeKnowledgeFixture(t, auth, "api.ts", "export function authenticate() { return true }\n")
+
+	fs, err := localfs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(fs)
+	defer engine.Close()
+
+	projectMap, err := engine.Map(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositories, ok := projectMap["repositories"].([]any)
+	if !ok || len(repositories) != 2 {
+		t.Fatalf("expected two repository summaries, got %#v", projectMap["repositories"])
+	}
+	paths := map[string]bool{}
+	for _, raw := range repositories {
+		item, _ := raw.(map[string]any)
+		paths[fmt.Sprint(item["path"])] = true
+	}
+	if !paths["web"] || !paths["backend/auth"] {
+		t.Fatalf("repository paths missing: %#v", repositories)
+	}
+
+	symbols, err := engine.Symbols("authenticate", 20)
+	if err != nil || len(symbols) == 0 {
+		t.Fatalf("expected auth symbol: symbols=%#v err=%v", symbols, err)
+	}
+	if symbols[0]["repositoryPath"] != "backend/auth" || symbols[0]["repositoryId"] == "" {
+		t.Fatalf("symbol repository provenance missing: %#v", symbols[0])
+	}
+
+	edges, err := engine.ImportGraph(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundCrossRepo := false
+	for _, edge := range edges {
+		if edge["from"] == "web/src/index.ts" && edge["to"] == "backend/auth/api.ts" {
+			foundCrossRepo = edge["crossRepository"] == true && edge["fromRepositoryPath"] == "web" && edge["toRepositoryPath"] == "backend/auth"
+		}
+	}
+	if !foundCrossRepo {
+		t.Fatalf("expected repository-aware cross-repo import edge: %#v", edges)
+	}
+
+	packet, err := engine.ContextForTask(context.Background(), "fix authenticate login flow", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ranked, _ := packet["rankedFiles"].([]map[string]any)
+	foundRankedRepo := false
+	for _, item := range ranked {
+		if item["path"] == "backend/auth/api.ts" && item["repositoryPath"] == "backend/auth" && item["repositoryId"] != "" {
+			foundRankedRepo = true
+		}
+	}
+	if !foundRankedRepo {
+		t.Fatalf("ranked file repository provenance missing: %#v", ranked)
 	}
 }
 

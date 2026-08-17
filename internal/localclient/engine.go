@@ -72,7 +72,8 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	terminalHistory := history.New()
 	shellEnabled := os.Getenv("CODELOCAL_ALLOW_SHELL") != "0"
 	approvalMode := string(approval.ResolveMode(workspaceID))
-	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.New(fs), Repositories: repository.New(fs.Root, workspaceName), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
+	repositories := repository.New(fs.Root, workspaceName)
+	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.NewWithRepositories(fs, repositories), Repositories: repositories, Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
 	engine.Processes = processmgr.NewManager(fs.Root, workspaceKey, func(record *processmgr.Record, stream, value string) {}, func(record *processmgr.Record) {
 		_, _ = terminalHistory.Finished(record)
 		engine.Project.Invalidate()
@@ -529,16 +530,40 @@ func boundedContextList(value any, limit int) []any {
 	return out
 }
 
+func compactRepositoryContext(value any, limit int) []map[string]any {
+	items := []map[string]any{}
+	appendItem := func(item map[string]any) {
+		if item == nil || len(items) >= limit {
+			return
+		}
+		items = append(items, map[string]any{"id": item["id"], "path": item["path"], "identitySource": item["identitySource"], "manifestCount": len(boundedContextList(item["manifests"], 256)), "moduleCount": len(boundedContextList(item["modules"], 1024)), "entrypointCount": len(boundedContextList(item["entrypoints"], 256))})
+	}
+	switch typed := value.(type) {
+	case []map[string]any:
+		for _, item := range typed {
+			appendItem(item)
+		}
+	case []any:
+		for _, raw := range typed {
+			if item, ok := raw.(map[string]any); ok {
+				appendItem(item)
+			}
+		}
+	}
+	return items
+}
+
 func compactProjectContext(projectMap map[string]any) map[string]any {
 	out := map[string]any{}
 	for _, key := range []string{"languages", "frameworks", "workspaceRoots", "sourceRoots", "testRoots"} {
 		out[key] = boundedContextList(projectMap[key], 16)
 	}
+	out["repositories"] = compactRepositoryContext(projectMap["repositories"], 24)
 	out["entrypoints"] = boundedContextList(projectMap["entrypoints"], 12)
 	out["packageManager"] = projectMap["packageManager"]
 	out["commands"] = map[string]any{"build": boundedContextList(projectMap["buildCommands"], 8), "test": boundedContextList(projectMap["testCommands"], 8), "lint": boundedContextList(projectMap["lintCommands"], 8), "typecheck": boundedContextList(projectMap["typecheckCommands"], 8)}
 	if intelligence, ok := projectMap["intelligence"].(map[string]any); ok {
-		out["intelligence"] = map[string]any{"builtAt": intelligence["builtAt"], "dirty": intelligence["dirty"], "files": intelligence["files"], "sourceFiles": intelligence["sourceFiles"], "knowledgeSources": intelligence["knowledgeSources"], "languages": boundedContextList(intelligence["languages"], 16)}
+		out["intelligence"] = map[string]any{"builtAt": intelligence["builtAt"], "dirty": intelligence["dirty"], "files": intelligence["files"], "sourceFiles": intelligence["sourceFiles"], "knowledgeSources": intelligence["knowledgeSources"], "repositories": intelligence["repositories"], "languages": boundedContextList(intelligence["languages"], 16)}
 	}
 	return out
 }
