@@ -70,6 +70,9 @@ Reset / uninstall:
 Capabilities:
   codelocal setup                    Change Browser Automation and Computer Use choices
   codelocal doctor [project]         Inspect coding and automation readiness
+  codelocal agent on [project]       Enable bounded Agent Mode for a workspace
+  codelocal agent off [project]      Return that workspace to prompt mode
+  codelocal agent status [project]   Show the effective local approval mode
 
 Workspaces:
   codelocal .                        Authorize the current folder locally
@@ -697,6 +700,55 @@ func contains(values []string, value string) bool {
 	return false
 }
 
+func agentModeCommand(args []string) error {
+	action := "status"
+	if len(args) > 0 {
+		action = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	project := "."
+	if len(args) > 1 {
+		project = args[1]
+	}
+	abs, err := filepath.Abs(project)
+	if err != nil {
+		return err
+	}
+	if real, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
+		abs = real
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return errors.New("agent mode target must be a workspace directory")
+	}
+	workspaceID := workspace.IDForPath(abs)
+	switch action {
+	case "on", "enable":
+		if err := approval.SetWorkspaceMode(workspaceID, approval.ModeAgent); err != nil {
+			return err
+		}
+		fmt.Printf("✓ Agent Mode enabled for %s. Routine scoped actions can run without repeated prompts; critical actions still require fresh confirmation.\n", abs)
+	case "off", "disable":
+		if err := approval.SetWorkspaceMode(workspaceID, approval.ModePrompt); err != nil {
+			return err
+		}
+		fmt.Printf("✓ Agent Mode disabled for %s. Approval mode is prompt.\n", abs)
+	case "status":
+		mode := approval.ResolveMode(workspaceID)
+		fmt.Printf("Agent Mode: %s\nWorkspace: %s\nWorkspace ID: %s\n", mode, abs, workspaceID)
+		if raw := strings.TrimSpace(os.Getenv("CODELOCAL_APPROVAL_MODE")); raw != "" {
+			fmt.Printf("Source: CODELOCAL_APPROVAL_MODE=%s\n", approval.NormalizeMode(raw))
+		} else {
+			fmt.Println("Source: local workspace setting")
+		}
+	default:
+		return errors.New("usage: codelocal agent <on|off|status> [project]")
+	}
+	return nil
+}
+
 func approvalsCommand(args []string) error {
 	memory := approval.New()
 	action := "list"
@@ -1043,6 +1095,8 @@ func main() {
 				path = args[1]
 			}
 			err = doctor(path)
+		case "agent":
+			err = agentModeCommand(args[1:])
 		case "approvals":
 			err = approvalsCommand(args[1:])
 		case "mcp":

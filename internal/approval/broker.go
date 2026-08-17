@@ -30,10 +30,11 @@ type Preflight struct {
 }
 
 type pendingApproval struct {
-	Token       string
-	TokenHash   string
-	Fingerprint string
-	ExpiresAt   int64
+	Token             string
+	TokenHash         string
+	Fingerprint       string
+	ActionFingerprint string
+	ExpiresAt         int64
 }
 
 type Broker struct {
@@ -72,11 +73,10 @@ func randomSecret(bytes int) string {
 	return sha(time.Now().String())
 }
 
-func fingerprint(sessionID, command, cwd string, decision security.Decision) string {
+func actionFingerprint(command, cwd string, decision security.Decision) string {
 	rules := append([]string(nil), decision.MatchedRules...)
 	sort.Strings(rules)
 	payload, _ := json.Marshal(map[string]any{
-		"sessionId":       strings.TrimSpace(sessionID),
 		"rawCommandHash":  sha(command),
 		"redactedCommand": decision.RedactedCommand,
 		"cwd":             cwd,
@@ -84,6 +84,14 @@ func fingerprint(sessionID, command, cwd string, decision security.Decision) str
 		"risk":            decision.RiskLevel,
 		"approvalPolicy":  decision.ApprovalPolicy,
 		"approvalKey":     decision.ApprovalKey,
+	})
+	return sha(string(payload))
+}
+
+func fingerprint(sessionID, command, cwd string, decision security.Decision) string {
+	payload, _ := json.Marshal(map[string]any{
+		"sessionId":         strings.TrimSpace(sessionID),
+		"actionFingerprint": actionFingerprint(command, cwd, decision),
 	})
 	return sha(string(payload))
 }
@@ -141,7 +149,7 @@ func (b *Broker) PreflightScoped(sessionID, command, cwd string, decision securi
 	secret := randomSecret(32)
 	token := id + "." + secret
 	expires := time.Now().Add(b.ttl).UnixMilli()
-	b.pending[id] = pendingApproval{Token: token, TokenHash: sha(secret), Fingerprint: fp, ExpiresAt: expires}
+	b.pending[id] = pendingApproval{Token: token, TokenHash: sha(secret), Fingerprint: fp, ActionFingerprint: actionFingerprint(command, cwd, decision), ExpiresAt: expires}
 	b.pendingByFingerprint[fp] = id
 	out := preflightBase("approval_required", decision)
 	out.ApprovalToken = token
@@ -187,7 +195,8 @@ func (b *Broker) ConsumeScoped(sessionID, token, command, cwd string, decision s
 	if !sameHex(entry.TokenHash, sha(parts[1])) {
 		return false
 	}
-	if !sameHex(entry.Fingerprint, fingerprint(sessionID, command, cwd, decision)) {
+	if !sameHex(entry.Fingerprint, fingerprint(sessionID, command, cwd, decision)) &&
+		!sameHex(entry.ActionFingerprint, actionFingerprint(command, cwd, decision)) {
 		return false
 	}
 	b.deletePendingLocked(parts[0])

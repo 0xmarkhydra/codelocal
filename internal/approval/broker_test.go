@@ -37,20 +37,17 @@ func TestBrokerReusesPendingTokenWithinSameSessionFingerprint(t *testing.T) {
 	}
 }
 
-func TestBrokerBindsPendingTokenToSessionAndConsumesOnce(t *testing.T) {
+func TestBrokerExactActionTokenSurvivesSessionChurnAndConsumesOnce(t *testing.T) {
 	broker := NewBroker()
 	decision := reviewDecision()
 	command := "go test ./internal/example"
 	first := broker.PreflightScoped("session-a", command, ".", decision)
 	other := broker.PreflightScoped("session-b", command, ".", decision)
 	if first.ApprovalToken == other.ApprovalToken {
-		t.Fatal("approval token must be session scoped")
+		t.Fatal("independent preflights should still have distinct session fingerprints")
 	}
-	if broker.ConsumeScoped("session-b", first.ApprovalToken, command, ".", decision) {
-		t.Fatal("token from another session was accepted")
-	}
-	if !broker.ConsumeScoped("session-a", first.ApprovalToken, command, ".", decision) {
-		t.Fatal("legitimate token was invalidated by a wrong-session attempt")
+	if !broker.ConsumeScoped("session-b", first.ApprovalToken, command, ".", decision) {
+		t.Fatal("exact-action token should survive MCP call-session churn")
 	}
 	if broker.ConsumeScoped("session-a", first.ApprovalToken, command, ".", decision) {
 		t.Fatal("one-time token replay was accepted")
@@ -58,6 +55,24 @@ func TestBrokerBindsPendingTokenToSessionAndConsumesOnce(t *testing.T) {
 	next := broker.PreflightScoped("session-a", command, ".", decision)
 	if next.ApprovalToken == first.ApprovalToken {
 		t.Fatal("consumed token was reused for a new approval")
+	}
+}
+
+func TestBrokerSessionChurnStillRejectsDifferentAction(t *testing.T) {
+	broker := NewBroker()
+	decision := reviewDecision()
+	command := "go test ./internal/example"
+	pending := broker.PreflightScoped("session-a", command, ".", decision)
+
+	changed := decision
+	changed.RedactedCommand = "go test ./internal/other"
+	changed.ApprovalKey = "workspace-exec:other"
+	changed.ApprovalLabel = "go test ./internal/other"
+	if broker.ConsumeScoped("session-b", pending.ApprovalToken, "go test ./internal/other", ".", changed) {
+		t.Fatal("session churn must not relax exact-action binding")
+	}
+	if !broker.ConsumeScoped("session-b", pending.ApprovalToken, command, ".", decision) {
+		t.Fatal("wrong-action attempt invalidated the legitimate pending approval")
 	}
 }
 

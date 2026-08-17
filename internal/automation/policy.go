@@ -22,13 +22,18 @@ type Action struct {
 }
 
 type Authorizer struct {
+	WorkspaceID  string
 	WorkspaceKey string
 	Broker       *approval.Broker
 	Memory       *approval.Memory
 }
 
 func NewAuthorizer(workspaceKey string) *Authorizer {
-	return &Authorizer{WorkspaceKey: workspaceKey, Broker: approval.NewBroker(), Memory: approval.New()}
+	return NewAuthorizerForWorkspace(workspaceKey, workspaceKey)
+}
+
+func NewAuthorizerForWorkspace(workspaceID, workspaceKey string) *Authorizer {
+	return &Authorizer{WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Broker: approval.NewBroker(), Memory: approval.New()}
 }
 
 func automationCommand(action Action) string {
@@ -151,6 +156,13 @@ func ClassifyAutomation(action Action) security.Decision {
 			decision.ApprovalKey = "browser:interact:" + browserOriginKey(action.Origin)
 			decision.ApprovalLabel = "Allow browser interaction on " + browserOriginKey(action.Origin)
 			decision.Reason = "browser interaction can change remote or local application state"
+			if (op == "fill" || op == "press") && sensitiveAutomationText(action.Target) {
+				decision.RiskLevel = security.RiskCritical
+				decision.ApprovalPolicy = security.ApprovalAlways
+				decision.ApprovalKey = ""
+				decision.ApprovalLabel = ""
+				decision.Reason = "entering credentials or verification secrets requires fresh confirmation"
+			}
 			if criticalAutomationText(action.Target + " " + action.Text) {
 				decision.RiskLevel = security.RiskCritical
 				decision.ApprovalPolicy = security.ApprovalAlways
@@ -221,6 +233,13 @@ func ClassifyAutomation(action Action) security.Decision {
 					decision.Reason = "unscoped desktop input requires fresh confirmation"
 				}
 			}
+			if (op == "type" || op == "key" || op == "run") && sensitiveAutomationText(action.Target) {
+				decision.RiskLevel = security.RiskCritical
+				decision.ApprovalPolicy = security.ApprovalAlways
+				decision.ApprovalKey = ""
+				decision.ApprovalLabel = ""
+				decision.Reason = "entering credentials or verification secrets requires fresh confirmation"
+			}
 			if criticalAutomationText(action.Target + " " + action.Text) {
 				decision.RiskLevel = security.RiskCritical
 				decision.ApprovalPolicy = security.ApprovalAlways
@@ -263,6 +282,13 @@ func (a *Authorizer) AuthorizeScoped(action Action, providedToken, sessionID str
 	}
 	if !decision.RequiresApproval {
 		return true, nil, nil
+	}
+	mode := approval.ResolveMode(a.WorkspaceID)
+	if approval.AgentAllows(mode, decision) {
+		return true, map[string]any{"agentApproved": true, "approvalMode": string(mode), "approvalKey": decision.ApprovalKey}, nil
+	}
+	if approval.DeniesApproval(mode, decision) {
+		return false, map[string]any{"status": "blocked", "riskLevel": decision.RiskLevel, "reason": "local approval mode " + string(mode) + " does not permit this action", "matchedRules": decision.MatchedRules, "approvalPolicy": decision.ApprovalPolicy, "approvalMode": string(mode)}, nil
 	}
 	if decision.ApprovalPolicy == security.ApprovalRememberable && decision.ApprovalKey != "" {
 		remembered, err := a.Memory.Find(a.WorkspaceKey, sessionID, decision.ApprovalKey, decision.RiskLevel)

@@ -69,10 +69,7 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	broker := approval.NewBroker()
 	terminalHistory := history.New()
 	shellEnabled := os.Getenv("CODELOCAL_ALLOW_SHELL") != "0"
-	approvalMode := strings.TrimSpace(os.Getenv("CODELOCAL_APPROVAL_MODE"))
-	if approvalMode == "" {
-		approvalMode = "prompt"
-	}
+	approvalMode := string(approval.ResolveMode(workspaceID))
 	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.New(fs), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
 	engine.Processes = processmgr.NewManager(fs.Root, workspaceKey, func(record *processmgr.Record, stream, value string) {}, func(record *processmgr.Record) {
 		_, _ = terminalHistory.Finished(record)
@@ -219,6 +216,15 @@ func (e *Engine) authorizeDecision(command, cwd, provided, sessionID string, dec
 	if !decision.RequiresApproval {
 		return true, nil, decision, nil
 	}
+	mode := approval.ResolveMode(e.WorkspaceID)
+	e.ApprovalMode = string(mode)
+	if approval.AgentAllows(mode, decision) {
+		return true, map[string]any{"agentApproved": true, "approvalMode": string(mode), "approvalKey": decision.ApprovalKey}, decision, nil
+	}
+	if approval.DeniesApproval(mode, decision) {
+		reason := "local approval mode " + string(mode) + " does not permit this action"
+		return false, map[string]any{"status": "blocked", "riskLevel": decision.RiskLevel, "reason": reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalMode": string(mode)}, decision, nil
+	}
 	if decision.ApprovalPolicy == security.ApprovalRememberable && decision.ApprovalKey != "" {
 		remembered, err := e.Approvals.Find(e.WorkspaceKey, sessionID, decision.ApprovalKey, decision.RiskLevel)
 		if err != nil {
@@ -257,6 +263,14 @@ func (e *Engine) PreflightScoped(command, cwd, sessionID string) (map[string]any
 		return nil, err
 	}
 	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: e.Root, CWD: absolute})
+	mode := approval.ResolveMode(e.WorkspaceID)
+	e.ApprovalMode = string(mode)
+	if approval.AgentAllows(mode, decision) {
+		return map[string]any{"status": "safe", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalKey": decision.ApprovalKey, "approvalLabel": decision.ApprovalLabel, "agentApproved": true, "approvalMode": string(mode)}, nil
+	}
+	if approval.DeniesApproval(mode, decision) {
+		return map[string]any{"status": "blocked", "riskLevel": decision.RiskLevel, "reason": "local approval mode " + string(mode) + " does not permit this action", "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalMode": string(mode)}, nil
+	}
 	if decision.ApprovalPolicy == security.ApprovalRememberable && decision.ApprovalKey != "" {
 		remembered, _ := e.Approvals.Find(e.WorkspaceKey, sessionID, decision.ApprovalKey, decision.RiskLevel)
 		if remembered != nil {
@@ -296,7 +310,9 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 	}
 	approvalKind := "automatic"
 	if approvalState != nil {
-		if remembered, _ := approvalState["remembered"].(bool); remembered {
+		if agentApproved, _ := approvalState["agentApproved"].(bool); agentApproved {
+			approvalKind = "agent-mode"
+		} else if remembered, _ := approvalState["remembered"].(bool); remembered {
 			approvalKind = "remembered"
 		} else {
 			approvalKind = "chat-confirmed"
@@ -886,7 +902,7 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		projectMap, _ := e.Project.Map(false)
 		instructions, _ := e.readInstructions(".")
 		branch, _ := runGit(e.Root, "branch", "--show-current")
-		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": projectMap, "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "rememberable approvals are stored only on this machine and scoped to the workspace, MCP session, risk ceiling, and local TTL", "critical actions always require fresh user confirmation in the current MCP client", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": e.ApprovalMode, "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
+		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": projectMap, "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "Agent Mode can auto-approve only deterministic rememberable actions for this locally enabled workspace", "rememberable prompt approvals are stored only on this machine and scoped to the workspace, MCP session, risk ceiling, and local TTL", "critical actions always require fresh user confirmation in the current MCP client", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": string(approval.ResolveMode(e.WorkspaceID)), "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
 	case "project_map":
 		return e.Project.Map(asBool(args["force"], false))
 	case "context_for_task":
@@ -1215,21 +1231,29 @@ func symbolAt(e *Engine, path string, line, column int) string {
 		return filepath.Base(path)
 	}
 	text := asString(read["content"])
-	if column < 1 {
-		column = 1
+	if len(text) == 0 {
+		return ""
 	}
-	if column > len(text) {
-		column = len(text)
+	index := column - 1
+	if index < 0 {
+		index = 0
 	}
-	start := column - 1
-	for start > 0 && (text[start-1] == '_' || text[start-1] == '$' || text[start-1] >= 'A' && text[start-1] <= 'Z' || text[start-1] >= 'a' && text[start-1] <= 'z' || text[start-1] >= '0' && text[start-1] <= '9') {
+	if index >= len(text) {
+		index = len(text) - 1
+	}
+	start := index
+	for start > 0 && symbolByte(text[start-1]) {
 		start--
 	}
-	end := column - 1
-	for end < len(text) && (text[end] == '_' || text[end] == '$' || text[end] >= 'A' && text[end] <= 'Z' || text[end] >= 'a' && text[end] <= 'z' || text[end] >= '0' && text[end] <= '9') {
+	end := index
+	for end < len(text) && symbolByte(text[end]) {
 		end++
 	}
 	return text[start:end]
+}
+
+func symbolByte(value byte) bool {
+	return value == '_' || value == '$' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
 }
 
 func (e *Engine) callMCP(ctx context.Context, args map[string]any, sessionID string) (any, error) {
