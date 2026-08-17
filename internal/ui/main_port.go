@@ -34,6 +34,7 @@ var UIIcons = map[string]string{
 	"invite":       navIcons["invite"],
 	"leaderboard":  navIcons["leaderboard"],
 	"security":     navIcons["security"],
+	"account":      navIcons["security"],
 	"admin":        navIcons["admin"],
 	"folder":       icon(`<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 10h17"/>`),
 	"folderCheck":  icon(`<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 10h17"/><path d="m9 15 2 2 4-4"/>`),
@@ -339,6 +340,7 @@ func DashboardPage(options DashboardOptions) string {
 	nav.WriteString(navLink("/dashboard/knowledge", "knowledge", "Knowledge Graph", options.Active == "knowledge"))
 	nav.WriteString(navLink("/dashboard/devices", "devices", "Devices", options.Active == "devices"))
 	nav.WriteString(navLink("/dashboard/connect", "connect", "MCP Connections", options.Active == "connect"))
+	nav.WriteString(navLink("/dashboard/account", "account", "Account", options.Active == "account"))
 	nav.WriteString(`</nav><div class="nav-label">Community</div><nav class="nav">`)
 	nav.WriteString(navLink("/dashboard/invite", "invite", "Invite", options.Active == "invite"))
 	nav.WriteString(navLink("/dashboard/leaderboard", "leaderboard", "Leaderboard", options.Active == "leaderboard"))

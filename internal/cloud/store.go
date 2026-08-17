@@ -23,13 +23,20 @@ import (
 )
 
 type User struct {
-	ID             string `json:"id"`
-	Email          string `json:"email"`
-	PasswordHash   string `json:"-"`
-	PasswordSalt   string `json:"-"`
-	ReferralCode   string `json:"referralCode"`
-	ReferredByCode string `json:"referredByCode,omitempty"`
-	CreatedAt      int64  `json:"createdAt"`
+	ID                string `json:"id"`
+	Email             string `json:"email"`
+	PasswordHash      string `json:"-"`
+	PasswordSalt      string `json:"-"`
+	PasswordChangedAt int64  `json:"passwordChangedAt,omitempty"`
+	ReferralCode      string `json:"referralCode"`
+	ReferredByCode    string `json:"referredByCode,omitempty"`
+	CreatedAt         int64  `json:"createdAt"`
+}
+
+type SessionState struct {
+	UserID    string `json:"userId"`
+	CSRF      string `json:"csrf"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 type Device struct {
@@ -285,6 +292,10 @@ func knowledgeV2SchemaMigrations() []schemaMigration {
 	}
 }
 
+func accountSchemaMigrations() []schemaMigration {
+	return []schemaMigration{{41, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS password_changed_at BIGINT NOT NULL DEFAULT 0;`}}
+}
+
 func validateSchemaMigrationPlan(migrations []schemaMigration) error {
 	if len(migrations) == 0 {
 		return errors.New("schema migration plan is empty")
@@ -310,6 +321,9 @@ type SchemaMigrationStatus struct {
 }
 
 func LatestSchemaMigrationVersion() int {
+	if migrations := accountSchemaMigrations(); len(migrations) > 0 {
+		return migrations[len(migrations)-1].version
+	}
 	migrations := knowledgeV2SchemaMigrations()
 	if len(migrations) == 0 {
 		return 25
@@ -1050,6 +1064,7 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_knowledge_conflicts_branch
 `},
 	}
 	migrations = append(migrations, knowledgeV2SchemaMigrations()...)
+	migrations = append(migrations, accountSchemaMigrations()...)
 	if err := validateSchemaMigrationPlan(migrations); err != nil {
 		return err
 	}
@@ -1300,7 +1315,7 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, passwordSal
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	var referredBy *string
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.PasswordSalt, &u.ReferralCode, &referredBy, &u.CreatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.PasswordSalt, &u.PasswordChangedAt, &u.ReferralCode, &referredBy, &u.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -1313,11 +1328,11 @@ func scanUser(row pgx.Row) (*User, error) {
 }
 
 func (s *Store) UserByEmail(ctx context.Context, email string) (*User, error) {
-	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,referral_code,referred_by_code,created_at FROM codelocal_users WHERE email=$1`, normalizeEmail(email)))
+	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,referral_code,referred_by_code,created_at FROM codelocal_users WHERE email=$1`, normalizeEmail(email)))
 }
 
 func (s *Store) UserByID(ctx context.Context, id string) (*User, error) {
-	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,referral_code,referred_by_code,created_at FROM codelocal_users WHERE id=$1`, id))
+	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,referral_code,referred_by_code,created_at FROM codelocal_users WHERE id=$1`, id))
 }
 
 func (s *Store) UserByReferralCode(ctx context.Context, code string) (*User, error) {
@@ -1325,31 +1340,47 @@ func (s *Store) UserByReferralCode(ctx context.Context, code string) (*User, err
 	if !ValidReferralCode(code) {
 		return nil, nil
 	}
-	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,referral_code,referred_by_code,created_at FROM codelocal_users WHERE UPPER(referral_code)=$1`, code))
+	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,referral_code,referred_by_code,created_at FROM codelocal_users WHERE UPPER(referral_code)=$1`, code))
+}
+
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash, passwordSalt string, changedAt int64) error {
+	result, err := s.DB.Exec(ctx, `UPDATE codelocal_users SET password_hash=$2,password_salt=$3,password_changed_at=$4 WHERE id=$1`, userID, passwordHash, passwordSalt, changedAt)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return errors.New("USER_NOT_FOUND")
+	}
+	return nil
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID, csrf string, ttl time.Duration) (string, error) {
 	id := RandomHex(40)
-	data, _ := json.Marshal(map[string]string{"userId": userID, "csrf": csrf})
+	data, _ := json.Marshal(SessionState{UserID: userID, CSRF: csrf, CreatedAt: time.Now().UnixMilli()})
 	return id, s.Redis.Set(ctx, "codelocal:session:"+id, data, ttl).Err()
 }
 
-func (s *Store) ReadSession(ctx context.Context, id string) (userID, csrf string, ok bool, err error) {
+func (s *Store) ReadSessionState(ctx context.Context, id string) (SessionState, bool, error) {
 	if id == "" {
-		return "", "", false, nil
+		return SessionState{}, false, nil
 	}
 	raw, err := s.Redis.Get(ctx, "codelocal:session:"+id).Bytes()
 	if errors.Is(err, redis.Nil) {
-		return "", "", false, nil
+		return SessionState{}, false, nil
 	}
 	if err != nil {
-		return "", "", false, err
+		return SessionState{}, false, err
 	}
-	var value map[string]string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", "", false, nil
+	var state SessionState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return SessionState{}, false, nil
 	}
-	return value["userId"], value["csrf"], value["userId"] != "" && value["csrf"] != "", nil
+	return state, state.UserID != "" && state.CSRF != "", nil
+}
+
+func (s *Store) ReadSession(ctx context.Context, id string) (userID, csrf string, ok bool, err error) {
+	state, ok, err := s.ReadSessionState(ctx, id)
+	return state.UserID, state.CSRF, ok, err
 }
 
 func (s *Store) DeleteSession(ctx context.Context, id string) error {

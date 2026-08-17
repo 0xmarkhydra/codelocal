@@ -50,6 +50,8 @@ func (s *Server) MainUIHandler(next http.Handler) http.Handler {
 			s.mainUsage(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/connect":
 			s.mainConnect(w, r, identity)
+		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/account":
+			s.mainAccount(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/invite":
 			s.mainInvite(w, r, identity)
 		case r.Method == http.MethodGet && r.URL.Path == "/dashboard/leaderboard":

@@ -3,6 +3,8 @@ package webauth
 import (
 	"strings"
 	"testing"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
 )
 
 func TestPasswordHashAndVerify(t *testing.T) {
@@ -74,5 +76,37 @@ func TestAuthFormAvoidsImmediateIOSKeyboardAndUsesEmailInputHints(t *testing.T) 
 		if !strings.Contains(login, want) {
 			t.Fatalf("auth email input must include mobile hint %s", want)
 		}
+	}
+	if !strings.Contains(login, `href="/forgot-password"`) {
+		t.Fatal("login form must expose the forgot-password flow")
+	}
+}
+
+func TestSessionInvalidAfterPasswordChange(t *testing.T) {
+	user := cloud.User{PasswordChangedAt: 200}
+	if !sessionInvalidAfterPasswordChange(cloud.SessionState{CreatedAt: 199}, user) {
+		t.Fatal("session created before password change must be invalid")
+	}
+	if sessionInvalidAfterPasswordChange(cloud.SessionState{CreatedAt: 200}, user) {
+		t.Fatal("replacement session created at the password change timestamp must remain valid")
+	}
+	if sessionInvalidAfterPasswordChange(cloud.SessionState{CreatedAt: 0}, cloud.User{}) {
+		t.Fatal("legacy session must remain valid until the user changes their password")
+	}
+}
+
+func TestPasswordResetOTPIsScopedAwayFromSignup(t *testing.T) {
+	t.Setenv("MCP_AUTH_SECRET", "test-secret")
+	token := "abcdefghijklmnopqrstuvwxyzABCDEF"
+	code := "123456"
+	resetHash := passwordResetCodeHash(token, code)
+	if resetHash == signupCodeHash(token, code) {
+		t.Fatal("password reset and signup OTPs must use different hash namespaces")
+	}
+	if !validResetCode(token, code, resetHash) {
+		t.Fatal("valid reset code was rejected")
+	}
+	if validResetCode(token, "654321", resetHash) {
+		t.Fatal("wrong reset code was accepted")
 	}
 }

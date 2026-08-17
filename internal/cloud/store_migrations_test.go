@@ -86,6 +86,16 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 	}
 }
 
+func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
+	migrations := accountSchemaMigrations()
+	if len(migrations) != 1 || migrations[0].version != 41 {
+		t.Fatalf("unexpected account migration train: %#v", migrations)
+	}
+	if !strings.Contains(strings.ToLower(migrations[0].sql), "password_changed_at") {
+		t.Fatal("account migration must add password_changed_at")
+	}
+}
+
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 	if schemaMigrationAdvisoryLockID == 0 {
 		t.Fatal("schema migration advisory lock id must be non-zero")
@@ -96,20 +106,20 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 40 {
-		t.Fatalf("latest schema version=%d want 40", got)
+	if got := LatestSchemaMigrationVersion(); got != 41 {
+		t.Fatalf("latest schema version=%d want 41", got)
 	}
-	ready := schemaMigrationStatus(40, 40)
-	if !ready.UpToDate || ready.TargetVersion != 40 || ready.AppliedCount != 40 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(41, 41)
+	if !ready.UpToDate || ready.TargetVersion != 41 || ready.AppliedCount != 41 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
 		current int
 		count   int
 	}{
-		{current: 39, count: 39},
-		{current: 40, count: 39},
-		{current: 41, count: 41},
+		{current: 40, count: 40},
+		{current: 41, count: 40},
+		{current: 42, count: 42},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)
@@ -124,26 +134,26 @@ func TestProjectBrainMigrationPlanHashIsDeterministicAndCoversTrain(t *testing.T
 		t.Fatalf("unstable project brain migration hash: first=%q second=%q", first, second)
 	}
 	migrations := knowledgeV2SchemaMigrations()
-	if migrations[0].version != 26 || migrations[len(migrations)-1].version != LatestSchemaMigrationVersion() {
-		t.Fatalf("migration hash train boundaries drifted: %#v", migrations)
+	if migrations[0].version != 26 || migrations[len(migrations)-1].version != 40 {
+		t.Fatalf("Project Brain migration hash train boundaries drifted: %#v", migrations)
 	}
 }
 
 func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
-	if err := validateDatabaseSchemaHistory(25, 25, 40); err != nil {
+	if err := validateDatabaseSchemaHistory(25, 25, 41); err != nil {
 		t.Fatalf("valid older contiguous schema rejected: %v", err)
 	}
-	if err := validateDatabaseSchemaHistory(40, 40, 40); err != nil {
+	if err := validateDatabaseSchemaHistory(41, 41, 41); err != nil {
 		t.Fatalf("target schema rejected: %v", err)
 	}
 	for _, tc := range []struct {
 		name                   string
 		current, count, target int
 	}{
-		{name: "newer database", current: 41, count: 41, target: 40},
-		{name: "missing history row", current: 40, count: 39, target: 40},
-		{name: "corrupt sparse history", current: 20, count: 19, target: 40},
-		{name: "invalid negative", current: -1, count: 0, target: 40},
+		{name: "newer database", current: 42, count: 42, target: 41},
+		{name: "missing history row", current: 41, count: 40, target: 41},
+		{name: "corrupt sparse history", current: 20, count: 19, target: 41},
+		{name: "invalid negative", current: -1, count: 0, target: 41},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {

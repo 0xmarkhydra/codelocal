@@ -113,6 +113,10 @@ func VerifyPassword(password, salt, expected string) bool {
 	return len(a) == len(b) && subtle.ConstantTimeCompare(a, b) == 1
 }
 
+func sessionInvalidAfterPasswordChange(state cloud.SessionState, user cloud.User) bool {
+	return user.PasswordChangedAt > 0 && state.CreatedAt < user.PasswordChangedAt
+}
+
 func (m *Manager) Identity(r *http.Request) (*Identity, error) {
 	if cached, ok := r.Context().Value(identityKey).(*Identity); ok {
 		return cached, nil
@@ -121,15 +125,19 @@ func (m *Manager) Identity(r *http.Request) (*Identity, error) {
 	if err != nil {
 		return nil, nil
 	}
-	userID, csrf, ok, err := m.Store.ReadSession(r.Context(), cookie.Value)
+	state, ok, err := m.Store.ReadSessionState(r.Context(), cookie.Value)
 	if err != nil || !ok {
 		return nil, err
 	}
-	user, err := m.Store.UserByID(r.Context(), userID)
+	user, err := m.Store.UserByID(r.Context(), state.UserID)
 	if err != nil || user == nil {
 		return nil, err
 	}
-	return &Identity{User: *user, SessionID: cookie.Value, CSRF: csrf}, nil
+	if sessionInvalidAfterPasswordChange(state, *user) {
+		_ = m.Store.DeleteSession(r.Context(), cookie.Value)
+		return nil, nil
+	}
+	return &Identity{User: *user, SessionID: cookie.Value, CSRF: state.CSRF}, nil
 }
 func WithIdentity(r *http.Request, identity *Identity) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), identityKey, identity))
@@ -162,7 +170,7 @@ func (m *Manager) form(mode, csrf, next, errorMessage string, referralCodes ...s
 	subtitle := "Sign in to manage your devices, workspaces and MCP extensions."
 	button := "Sign in"
 	autocomplete := "current-password"
-	switcher := `New to CodeLocal? <a href="/signup?next=` + url.QueryEscape(next) + `">Create an account</a>`
+	switcher := `New to CodeLocal? <a href="/signup?next=` + url.QueryEscape(next) + `">Create an account</a> · <a href="/forgot-password">Forgot password?</a>`
 	if signup {
 		title = "Create your CodeLocal account"
 		subtitle = "One account connects MCP-compatible AI clients to your development machines."
@@ -258,6 +266,8 @@ func (m *Manager) Register(mux *http.ServeMux) {
 		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
 	}}, signup)))
 	m.registerSignupVerification(mux)
+	m.registerPasswordReset(mux)
+	m.registerAccountSecurity(mux)
 	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) {
 		identity, _ := m.Identity(r)
 		if !m.VerifyCSRF(r) {
