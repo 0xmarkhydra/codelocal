@@ -21,7 +21,7 @@ type Controller struct {
 }
 
 func NewController(workspaceID, workspaceKey, root string) *Controller {
-	controller := &Controller{WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Authorizer: NewAuthorizer(workspaceKey)}
+	controller := &Controller{WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Authorizer: NewAuthorizerForWorkspace(workspaceID, workspaceKey)}
 	if browser, err := NewBrowserController(workspaceID, workspaceKey, root); err == nil {
 		controller.Browser = browser
 	}

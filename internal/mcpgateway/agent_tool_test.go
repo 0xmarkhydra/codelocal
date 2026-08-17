@@ -28,16 +28,46 @@ func TestAutonomousStepPolicyRequiresHashSafeMutation(t *testing.T) {
 	}
 }
 
-func TestAutonomousStepPolicyBlocksApprovalOpenWorldAndGitWrites(t *testing.T) {
+func TestAutonomousStepPolicyDelegatesBoundedWritesToRuntimePolicy(t *testing.T) {
 	plan := orchestration.AgentPlan{Route: orchestration.Decision{Primary: orchestration.LaneCode, Confidence: .95}}
+
 	commit := mustRuntimeOperation(t, "git_commit")
 	if decision := autonomousStepPolicy(commit, map[string]any{"message": "x"}, plan); decision.Allowed {
-		t.Fatalf("git commit must never be autonomous: %#v", decision)
+		t.Fatalf("commit without expectedPaths must be rejected: %#v", decision)
 	}
+	if decision := autonomousStepPolicy(commit, map[string]any{"message": "x", "expectedPaths": []any{"a.go"}}, plan); !decision.Allowed {
+		t.Fatalf("expected-path-bounded commit should reach local runtime policy: %#v", decision)
+	}
+
+	push := mustRuntimeOperation(t, "git_push")
+	if decision := autonomousStepPolicy(push, map[string]any{"remote": "origin", "branch": "dev"}, plan); !decision.Allowed {
+		t.Fatalf("explicit non-force push should reach local runtime policy: %#v", decision)
+	}
+	if decision := autonomousStepPolicy(push, map[string]any{"remote": "origin", "branch": "dev", "force": true}, plan); decision.Allowed {
+		t.Fatalf("force push must remain blocked by bounded agent: %#v", decision)
+	}
+
 	open := mustRuntimeOperation(t, "browser_open")
-	if decision := autonomousStepPolicy(open, map[string]any{"url": "https://example.com"}, plan); decision.Allowed {
-		t.Fatalf("open-world navigation must not be autonomous: %#v", decision)
+	if decision := autonomousStepPolicy(open, map[string]any{"url": "https://example.com"}, plan); !decision.Allowed {
+		t.Fatalf("explicit browser navigation should reach local runtime policy: %#v", decision)
 	}
+	if decision := autonomousStepPolicy(open, map[string]any{"url": "https://user:pass@example.com"}, plan); decision.Allowed {
+		t.Fatalf("credential-bearing URL must be rejected: %#v", decision)
+	}
+
+	click := mustRuntimeOperation(t, "browser_click")
+	if decision := autonomousStepPolicy(click, map[string]any{"ref": "e12", "description": "Open settings"}, plan); !decision.Allowed {
+		t.Fatalf("fresh described browser click should reach runtime policy: %#v", decision)
+	}
+	if decision := autonomousStepPolicy(click, map[string]any{"ref": "e12"}, plan); decision.Allowed {
+		t.Fatalf("browser click without semantic description must be rejected: %#v", decision)
+	}
+
+	computerClick := mustRuntimeOperation(t, "computer_click")
+	if decision := autonomousStepPolicy(computerClick, map[string]any{"windowId": "ax:42:0", "target": "Save"}, plan); !decision.Allowed {
+		t.Fatalf("scoped semantic desktop click should reach runtime policy: %#v", decision)
+	}
+
 	read := mustRuntimeOperation(t, "read_file")
 	if decision := autonomousStepPolicy(read, map[string]any{"path": "x.go", "approvalToken": "token"}, plan); decision.Allowed {
 		t.Fatalf("bounded executor must never consume approval tokens: %#v", decision)

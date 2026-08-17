@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -172,18 +173,96 @@ func safeAutonomousVerificationCommand(command string) bool {
 	return false
 }
 
+func hasNonEmptyStringList(value any) bool {
+	switch items := value.(type) {
+	case []string:
+		for _, item := range items {
+			if strings.TrimSpace(item) != "" {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range items {
+			if strings.TrimSpace(fmt.Sprint(item)) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func safeAgentBrowserURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || u.User != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
+
+func hasComputerScope(args map[string]any) bool {
+	return strings.TrimSpace(learnedString(args["windowId"])) != "" || strings.TrimSpace(learnedString(args["windowHint"])) != ""
+}
+
 func autonomousStepPolicy(operation operationInvocation, args map[string]any, plan orchestration.AgentPlan) autonomousStepDecision {
 	if hasApprovalToken(args) {
 		return autonomousStepDecision{Reason: "bounded agent never consumes approval tokens automatically"}
 	}
-	if operation.OperationID == "git.stage" || operation.OperationID == "git.unstage" || operation.OperationID == "git.commit" || operation.OperationID == "git.push" {
-		return autonomousStepDecision{Reason: "Git write/release actions are never autonomous"}
-	}
-	if operation.OpenWorld && operation.OperationID != "terminal.run" {
-		return autonomousStepDecision{Reason: "open-world operations require an explicit model/user decision outside bounded execution"}
-	}
 
 	switch operation.OperationID {
+	case "git.stage", "git.unstage":
+		if !hasNonEmptyStringList(args["paths"]) {
+			return autonomousStepDecision{Reason: "bounded Git staging requires explicit workspace paths"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "structured workspace Git staging; local runtime policy remains authoritative"}
+	case "git.commit":
+		if !hasNonEmptyStringList(args["expectedPaths"]) {
+			return autonomousStepDecision{Reason: "bounded Git commit requires expectedPaths so unrelated user-staged changes cannot be committed"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "expected-path-bounded Git commit; local runtime approval mode remains authoritative"}
+	case "git.push":
+		force, _ := args["force"].(bool)
+		if force || strings.TrimSpace(learnedString(args["remote"])) == "" || strings.TrimSpace(learnedString(args["branch"])) == "" {
+			return autonomousStepDecision{Reason: "bounded Git push requires explicit remote and branch and never allows force"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "explicit remote/branch Git push; local runtime approval mode remains authoritative"}
+	case "browser.open":
+		if !safeAgentBrowserURL(learnedString(args["url"])) {
+			return autonomousStepDecision{Reason: "bounded browser navigation requires an explicit credential-free http(s) URL"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "structured browser navigation; local runtime approval mode remains authoritative"}
+	case "browser.click", "browser.fill":
+		if strings.TrimSpace(learnedString(args["ref"])) == "" || strings.TrimSpace(learnedString(args["description"])) == "" {
+			return autonomousStepDecision{Reason: "bounded browser interaction requires a fresh element ref and semantic description"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "fresh structured browser interaction; local runtime policy remains authoritative"}
+	case "browser.press":
+		if strings.TrimSpace(learnedString(args["key"])) == "" || strings.TrimSpace(learnedString(args["description"])) == "" {
+			return autonomousStepDecision{Reason: "bounded browser key input requires an explicit key and semantic description"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "described browser key input; local runtime policy remains authoritative"}
+	case "browser.close":
+		return autonomousStepDecision{Allowed: true, Reason: "managed browser close; local runtime policy remains authoritative"}
+	case "computer.focus":
+		if !hasComputerScope(args) {
+			return autonomousStepDecision{Reason: "bounded desktop focus requires a stable window scope"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "scoped desktop focus; local runtime policy remains authoritative"}
+	case "computer.click":
+		if !hasComputerScope(args) || strings.TrimSpace(learnedString(args["target"])) == "" || args["x"] != nil || args["y"] != nil || strings.TrimSpace(learnedString(args["elementId"])) != "" {
+			return autonomousStepDecision{Reason: "bounded desktop click requires a stable window and semantic target and forbids raw coordinates/element replay"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "semantic scoped desktop click; local runtime policy remains authoritative"}
+	case "computer.type":
+		if !hasComputerScope(args) || strings.TrimSpace(learnedString(args["target"])) == "" || strings.TrimSpace(learnedString(args["text"])) == "" || strings.TrimSpace(learnedString(args["elementId"])) != "" {
+			return autonomousStepDecision{Reason: "bounded desktop type requires a stable window, semantic target and explicit text"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "semantic scoped desktop type; local runtime policy remains authoritative"}
+	case "computer.run":
+		steps, ok := args["steps"].([]any)
+		if !hasComputerScope(args) || !ok || len(steps) == 0 {
+			return autonomousStepDecision{Reason: "bounded desktop sequence requires a stable window and semantic steps"}
+		}
+		return autonomousStepDecision{Allowed: true, Reason: "bounded semantic desktop sequence; local runtime policy remains authoritative"}
 	case "project.info", "project.map", "project.instructions", "context.task",
 		"read.info", "read.file", "read.range", "read.many", "search.files", "search.text",
 		"dependency.inspect", "dependency.read", "dependency.search",
@@ -202,16 +281,6 @@ func autonomousStepPolicy(operation operationInvocation, args map[string]any, pl
 			return autonomousStepDecision{Reason: "autonomous edits require patch context or stale-hash protection"}
 		}
 		return autonomousStepDecision{Allowed: true, Reason: "workspace-bounded hash-safe edit"}
-	case "browser.click":
-		if strings.TrimSpace(learnedString(args["ref"])) == "" {
-			return autonomousStepDecision{Reason: "browser click requires a fresh structured element reference"}
-		}
-		return autonomousStepDecision{Allowed: true, Reason: "fresh structured browser click; runtime approval remains authoritative"}
-	case "computer.click":
-		if strings.TrimSpace(learnedString(args["target"])) == "" || args["x"] != nil || args["y"] != nil || strings.TrimSpace(learnedString(args["elementId"])) != "" {
-			return autonomousStepDecision{Reason: "bounded desktop click requires a semantic target and forbids raw coordinates/element replay"}
-		}
-		return autonomousStepDecision{Allowed: true, Reason: "semantic desktop click; runtime physical-input approval remains authoritative"}
 	case "terminal.run":
 		command, _ := args["command"].(string)
 		if !safeAutonomousVerificationCommand(command) && !safeLearnedAutomationCommand(command) {
@@ -219,6 +288,9 @@ func autonomousStepPolicy(operation operationInvocation, args map[string]any, pl
 		}
 		return autonomousStepDecision{Allowed: true, Reason: "recognized bounded command; local execution policy remains authoritative"}
 	default:
+		if operation.OpenWorld {
+			return autonomousStepDecision{Reason: "open-world operation is outside the bounded runtime-authoritative allowlist"}
+		}
 		return autonomousStepDecision{Reason: "operation is outside the bounded autonomous allowlist"}
 	}
 }

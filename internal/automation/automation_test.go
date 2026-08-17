@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0xmarkhydra/codelocal/internal/approval"
 	"github.com/0xmarkhydra/codelocal/internal/security"
 )
 
@@ -78,6 +79,85 @@ func TestAutomationAuthorizerScopesRememberedGrantToChatSession(t *testing.T) {
 	approved, otherSession, err := authorizer.AuthorizeScoped(action, "", "session-b")
 	if err != nil || approved || otherSession["status"] != "approval_required" {
 		t.Fatalf("approval leaked across sessions: approved=%v state=%#v err=%v", approved, otherSession, err)
+	}
+}
+
+func TestAutomationApprovalTokenSurvivesMCPCallSessionChurn(t *testing.T) {
+	t.Setenv("CODELOCAL_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	authorizer := NewAuthorizer("device::workspace")
+	action := Action{Domain: "browser", Operation: "open", Origin: "https://example.com", Target: "https://example.com"}
+
+	approved, pending, err := authorizer.AuthorizeScoped(action, "", "call-session-a")
+	if err != nil || approved || pending["status"] != "approval_required" {
+		t.Fatalf("initial approval state: approved=%v pending=%#v err=%v", approved, pending, err)
+	}
+	token, _ := pending["approvalToken"].(string)
+	if token == "" {
+		t.Fatal("missing approval token")
+	}
+
+	approved, confirmed, err := authorizer.AuthorizeScoped(action, token, "call-session-b")
+	if err != nil || !approved || confirmed["remembered"] != true {
+		t.Fatalf("exact-action token should survive MCP call session churn: approved=%v state=%#v err=%v", approved, confirmed, err)
+	}
+}
+
+func TestAutomationApprovalTokenStillRejectsDifferentActionAcrossSessionChurn(t *testing.T) {
+	t.Setenv("CODELOCAL_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	authorizer := NewAuthorizer("device::workspace")
+	openAction := Action{Domain: "browser", Operation: "open", Origin: "https://example.com", Target: "https://example.com"}
+	otherAction := Action{Domain: "browser", Operation: "open", Origin: "https://other.example", Target: "https://other.example"}
+
+	approved, pending, err := authorizer.AuthorizeScoped(openAction, "", "call-session-a")
+	if err != nil || approved {
+		t.Fatalf("initial approval state: approved=%v pending=%#v err=%v", approved, pending, err)
+	}
+	token, _ := pending["approvalToken"].(string)
+	approved, next, err := authorizer.AuthorizeScoped(otherAction, token, "call-session-b")
+	if err != nil || approved || next["status"] != "approval_required" {
+		t.Fatalf("token must stay exact-action-bound: approved=%v state=%#v err=%v", approved, next, err)
+	}
+}
+
+func TestAgentModeAutoApprovesOnlyScopedRoutineAutomation(t *testing.T) {
+	t.Setenv("CODELOCAL_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("CODELOCAL_APPROVAL_MODE", "")
+	const workspace = "device::workspace"
+	if err := approval.SetWorkspaceMode(workspace, approval.ModeAgent); err != nil {
+		t.Fatal(err)
+	}
+	authorizer := NewAuthorizer(workspace)
+
+	open := Action{Domain: "browser", Operation: "open", Origin: "https://example.com", Target: "https://example.com"}
+	approved, state, err := authorizer.AuthorizeScoped(open, "", "session-a")
+	if err != nil || !approved || state["agentApproved"] != true {
+		t.Fatalf("agent mode should auto-approve scoped navigation: approved=%v state=%#v err=%v", approved, state, err)
+	}
+
+	click := Action{Domain: "computer", Operation: "click", Origin: "ax:123:0", Target: "Save"}
+	approved, state, err = authorizer.AuthorizeScoped(click, "", "session-b")
+	if err != nil || !approved || state["agentApproved"] != true {
+		t.Fatalf("agent mode should auto-approve scoped semantic desktop input: approved=%v state=%#v err=%v", approved, state, err)
+	}
+
+	payment := Action{Domain: "browser", Operation: "click", Origin: "https://shop.example", Target: "Confirm payment"}
+	approved, pending, err := authorizer.AuthorizeScoped(payment, "", "session-c")
+	if err != nil || approved || pending["approvalPolicy"] != security.ApprovalAlways {
+		t.Fatalf("critical browser action must still require fresh confirmation: approved=%v state=%#v err=%v", approved, pending, err)
+	}
+}
+
+func TestCredentialEntryRemainsFreshApprovalInAgentMode(t *testing.T) {
+	for _, action := range []Action{
+		{Domain: "browser", Operation: "fill", Origin: "https://example.com", Target: "Password", Text: "secret-value"},
+		{Domain: "browser", Operation: "press", Origin: "https://example.com", Target: "OTP input", Text: "Enter"},
+		{Domain: "computer", Operation: "type", Origin: "ax:123:0", Target: "API key", Text: "secret-value"},
+		{Domain: "computer", Operation: "run", Origin: "ax:123:0", Target: "click:Login -> type:Password", Text: "secret-value"},
+	} {
+		decision := ClassifyAutomation(action)
+		if decision.RiskLevel != security.RiskCritical || decision.ApprovalPolicy != security.ApprovalAlways {
+			t.Fatalf("credential entry must require fresh confirmation: action=%+v decision=%+v", action, decision)
+		}
 	}
 }
 

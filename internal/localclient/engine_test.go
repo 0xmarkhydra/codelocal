@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0xmarkhydra/codelocal/internal/approval"
 	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
+	"github.com/0xmarkhydra/codelocal/internal/security"
 )
 
 func newTestEngine(t *testing.T) *Engine {
@@ -43,6 +45,35 @@ func TestShellDisabledBlocksTerminalTools(t *testing.T) {
 	}
 	if _, err := engine.Handle(context.Background(), "exec_start", map[string]any{"command": "echo hello"}, HandleOptions{RequestID: "r1"}); err == nil {
 		t.Fatal("exec_start should fail when shell is disabled")
+	}
+}
+
+func TestAgentModeAutoApprovesRememberableButNotCriticalRuntimeActions(t *testing.T) {
+	t.Setenv("CODELOCAL_ALLOW_SHELL", "1")
+	t.Setenv("CODELOCAL_APPROVAL_MODE", "")
+	engine := newTestEngine(t)
+	if err := approval.SetWorkspaceMode(engine.WorkspaceID, approval.ModeAgent); err != nil {
+		t.Fatal(err)
+	}
+
+	routine := security.Decision{
+		RiskLevel: security.RiskReview, RequiresApproval: true,
+		ApprovalPolicy: security.ApprovalRememberable, ApprovalKey: "workspace-exec:test", ApprovalLabel: "test",
+		MatchedRules: []string{"workspace code execution"}, RedactedCommand: "go test ./...", Reason: "workspace code execution",
+	}
+	approved, state, _, err := engine.authorizeDecision("go test ./...", engine.Root, "", "session-a", routine)
+	if err != nil || !approved || state["agentApproved"] != true {
+		t.Fatalf("routine action should be approved by agent mode: approved=%v state=%#v err=%v", approved, state, err)
+	}
+
+	critical := routine
+	critical.RiskLevel = security.RiskCritical
+	critical.ApprovalPolicy = security.ApprovalAlways
+	critical.ApprovalKey = ""
+	critical.Reason = "destructive action"
+	approved, state, _, err = engine.authorizeDecision("dangerous action", engine.Root, "", "session-a", critical)
+	if err != nil || approved || state["status"] != "approval_required" || state["approvalPolicy"] != security.ApprovalAlways {
+		t.Fatalf("critical action must still require fresh approval: approved=%v state=%#v err=%v", approved, state, err)
 	}
 }
 
@@ -254,6 +285,32 @@ func TestLearnedSkillContextHelpersAreBranchAndCapabilityAware(t *testing.T) {
 	for _, want := range []string{"computer", "filesystem", "shell"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing capability %s in %v", want, reqs)
+		}
+	}
+}
+
+func TestSymbolAtHandlesEmptyAndOutOfRangeColumns(t *testing.T) {
+	engine := newTestEngine(t)
+	if err := os.WriteFile(filepath.Join(engine.Root, "symbols.go"), []byte("package demo\n\nalphaBeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := symbolAt(engine, "symbols.go", 2, 6); got != "" {
+		t.Fatalf("empty line symbol = %q, want empty", got)
+	}
+	if got := symbolAt(engine, "symbols.go", 3, 999); got != "alphaBeta" {
+		t.Fatalf("out-of-range column symbol = %q, want alphaBeta", got)
+	}
+	if got := symbolAt(engine, "symbols.go", 3, 0); got != "alphaBeta" {
+		t.Fatalf("zero column symbol = %q, want alphaBeta", got)
+	}
+
+	for _, tool := range []string{"find_definition", "find_references", "find_implementations"} {
+		result, err := engine.Handle(context.Background(), tool, map[string]any{"path": "symbols.go", "line": 2, "column": 6, "limit": 20}, HandleOptions{RequestID: tool + "-empty-line"})
+		if err != nil {
+			t.Fatalf("%s on empty line returned error: %v", tool, err)
+		}
+		if result == nil {
+			t.Fatalf("%s on empty line returned nil result", tool)
 		}
 	}
 }
