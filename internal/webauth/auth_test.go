@@ -120,3 +120,12 @@ func TestPasswordResetDailySendPolicy(t *testing.T) {
 		t.Fatalf("password reset daily window=%s want 24h", passwordResetDailyWindow)
 	}
 }
+
+func TestPasswordResetDailyLimitPageExplainsLimitAndRetry(t *testing.T) {
+	html := passwordResetDailyLimitPage(int(3 * time.Hour / time.Second))
+	for _, want := range []string{"Reset email limit reached", "at most 2 password reset emails in 24 hours", "in about 3 hours", "Back to sign in"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("password reset limit page missing %q", want)
+		}
+	}
+}

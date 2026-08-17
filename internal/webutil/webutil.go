@@ -69,6 +69,7 @@ type RateLimitOptions struct {
 	Limit   int
 	Window  time.Duration
 	Subject func(*http.Request) string
+	OnLimit func(http.ResponseWriter, *http.Request, int)
 }
 
 func RateLimit(store *cloud.Store, options RateLimitOptions, next http.Handler) http.Handler {
@@ -96,6 +97,10 @@ func RateLimit(store *cloud.Store, options RateLimitOptions, next http.Handler) 
 		w.Header().Set("RateLimit-Remaining", itoa(remaining))
 		if !allowed {
 			w.Header().Set("Retry-After", itoa(retry))
+			if options.OnLimit != nil {
+				options.OnLimit(w, r, retry)
+				return
+			}
 			JSON(w, http.StatusTooManyRequests, map[string]any{"error": "rate_limited", "retryAfterSeconds": retry})
 			return
 		}

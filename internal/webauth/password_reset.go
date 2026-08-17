@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -99,6 +100,43 @@ func (m *Manager) sendPasswordResetCode(ctx context.Context, pending pendingPass
 
 func passwordResetNotice() string {
 	return ui.Page("Check your email", "If a CodeLocal account exists for that email, we sent password reset instructions.", `<div class="stack"><div class="row"><div class="row-title">Open the email from CodeLocal</div><div class="row-meta">The reset code expires after 10 minutes.</div></div><div class="actions"><a class="btn" href="/login">Back to sign in</a></div></div>`)
+}
+
+func passwordResetRetryLabel(retry int) string {
+	if retry <= 0 {
+		return "later"
+	}
+	d := time.Duration(retry) * time.Second
+	if d >= time.Hour {
+		n := int((d + time.Hour - 1) / time.Hour)
+		unit := "hours"
+		if n == 1 {
+			unit = "hour"
+		}
+		return fmt.Sprintf("in about %d %s", n, unit)
+	}
+	n := int((d + time.Minute - 1) / time.Minute)
+	unit := "minutes"
+	if n == 1 {
+		unit = "minute"
+	}
+	return fmt.Sprintf("in about %d %s", n, unit)
+}
+
+func passwordResetDailyLimitPage(retry int) string {
+	copy := "You can request at most 2 password reset emails in 24 hours. Try again " + passwordResetRetryLabel(retry) + "."
+	return ui.Page("Reset email limit reached", copy, `<div class="actions"><a class="btn" href="/login">Back to sign in</a></div>`)
+}
+
+func passwordResetNetworkLimitPage(retry int) string {
+	copy := "Too many password reset requests came from this network. Try again " + passwordResetRetryLabel(retry) + "."
+	return ui.Page("Please wait before trying again", copy, `<div class="actions"><a class="btn" href="/login">Back to sign in</a></div>`)
+}
+
+func writePasswordResetRateLimit(w http.ResponseWriter, html string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte(html))
 }
 
 func (m *Manager) forgotPasswordForm(csrf, errorMessage string) string {
@@ -316,8 +354,12 @@ func (m *Manager) registerPasswordReset(mux *http.ServeMux) {
 	forgot := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-account", Limit: passwordResetDailySendLimit, Window: passwordResetDailyWindow, Subject: func(r *http.Request) string {
 		_ = r.ParseForm()
 		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
+	}, OnLimit: func(w http.ResponseWriter, _ *http.Request, retry int) {
+		writePasswordResetRateLimit(w, passwordResetDailyLimitPage(retry))
 	}}, http.HandlerFunc(m.forgotPasswordPost))
-	mux.Handle("POST /forgot-password", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-ip", Limit: 20, Window: time.Hour}, forgot))
+	mux.Handle("POST /forgot-password", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-ip", Limit: 20, Window: time.Hour, OnLimit: func(w http.ResponseWriter, _ *http.Request, retry int) {
+		writePasswordResetRateLimit(w, passwordResetNetworkLimitPage(retry))
+	}}, forgot))
 	mux.HandleFunc("GET /reset-password", m.resetPasswordGet)
 	reset := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-token", Limit: 12, Window: 10 * time.Minute, Subject: func(r *http.Request) string {
 		_ = r.ParseForm()
