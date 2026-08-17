@@ -15,7 +15,7 @@ func TestEvaluateSecuritySignals(t *testing.T) {
 		{name: "same", current: base},
 		{name: "network only", current: SecuritySignal{DeviceHash: "device-a", AgentHash: "agent-a", NetworkHash: "network-b"}, network: true},
 		{name: "agent only", current: SecuritySignal{DeviceHash: "device-a", AgentHash: "agent-b", NetworkHash: "network-a"}, agent: true},
-		{name: "agent and network", current: SecuritySignal{DeviceHash: "device-a", AgentHash: "agent-b", NetworkHash: "network-b"}, agent: true, network: true, highRisk: true},
+		{name: "agent and network", current: SecuritySignal{DeviceHash: "device-a", AgentHash: "agent-b", NetworkHash: "network-b"}, agent: true, network: true},
 		{name: "device mismatch", current: SecuritySignal{DeviceHash: "device-b", AgentHash: "agent-a", NetworkHash: "network-a"}, device: true, highRisk: true},
 		{name: "missing bound device", current: SecuritySignal{AgentHash: "agent-a", NetworkHash: "network-a"}, device: true, highRisk: true},
 	} {
@@ -25,5 +25,24 @@ func TestEvaluateSecuritySignals(t *testing.T) {
 				t.Fatalf("unexpected decision: %#v", decision)
 			}
 		})
+	}
+}
+
+func TestEvaluateSecuritySignalsMigratesLegacyHashWithoutRisk(t *testing.T) {
+	previous := SecuritySignal{DeviceHash: "device-old", AgentHash: "agent-old", NetworkHash: "network-old"}
+	current := SecuritySignal{
+		DeviceHash:        "device-new",
+		AgentHash:         "agent-new",
+		NetworkHash:       "network-new",
+		LegacyDeviceHash:  "device-old",
+		LegacyAgentHash:   "agent-old",
+		LegacyNetworkHash: "network-old",
+	}
+	decision := EvaluateSecuritySignals(previous, current)
+	if decision.HighRisk || decision.DeviceMismatch || decision.AgentChanged || decision.NetworkChanged {
+		t.Fatalf("legacy hash migration must not look suspicious: %#v", decision)
+	}
+	if !decision.HashUpgrade {
+		t.Fatal("legacy hash migration must request an in-place hash upgrade")
 	}
 }

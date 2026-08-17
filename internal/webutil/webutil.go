@@ -45,13 +45,15 @@ func DecodeJSON(r *http.Request, limit int64, dst any) error {
 }
 
 func ClientIP(r *http.Request) string {
-	trustProxy := os.Getenv("CODELOCAL_TRUST_PROXY") == "1" || os.Getenv("RAILWAY_ENVIRONMENT") != "" || os.Getenv("RAILWAY_ENVIRONMENT_ID") != "" || os.Getenv("RAILWAY_PROJECT_ID") != ""
-	if trustProxy {
-		if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
-			if len(forwarded) > 128 {
-				return forwarded[:128]
-			}
-			return forwarded
+	railway := os.Getenv("RAILWAY_ENVIRONMENT") != "" || os.Getenv("RAILWAY_ENVIRONMENT_ID") != "" || os.Getenv("RAILWAY_PROJECT_ID") != ""
+	if railway {
+		if value := validForwardedIP(r.Header.Get("X-Real-IP")); value != "" {
+			return value
+		}
+	}
+	if railway || os.Getenv("CODELOCAL_TRUST_PROXY") == "1" {
+		if value := validForwardedIP(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); value != "" {
+			return value
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -62,6 +64,14 @@ func ClientIP(r *http.Request) string {
 		return r.RemoteAddr[:128]
 	}
 	return r.RemoteAddr
+}
+
+func validForwardedIP(value string) string {
+	value = strings.TrimSpace(value)
+	if net.ParseIP(value) == nil {
+		return ""
+	}
+	return value
 }
 
 type RateLimitOptions struct {

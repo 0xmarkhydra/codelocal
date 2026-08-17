@@ -7,9 +7,12 @@ import (
 )
 
 type SecuritySignal struct {
-	DeviceHash  string `json:"deviceHash,omitempty"`
-	AgentHash   string `json:"agentHash,omitempty"`
-	NetworkHash string `json:"networkHash,omitempty"`
+	DeviceHash        string `json:"deviceHash,omitempty"`
+	AgentHash         string `json:"agentHash,omitempty"`
+	NetworkHash       string `json:"networkHash,omitempty"`
+	LegacyDeviceHash  string `json:"-"`
+	LegacyAgentHash   string `json:"-"`
+	LegacyNetworkHash string `json:"-"`
 }
 
 type SecurityDecision struct {
@@ -17,18 +20,29 @@ type SecurityDecision struct {
 	DeviceMismatch bool
 	AgentChanged   bool
 	NetworkChanged bool
+	HashUpgrade    bool
 	HighRisk       bool
 }
 
+func securityHashMatches(previous, current, legacy string) bool {
+	return previous != "" && (previous == current || (legacy != "" && previous == legacy))
+}
+
+func securityHashUpgrade(previous, current, legacy string) bool {
+	return legacy != "" && previous == legacy && previous != current
+}
+
 func EvaluateSecuritySignals(previous, current SecuritySignal) SecurityDecision {
-	deviceMismatch := previous.DeviceHash != "" && previous.DeviceHash != current.DeviceHash
-	agentChanged := previous.AgentHash != "" && current.AgentHash != "" && previous.AgentHash != current.AgentHash
-	networkChanged := previous.NetworkHash != "" && current.NetworkHash != "" && previous.NetworkHash != current.NetworkHash
+	deviceMismatch := previous.DeviceHash != "" && !securityHashMatches(previous.DeviceHash, current.DeviceHash, current.LegacyDeviceHash)
+	agentChanged := previous.AgentHash != "" && current.AgentHash != "" && !securityHashMatches(previous.AgentHash, current.AgentHash, current.LegacyAgentHash)
+	networkChanged := previous.NetworkHash != "" && current.NetworkHash != "" && !securityHashMatches(previous.NetworkHash, current.NetworkHash, current.LegacyNetworkHash)
+	hashUpgrade := securityHashUpgrade(previous.DeviceHash, current.DeviceHash, current.LegacyDeviceHash) || securityHashUpgrade(previous.AgentHash, current.AgentHash, current.LegacyAgentHash) || securityHashUpgrade(previous.NetworkHash, current.NetworkHash, current.LegacyNetworkHash)
 	return SecurityDecision{
 		DeviceMismatch: deviceMismatch,
 		AgentChanged:   agentChanged,
 		NetworkChanged: networkChanged,
-		HighRisk:       deviceMismatch || (agentChanged && networkChanged),
+		HashUpgrade:    hashUpgrade,
+		HighRisk:       deviceMismatch,
 	}
 }
 
@@ -80,7 +94,7 @@ if previousDevice~='' and previousDevice~=device then deviceMismatch=1 end
 if previousAgent~='' and agent~='' and previousAgent~=agent then agentChanged=1 end
 if previousNetwork~='' and network~='' and previousNetwork~=network then networkChanged=1 end
 local highRisk=0
-if deviceMismatch==1 or (agentChanged==1 and networkChanged==1) then highRisk=1 end
+if deviceMismatch==1 then highRisk=1 end
 redis.call('HSET',KEYS[1],'lastSeenAt',now)
 if highRisk==1 then
  redis.call('HSET',KEYS[1],'riskAt',now)

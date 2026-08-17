@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
 )
 
 func testServer() *Server {
@@ -80,5 +82,32 @@ func TestParseScopeAlwaysIncludesRequiredScopes(t *testing.T) {
 		if !contains(fields, required) {
 			t.Fatalf("scope %q missing %q", scope, required)
 		}
+	}
+}
+
+func TestTokenSecurityVersionAndLegacyCompatibility(t *testing.T) {
+	state := cloud.UserSecurityState{Version: 3, PasswordChangedAt: 101_000}
+	if err := validateTokenAgainstSecurityState(tokenPayload{SecurityVersion: 3}, state); err != nil {
+		t.Fatalf("current security version rejected: %v", err)
+	}
+	if err := validateTokenAgainstSecurityState(tokenPayload{SecurityVersion: 2}, state); err != ErrTokenRevoked {
+		t.Fatalf("stale security version error=%v want revoked", err)
+	}
+	if err := validateTokenAgainstSecurityState(tokenPayload{IssuedAt: 100}, state); err != ErrTokenRevoked {
+		t.Fatalf("legacy token issued before password change error=%v want revoked", err)
+	}
+	if err := validateTokenAgainstSecurityState(tokenPayload{IssuedAt: 102}, state); err != nil {
+		t.Fatalf("legacy token issued after password change rejected: %v", err)
+	}
+}
+
+func TestOAuthFamiliesDoNotCollideForSameClient(t *testing.T) {
+	first := oauthFamilyKey("user-1", "chatgpt", "family-a")
+	second := oauthFamilyKey("user-1", "chatgpt", "family-b")
+	if first == second {
+		t.Fatal("independent OAuth authorizations must not share token-family state")
+	}
+	if strings.Contains(first, "user-1") || strings.Contains(first, "chatgpt") {
+		t.Fatal("OAuth family Redis key must not expose raw user or client identifiers")
 	}
 }

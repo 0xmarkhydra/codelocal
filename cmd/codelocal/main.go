@@ -21,6 +21,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/approval"
 	"github.com/0xmarkhydra/codelocal/internal/clientupdate"
+	"github.com/0xmarkhydra/codelocal/internal/deviceauth"
 	"github.com/0xmarkhydra/codelocal/internal/identity"
 	"github.com/0xmarkhydra/codelocal/internal/mcphub"
 	codelocalruntime "github.com/0xmarkhydra/codelocal/internal/runtime"
@@ -198,6 +199,25 @@ func credentialHeaders(c identity.Credential) map[string]string {
 	return map[string]string{"X-CodeLocal-Credential-Id": c.CredentialID, "Authorization": "Device " + c.CredentialSecret}
 }
 
+func postCredentialJSON(ctx context.Context, target string, input any, credential identity.Credential) (*http.Response, error) {
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for key, value := range credentialHeaders(credential) {
+		req.Header.Set(key, value)
+	}
+	if err := deviceauth.SignRequest(req, raw, credential.DevicePrivateKey, time.Now()); err != nil {
+		return nil, err
+	}
+	return (&http.Client{Timeout: 15 * time.Second}).Do(req)
+}
+
 func pair(ctx context.Context, server string) (identity.Credential, error) {
 	base := baseURL(server)
 	deviceID, deviceName := identity.Device()
@@ -215,6 +235,7 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 		ExpiresAt      int64  `json:"expiresAt"`
 		ApproveURL     string `json:"approveUrl"`
 		RetrySafeClaim bool   `json:"retrySafeClaim"`
+		DeviceSigning  bool   `json:"deviceSigning"`
 	}
 	if json.NewDecoder(resp.Body).Decode(&pairing) != nil {
 		return identity.Credential{}, errors.New("invalid pairing response")
@@ -227,6 +248,8 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 	claimInput := map[string]any{"pairingId": pairing.PairingID, "code": pairing.Code}
 	expectedCredentialID := ""
 	expectedCredentialSecret := ""
+	expectedDevicePublicKey := ""
+	expectedDevicePrivateKey := ""
 	claimDeadline := pairing.ExpiresAt
 	if pairing.RetrySafeClaim {
 		credentialIDHex, idErr := randomHex(16)
@@ -241,6 +264,15 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 		expectedCredentialSecret = secret
 		claimInput["credentialId"] = expectedCredentialID
 		claimInput["credentialSecretHash"] = hashSecret(expectedCredentialSecret)
+		if pairing.DeviceSigning {
+			publicKey, privateKey, keyErr := deviceauth.GenerateKeyPair()
+			if keyErr != nil {
+				return identity.Credential{}, fmt.Errorf("generate device signing key: %w", keyErr)
+			}
+			expectedDevicePublicKey = publicKey
+			expectedDevicePrivateKey = privateKey
+			claimInput["devicePublicKey"] = expectedDevicePublicKey
+		}
 		// A successful claim may have committed just before the original pairing
 		// expiry while its HTTP response was lost. Give idempotent retries a small
 		// grace window without extending server-side approval validity.
@@ -268,6 +300,8 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 					return identity.Credential{}, errors.New("pair claim returned an unexpected credential")
 				}
 				c.CredentialSecret = expectedCredentialSecret
+				c.DevicePublicKey = expectedDevicePublicKey
+				c.DevicePrivateKey = expectedDevicePrivateKey
 			}
 			c.ServerURL = websocketBase(base)
 			c.CreatedAt = time.Now().UnixMilli()
@@ -276,6 +310,15 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 			}
 			fmt.Printf("✓ Device paired: %s\n", c.DeviceName)
 			return c, nil
+		}
+		if claim.StatusCode == http.StatusBadRequest {
+			if _, signed := claimInput["devicePublicKey"]; signed {
+				claim.Body.Close()
+				delete(claimInput, "devicePublicKey")
+				expectedDevicePublicKey = ""
+				expectedDevicePrivateKey = ""
+				continue
+			}
 		}
 		claim.Body.Close()
 		if claim.StatusCode != 409 && claim.StatusCode != 400 {
@@ -286,7 +329,7 @@ func pair(ctx context.Context, server string) (identity.Credential, error) {
 }
 
 func validateCredential(ctx context.Context, base string, c identity.Credential) (bool, string, error) {
-	resp, err := postJSON(ctx, baseURL(base)+"/api/client/auth/check", map[string]any{}, credentialHeaders(c))
+	resp, err := postCredentialJSON(ctx, baseURL(base)+"/api/client/auth/check", map[string]any{}, c)
 	if err != nil {
 		return false, "", fmt.Errorf("unable to verify CodeLocal credential: %w", err)
 	}
@@ -343,7 +386,7 @@ func revokeRemoteCredential(ctx context.Context, credential identity.Credential,
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		revokeCtx, cancelRevoke := context.WithTimeout(ctx, 3*time.Second)
-		resp, err := postJSON(revokeCtx, base+"/api/client/auth/logout", map[string]any{}, credentialHeaders(credential))
+		resp, err := postCredentialJSON(revokeCtx, base+"/api/client/auth/logout", map[string]any{}, credential)
 		if err != nil {
 			cancelRevoke()
 			lastErr = err

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/deviceauth"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
@@ -707,6 +708,7 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request) {
 		"expiresAt":      pairing.ExpiresAt,
 		"approveUrl":     base + "/pair/approve?pairingId=" + url.QueryEscape(pairing.PairingID),
 		"retrySafeClaim": true,
+		"deviceSigning":  true,
 	})
 }
 
@@ -774,6 +776,7 @@ func (s *Server) pairClaim(w http.ResponseWriter, r *http.Request) {
 		Code                 string `json:"code"`
 		CredentialID         string `json:"credentialId"`
 		CredentialSecretHash string `json:"credentialSecretHash"`
+		DevicePublicKey      string `json:"devicePublicKey"`
 	}
 	if webutil.DecodeJSON(r, 64<<10, &input) != nil {
 		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
@@ -781,6 +784,7 @@ func (s *Server) pairClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	credentialID := strings.TrimSpace(input.CredentialID)
 	secretHash := strings.TrimSpace(input.CredentialSecretHash)
+	publicKey := strings.TrimSpace(input.DevicePublicKey)
 	secret := ""
 	if (credentialID == "") != (secretHash == "") {
 		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_credential_claim"})
@@ -798,7 +802,11 @@ func (s *Server) pairClaim(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	device, err := s.Store.ClaimPairing(r.Context(), input.PairingID, input.Code, credentialID, secretHash)
+	if publicKey != "" && !deviceauth.ValidPublicKey(publicKey) {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_device_public_key"})
+		return
+	}
+	device, err := s.Store.ClaimPairing(r.Context(), input.PairingID, input.Code, credentialID, secretHash, publicKey)
 	if err != nil {
 		webutil.JSON(w, http.StatusInternalServerError, map[string]any{"error": "pairing_failed"})
 		return
@@ -844,8 +852,7 @@ func (s *Server) authenticateDevice(r *http.Request) (*cloud.Device, error) {
 	if err != nil || device == nil {
 		return device, err
 	}
-	decision, err := s.credentialSecurityDecision(r, id)
-	if err != nil || decision.HighRisk {
+	if err := s.verifySignedDeviceRequest(r, device); err != nil {
 		return nil, err
 	}
 	return device, nil

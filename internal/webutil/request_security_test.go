@@ -43,3 +43,22 @@ func TestRequestSecuritySignalHashesSensitiveContext(t *testing.T) {
 		t.Fatal("raw security context must never be stored in the signal")
 	}
 }
+
+func TestRequestSecuritySignalSupportsStagedBindingSecretMigration(t *testing.T) {
+	t.Setenv("MCP_AUTH_SECRET", "legacy-secret")
+	req := httptest.NewRequest("GET", "https://codelocal.cloud/dashboard", nil)
+	req.RemoteAddr = "203.0.113.42:443"
+	req.Header.Set("User-Agent", "Mozilla/5.0 ExampleBrowser/123")
+
+	t.Setenv("CODELOCAL_SECURITY_BINDING_SECRET", "dedicated-secret")
+	migrating := RequestSecuritySignal(req, "browser-device-token")
+	if migrating.DeviceHash == "" || migrating.LegacyDeviceHash == "" || migrating.DeviceHash == migrating.LegacyDeviceHash {
+		t.Fatalf("expected distinct primary and legacy device hashes: %#v", migrating)
+	}
+
+	t.Setenv("CODELOCAL_SECURITY_BINDING_SECRET", "")
+	legacy := RequestSecuritySignal(req, "browser-device-token")
+	if legacy.DeviceHash != migrating.LegacyDeviceHash {
+		t.Fatal("legacy alias must match the pre-migration security hash")
+	}
+}

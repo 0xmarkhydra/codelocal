@@ -183,9 +183,11 @@ func (m *Manager) Identity(r *http.Request) (*Identity, error) {
 			_ = m.Store.DeleteSession(r.Context(), cookie.Value)
 			return nil, nil
 		}
-		if decision.AgentChanged || decision.NetworkChanged {
+		if decision.AgentChanged || decision.NetworkChanged || decision.HashUpgrade {
 			state.Security = &signal
-			state.RiskUntil = time.Now().Add(10 * time.Minute).UnixMilli()
+			if decision.AgentChanged || decision.NetworkChanged {
+				state.RiskUntil = time.Now().Add(10 * time.Minute).UnixMilli()
+			}
 			_ = m.Store.UpdateSessionState(r.Context(), cookie.Value, state)
 		}
 	}

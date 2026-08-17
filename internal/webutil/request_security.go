@@ -20,13 +20,25 @@ func NetworkPrefix(ipText string) string {
 	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
-func requestSecurityHash(kind, value string) string {
+func requestSecurityHashWithSecret(secret, kind, value string) string {
+	secret = strings.TrimSpace(secret)
 	value = strings.TrimSpace(value)
-	if value == "" {
+	if secret == "" || value == "" {
 		return ""
 	}
-	secret := os.Getenv("MCP_AUTH_SECRET")
 	return cloud.HashSecret(secret + "\x00request-security-v1\x00" + kind + "\x00" + value)
+}
+
+func requestSecuritySecrets() (primary, legacy string) {
+	legacy = strings.TrimSpace(os.Getenv("MCP_AUTH_SECRET"))
+	primary = strings.TrimSpace(os.Getenv("CODELOCAL_SECURITY_BINDING_SECRET"))
+	if primary == "" {
+		return legacy, ""
+	}
+	if primary == legacy {
+		legacy = ""
+	}
+	return primary, legacy
 }
 
 func normalizeSecurityAgent(value string) string {
@@ -51,9 +63,15 @@ func normalizeSecurityAgent(value string) string {
 }
 
 func RequestSecuritySignal(r *http.Request, deviceToken string) cloud.SecuritySignal {
+	primary, legacy := requestSecuritySecrets()
+	agent := normalizeSecurityAgent(r.UserAgent())
+	network := NetworkPrefix(ClientIP(r))
 	return cloud.SecuritySignal{
-		DeviceHash:  requestSecurityHash("device", deviceToken),
-		AgentHash:   requestSecurityHash("agent", normalizeSecurityAgent(r.UserAgent())),
-		NetworkHash: requestSecurityHash("network", NetworkPrefix(ClientIP(r))),
+		DeviceHash:        requestSecurityHashWithSecret(primary, "device", deviceToken),
+		AgentHash:         requestSecurityHashWithSecret(primary, "agent", agent),
+		NetworkHash:       requestSecurityHashWithSecret(primary, "network", network),
+		LegacyDeviceHash:  requestSecurityHashWithSecret(legacy, "device", deviceToken),
+		LegacyAgentHash:   requestSecurityHashWithSecret(legacy, "agent", agent),
+		LegacyNetworkHash: requestSecurityHashWithSecret(legacy, "network", network),
 	}
 }

@@ -87,9 +87,8 @@ func (s *Server) runtimeRealtime(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusCode(4403), "AUTH_FAILED")
 		return
 	}
-	decision, err := s.credentialSecurityDecision(r, register.CredentialID)
-	if err != nil || decision.HighRisk {
-		_ = conn.Close(websocket.StatusCode(4403), "SECURITY_CONTEXT_MISMATCH")
+	if err := s.verifySignedDeviceRequest(r, device); err != nil {
+		_ = conn.Close(websocket.StatusCode(4403), "DEVICE_SIGNATURE_INVALID")
 		return
 	}
 	if register.DeviceID != "" && register.DeviceID != device.DeviceID {

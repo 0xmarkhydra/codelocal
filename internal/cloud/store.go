@@ -28,6 +28,7 @@ type User struct {
 	PasswordHash      string `json:"-"`
 	PasswordSalt      string `json:"-"`
 	PasswordChangedAt int64  `json:"passwordChangedAt,omitempty"`
+	SecurityVersion   int64  `json:"-"`
 	ReferralCode      string `json:"referralCode"`
 	ReferredByCode    string `json:"referredByCode,omitempty"`
 	CreatedAt         int64  `json:"createdAt"`
@@ -47,6 +48,7 @@ type Device struct {
 	UserID               string `json:"userId"`
 	DeviceID             string `json:"deviceId"`
 	DeviceName           string `json:"deviceName"`
+	PublicKey            string `json:"publicKey,omitempty"`
 	SecretHash           string `json:"-"`
 	CreatedAt            int64  `json:"createdAt"`
 	LastSeenAt           int64  `json:"lastSeenAt"`
@@ -295,7 +297,11 @@ func knowledgeV2SchemaMigrations() []schemaMigration {
 }
 
 func accountSchemaMigrations() []schemaMigration {
-	return []schemaMigration{{41, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS password_changed_at BIGINT NOT NULL DEFAULT 0;`}}
+	return []schemaMigration{
+		{41, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS password_changed_at BIGINT NOT NULL DEFAULT 0;`},
+		{42, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS security_version BIGINT NOT NULL DEFAULT 1;`},
+		{43, `ALTER TABLE codelocal_devices ADD COLUMN IF NOT EXISTS public_key TEXT;`},
+	}
 }
 
 func validateSchemaMigrationPlan(migrations []schemaMigration) error {
@@ -1298,7 +1304,7 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, passwordSal
 
 	for attempt := 0; attempt < 10; attempt++ {
 		ownCode := RandomReferralCode()
-		user := User{ID: RandomHex(16), Email: email, PasswordHash: passwordHash, PasswordSalt: passwordSalt, ReferralCode: ownCode, ReferredByCode: referredByCode, CreatedAt: time.Now().UnixMilli()}
+		user := User{ID: RandomHex(16), Email: email, PasswordHash: passwordHash, PasswordSalt: passwordSalt, SecurityVersion: 1, ReferralCode: ownCode, ReferredByCode: referredByCode, CreatedAt: time.Now().UnixMilli()}
 		_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_users(id,email,password_hash,password_salt,referral_code,referred_by_code,created_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),$7)`, user.ID, user.Email, user.PasswordHash, user.PasswordSalt, user.ReferralCode, user.ReferredByCode, user.CreatedAt)
 		if err == nil {
 			return user, nil
@@ -1317,7 +1323,7 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, passwordSal
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	var referredBy *string
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.PasswordSalt, &u.PasswordChangedAt, &u.ReferralCode, &referredBy, &u.CreatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.PasswordSalt, &u.PasswordChangedAt, &u.SecurityVersion, &u.ReferralCode, &referredBy, &u.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -1330,11 +1336,11 @@ func scanUser(row pgx.Row) (*User, error) {
 }
 
 func (s *Store) UserByEmail(ctx context.Context, email string) (*User, error) {
-	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,referral_code,referred_by_code,created_at FROM codelocal_users WHERE email=$1`, normalizeEmail(email)))
+	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,security_version,referral_code,referred_by_code,created_at FROM codelocal_users WHERE email=$1`, normalizeEmail(email)))
 }
 
 func (s *Store) UserByID(ctx context.Context, id string) (*User, error) {
-	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,referral_code,referred_by_code,created_at FROM codelocal_users WHERE id=$1`, id))
+	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,security_version,referral_code,referred_by_code,created_at FROM codelocal_users WHERE id=$1`, id))
 }
 
 func (s *Store) UserByReferralCode(ctx context.Context, code string) (*User, error) {
@@ -1342,17 +1348,18 @@ func (s *Store) UserByReferralCode(ctx context.Context, code string) (*User, err
 	if !ValidReferralCode(code) {
 		return nil, nil
 	}
-	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,referral_code,referred_by_code,created_at FROM codelocal_users WHERE UPPER(referral_code)=$1`, code))
+	return scanUser(s.DB.QueryRow(ctx, `SELECT id,email,password_hash,password_salt,password_changed_at,security_version,referral_code,referred_by_code,created_at FROM codelocal_users WHERE UPPER(referral_code)=$1`, code))
 }
 
 func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash, passwordSalt string, changedAt int64) error {
-	result, err := s.DB.Exec(ctx, `UPDATE codelocal_users SET password_hash=$2,password_salt=$3,password_changed_at=$4 WHERE id=$1`, userID, passwordHash, passwordSalt, changedAt)
+	result, err := s.DB.Exec(ctx, `UPDATE codelocal_users SET password_hash=$2,password_salt=$3,password_changed_at=$4,security_version=security_version+1 WHERE id=$1`, userID, passwordHash, passwordSalt, changedAt)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() != 1 {
 		return errors.New("USER_NOT_FOUND")
 	}
+	_ = s.ClearUserSecurityCache(ctx, userID)
 	return nil
 }
 
@@ -1458,7 +1465,7 @@ func (s *Store) ApprovePairing(ctx context.Context, id, code, userID string) (*P
 	return scanPairing(s.DB.QueryRow(ctx, `UPDATE codelocal_pairings SET user_id=$3,approved_at=$4 WHERE pairing_id=$1 AND code=$2 AND expires_at>$4 AND approved_at IS NULL AND claimed_at IS NULL AND user_id IS NULL RETURNING pairing_id,code,device_id,device_name,user_id,created_at,expires_at,approved_at,claimed_at`, id, code, userID, now))
 }
 
-func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secretHash string) (*Device, error) {
+func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secretHash, publicKey string) (*Device, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -1480,14 +1487,14 @@ func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secret
 		}
 		var d Device
 		var revoked *int64
-		deviceErr := tx.QueryRow(ctx, `SELECT credential_id,user_id,device_id,device_name,secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE user_id=$1 AND device_id=$2 AND credential_id=$3`, userID, p.DeviceID, credentialID).Scan(&d.CredentialID, &d.UserID, &d.DeviceID, &d.DeviceName, &d.SecretHash, &d.CreatedAt, &d.LastSeenAt, &revoked)
+		deviceErr := tx.QueryRow(ctx, `SELECT credential_id,user_id,device_id,device_name,COALESCE(public_key,''),secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE user_id=$1 AND device_id=$2 AND credential_id=$3`, userID, p.DeviceID, credentialID).Scan(&d.CredentialID, &d.UserID, &d.DeviceID, &d.DeviceName, &d.PublicKey, &d.SecretHash, &d.CreatedAt, &d.LastSeenAt, &revoked)
 		if errors.Is(deviceErr, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		if deviceErr != nil {
 			return nil, deviceErr
 		}
-		if revoked != nil || !EqualSecretHash(d.SecretHash, secretHash) {
+		if revoked != nil || !EqualSecretHash(d.SecretHash, secretHash) || d.PublicKey != strings.TrimSpace(publicKey) {
 			return nil, nil
 		}
 		return &d, nil
@@ -1503,7 +1510,8 @@ func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secret
 	if _, err = tx.Exec(ctx, `UPDATE codelocal_pairings SET claimed_at=$2 WHERE pairing_id=$1`, id, now); err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO codelocal_devices(credential_id,user_id,device_id,device_name,secret_hash,created_at,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,$6) ON CONFLICT(user_id,device_id) DO UPDATE SET credential_id=EXCLUDED.credential_id,device_name=EXCLUDED.device_name,secret_hash=EXCLUDED.secret_hash,created_at=EXCLUDED.created_at,last_seen_at=EXCLUDED.last_seen_at,revoked_at=NULL`, credentialID, userID, p.DeviceID, p.DeviceName, secretHash, now); err != nil {
+	publicKey = strings.TrimSpace(publicKey)
+	if _, err = tx.Exec(ctx, `INSERT INTO codelocal_devices(credential_id,user_id,device_id,device_name,public_key,secret_hash,created_at,last_seen_at) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7,$7) ON CONFLICT(user_id,device_id) DO UPDATE SET credential_id=EXCLUDED.credential_id,device_name=EXCLUDED.device_name,public_key=EXCLUDED.public_key,secret_hash=EXCLUDED.secret_hash,created_at=EXCLUDED.created_at,last_seen_at=EXCLUDED.last_seen_at,revoked_at=NULL`, credentialID, userID, p.DeviceID, p.DeviceName, publicKey, secretHash, now); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1513,9 +1521,10 @@ func (s *Store) ClaimPairing(ctx context.Context, id, code, credentialID, secret
 	if previousCredentialID != "" && previousCredentialID != credentialID {
 		keys = append(keys, "codelocal:device:"+previousCredentialID, "codelocal:device-touch:"+previousCredentialID)
 		_ = s.ClearSecurityState(ctx, "credential", previousCredentialID)
+		_ = s.ClearDeviceNonceState(ctx, previousCredentialID)
 	}
 	s.invalidateDeviceCache(keys...)
-	return &Device{CredentialID: credentialID, PreviousCredentialID: previousCredentialID, UserID: userID, DeviceID: p.DeviceID, DeviceName: p.DeviceName, SecretHash: secretHash, CreatedAt: now, LastSeenAt: now}, nil
+	return &Device{CredentialID: credentialID, PreviousCredentialID: previousCredentialID, UserID: userID, DeviceID: p.DeviceID, DeviceName: p.DeviceName, PublicKey: publicKey, SecretHash: secretHash, CreatedAt: now, LastSeenAt: now}, nil
 }
 
 func (s *Store) AuthenticateDevice(ctx context.Context, credentialID, secretHash string) (*Device, error) {
@@ -1532,7 +1541,7 @@ func (s *Store) AuthenticateDevice(ctx context.Context, credentialID, secretHash
 	}
 	var d Device
 	var revoked *int64
-	err := s.DB.QueryRow(ctx, `SELECT credential_id,user_id,device_id,device_name,secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE credential_id=$1`, credentialID).Scan(&d.CredentialID, &d.UserID, &d.DeviceID, &d.DeviceName, &d.SecretHash, &d.CreatedAt, &d.LastSeenAt, &revoked)
+	err := s.DB.QueryRow(ctx, `SELECT credential_id,user_id,device_id,device_name,COALESCE(public_key,''),secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE credential_id=$1`, credentialID).Scan(&d.CredentialID, &d.UserID, &d.DeviceID, &d.DeviceName, &d.PublicKey, &d.SecretHash, &d.CreatedAt, &d.LastSeenAt, &revoked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -1556,7 +1565,7 @@ func (s *Store) AuthenticateDevice(ctx context.Context, credentialID, secretHash
 }
 
 func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error) {
-	rows, err := s.DB.Query(ctx, `SELECT credential_id,user_id,device_id,device_name,secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE user_id=$1 ORDER BY last_seen_at DESC`, userID)
+	rows, err := s.DB.Query(ctx, `SELECT credential_id,user_id,device_id,device_name,COALESCE(public_key,''),secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE user_id=$1 ORDER BY last_seen_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1565,7 +1574,7 @@ func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error
 	for rows.Next() {
 		var d Device
 		var revoked *int64
-		if err := rows.Scan(&d.CredentialID, &d.UserID, &d.DeviceID, &d.DeviceName, &d.SecretHash, &d.CreatedAt, &d.LastSeenAt, &revoked); err != nil {
+		if err := rows.Scan(&d.CredentialID, &d.UserID, &d.DeviceID, &d.DeviceName, &d.PublicKey, &d.SecretHash, &d.CreatedAt, &d.LastSeenAt, &revoked); err != nil {
 			return nil, err
 		}
 		if revoked != nil {
@@ -1603,6 +1612,7 @@ func (s *Store) RevokeDevice(ctx context.Context, userID, credentialID string) (
 	}
 	s.invalidateDeviceCache("codelocal:device:"+credentialID, "codelocal:device-touch:"+credentialID)
 	_ = s.ClearSecurityState(ctx, "credential", credentialID)
+	_ = s.ClearDeviceNonceState(ctx, credentialID)
 	return result.RowsAffected() == 1, nil
 }
 

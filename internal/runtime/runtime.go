@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/deviceauth"
 	"github.com/0xmarkhydra/codelocal/internal/identity"
 	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/localclient"
@@ -123,6 +124,9 @@ func (r *Runtime) post(ctx context.Context, path string, input any, output any) 
 		return err
 	}
 	r.headers(req)
+	if err := deviceauth.SignRequest(req, raw, r.Options.Credential.DevicePrivateKey, time.Now()); err != nil {
+		return err
+	}
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return err
@@ -457,8 +461,16 @@ func newWorkspaceWorker(r *Runtime, w workspace.Workspace) (*WorkspaceWorker, er
 func (w *WorkspaceWorker) Start(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	w.cancel = cancel
+	target := wsURL(w.Runtime.Options.BaseURL)
 	headers := http.Header{}
-	conn, _, err := websocket.Dial(ctx, wsURL(w.Runtime.Options.BaseURL), &websocket.DialOptions{HTTPHeader: headers, CompressionMode: websocket.CompressionContextTakeover})
+	if w.Runtime.Options.Credential.DevicePrivateKey != "" {
+		signed, err := deviceauth.SignatureHeaders(http.MethodGet, target, nil, w.Runtime.Options.Credential.DevicePrivateKey, time.Now())
+		if err != nil {
+			return err
+		}
+		headers = signed
+	}
+	conn, _, err := websocket.Dial(ctx, target, &websocket.DialOptions{HTTPHeader: headers, CompressionMode: websocket.CompressionContextTakeover})
 	if err != nil {
 		return err
 	}

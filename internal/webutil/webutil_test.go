@@ -46,3 +46,29 @@ func TestDecodeJSONRemainsStrictElsewhere(t *testing.T) {
 		t.Fatal("unknown fields should remain rejected outside compatibility endpoints")
 	}
 }
+
+func TestClientIPPrefersRailwayRealIP(t *testing.T) {
+	t.Setenv("RAILWAY_ENVIRONMENT_ID", "test")
+	req := httptest.NewRequest("GET", "https://example.test", nil)
+	req.RemoteAddr = "10.0.0.7:4321"
+	req.Header.Set("X-Real-IP", "203.0.113.42")
+	req.Header.Set("X-Forwarded-For", "198.51.100.9, 10.0.0.1")
+	if got := ClientIP(req); got != "203.0.113.42" {
+		t.Fatalf("ClientIP=%q want Railway X-Real-IP", got)
+	}
+}
+
+func TestClientIPFallsBackSafely(t *testing.T) {
+	t.Setenv("RAILWAY_ENVIRONMENT_ID", "test")
+	req := httptest.NewRequest("GET", "https://example.test", nil)
+	req.RemoteAddr = "10.0.0.7:4321"
+	req.Header.Set("X-Real-IP", "not-an-ip")
+	req.Header.Set("X-Forwarded-For", "198.51.100.9, 10.0.0.1")
+	if got := ClientIP(req); got != "198.51.100.9" {
+		t.Fatalf("ClientIP=%q want validated X-Forwarded-For fallback", got)
+	}
+	req.Header.Set("X-Forwarded-For", "also-not-an-ip")
+	if got := ClientIP(req); got != "10.0.0.7" {
+		t.Fatalf("ClientIP=%q want RemoteAddr fallback", got)
+	}
+}

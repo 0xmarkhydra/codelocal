@@ -406,6 +406,9 @@ func (s *Server) mainConnect(w http.ResponseWriter, r *http.Request, identity *w
 }
 
 func (s *Server) mainRevokeDevice(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
+	if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, "/dashboard/devices") {
+		return
+	}
 	if !s.WebAuth.VerifyCSRF(r) {
 		http.Error(w, "Invalid security token. Reload the page and try again.", http.StatusForbidden)
 		return
@@ -443,6 +446,9 @@ func (s *Server) mainRevokeDevice(w http.ResponseWriter, r *http.Request, identi
 }
 
 func (s *Server) mainRemoveWorkspace(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
+	if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, "/dashboard/workspaces") {
+		return
+	}
 	if !s.WebAuth.VerifyCSRF(r) {
 		http.Error(w, "Invalid security token. Reload the page and try again.", http.StatusForbidden)
 		return

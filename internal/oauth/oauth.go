@@ -24,14 +24,16 @@ import (
 const Scope = "mcp:tools offline_access"
 
 type tokenPayload struct {
-	Type     string `json:"typ"`
-	Subject  string `json:"sub"`
-	ClientID string `json:"client_id"`
-	Resource string `json:"resource"`
-	Scope    string `json:"scope"`
-	IssuedAt int64  `json:"iat"`
-	Expires  int64  `json:"exp"`
-	JTI      string `json:"jti"`
+	Type            string `json:"typ"`
+	Subject         string `json:"sub"`
+	ClientID        string `json:"client_id"`
+	Resource        string `json:"resource"`
+	Scope           string `json:"scope"`
+	IssuedAt        int64  `json:"iat"`
+	Expires         int64  `json:"exp"`
+	JTI             string `json:"jti"`
+	FamilyID        string `json:"fid,omitempty"`
+	SecurityVersion int64  `json:"sv,omitempty"`
 }
 
 type Claims struct {
@@ -127,11 +129,11 @@ func parseScope(value string) string {
 	}
 	return strings.Join(ordered, " ")
 }
-func (s *Server) issue(userID, clientID, resource, scope string) map[string]any {
-	now := time.Now().Unix()
+func (s *Server) tokenPair(userID, clientID, resource, scope, familyID string, securityVersion int64, refreshJTI string, issuedAt int64) map[string]any {
 	scope = parseScope(scope)
-	access := s.sign(tokenPayload{Type: "access", Subject: userID, ClientID: clientID, Resource: resource, Scope: scope, IssuedAt: now, Expires: now + int64(s.AccessTTL.Seconds()), JTI: randomURL(16)})
-	refresh := s.sign(tokenPayload{Type: "refresh", Subject: userID, ClientID: clientID, Resource: resource, Scope: scope, IssuedAt: now, Expires: now + int64(s.RefreshTTL.Seconds()), JTI: randomURL(16)})
+	accessJTI := s.deriveTokenID("access-jti", familyID, refreshJTI)
+	access := s.sign(tokenPayload{Type: "access", Subject: userID, ClientID: clientID, Resource: resource, Scope: scope, IssuedAt: issuedAt, Expires: issuedAt + int64(s.AccessTTL.Seconds()), JTI: accessJTI, FamilyID: familyID, SecurityVersion: securityVersion})
+	refresh := s.sign(tokenPayload{Type: "refresh", Subject: userID, ClientID: clientID, Resource: resource, Scope: scope, IssuedAt: issuedAt, Expires: issuedAt + int64(s.RefreshTTL.Seconds()), JTI: refreshJTI, FamilyID: familyID, SecurityVersion: securityVersion})
 	return map[string]any{"access_token": access, "refresh_token": refresh, "token_type": "Bearer", "expires_in": int64(s.AccessTTL.Seconds()), "scope": scope}
 }
 
@@ -313,16 +315,30 @@ func (s *Server) Register(mux *http.ServeMux) {
 				webutil.JSON(w, 400, map[string]any{"error": "invalid_grant"})
 				return
 			}
-			webutil.JSON(w, 200, s.issue(record.UserID, clientID, resource, record.Scope))
+			tokens, err := s.issueInitial(r.Context(), record.UserID, clientID, resource, record.Scope)
+			if err != nil {
+				webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "temporarily_unavailable"})
+				return
+			}
+			webutil.JSON(w, http.StatusOK, tokens)
 			return
 		}
 		if grant == "refresh_token" {
 			payload, err := s.verify(r.Form.Get("refresh_token"), "refresh")
 			if err != nil || payload.ClientID != clientID || payload.Resource != resource {
-				webutil.JSON(w, 400, map[string]any{"error": "invalid_grant"})
+				webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
 				return
 			}
-			webutil.JSON(w, 200, s.issue(payload.Subject, clientID, resource, payload.Scope))
+			tokens, err := s.rotateRefresh(r.Context(), payload)
+			if errors.Is(err, ErrTokenStateUnavailable) {
+				webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "temporarily_unavailable"})
+				return
+			}
+			if err != nil {
+				webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
+				return
+			}
+			webutil.JSON(w, http.StatusOK, tokens)
 			return
 		}
 		webutil.JSON(w, 400, map[string]any{"error": "unsupported_grant_type"})
@@ -348,6 +364,13 @@ func (s *Server) RequireMCP(next http.Handler) http.Handler {
 		}
 		payload, err := s.verify(strings.TrimPrefix(header, "Bearer "), "access")
 		if err != nil {
+			s.unauthorized(w)
+			return
+		}
+		if err := s.validateTokenSecurity(r.Context(), payload); errors.Is(err, ErrTokenStateUnavailable) {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "temporarily_unavailable"})
+			return
+		} else if err != nil {
 			s.unauthorized(w)
 			return
 		}

@@ -310,6 +310,9 @@ func (m *Manager) changePasswordPost(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?next=%2Fdashboard%2Faccount", http.StatusFound)
 		return
 	}
+	if !m.RequireFreshSecurityContext(w, r, identity, "/dashboard/account") {
+		return
+	}
 	if !m.VerifyCSRF(r) {
 		http.Redirect(w, r, "/dashboard/account?error="+url.QueryEscape("Security token expired. Please try again."), http.StatusSeeOther)
 		return

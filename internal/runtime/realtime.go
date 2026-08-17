@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/deviceauth"
 	"github.com/0xmarkhydra/codelocal/internal/version"
 	"github.com/0xmarkhydra/codelocal/internal/workspace"
 	"github.com/coder/websocket"
@@ -84,7 +86,17 @@ func runtimeControlError(err error) error {
 func (r *Runtime) dialRuntimeControl(ctx context.Context, items []workspace.Workspace) (*websocket.Conn, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	conn, _, err := websocket.Dial(dialCtx, runtimeControlURL(r.Options.BaseURL), &websocket.DialOptions{
+	target := runtimeControlURL(r.Options.BaseURL)
+	headers := http.Header{}
+	if r.Options.Credential.DevicePrivateKey != "" {
+		signed, err := deviceauth.SignatureHeaders(http.MethodGet, target, nil, r.Options.Credential.DevicePrivateKey, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		headers = signed
+	}
+	conn, _, err := websocket.Dial(dialCtx, target, &websocket.DialOptions{
+		HTTPHeader:      headers,
 		CompressionMode: websocket.CompressionContextTakeover,
 	})
 	if err != nil {

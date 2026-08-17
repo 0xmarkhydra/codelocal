@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/deviceauth"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
-	"github.com/0xmarkhydra/codelocal/internal/webutil"
 	"github.com/coder/websocket"
 )
 
@@ -70,6 +70,24 @@ func equalSecret(actual, expected string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) == 1
+}
+
+func (h *Hub) verifySignedDeviceRequest(r *http.Request, device *cloud.Device) error {
+	if device == nil || device.PublicKey == "" {
+		return nil
+	}
+	now := time.Now()
+	if err := deviceauth.VerifyRequest(r, device.PublicKey, now); err != nil {
+		return err
+	}
+	used, err := h.Store.ConsumeDeviceNonce(r.Context(), device.CredentialID, deviceauth.RequestNonce(r), now)
+	if err != nil {
+		return err
+	}
+	if !used {
+		return errors.New("device signature replay detected")
+	}
+	return nil
 }
 
 func NewHub(store *cloud.Store, instanceID string) *Hub {
@@ -234,9 +252,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusCode(4403), "AUTH_FAILED")
 		return
 	}
-	decision, err := h.Store.ObserveSecurityState(ctx, "credential", msg.CredentialID, webutil.RequestSecuritySignal(r, ""), 30*24*time.Hour)
-	if err != nil || decision.HighRisk {
-		_ = conn.Close(websocket.StatusCode(4403), "SECURITY_CONTEXT_MISMATCH")
+	if err := h.verifySignedDeviceRequest(r, device); err != nil {
+		_ = conn.Close(websocket.StatusCode(4403), "DEVICE_SIGNATURE_INVALID")
 		return
 	}
 	if msg.DeviceID == "" {
