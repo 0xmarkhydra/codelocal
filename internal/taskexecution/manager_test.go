@@ -43,7 +43,7 @@ func TestManagerPersistsAndResumesTaskExecutionBundle(t *testing.T) {
 	}
 }
 
-func TestManagerRejectsRepositoryCoverageChangeOnResume(t *testing.T) {
+func TestManagerExpandsRepositoryCoverageWithoutReplacingExistingBinding(t *testing.T) {
 	ctx := context.Background()
 	firstRepo := makeTaskRepo(t)
 	secondRepo := makeTaskRepo(t)
@@ -54,14 +54,29 @@ func TestManagerRejectsRepositoryCoverageChangeOnResume(t *testing.T) {
 		NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees")),
 	)
 	req := PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", Repositories: []repository.Checkout{firstRepo}}
-	if _, err := manager.EnsureLocal(ctx, req, "agent-a", time.Minute); err != nil {
+	first, err := manager.EnsureLocal(ctx, req, "agent-a", time.Minute)
+	if err != nil {
 		t.Fatal(err)
 	}
+	firstPath := first.RepositoryBindings[0].LocalPath
 	if _, err := manager.Release(req.WorkspaceKey, req.TaskID, "agent-a"); err != nil {
 		t.Fatal(err)
 	}
-	req.Repositories = []repository.Checkout{firstRepo, secondRepo}
-	if _, err := manager.EnsureLocal(ctx, req, "agent-a", time.Minute); !errors.Is(err, ErrRepositoryCoverageChanged) {
-		t.Fatalf("repository coverage mutation must be explicit, got %v", err)
+	req.Repositories = []repository.Checkout{secondRepo}
+	expanded, err := manager.EnsureLocal(ctx, req, "agent-a", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expanded.RepositoryBindings) != 2 {
+		t.Fatalf("expected task bundle to expand to two repositories: %#v", expanded.RepositoryBindings)
+	}
+	foundFirst := false
+	for _, binding := range expanded.RepositoryBindings {
+		if binding.RepositoryID == firstRepo.ID && binding.LocalPath == firstPath {
+			foundFirst = true
+		}
+	}
+	if !foundFirst {
+		t.Fatalf("existing task binding was replaced during expansion: %#v", expanded.RepositoryBindings)
 	}
 }

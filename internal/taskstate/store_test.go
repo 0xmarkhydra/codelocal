@@ -35,6 +35,30 @@ func TestStoreKeepsOperationalContext(t *testing.T) {
 	}
 }
 
+func TestTaskIDPersistsUntilTaskChanges(t *testing.T) {
+	store := New(8)
+	first := store.Update("u", "s", "w", Patch{Task: "Task A"})
+	if first.TaskID == "" {
+		t.Fatal("expected stable task ID to be created")
+	}
+	second := store.Update("u", "s", "w", Patch{TouchedFiles: []string{"a.go"}})
+	if second.TaskID != first.TaskID {
+		t.Fatalf("same task changed ID: first=%q second=%q", first.TaskID, second.TaskID)
+	}
+	third := store.Update("u", "s", "w", Patch{Task: "Task B"})
+	if third.TaskID == "" || third.TaskID == first.TaskID {
+		t.Fatalf("new task must receive a new ID: first=%q third=%q", first.TaskID, third.TaskID)
+	}
+}
+
+func TestCarriedTaskIDIsPreservedOnFreshSession(t *testing.T) {
+	store := New(8)
+	state := store.Update("u", "new-session", "w", Patch{TaskID: "task_carried", Task: "Continue Task A"})
+	if state.TaskID != "task_carried" {
+		t.Fatalf("carried task ID was replaced: %#v", state)
+	}
+}
+
 func TestStoreSeparatesSessionsAndWorkspaces(t *testing.T) {
 	store := New(8)
 	store.Update("u", "thread-a", "repo", Patch{Task: "Task A"})

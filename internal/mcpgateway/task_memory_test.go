@@ -13,6 +13,22 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func TestTaskExecutionRuntimeArgsArePrivateCopy(t *testing.T) {
+	original := map[string]any{"path": "web/src/login.ts"}
+	state := taskstate.State{TaskID: "task_abc", SessionID: "session-1"}
+	runtime := taskExecutionRuntimeArgs(original, state)
+	if runtime["__codelocalTaskId"] != "task_abc" || runtime["__codelocalTaskOwner"] != "session-1" {
+		t.Fatalf("private task execution context missing: %#v", runtime)
+	}
+	if _, exists := original["__codelocalTaskId"]; exists {
+		t.Fatalf("runtime injection mutated public tool args: %#v", original)
+	}
+	withoutTask := taskExecutionRuntimeArgs(original, taskstate.State{})
+	if _, exists := withoutTask["__codelocalTaskId"]; exists {
+		t.Fatalf("empty task state injected execution metadata: %#v", withoutTask)
+	}
+}
+
 func TestTaskPatchTracksContextAndEditPaths(t *testing.T) {
 	contextOp := operationInvocation{OperationID: "context.task"}
 	patch := taskPatchForOperation("context", contextOp, map[string]any{"taskHint": "Fix login"}, nil)

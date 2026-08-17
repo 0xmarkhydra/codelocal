@@ -1,6 +1,7 @@
 package process
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -54,6 +55,38 @@ func TestProcessManagerExecutesAndCleansRequestMapping(t *testing.T) {
 	cancelled := manager.CancelRequest("request-1", "late cancel")
 	if cancelled["cancelled"] != false {
 		t.Fatalf("request mapping was not released: %#v", cancelled)
+	}
+}
+
+func TestProcessSnapshotUsesDisplayCWDWithoutLeakingExecutionPath(t *testing.T) {
+	usePortableTestShell(t)
+	workspace := t.TempDir()
+	execution := filepath.Join(t.TempDir(), "private-worktree")
+	if err := os.MkdirAll(execution, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(workspace, "test-workspace", nil, nil)
+	started, err := manager.Start("pwd", StartOptions{CWD: execution, DisplayCWD: "backend/auth", Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := waitExited(t, manager, started.ProcessID)
+	if finished.CWD != "backend/auth" {
+		t.Fatalf("logical CWD not preserved: %#v", finished)
+	}
+	if strings.Contains(finished.CWD, "private-worktree") || strings.Contains(finished.CWD, execution) {
+		t.Fatalf("snapshot leaked private execution path: %#v", finished)
+	}
+	stdout, _ := finished.Stdout["text"].(string)
+	if strings.Contains(stdout, execution) || strings.Contains(stdout, "private-worktree") {
+		t.Fatalf("process output leaked private execution path: %#v", finished.Stdout)
+	}
+	if !strings.Contains(stdout, "backend/auth") {
+		t.Fatalf("process output did not replace private cwd with logical cwd: %#v", finished.Stdout)
+	}
+	listed := manager.List()
+	if len(listed) != 1 || listed[0]["cwd"] != "backend/auth" {
+		t.Fatalf("process list did not preserve display CWD: %#v", listed)
 	}
 }
 

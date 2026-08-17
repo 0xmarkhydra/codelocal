@@ -16,3 +16,5 @@ grap/
 !.codelocal/rules/**
 !.codelocal/skills/
 !.codelocal/skills/**
+
+.codelocal/worktrees/

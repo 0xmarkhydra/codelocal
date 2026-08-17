@@ -34,30 +34,32 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
 	"github.com/0xmarkhydra/codelocal/internal/repository"
 	"github.com/0xmarkhydra/codelocal/internal/security"
+	"github.com/0xmarkhydra/codelocal/internal/taskexecution"
 	"github.com/0xmarkhydra/codelocal/internal/version"
 )
 
 type Engine struct {
-	Root          string
-	WorkspaceID   string
-	WorkspaceName string
-	WorkspaceKey  string
-	DeviceID      string
-	ShellEnabled  bool
-	ApprovalMode  string
-	FS            *localfs.FS
-	Project       *project.Engine
-	Repositories  *repository.Registry
-	Editing       *editing.Engine
-	Processes     *processmgr.Manager
-	Approvals     *approval.Memory
-	Broker        *approval.Broker
-	History       *history.Terminal
-	Journal       *idempotency.Journal
-	MCP           *mcphub.Hub
-	Skills        *learnedskills.Store
-	mu            sync.Mutex
-	baselines     map[string][]map[string]any
+	Root           string
+	WorkspaceID    string
+	WorkspaceName  string
+	WorkspaceKey   string
+	DeviceID       string
+	ShellEnabled   bool
+	ApprovalMode   string
+	FS             *localfs.FS
+	Project        *project.Engine
+	Repositories   *repository.Registry
+	TaskExecutions *taskexecution.Manager
+	Editing        *editing.Engine
+	Processes      *processmgr.Manager
+	Approvals      *approval.Memory
+	Broker         *approval.Broker
+	History        *history.Terminal
+	Journal        *idempotency.Journal
+	MCP            *mcphub.Hub
+	Skills         *learnedskills.Store
+	mu             sync.Mutex
+	baselines      map[string][]map[string]any
 }
 
 type HandleOptions struct{ RequestID, SessionID, IdempotencyKey string }
@@ -73,7 +75,7 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	shellEnabled := os.Getenv("CODELOCAL_ALLOW_SHELL") != "0"
 	approvalMode := string(approval.ResolveMode(workspaceID))
 	repositories := repository.New(fs.Root, workspaceName)
-	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.NewWithRepositories(fs, repositories), Repositories: repositories, Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
+	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.NewWithRepositories(fs, repositories), Repositories: repositories, TaskExecutions: taskexecution.NewManager(nil, nil), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
 	engine.Processes = processmgr.NewManager(fs.Root, workspaceKey, func(record *processmgr.Record, stream, value string) {}, func(record *processmgr.Record) {
 		_, _ = terminalHistory.Finished(record)
 		engine.Project.Invalidate()
@@ -213,6 +215,10 @@ func (e *Engine) authorize(command, cwd, provided, sessionID string) (bool, map[
 }
 
 func (e *Engine) authorizeDecision(command, cwd, provided, sessionID string, decision security.Decision) (bool, map[string]any, security.Decision, error) {
+	return e.authorizeDecisionWithDisplay(command, cwd, e.FS.Rel(cwd), provided, sessionID, decision)
+}
+
+func (e *Engine) authorizeDecisionWithDisplay(command, executionCWD, displayCWD, provided, sessionID string, decision security.Decision) (bool, map[string]any, security.Decision, error) {
 	if decision.Blocked {
 		return false, map[string]any{"status": "blocked", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy}, decision, errors.New(decision.Reason)
 	}
@@ -238,7 +244,7 @@ func (e *Engine) authorizeDecision(command, cwd, provided, sessionID string, dec
 			return true, map[string]any{"remembered": true, "approvalId": remembered.ID}, decision, nil
 		}
 	}
-	if provided != "" && e.Broker.ConsumeScoped(sessionID, provided, command, e.FS.Rel(cwd), decision) {
+	if provided != "" && e.Broker.ConsumeScoped(sessionID, provided, command, displayCWD, decision) {
 		if decision.ApprovalPolicy == security.ApprovalRememberable {
 			entry, err := e.Approvals.Remember(e.WorkspaceKey, sessionID, decision)
 			if err != nil {
@@ -253,19 +259,12 @@ func (e *Engine) authorizeDecision(command, cwd, provided, sessionID string, dec
 		}
 		return true, map[string]any{"approved": true}, decision, nil
 	}
-	preflight := e.Broker.PreflightScoped(sessionID, command, e.FS.Rel(cwd), decision)
+	preflight := e.Broker.PreflightScoped(sessionID, command, displayCWD, decision)
 	return false, map[string]any{"status": preflight.Status, "riskLevel": preflight.RiskLevel, "reason": preflight.Reason, "matchedRules": preflight.MatchedRules, "command": preflight.Command, "approvalPolicy": preflight.ApprovalPolicy, "approvalKey": preflight.ApprovalKey, "approvalLabel": preflight.ApprovalLabel, "approvalToken": preflight.ApprovalToken, "expiresAt": preflight.ExpiresAt}, decision, nil
 }
 
-func (e *Engine) PreflightScoped(command, cwd, sessionID string) (map[string]any, error) {
-	if !e.ShellEnabled {
-		return map[string]any{"status": "blocked", "riskLevel": "BLOCKED", "reason": "Shell execution is disabled for this workspace.", "matchedRules": []string{"shell-disabled"}, "command": command, "approvalPolicy": "blocked"}, nil
-	}
-	absolute, err := e.cwd(cwd)
-	if err != nil {
-		return nil, err
-	}
-	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: e.Root, CWD: absolute})
+func (e *Engine) preflightAt(command, securityRoot, executionCWD, displayCWD, sessionID string) (map[string]any, error) {
+	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: securityRoot, CWD: executionCWD})
 	mode := approval.ResolveMode(e.WorkspaceID)
 	e.ApprovalMode = string(mode)
 	if approval.AgentAllows(mode, decision) {
@@ -280,8 +279,19 @@ func (e *Engine) PreflightScoped(command, cwd, sessionID string) (map[string]any
 			return map[string]any{"status": "safe", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalKey": decision.ApprovalKey, "approvalLabel": decision.ApprovalLabel, "remembered": true, "approvalId": remembered.ID, "expiresAt": remembered.ExpiresAt}, nil
 		}
 	}
-	pre := e.Broker.PreflightScoped(sessionID, command, e.FS.Rel(absolute), decision)
+	pre := e.Broker.PreflightScoped(sessionID, command, displayCWD, decision)
 	return map[string]any{"status": pre.Status, "riskLevel": pre.RiskLevel, "reason": pre.Reason, "matchedRules": pre.MatchedRules, "command": pre.Command, "approvalPolicy": pre.ApprovalPolicy, "approvalKey": pre.ApprovalKey, "approvalLabel": pre.ApprovalLabel, "approvalToken": pre.ApprovalToken, "expiresAt": pre.ExpiresAt}, nil
+}
+
+func (e *Engine) PreflightScoped(command, cwd, sessionID string) (map[string]any, error) {
+	if !e.ShellEnabled {
+		return map[string]any{"status": "blocked", "riskLevel": "BLOCKED", "reason": "Shell execution is disabled for this workspace.", "matchedRules": []string{"shell-disabled"}, "command": command, "approvalPolicy": "blocked"}, nil
+	}
+	absolute, err := e.cwd(cwd)
+	if err != nil {
+		return nil, err
+	}
+	return e.preflightAt(command, e.Root, absolute, e.FS.Rel(absolute), sessionID)
 }
 
 func (e *Engine) Preflight(command, cwd string) (map[string]any, error) {
@@ -292,11 +302,20 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 	if !e.ShellEnabled {
 		return nil, errors.New("Shell execution is disabled. Set CODELOCAL_ALLOW_SHELL=1 and restart CodeLocal to enable terminal tools.")
 	}
-	cwd, err := e.cwd(asString(args["cwd"]))
+	logicalCWD := strings.TrimSpace(asString(args["cwd"]))
+	if logicalCWD == "" {
+		logicalCWD = "."
+	}
+	target, cwd, err := e.taskExecutionBindingForCWD(context.Background(), args, opts, logicalCWD, asString(args[privateTaskExecutionID]) != "")
 	if err != nil {
 		return nil, err
 	}
-	approved, approvalState, decision, authErr := e.authorize(command, cwd, asString(args["approvalToken"]), opts.SessionID)
+	securityRoot := e.Root
+	if target.Active && target.FS != nil {
+		securityRoot = target.FS.Root
+	}
+	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: securityRoot, CWD: cwd})
+	approved, approvalState, decision, authErr := e.authorizeDecisionWithDisplay(command, cwd, logicalCWD, asString(args["approvalToken"]), opts.SessionID, decision)
 	if authErr != nil && decision.Blocked {
 		return approvalState, nil
 	}
@@ -307,7 +326,7 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 		return approvalState, nil
 	}
 	timeoutMs := asInt(args["timeoutMs"], 0)
-	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36)})
+	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, DisplayCWD: logicalCWD, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36)})
 	if err != nil {
 		return nil, err
 	}
@@ -321,9 +340,13 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 			approvalKind = "chat-confirmed"
 		}
 	}
-	_, _ = e.History.Started(history.StartInput{WorkspaceKey: e.WorkspaceKey, ProcessID: start.ProcessID, RequestID: opts.RequestID, SessionID: opts.SessionID, CWD: e.FS.Rel(cwd), Command: command, RiskLevel: string(decision.RiskLevel), MatchedRules: decision.MatchedRules, Approval: approvalKind, StartedAt: start.StartedAt, ExecutionMode: start.ExecutionMode})
-	audit.Write(audit.Event{Event: "process.started", RequestID: opts.RequestID, MCPSessionID: opts.SessionID, WorkspaceKey: e.WorkspaceKey, ProcessID: start.ProcessID, RiskLevel: string(decision.RiskLevel), Detail: map[string]any{"command": decision.RedactedCommand, "cwd": e.FS.Rel(cwd), "approval": approvalKind}})
-	return snapshotMap(start), nil
+	_, _ = e.History.Started(history.StartInput{WorkspaceKey: e.WorkspaceKey, ProcessID: start.ProcessID, RequestID: opts.RequestID, SessionID: opts.SessionID, CWD: logicalCWD, Command: command, RiskLevel: string(decision.RiskLevel), MatchedRules: decision.MatchedRules, Approval: approvalKind, StartedAt: start.StartedAt, ExecutionMode: start.ExecutionMode})
+	audit.Write(audit.Event{Event: "process.started", RequestID: opts.RequestID, MCPSessionID: opts.SessionID, WorkspaceKey: e.WorkspaceKey, ProcessID: start.ProcessID, RiskLevel: string(decision.RiskLevel), Detail: map[string]any{"command": decision.RedactedCommand, "cwd": logicalCWD, "approval": approvalKind, "taskExecution": taskExecutionMetadata(target)}})
+	result := snapshotMap(start)
+	if metadata := taskExecutionMetadata(target); metadata != nil {
+		result["taskExecution"] = metadata
+	}
+	return result, nil
 }
 
 func snapshotMap(s processmgr.Snapshot) map[string]any {
@@ -1068,11 +1091,11 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "file_info":
 		return e.FS.FileInfo(asString(args["path"]))
 	case "read_file":
-		return e.FS.Read(asString(args["path"]), 0, 0)
+		return e.taskReadFile(ctx, args, opts, asString(args["path"]), 0, 0)
 	case "read_file_range":
-		return e.FS.Read(asString(args["path"]), asInt(args["startLine"], 1), asInt(args["endLine"], 1))
+		return e.taskReadFile(ctx, args, opts, asString(args["path"]), asInt(args["startLine"], 1), asInt(args["endLine"], 1))
 	case "read_files":
-		return e.FS.ReadMany(stringSlice(args["paths"]))
+		return e.taskReadMany(ctx, args, opts, stringSlice(args["paths"]))
 	case "search_code":
 		return e.FS.Search(asString(args["query"]), defaultString(asString(args["path"]), "."), asInt(args["maxResults"], 200), asBool(args["fixedStrings"], false), asBool(args["includeIgnored"], false))
 	case "inspect_dependency":
@@ -1133,18 +1156,21 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		items, err := e.Project.ImportGraph(asInt(args["limit"], 2000))
 		return map[string]any{"edges": items}, err
 	case "write_file":
-		result, err := e.FS.Write(asString(args["path"]), asString(args["content"]), asString(args["expectedHash"]))
-		if err == nil {
+		result, err := e.taskWriteFile(ctx, args, opts, asString(args["path"]), asString(args["content"]), asString(args["expectedHash"]))
+		if err == nil && asString(args[privateTaskExecutionID]) == "" {
 			e.Project.Invalidate()
 		}
 		return result, err
 	case "edit_file":
-		result, err := e.FS.ExactEdit(asString(args["path"]), asString(args["oldText"]), asString(args["newText"]), asBool(args["replaceAll"], false), asString(args["expectedHash"]))
-		if err == nil {
+		result, err := e.taskExactEdit(ctx, args, opts, asString(args["path"]), asString(args["oldText"]), asString(args["newText"]), asBool(args["replaceAll"], false), asString(args["expectedHash"]))
+		if err == nil && asString(args[privateTaskExecutionID]) == "" {
 			e.Project.Invalidate()
 		}
 		return result, err
 	case "apply_patch":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskApplyPatch(ctx, args, opts, asString(args["patch"]))
+		}
 		result, err := e.Editing.ApplyPatch(asString(args["patch"]))
 		if err == nil {
 			e.Project.Invalidate()
@@ -1155,12 +1181,18 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		if err != nil {
 			return nil, err
 		}
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskApplyEdits(ctx, args, opts, files)
+		}
 		result, err := e.Editing.Apply(files)
 		if err == nil {
 			e.Project.Invalidate()
 		}
 		return result, err
 	case "format_changed_files":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskFormatFiles(ctx, args, opts, stringSlice(args["paths"]))
+		}
 		result, err := e.formatFiles(ctx, stringSlice(args["paths"]))
 		if err == nil {
 			e.Project.Invalidate()
@@ -1169,12 +1201,24 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "snapshot_diagnostics":
 		return e.snapshotDiagnostics(ctx, stringSlice(args["paths"]))
 	case "verify_changes":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskVerifyChanges(ctx, args, opts, stringSlice(args["paths"]), asString(args["baselineId"]))
+		}
 		return e.verifyChanges(ctx, stringSlice(args["paths"]), asString(args["baselineId"]))
 	case "git_status":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitStatus(args)
+		}
 		return e.gitStatus(asString(args["repository"]))
 	case "git_diff":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitDiff(ctx, args, opts)
+		}
 		return e.gitDiff(asString(args["repository"]), asString(args["path"]), asBool(args["cached"], false))
 	case "git_log":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitRead(ctx, "log", args, opts)
+		}
 		n := asInt(args["limit"], 20)
 		if n < 1 {
 			n = 1
@@ -1194,6 +1238,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		result, err := runGit(repo.Root, gitArgs...)
 		return withRepository(result, repo), err
 	case "git_show":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitRead(ctx, "show", args, opts)
+		}
 		repo, _, err := e.gitTarget(asString(args["repository"]), "")
 		if err != nil {
 			return nil, err
@@ -1201,6 +1248,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		result, err := runGit(repo.Root, "show", "--stat", "--oneline", "--decorate", defaultString(asString(args["ref"]), "HEAD"))
 		return withRepository(result, repo), err
 	case "git_blame":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitRead(ctx, "blame", args, opts)
+		}
 		path := asString(args["path"])
 		repo, repoPath, err := e.gitTarget(asString(args["repository"]), path)
 		if err != nil {
@@ -1215,6 +1265,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		result, err := runGit(repo.Root, gitArgs...)
 		return withRepository(result, repo), err
 	case "git_file_history":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitRead(ctx, "file_history", args, opts)
+		}
 		path := asString(args["path"])
 		repo, repoPath, err := e.gitTarget(asString(args["repository"]), path)
 		if err != nil {
@@ -1230,6 +1283,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		result, err := runGit(repo.Root, "log", "--follow", "-"+strconv.Itoa(n), "--date=iso", "--pretty=format:%h%x09%ad%x09%an%x09%s", "--", repoPath)
 		return withRepository(result, repo), err
 	case "git_stage":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitStage(ctx, args, opts, false)
+		}
 		paths := stringSlice(args["paths"])
 		if len(paths) == 0 {
 			return nil, errors.New("git_stage requires at least one path")
@@ -1242,6 +1298,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		result, err := e.guardedGitAt(repo.Root, gitArgs, asString(args["approvalToken"]), opts.SessionID)
 		return withRepository(result, repo), err
 	case "git_unstage":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitStage(ctx, args, opts, true)
+		}
 		paths := stringSlice(args["paths"])
 		if len(paths) == 0 {
 			return nil, errors.New("git_unstage requires at least one path")
@@ -1254,6 +1313,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		result, err := e.guardedGitAt(repo.Root, gitArgs, asString(args["approvalToken"]), opts.SessionID)
 		return withRepository(result, repo), err
 	case "git_commit":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitCommit(ctx, args, opts)
+		}
 		repo, _, err := e.gitTarget(asString(args["repository"]), "")
 		if err != nil {
 			return nil, err
@@ -1293,6 +1355,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		result, err := e.guardedGitAt(repo.Root, []string{"commit", "-m", asString(args["message"])}, asString(args["approvalToken"]), opts.SessionID)
 		return withRepository(result, repo), err
 	case "git_push":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskGitPush(ctx, args, opts)
+		}
 		if asBool(args["force"], false) {
 			return map[string]any{"status": "blocked", "riskLevel": "BLOCKED", "reason": "force push is blocked by CodeLocal"}, nil
 		}
@@ -1314,6 +1379,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "sandbox_smoke_test":
 		return map[string]any{"ok": true, "backend": "host-policy", "mode": "policy-only"}, nil
 	case "terminal_preflight":
+		if asString(args[privateTaskExecutionID]) != "" {
+			return e.taskPreflight(args, opts)
+		}
 		return e.PreflightScoped(asString(args["command"]), defaultString(asString(args["cwd"]), "."), opts.SessionID)
 	case "terminal_history":
 		return e.History.Query(e.WorkspaceKey, asString(args["query"]), defaultString(asString(args["event"]), "started"), asInt(args["limit"], 50))

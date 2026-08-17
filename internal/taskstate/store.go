@@ -1,6 +1,8 @@
 package taskstate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ type State struct {
 	UserID                 string    `json:"-"`
 	SessionID              string    `json:"sessionId"`
 	WorkspaceKey           string    `json:"workspaceKey"`
+	TaskID                 string    `json:"taskId,omitempty"`
 	Task                   string    `json:"task,omitempty"`
 	Branch                 string    `json:"branch,omitempty"`
 	TouchedFiles           []string  `json:"touchedFiles,omitempty"`
@@ -43,6 +46,7 @@ type State struct {
 // Patch updates only fields that are meaningful for working memory. Empty
 // scalar values are ignored so an incidental tool call cannot erase context.
 type Patch struct {
+	TaskID                 string
 	Task                   string
 	Branch                 string
 	TouchedFiles           []string
@@ -190,10 +194,16 @@ func (s *Store) LatestTask(userID, workspaceKey string, maxAge time.Duration) (S
 	return cloneState(latest), true
 }
 
+func newTaskID(userID, sessionID, workspaceKey, task string, now time.Time) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{strings.TrimSpace(userID), strings.TrimSpace(sessionID), strings.TrimSpace(workspaceKey), strings.TrimSpace(task), now.UTC().Format(time.RFC3339Nano)}, "\x00")))
+	return "task_" + hex.EncodeToString(sum[:8])
+}
+
 func resetAgentState(state *State) {
 	if state == nil {
 		return
 	}
+	state.TaskID = ""
 	state.TouchedFiles = nil
 	state.RecentChecks = nil
 	state.RecentErrors = nil
@@ -236,6 +246,13 @@ func (s *Store) Update(userID, sessionID, workspaceKey string, patch Patch) Stat
 			resetAgentState(&state)
 		}
 		state.Task = value
+		if id := strings.TrimSpace(patch.TaskID); id != "" {
+			state.TaskID = id
+		} else if state.TaskID == "" {
+			state.TaskID = newTaskID(userID, sessionID, workspaceKey, value, now)
+		}
+	} else if id := strings.TrimSpace(patch.TaskID); id != "" && state.TaskID == "" {
+		state.TaskID = id
 	}
 	if value := strings.TrimSpace(patch.Branch); value != "" {
 		state.Branch = value

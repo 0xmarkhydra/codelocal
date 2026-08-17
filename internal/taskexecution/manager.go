@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/0xmarkhydra/codelocal/internal/repository"
 )
 
 var (
@@ -30,34 +31,36 @@ func NewManager(store *Store, worktrees *LocalWorktreeProvider) *Manager {
 	return &Manager{Store: store, Worktrees: worktrees}
 }
 
-func repositoryCoverage(bindings []RepositoryBinding) []string {
-	out := make([]string, 0, len(bindings))
+func existingCoverage(bindings []RepositoryBinding) map[string]RepositoryBinding {
+	out := map[string]RepositoryBinding{}
 	for _, binding := range bindings {
-		out = append(out, strings.TrimSpace(binding.RepositoryID)+"\x00"+strings.TrimSpace(binding.RepositoryPath))
+		out[strings.TrimSpace(binding.RepositoryID)+"\x00"+strings.TrimSpace(binding.RepositoryPath)] = binding
 	}
-	sort.Strings(out)
 	return out
 }
 
-func requestCoverage(req PrepareRequest) []string {
-	out := make([]string, 0, len(req.Repositories))
-	for _, repo := range req.Repositories {
-		out = append(out, strings.TrimSpace(repo.ID)+"\x00"+strings.TrimSpace(repo.RelativePath))
+func missingRepositories(existing []RepositoryBinding, requested []repository.Checkout) ([]repository.Checkout, error) {
+	coverage := existingCoverage(existing)
+	byPath, byID := map[string]string{}, map[string]string{}
+	for _, binding := range existing {
+		byPath[strings.TrimSpace(binding.RepositoryPath)] = strings.TrimSpace(binding.RepositoryID)
+		byID[strings.TrimSpace(binding.RepositoryID)] = strings.TrimSpace(binding.RepositoryPath)
 	}
-	sort.Strings(out)
-	return out
-}
-
-func sameStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	missing := []repository.Checkout{}
+	for _, repo := range requested {
+		id, path := strings.TrimSpace(repo.ID), strings.TrimSpace(repo.RelativePath)
+		if _, ok := coverage[id+"\x00"+path]; ok {
+			continue
 		}
+		if knownID, ok := byPath[path]; ok && knownID != id {
+			return nil, ErrRepositoryCoverageChanged
+		}
+		if knownPath, ok := byID[id]; ok && knownPath != path {
+			return nil, ErrRepositoryCoverageChanged
+		}
+		missing = append(missing, repo)
 	}
-	return true
+	return missing, nil
 }
 
 func validateBindings(ctx context.Context, bundle Bundle) error {
@@ -78,28 +81,43 @@ func (m *Manager) EnsureLocal(ctx context.Context, req PrepareRequest, ownerID s
 	if err != nil {
 		return Bundle{}, err
 	}
-	if ok {
-		if existing.Provider != ProviderLocalWorktree {
-			return Bundle{}, ErrExecutionProviderMismatch
+	if !ok {
+		bundle, err := m.Worktrees.Prepare(ctx, req)
+		if err != nil {
+			return Bundle{}, err
 		}
-		if !sameStrings(repositoryCoverage(existing.RepositoryBindings), requestCoverage(req)) {
-			return Bundle{}, ErrRepositoryCoverageChanged
-		}
-		if err := validateBindings(ctx, existing); err != nil {
+		bundle, err = m.Store.Put(bundle)
+		if err != nil {
 			return Bundle{}, err
 		}
 		return m.Store.Claim(req.WorkspaceKey, req.TaskID, ownerID, leaseTTL)
 	}
-
-	bundle, err := m.Worktrees.Prepare(ctx, req)
+	if existing.Provider != ProviderLocalWorktree {
+		return Bundle{}, ErrExecutionProviderMismatch
+	}
+	if err := validateBindings(ctx, existing); err != nil {
+		return Bundle{}, err
+	}
+	missing, err := missingRepositories(existing.RepositoryBindings, req.Repositories)
 	if err != nil {
 		return Bundle{}, err
 	}
-	bundle, err = m.Store.Put(bundle)
+	claimed, err := m.Store.Claim(req.WorkspaceKey, req.TaskID, ownerID, leaseTTL)
 	if err != nil {
 		return Bundle{}, err
 	}
-	return m.Store.Claim(req.WorkspaceKey, req.TaskID, ownerID, leaseTTL)
+	if len(missing) == 0 {
+		return claimed, nil
+	}
+	expansionReq := req
+	expansionReq.Repositories = missing
+	expansion, err := m.Worktrees.Prepare(ctx, expansionReq)
+	if err != nil {
+		_, _ = m.Store.Release(req.WorkspaceKey, req.TaskID, ownerID)
+		return Bundle{}, err
+	}
+	claimed.RepositoryBindings = append(claimed.RepositoryBindings, expansion.RepositoryBindings...)
+	return m.Store.Put(claimed)
 }
 
 func (m *Manager) SetState(workspaceKey, taskID, ownerID string, next State) (Bundle, error) {

@@ -509,6 +509,7 @@ func planInputFromState(state taskstate.State, caps orchestration.Capabilities, 
 
 func carryTaskStatePatch(state taskstate.State) taskstate.Patch {
 	return taskstate.Patch{
+		TaskID:                state.TaskID,
 		Task:                  state.Task,
 		Branch:                state.Branch,
 		TouchedFiles:          append([]string(nil), state.TouchedFiles...),
@@ -1383,6 +1384,19 @@ func (s *Service) refreshProjectBrainBeforeMutation(ctx context.Context, userID,
 	return nil, false
 }
 
+func taskExecutionRuntimeArgs(args map[string]any, state taskstate.State) map[string]any {
+	if strings.TrimSpace(state.TaskID) == "" {
+		return args
+	}
+	out := make(map[string]any, len(args)+2)
+	for key, value := range args {
+		out[key] = value
+	}
+	out["__codelocalTaskId"] = state.TaskID
+	out["__codelocalTaskOwner"] = state.SessionID
+	return out
+}
+
 func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTool string, operation operationInvocation, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	session := sessionID(req)
 	workspaceKey := memoryWorkspaceKey(s, userID, session, args)
@@ -1401,7 +1415,13 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 			return errorResult(fmt.Errorf("Project Brain mandatory rules exceed the current context budget; project mutation is blocked until context is re-resolved with concrete targets (omitted rule IDs: %s)", missing)), nil
 		}
 	}
-	result, err := s.callOperation(ctx, userID, publicTool, operation, args, req)
+	runtimeArgs := args
+	if workspaceKey != "" {
+		if current, ok := workingMemory.Get(userID, session, workspaceKey); ok {
+			runtimeArgs = taskExecutionRuntimeArgs(args, current)
+		}
+	}
+	result, err := s.callOperation(ctx, userID, publicTool, operation, runtimeArgs, req)
 	attachRecoveryHint(result)
 	if operation.OperationID == "memory.remember" || operation.OperationID == "memory.recall" {
 		return result, err

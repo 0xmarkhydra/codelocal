@@ -41,6 +41,7 @@ type Record struct {
 	PID            int
 	Command        string
 	CWD            string
+	DisplayCWD     string
 	StartedAt      int64
 	LastActivityAt int64
 	Status         Status
@@ -79,6 +80,7 @@ type Snapshot struct {
 
 type StartOptions struct {
 	CWD            string
+	DisplayCWD     string
 	Timeout        time.Duration
 	OwnerSessionID string
 	RequestID      string
@@ -216,7 +218,7 @@ func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) 
 		return Snapshot{}, err
 	}
 	now := time.Now().UnixMilli()
-	record := &Record{ProcessID: id(), WorkspaceKey: m.workspaceKey, OwnerSessionID: options.OwnerSessionID, RequestID: options.RequestID, Command: command, CWD: options.CWD, StartedAt: now, LastActivityAt: now, Status: StatusRunning, ExecutionMode: "host-policy"}
+	record := &Record{ProcessID: id(), WorkspaceKey: m.workspaceKey, OwnerSessionID: options.OwnerSessionID, RequestID: options.RequestID, Command: command, CWD: options.CWD, DisplayCWD: options.DisplayCWD, StartedAt: now, LastActivityAt: now, Status: StatusRunning, ExecutionMode: "host-policy"}
 	m.records[record.ProcessID] = record
 	if record.RequestID != "" {
 		m.requestToProcess[record.RequestID] = record.ProcessID
@@ -354,6 +356,45 @@ func (m *Manager) settled(record *Record) {
 	}
 }
 
+func (m *Manager) displayCWD(record *Record) string {
+	if record == nil {
+		return "."
+	}
+	if display := strings.TrimSpace(record.DisplayCWD); display != "" {
+		display = filepath.ToSlash(filepath.Clean(display))
+		if display == "" || display == "./" {
+			return "."
+		}
+		return display
+	}
+	rel, err := filepath.Rel(m.workspaceRoot, record.CWD)
+	if err != nil || rel == "" || rel == "." {
+		return "."
+	}
+	return filepath.ToSlash(rel)
+}
+
+func sanitizeProcessOutput(record *Record, read map[string]any) map[string]any {
+	if record == nil || strings.TrimSpace(record.DisplayCWD) == "" || strings.TrimSpace(record.CWD) == "" || read == nil {
+		return read
+	}
+	text, _ := read["text"].(string)
+	if text == "" {
+		return read
+	}
+	replacement := filepath.ToSlash(filepath.Clean(record.DisplayCWD))
+	if replacement == "" || replacement == "./" {
+		replacement = "."
+	}
+	for _, privatePath := range []string{filepath.Clean(record.CWD), filepath.ToSlash(filepath.Clean(record.CWD))} {
+		if privatePath != "" && privatePath != "." {
+			text = strings.ReplaceAll(text, privatePath, replacement)
+		}
+	}
+	read["text"] = text
+	return read
+}
+
 func (m *Manager) Snapshot(processID string, stdoutCursor, stderrCursor *int64) (Snapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -361,11 +402,7 @@ func (m *Manager) Snapshot(processID string, stdoutCursor, stderrCursor *int64) 
 	if record == nil {
 		return Snapshot{}, errors.New("unknown processId")
 	}
-	rel, err := filepath.Rel(m.workspaceRoot, record.CWD)
-	if err != nil || rel == "" {
-		rel = "."
-	}
-	return Snapshot{ProcessID: record.ProcessID, WorkspaceKey: record.WorkspaceKey, OwnerSessionID: record.OwnerSessionID, PID: record.PID, Command: security.RedactCommand(record.Command), CWD: filepath.ToSlash(rel), StartedAt: record.StartedAt, LastActivityAt: record.LastActivityAt, Status: record.Status, Running: record.Status == StatusRunning, ExitCode: record.ExitCode, Signal: record.Signal, TimeoutAt: record.TimeoutAt, PTY: record.PTY, ExecutionMode: record.ExecutionMode, Stdout: readBuffer(record.Stdout, stdoutCursor), Stderr: readBuffer(record.Stderr, stderrCursor)}, nil
+	return Snapshot{ProcessID: record.ProcessID, WorkspaceKey: record.WorkspaceKey, OwnerSessionID: record.OwnerSessionID, PID: record.PID, Command: security.RedactCommand(record.Command), CWD: m.displayCWD(record), StartedAt: record.StartedAt, LastActivityAt: record.LastActivityAt, Status: record.Status, Running: record.Status == StatusRunning, ExitCode: record.ExitCode, Signal: record.Signal, TimeoutAt: record.TimeoutAt, PTY: record.PTY, ExecutionMode: record.ExecutionMode, Stdout: sanitizeProcessOutput(record, readBuffer(record.Stdout, stdoutCursor)), Stderr: sanitizeProcessOutput(record, readBuffer(record.Stderr, stderrCursor))}, nil
 }
 
 func (m *Manager) List() []map[string]any {
@@ -373,8 +410,7 @@ func (m *Manager) List() []map[string]any {
 	defer m.mu.Unlock()
 	out := make([]map[string]any, 0, len(m.records))
 	for _, record := range m.records {
-		rel, _ := filepath.Rel(m.workspaceRoot, record.CWD)
-		out = append(out, map[string]any{"processId": record.ProcessID, "pid": record.PID, "command": security.RedactCommand(record.Command), "cwd": filepath.ToSlash(rel), "status": record.Status, "exitCode": record.ExitCode, "signal": record.Signal, "startedAt": record.StartedAt, "lastActivityAt": record.LastActivityAt, "pty": record.PTY, "executionMode": record.ExecutionMode})
+		out = append(out, map[string]any{"processId": record.ProcessID, "pid": record.PID, "command": security.RedactCommand(record.Command), "cwd": m.displayCWD(record), "status": record.Status, "exitCode": record.ExitCode, "signal": record.Signal, "startedAt": record.StartedAt, "lastActivityAt": record.LastActivityAt, "pty": record.PTY, "executionMode": record.ExecutionMode})
 	}
 	return out
 }
