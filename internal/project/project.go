@@ -1,7 +1,6 @@
 package project
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -1077,45 +1076,6 @@ func (e *Engine) importGraphFromIndex(limit int) []map[string]any {
 	return edges
 }
 
-func (e *Engine) Diagnostics(ctx context.Context, path string, limit int) (map[string]any, error) {
-	diagnostics := []map[string]any{}
-	if strings.TrimSpace(path) != "" {
-		absolute, err := e.FS.Existing(path)
-		if err != nil {
-			return nil, err
-		}
-		if e.LSP != nil && e.LSP.Available(absolute) {
-			if values, lspErr := e.LSP.Diagnostics(ctx, absolute); lspErr == nil {
-				for _, value := range values {
-					value["path"] = e.FS.Rel(absolute)
-					diagnostics = append(diagnostics, value)
-					if limit > 0 && len(diagnostics) >= limit {
-						return map[string]any{"engine": "lsp+go-native", "diagnostics": diagnostics}, nil
-					}
-				}
-			}
-		}
-	}
-
-	cmd := exec.CommandContext(ctx, "git", "diff", "--check")
-	cmd.Dir = e.FS.Root
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	_ = cmd.Run()
-	scanner := bufio.NewScanner(strings.NewReader(out.String()))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if path != "" && !strings.Contains(line, path) {
-			continue
-		}
-		diagnostics = append(diagnostics, map[string]any{"message": line, "category": "Warning", "provider": "git-diff-check"})
-		if limit > 0 && len(diagnostics) >= limit {
-			break
-		}
-	}
-	return map[string]any{"engine": "lsp+go-native", "diagnostics": diagnostics}, nil
-}
 func (e *Engine) Hover(path string, line, column int) (map[string]any, error) {
 	read, err := e.FS.Read(path, line, line)
 	if err != nil {

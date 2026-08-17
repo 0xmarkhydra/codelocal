@@ -73,17 +73,39 @@ func (e *Engine) ownedPaths(paths []string, repo repository.Checkout) []string {
 	return out
 }
 
+func repositoryCommands(root string) map[string][]string {
+	commands := map[string][]string{"build": {}, "test": {}, "typecheck": {}, "lint": {}}
+	if exists(filepath.Join(root, "package.json")) {
+		commands = packageCommands(root, commands)
+	}
+	if exists(filepath.Join(root, "go.mod")) {
+		commands["build"] = append(commands["build"], "go build ./...")
+		commands["test"] = append(commands["test"], "go test ./...")
+	}
+	if exists(filepath.Join(root, "Cargo.toml")) {
+		commands["build"] = append(commands["build"], "cargo build")
+		commands["test"] = append(commands["test"], "cargo test")
+	}
+	if exists(filepath.Join(root, "pubspec.yaml")) {
+		commands["build"] = append(commands["build"], "flutter analyze")
+		commands["test"] = append(commands["test"], "flutter test")
+	}
+	return commands
+}
+
 func (e *Engine) repositorySummaries(manifests, modules, entrypoints []string) []map[string]any {
 	if e.Repositories == nil {
 		return []map[string]any{}
 	}
 	out := make([]map[string]any, 0, len(e.Repositories.All()))
 	for _, repo := range e.Repositories.All() {
-		repoModules := e.ownedPaths(modules, repo)
+		repoModules, commands := e.ownedPaths(modules, repo), repositoryCommands(repo.Root)
 		out = append(out, map[string]any{
 			"id": repo.ID, "path": repo.RelativePath, "identitySource": repo.IdentitySource,
 			"manifests": e.ownedPaths(manifests, repo), "modules": repoModules,
 			"entrypoints": e.ownedPaths(entrypoints, repo), "sourceRoots": sourceRoots(repoModules), "testRoots": testRoots(repoModules),
+			"packageManager": packageManager(repo.Root), "buildCommands": commands["build"], "testCommands": commands["test"],
+			"typecheckCommands": commands["typecheck"], "lintCommands": commands["lint"],
 		})
 	}
 	return out

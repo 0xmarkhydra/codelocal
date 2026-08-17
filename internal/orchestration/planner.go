@@ -21,6 +21,15 @@ const (
 	TaskKindGeneral    TaskKind = "general"
 )
 
+type RepositoryProfile struct {
+	ID                string
+	Path              string
+	BuildCommands     []string
+	TestCommands      []string
+	TypecheckCommands []string
+	LintCommands      []string
+}
+
 type ProjectProfile struct {
 	Languages         []string
 	Frameworks        []string
@@ -28,6 +37,7 @@ type ProjectProfile struct {
 	TestCommands      []string
 	TypecheckCommands []string
 	LintCommands      []string
+	Repositories      []RepositoryProfile
 }
 
 type PlanInput struct {
@@ -60,6 +70,7 @@ type PlanStep struct {
 type VerificationCheck struct {
 	Key      string `json:"key"`
 	Command  string `json:"command"`
+	CWD      string `json:"cwd,omitempty"`
 	Scope    string `json:"scope"`
 	Required bool   `json:"required"`
 	Reason   string `json:"reason"`
@@ -153,12 +164,27 @@ func CheckKey(command string) string {
 // itself is never persisted in task memory, while normalized equivalent forms
 // (for example repeated whitespace/case changes) map to the same ID.
 func CheckID(command string) string {
+	return ScopedCheckID(command, "")
+}
+
+// ScopedCheckID makes verification evidence location-aware. The same command
+// executed in two repositories must not satisfy both checks accidentally.
+// Root/unspecified CWD preserves the legacy CheckID for backward compatibility.
+func ScopedCheckID(command, cwd string) string {
 	category := CheckKey(command)
 	if category == "" {
 		return ""
 	}
 	normalized := normalizeCheckCommand(command)
-	sum := sha256.Sum256([]byte(normalized))
+	cwd = filepath.ToSlash(filepath.Clean(strings.TrimSpace(cwd)))
+	if cwd == "" || cwd == "." {
+		cwd = ""
+	}
+	identity := normalized
+	if cwd != "" {
+		identity += "\x00cwd:" + cwd
+	}
+	sum := sha256.Sum256([]byte(identity))
 	return category + ":" + hex.EncodeToString(sum[:6])
 }
 
@@ -251,7 +277,7 @@ func goTestCommand(paths []string) string {
 	return "go test " + strings.Join(items, " ")
 }
 
-func BuildVerificationPlan(input PlanInput) VerificationPlan {
+func buildVerificationPlanSingle(input PlanInput) VerificationPlan {
 	checks := []VerificationCheck{}
 	seen := map[string]struct{}{}
 	if onlyDocs(input.TouchedFiles) {
@@ -310,6 +336,141 @@ func BuildVerificationPlan(input PlanInput) VerificationPlan {
 	mode := "targeted"
 	if wide || len(input.TouchedFiles) == 0 {
 		mode = "project-aware"
+	}
+	return VerificationPlan{Mode: mode, Checks: checks}
+}
+
+func normalizedRepositoryPath(value string) string {
+	value = filepath.ToSlash(filepath.Clean(strings.TrimSpace(value)))
+	if value == "" || value == "./" {
+		return "."
+	}
+	return value
+}
+
+func repositoryOwnsPath(repoPath, touchedPath string) bool {
+	repoPath = normalizedRepositoryPath(repoPath)
+	touchedPath = filepath.ToSlash(filepath.Clean(strings.TrimSpace(touchedPath)))
+	return repoPath == "." || touchedPath == repoPath || strings.HasPrefix(touchedPath, repoPath+"/")
+}
+
+func repositoryForTouchedPath(repositories []RepositoryProfile, touchedPath string) (RepositoryProfile, bool) {
+	best, bestDepth, found := RepositoryProfile{}, -1, false
+	for _, repo := range repositories {
+		if !repositoryOwnsPath(repo.Path, touchedPath) {
+			continue
+		}
+		path := normalizedRepositoryPath(repo.Path)
+		depth := 0
+		if path != "." {
+			depth = strings.Count(path, "/") + 1
+		}
+		if depth > bestDepth {
+			best, bestDepth, found = repo, depth, true
+		}
+	}
+	return best, found
+}
+
+func repositoryRelativePath(repoPath, touchedPath string) string {
+	repoPath = normalizedRepositoryPath(repoPath)
+	touchedPath = filepath.ToSlash(filepath.Clean(strings.TrimSpace(touchedPath)))
+	if repoPath == "." {
+		return touchedPath
+	}
+	if touchedPath == repoPath {
+		return "."
+	}
+	return strings.TrimPrefix(touchedPath, repoPath+"/")
+}
+
+func repositoryProjectProfile(repo RepositoryProfile) ProjectProfile {
+	return ProjectProfile{
+		BuildCommands: append([]string(nil), repo.BuildCommands...), TestCommands: append([]string(nil), repo.TestCommands...),
+		TypecheckCommands: append([]string(nil), repo.TypecheckCommands...), LintCommands: append([]string(nil), repo.LintCommands...),
+	}
+}
+
+func scopeVerificationPlan(plan VerificationPlan, repo RepositoryProfile) VerificationPlan {
+	path := normalizedRepositoryPath(repo.Path)
+	for index := range plan.Checks {
+		plan.Checks[index].CWD = path
+		plan.Checks[index].Key = ScopedCheckID(plan.Checks[index].Command, path)
+		if path != "." {
+			plan.Checks[index].Scope = path + ": " + plan.Checks[index].Scope
+		}
+	}
+	return plan
+}
+
+func BuildVerificationPlan(input PlanInput) VerificationPlan {
+	if len(input.Project.Repositories) == 0 || len(input.TouchedFiles) == 0 {
+		return buildVerificationPlanSingle(input)
+	}
+	type repoScope struct {
+		repo  RepositoryProfile
+		paths []string
+	}
+	byRepo := map[string]*repoScope{}
+	unowned := []string{}
+	for _, touched := range input.TouchedFiles {
+		repo, ok := repositoryForTouchedPath(input.Project.Repositories, touched)
+		if !ok {
+			unowned = append(unowned, touched)
+			continue
+		}
+		key := strings.TrimSpace(repo.ID) + "\x00" + normalizedRepositoryPath(repo.Path)
+		scope := byRepo[key]
+		if scope == nil {
+			scope = &repoScope{repo: repo}
+			byRepo[key] = scope
+		}
+		scope.paths = append(scope.paths, repositoryRelativePath(repo.Path, touched))
+	}
+	if len(byRepo) == 0 {
+		return buildVerificationPlanSingle(input)
+	}
+	keys := make([]string, 0, len(byRepo))
+	for key := range byRepo {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return normalizedRepositoryPath(byRepo[keys[i]].repo.Path) < normalizedRepositoryPath(byRepo[keys[j]].repo.Path)
+	})
+	checks := []VerificationCheck{}
+	seen := map[string]struct{}{}
+	for _, key := range keys {
+		scope := byRepo[key]
+		sub := input
+		sub.Project = repositoryProjectProfile(scope.repo)
+		sub.TouchedFiles = scope.paths
+		plan := scopeVerificationPlan(buildVerificationPlanSingle(sub), scope.repo)
+		for _, check := range plan.Checks {
+			if _, duplicate := seen[check.Key]; duplicate {
+				continue
+			}
+			seen[check.Key] = struct{}{}
+			checks = append(checks, check)
+		}
+	}
+	if len(unowned) > 0 {
+		sub := input
+		sub.Project.Repositories = nil
+		sub.TouchedFiles = unowned
+		for _, check := range buildVerificationPlanSingle(sub).Checks {
+			if _, duplicate := seen[check.Key]; duplicate {
+				continue
+			}
+			seen[check.Key] = struct{}{}
+			checks = append(checks, check)
+		}
+	}
+	mode := "repository-targeted"
+	if len(byRepo) > 1 {
+		mode = "multi-repository"
+	}
+	if len(checks) > 12 {
+		checks = checks[:12]
 	}
 	return VerificationPlan{Mode: mode, Checks: checks}
 }

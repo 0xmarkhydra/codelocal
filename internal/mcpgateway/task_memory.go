@@ -111,17 +111,57 @@ func resultRoot(result *mcp.CallToolResult) map[string]any {
 	return root
 }
 
+func repositoryProfilesFromValue(value any) []orchestration.RepositoryProfile {
+	out := []orchestration.RepositoryProfile{}
+	appendProfile := func(item map[string]any) {
+		if len(item) == 0 {
+			return
+		}
+		out = append(out, orchestration.RepositoryProfile{
+			ID: strings.TrimSpace(fmt.Sprint(item["id"])), Path: strings.TrimSpace(fmt.Sprint(item["path"])),
+			BuildCommands: stringSliceValue(item["buildCommands"]), TestCommands: stringSliceValue(item["testCommands"]),
+			TypecheckCommands: stringSliceValue(item["typecheckCommands"]), LintCommands: stringSliceValue(item["lintCommands"]),
+		})
+	}
+	switch typed := value.(type) {
+	case []map[string]any:
+		for _, item := range typed {
+			appendProfile(item)
+		}
+	case []any:
+		for _, raw := range typed {
+			appendProfile(nestedMap(raw))
+		}
+	}
+	return out
+}
+
 func projectProfileFromResult(result *mcp.CallToolResult) orchestration.ProjectProfile {
 	root := resultRoot(result)
 	project := nestedMap(root["project"])
-	return orchestration.ProjectProfile{
-		Languages:         stringSliceValue(project["languages"]),
-		Frameworks:        stringSliceValue(project["frameworks"]),
-		BuildCommands:     stringSliceValue(project["buildCommands"]),
-		TestCommands:      stringSliceValue(project["testCommands"]),
-		TypecheckCommands: stringSliceValue(project["typecheckCommands"]),
-		LintCommands:      stringSliceValue(project["lintCommands"]),
+	commands := nestedMap(project["commands"])
+	profile := orchestration.ProjectProfile{
+		Languages: projectStringSlice(project, commands, "languages"), Frameworks: projectStringSlice(project, commands, "frameworks"),
+		BuildCommands: projectStringSlice(project, commands, "buildCommands", "build"), TestCommands: projectStringSlice(project, commands, "testCommands", "test"),
+		TypecheckCommands: projectStringSlice(project, commands, "typecheckCommands", "typecheck"), LintCommands: projectStringSlice(project, commands, "lintCommands", "lint"),
+		Repositories: repositoryProfilesFromValue(project["repositories"]),
 	}
+	return profile
+}
+
+func projectStringSlice(project, commands map[string]any, keys ...string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	if values := stringSliceValue(project[keys[0]]); len(values) > 0 {
+		return values
+	}
+	for _, key := range keys[1:] {
+		if values := stringSliceValue(commands[key]); len(values) > 0 {
+			return values
+		}
+	}
+	return nil
 }
 
 func boolPointer(value bool) *bool { return &value }
@@ -359,7 +399,13 @@ func verificationCheckOutcome(operation operationInvocation, args map[string]any
 	default:
 		return "", true, true, ""
 	}
-	checkKey = orchestration.CheckID(command)
+	cwd := ""
+	if operation.OperationID == "terminal.run" {
+		cwd, _ = args["cwd"].(string)
+	} else if operation.OperationID == "process.poll" {
+		cwd, _ = root["cwd"].(string)
+	}
+	checkKey = orchestration.ScopedCheckID(command, cwd)
 	if checkKey == "" {
 		return "", true, true, ""
 	}

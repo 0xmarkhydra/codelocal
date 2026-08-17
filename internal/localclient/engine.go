@@ -536,7 +536,12 @@ func compactRepositoryContext(value any, limit int) []map[string]any {
 		if item == nil || len(items) >= limit {
 			return
 		}
-		items = append(items, map[string]any{"id": item["id"], "path": item["path"], "identitySource": item["identitySource"], "manifestCount": len(boundedContextList(item["manifests"], 256)), "moduleCount": len(boundedContextList(item["modules"], 1024)), "entrypointCount": len(boundedContextList(item["entrypoints"], 256))})
+		items = append(items, map[string]any{
+			"id": item["id"], "path": item["path"], "identitySource": item["identitySource"], "packageManager": item["packageManager"],
+			"manifestCount": len(boundedContextList(item["manifests"], 256)), "moduleCount": len(boundedContextList(item["modules"], 1024)), "entrypointCount": len(boundedContextList(item["entrypoints"], 256)),
+			"buildCommands": boundedContextList(item["buildCommands"], 4), "testCommands": boundedContextList(item["testCommands"], 4),
+			"typecheckCommands": boundedContextList(item["typecheckCommands"], 4), "lintCommands": boundedContextList(item["lintCommands"], 4),
+		})
 	}
 	switch typed := value.(type) {
 	case []map[string]any:
@@ -677,9 +682,9 @@ func (e *Engine) attachProjectBrainContext(result map[string]any, explicitTarget
 	} else {
 		result["projectBrainTargetSource"] = "ranked"
 	}
-	if branch, err := runGit(e.Root, "branch", "--show-current"); err == nil {
-		result["gitBranch"] = strings.TrimSpace(asString(branch["stdout"]))
-	}
+	branch, _, branches := e.repositoryBranchState()
+	result["gitBranch"] = branch
+	result["gitBranches"] = branches
 	if budget, ok := result["contextBudget"].(map[string]any); ok {
 		budget["projectBrainMaxChars"] = packet.Budget.MaxChars
 		budget["projectBrainUsedChars"] = packet.Budget.UsedChars
@@ -924,13 +929,10 @@ func (e *Engine) currentLearnedSkillContext(taskKind string) *learnedskills.Cont
 		sum := sha256.Sum256([]byte(strings.Join(dependencyParts, "\x00")))
 		dependencyHash = fmt.Sprintf("%x", sum[:])
 	}
-	branch := ""
-	if result, gitErr := runGit(e.Root, "branch", "--show-current"); gitErr == nil {
-		branch = strings.TrimSpace(asString(result["stdout"]))
-	}
+	_, branchFingerprint, _ := e.repositoryBranchState()
 	return &learnedskills.ContextFingerprint{
 		ProjectID: stableProjectID(identity), RepositoryIDs: repositoryIDs, RulesHash: manifest.RootHash,
-		DependencyHash: dependencyHash, WorkflowFiles: workflowFiles, BranchPolicy: learnedSkillBranchPolicy(taskKind), Branch: branch,
+		DependencyHash: dependencyHash, WorkflowFiles: workflowFiles, BranchPolicy: learnedSkillBranchPolicy(taskKind), Branch: branchFingerprint,
 		RequiredCapabilities: e.availableLearnedSkillCapabilities(),
 	}
 }
@@ -1044,8 +1046,8 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "project_info":
 		projectMap, _ := e.Project.Map(false)
 		instructions, _ := e.readInstructions(".")
-		branch, _ := runGit(e.Root, "branch", "--show-current")
-		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": compactProjectContext(projectMap), "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "Agent Mode can auto-approve only deterministic rememberable actions for this locally enabled workspace", "rememberable prompt approvals are stored only on this machine and scoped to the workspace, MCP session, risk ceiling, and local TTL", "critical actions always require fresh user confirmation in the current MCP client", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": string(approval.ResolveMode(e.WorkspaceID)), "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
+		branch, _, branches := e.repositoryBranchState()
+		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": compactProjectContext(projectMap), "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "Agent Mode can auto-approve only deterministic rememberable actions for this locally enabled workspace", "rememberable prompt approvals are stored only on this machine and scoped to the workspace, MCP session, risk ceiling, and local TTL", "critical actions always require fresh user confirmation in the current MCP client", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": string(approval.ResolveMode(e.WorkspaceID)), "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": branch, "gitBranches": branches, "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
 	case "project_map":
 		return e.Project.Map(asBool(args["force"], false))
 	case "context_for_task":
@@ -1469,27 +1471,28 @@ func (e *Engine) formatFiles(ctx context.Context, paths []string) (map[string]an
 			continue
 		}
 		relative := e.FS.Rel(absolute)
+		_, executionRoot, executionPath, _ := e.repositoryExecutionPath(relative)
 		ext := strings.ToLower(filepath.Ext(relative))
 		command := ""
 		args := []string{}
 		switch ext {
 		case ".go":
-			command, args = "gofmt", []string{"-w", relative}
+			command, args = "gofmt", []string{"-w", executionPath}
 		case ".rs":
-			command, args = "rustfmt", []string{relative}
+			command, args = "rustfmt", []string{executionPath}
 		case ".dart":
-			command, args = "dart", []string{"format", relative}
+			command, args = "dart", []string{"format", executionPath}
 		case ".py":
-			command, args = "ruff", []string{"format", relative}
+			command, args = "ruff", []string{"format", executionPath}
 		case ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp":
-			command, args = "clang-format", []string{"-i", relative}
+			command, args = "clang-format", []string{"-i", executionPath}
 		case ".js", ".jsx", ".ts", ".tsx", ".json", ".css", ".scss", ".md", ".yaml", ".yml":
-			prettier := filepath.Join(e.Root, "node_modules", ".bin", executableName("prettier"))
-			biome := filepath.Join(e.Root, "node_modules", ".bin", executableName("biome"))
+			prettier := filepath.Join(executionRoot, "node_modules", ".bin", executableName("prettier"))
+			biome := filepath.Join(executionRoot, "node_modules", ".bin", executableName("biome"))
 			if isExecutableFile(prettier) {
-				command, args = prettier, []string{"--write", relative}
+				command, args = prettier, []string{"--write", executionPath}
 			} else if isExecutableFile(biome) {
-				command, args = biome, []string{"format", "--write", relative}
+				command, args = biome, []string{"format", "--write", executionPath}
 			}
 		}
 		if command == "" {
@@ -1503,7 +1506,7 @@ func (e *Engine) formatFiles(ctx context.Context, paths []string) (map[string]an
 			}
 		}
 		cmd := exec.CommandContext(ctx, command, args...)
-		cmd.Dir = e.Root
+		cmd.Dir = executionRoot
 		cmd.Env = append(os.Environ(), "CI=1")
 		if err := cmd.Run(); err != nil {
 			skipped = append(skipped, relative)
@@ -1549,23 +1552,17 @@ func (e *Engine) verifyChanges(ctx context.Context, paths []string, baselineID s
 
 	effectivePaths := append([]string(nil), paths...)
 	if len(effectivePaths) == 0 {
-		effectivePaths = changedPathsFromGitStatus(e.Root)
+		effectivePaths = e.changedPathsFromGitStatus()
 	}
-	gitArgs := []string{"diff", "--no-ext-diff", "--unified=2"}
-	if len(effectivePaths) > 0 {
-		gitArgs = append(gitArgs, "--")
-		for _, path := range effectivePaths {
-			if _, err := e.FS.Existing(path); err != nil {
-				return nil, err
-			}
-			gitArgs = append(gitArgs, path)
-		}
+	diff, err := e.verificationGitDiff(effectivePaths)
+	if err != nil {
+		return nil, err
 	}
-	diff, _ := runGit(e.Root, gitArgs...)
 
 	projectMap, _ := e.Project.Map(false)
 	verificationPlan := verificationPlanForChanges(projectMap, effectivePaths)
 	checks := recommendedChecksForChanges(projectMap, effectivePaths)
+	checkRuns := recommendedCheckRunsForChanges(projectMap, effectivePaths)
 	if len(checks) > 8 {
 		checks = checks[:8]
 	}
@@ -1578,6 +1575,7 @@ func (e *Engine) verifyChanges(ctx context.Context, paths []string, baselineID s
 		"verificationScope":    effectivePaths,
 		"verificationPlan":     verificationPlan,
 		"recommendedChecks":    checks,
+		"recommendedCheckRuns": checkRuns,
 		"gitDiff":              diff,
 		"qualityPolicy":        quality,
 	}, nil

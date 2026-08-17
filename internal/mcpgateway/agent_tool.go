@@ -436,8 +436,8 @@ func checkPassed(state taskstate.State, key string) bool {
 	return false
 }
 
-func verificationCommands(plan orchestration.AgentPlan, state taskstate.State) []string {
-	commands := []string{}
+func verificationChecks(plan orchestration.AgentPlan, state taskstate.State) []orchestration.VerificationCheck {
+	checks := []orchestration.VerificationCheck{}
 	seenKeys := map[string]struct{}{}
 	for _, check := range plan.Verification.Checks {
 		if !check.Required || strings.TrimSpace(check.Command) == "" || check.Key == "" || check.Key == "project-check" || checkPassed(state, check.Key) {
@@ -448,10 +448,10 @@ func verificationCommands(plan orchestration.AgentPlan, state taskstate.State) [
 		}
 		seenKeys[check.Key] = struct{}{}
 		if safeAutonomousVerificationCommand(check.Command) {
-			commands = append(commands, check.Command)
+			checks = append(checks, check)
 		}
 	}
-	return commands
+	return checks
 }
 
 func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -677,11 +677,15 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 		if execute("auto-verify", verifyStep) {
 			state = currentAgentState(userID, session, workspaceKey)
 			plan = agentPlanFromState(state, caps, project)
-			for _, command := range verificationCommands(plan, state) {
+			for _, check := range verificationChecks(plan, state) {
 				if ops >= maxBoundedAgentOps || haltReason != "" {
 					break
 				}
-				terminalStep := boundedAgentStep{Tool: "terminal", Args: map[string]any{"action": "run", "command": command, "yieldMs": 10000, "timeoutMs": 120000}}
+				terminalArgs := map[string]any{"action": "run", "command": check.Command, "yieldMs": 10000, "timeoutMs": 120000}
+				if strings.TrimSpace(check.CWD) != "" && check.CWD != "." {
+					terminalArgs["cwd"] = check.CWD
+				}
+				terminalStep := boundedAgentStep{Tool: "terminal", Args: terminalArgs}
 				if !execute("auto-check", terminalStep) {
 					break
 				}

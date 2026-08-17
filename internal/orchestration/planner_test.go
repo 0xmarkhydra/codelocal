@@ -101,6 +101,63 @@ func TestBuildVerificationPlanUsesDocsOnlyFastPath(t *testing.T) {
 	}
 }
 
+func TestScopedCheckIDDifferentiatesRepositoryCWD(t *testing.T) {
+	web := ScopedCheckID("npm test", "web")
+	admin := ScopedCheckID("npm test", "admin")
+	if web == admin || web == "" || admin == "" {
+		t.Fatalf("same verification command in different repositories must have distinct evidence IDs: web=%q admin=%q", web, admin)
+	}
+	if CheckID("npm test") != ScopedCheckID("npm test", ".") {
+		t.Fatal("root-scoped verification must preserve legacy CheckID compatibility")
+	}
+}
+
+func TestBuildVerificationPlanScopesChecksPerRepository(t *testing.T) {
+	plan := BuildVerificationPlan(PlanInput{
+		TouchedFiles: []string{"web/src/login.ts", "admin/src/users.ts"},
+		Project: ProjectProfile{Repositories: []RepositoryProfile{
+			{ID: "web", Path: "web", TypecheckCommands: []string{"npm run typecheck"}, TestCommands: []string{"npm test"}},
+			{ID: "admin", Path: "admin", TypecheckCommands: []string{"npm run typecheck"}, TestCommands: []string{"npm test"}},
+		}},
+	})
+	if plan.Mode != "multi-repository" {
+		t.Fatalf("expected multi-repository verification plan, got %#v", plan)
+	}
+	seen := map[string]map[string]bool{}
+	keys := map[string]bool{}
+	for _, check := range plan.Checks {
+		if seen[check.CWD] == nil {
+			seen[check.CWD] = map[string]bool{}
+		}
+		seen[check.CWD][CheckKey(check.Command)] = true
+		if keys[check.Key] {
+			t.Fatalf("repository-scoped check key collided: %#v", plan.Checks)
+		}
+		keys[check.Key] = true
+	}
+	for _, cwd := range []string{"web", "admin"} {
+		if !seen[cwd]["typecheck"] || !seen[cwd]["test"] || !seen[cwd]["diff-check"] {
+			t.Fatalf("repository %s missing scoped checks: %#v", cwd, plan.Checks)
+		}
+	}
+}
+
+func TestBuildVerificationPlanUsesRepositoryRelativeGoPaths(t *testing.T) {
+	plan := BuildVerificationPlan(PlanInput{
+		TouchedFiles: []string{"backend/auth/internal/login/login.go"},
+		Project:      ProjectProfile{Repositories: []RepositoryProfile{{ID: "auth", Path: "backend/auth", TestCommands: []string{"go test ./..."}}}},
+	})
+	found := false
+	for _, check := range plan.Checks {
+		if check.Command == "go test ./internal/login" && check.CWD == "backend/auth" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Go verification must be repo-relative: %#v", plan.Checks)
+	}
+}
+
 func TestBuildVerificationPlanWidensForManifestChanges(t *testing.T) {
 	plan := BuildVerificationPlan(PlanInput{
 		TouchedFiles: []string{"package.json", "src/index.ts"},

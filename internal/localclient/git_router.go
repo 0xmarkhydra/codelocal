@@ -97,6 +97,45 @@ func (e *Engine) gitStatus(selector string) (map[string]any, error) {
 	return map[string]any{"repositoryCount": len(items), "repositories": items, "stdout": combined.String(), "stderr": "", "output": combined.String(), "exitCode": 0}, nil
 }
 
+func repositoryBranch(root string) string {
+	result, err := runGit(root, "branch", "--show-current")
+	if err == nil {
+		if branch := strings.TrimSpace(asString(result["stdout"])); branch != "" {
+			return branch
+		}
+	}
+	if result, err := runGit(root, "rev-parse", "--short", "HEAD"); err == nil {
+		if revision := strings.TrimSpace(asString(result["stdout"])); revision != "" {
+			return "detached@" + revision
+		}
+	}
+	return "unknown"
+}
+
+func (e *Engine) repositoryBranchState() (string, string, []map[string]any) {
+	items := []map[string]any{}
+	fingerprintParts := []string{}
+	common, same := "", true
+	for _, repo := range e.Repositories.All() {
+		branch := repositoryBranch(repo.Root)
+		items = append(items, map[string]any{"repositoryId": repo.ID, "repositoryPath": repo.RelativePath, "branch": branch})
+		fingerprintParts = append(fingerprintParts, repo.RelativePath+"="+branch)
+		if common == "" {
+			common = branch
+		} else if common != branch {
+			same = false
+		}
+	}
+	if len(items) == 0 {
+		return "", "", items
+	}
+	display := common
+	if !same {
+		display = "multiple"
+	}
+	return display, strings.Join(fingerprintParts, "|"), items
+}
+
 func (e *Engine) gitDiff(selector, path string, cached bool) (map[string]any, error) {
 	gitArgs := []string{"diff", "--no-ext-diff", "--unified=3"}
 	if cached {

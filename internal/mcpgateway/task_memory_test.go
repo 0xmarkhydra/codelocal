@@ -173,6 +173,22 @@ func TestAgentPatchPersistsCommandSpecificOpaqueVerificationID(t *testing.T) {
 	}
 }
 
+func TestAgentPatchScopesVerificationEvidenceByCWD(t *testing.T) {
+	result := &mcp.CallToolResult{StructuredContent: map[string]any{"ok": true}}
+	command := "npm test"
+	patch := agentPatchForOperation(operationInvocation{OperationID: "terminal.run"}, map[string]any{
+		"command": command,
+		"cwd":     "web",
+	}, result, taskstate.State{AgentPhase: "verify"})
+	want := orchestration.ScopedCheckID(command, "web")
+	if len(patch.PassedChecks) != 1 || patch.PassedChecks[0] != want {
+		t.Fatalf("expected cwd-scoped verification ID, got %#v want=%q", patch.PassedChecks, want)
+	}
+	if want == orchestration.ScopedCheckID(command, "admin") {
+		t.Fatal("same command in different repositories must not share verification evidence")
+	}
+}
+
 func TestAgentPatchCapturesVerifyEvidence(t *testing.T) {
 	result := &mcp.CallToolResult{StructuredContent: map[string]any{
 		"diagnosticRegression": 0,

@@ -215,6 +215,51 @@ func TestMultiRepoProjectIntelligencePreservesRepositoryOwnership(t *testing.T) 
 	}
 }
 
+func TestDiagnosticsAggregatesGitDiffCheckAcrossRepositories(t *testing.T) {
+	root := t.TempDir()
+	web := initNestedProjectRepo(t, root, "web")
+	auth := initNestedProjectRepo(t, root, "backend/auth")
+	writeKnowledgeFixture(t, web, "app.ts", "export const app = true\n")
+	writeKnowledgeFixture(t, auth, "auth.go", "package auth\n")
+	for _, dir := range []string{web, auth} {
+		cmd := exec.Command("git", "add", ".")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git add: %v\n%s", err, out)
+		}
+		cmd = exec.Command("git", "-c", "user.name=CodeLocal", "-c", "user.email=test@codelocal.invalid", "commit", "-qm", "initial")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git commit: %v\n%s", err, out)
+		}
+	}
+	writeKnowledgeFixture(t, auth, "auth.go", "package auth  \n")
+
+	fs, err := localfs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(fs)
+	defer engine.Close()
+	result, err := engine.Diagnostics(context.Background(), "", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, _ := result["diagnostics"].([]map[string]any)
+	foundAuth := false
+	for _, item := range diagnostics {
+		if item["provider"] == "git-diff-check" && item["repositoryPath"] == "backend/auth" {
+			foundAuth = true
+		}
+		if item["repositoryPath"] == "web" {
+			t.Fatalf("clean web repository should not produce diff-check warning: %#v", diagnostics)
+		}
+	}
+	if !foundAuth {
+		t.Fatalf("expected repo-aware auth diff-check warning: %#v", diagnostics)
+	}
+}
+
 func TestContextTermsSupportsVietnameseAndCapsSearchFanout(t *testing.T) {
 	got := contextTerms("tối ưu hiệu năng CodeLocal và đọc file context_for_task hiệu năng cache redis postgres queue worker")
 	want := []string{"hiệu", "năng", "codelocal", "đọc", "file", "context_for_task", "cache", "redis"}
