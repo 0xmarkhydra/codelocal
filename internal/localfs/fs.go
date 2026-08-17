@@ -36,6 +36,38 @@ type ignoreRule struct {
 	dirOnly bool
 }
 
+var indexNoiseDirs = map[string]struct{}{
+	".cache": {}, ".dart_tool": {}, ".gradle": {}, ".next": {}, ".nuxt": {}, ".parcel-cache": {}, ".pytest_cache": {}, ".svelte-kit": {}, ".turbo": {},
+	"__pycache__": {}, "build": {}, "coverage": {}, "deriveddata": {}, "dist": {}, "node_modules": {}, "pods": {}, "target": {}, "vendor": {}, "venv": {}, ".venv": {},
+}
+
+func codeLocalPortablePath(relative string) bool {
+	value := strings.Trim(filepath.ToSlash(relative), "/")
+	switch value {
+	case ".codelocal", ".codelocal/project.json", ".codelocal/quality.json":
+		return true
+	}
+	return value == ".codelocal/rules" || strings.HasPrefix(value, ".codelocal/rules/") ||
+		value == ".codelocal/skills" || strings.HasPrefix(value, ".codelocal/skills/")
+}
+
+func codeLocalRuntimePath(relative string) bool {
+	value := strings.Trim(filepath.ToSlash(relative), "/")
+	if value == ".codelocal" || !strings.HasPrefix(value, ".codelocal/") {
+		return false
+	}
+	return !codeLocalPortablePath(value)
+}
+
+func indexNoisePath(relative string) bool {
+	for _, part := range strings.Split(strings.Trim(filepath.ToSlash(relative), "/"), "/") {
+		if _, ignored := indexNoiseDirs[strings.ToLower(part)]; ignored {
+			return true
+		}
+	}
+	return false
+}
+
 func New(root string) (*FS, error) {
 	real, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -54,6 +86,36 @@ func envInt(name string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+const codeLocalExcludeBlock = `# BEGIN CodeLocal local-only state
+.codelocal/*
+!.codelocal/project.json
+!.codelocal/quality.json
+!.codelocal/rules/
+!.codelocal/rules/**
+!.codelocal/skills/
+!.codelocal/skills/**
+# END CodeLocal local-only state
+`
+
+func ensureCodeLocalLocalExclude(root string) error {
+	path := filepath.Join(root, ".git", "info", "exclude")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if strings.Contains(string(data), "# BEGIN CodeLocal local-only state") {
+		return nil
+	}
+	content := strings.TrimRight(string(data), "\r\n")
+	if content != "" {
+		content += "\n"
+	}
+	return atomicWrite(path, []byte(content+codeLocalExcludeBlock), 0o644)
 }
 
 func ensureCodeLocalGitIgnore(root string) error {
@@ -97,7 +159,10 @@ func ensureCodeLocalGitIgnore(root string) error {
 	if info, statErr := os.Stat(ignorePath); statErr == nil {
 		mode = info.Mode().Perm()
 	}
-	return atomicWrite(ignorePath, []byte(content), mode)
+	if err := atomicWrite(ignorePath, []byte(content), mode); err != nil {
+		return err
+	}
+	return ensureCodeLocalLocalExclude(root)
 }
 
 func (f *FS) inside(candidate string) bool {
@@ -237,6 +302,9 @@ func matchIgnore(pattern, path string, dirOnly, isDir bool) bool {
 }
 
 func (f *FS) Ignored(relative string, isDir bool) bool {
+	if codeLocalRuntimePath(relative) || indexNoisePath(relative) {
+		return true
+	}
 	f.mu.RLock()
 	rules := append([]ignoreRule(nil), f.ignore...)
 	f.mu.RUnlock()
@@ -247,11 +315,6 @@ func (f *FS) Ignored(relative string, isDir bool) bool {
 		}
 	}
 	return ignored
-}
-
-func codeLocalRuntimePath(relative string) bool {
-	value := strings.Trim(filepath.ToSlash(relative), "/")
-	return value == ".codelocal/worktrees" || strings.HasPrefix(value, ".codelocal/worktrees/")
 }
 
 func Hash(data []byte) string {
@@ -572,14 +635,21 @@ func (f *FS) Search(query, start string, maxResults int, fixed, includeIgnored b
 	if fixed {
 		args = append(args, "--fixed-strings")
 	}
-	args = append(args, "--glob", "!.git/**", "--glob", "!.codelocal/worktrees/**", "--", query, ".")
+	args = append(args, "--glob", "!.git/**", "--glob", "!.codelocal/worktrees/**", "--glob", "!.codelocal/tmp/**", "--glob", "!.codelocal/cache/**", "--glob", "!.codelocal/state/**", "--glob", "!.codelocal/logs/**")
+	for name := range indexNoiseDirs {
+		args = append(args, "--glob", "!**/"+name+"/**")
+	}
+	args = append(args, "--", query, ".")
 	accept := func(line string) bool {
 		filePart := strings.TrimPrefix(strings.SplitN(line, ":", 2)[0], "./")
-		return !codeLocalRuntimePath(filePart) && !security.IsSensitivePath(filePart)
+		return !codeLocalRuntimePath(filePart) && !indexNoisePath(filePart) && !security.IsSensitivePath(filePart)
 	}
 	matches, truncated, runErr := runSearch(cwd, "rg", args, maxResults, accept)
 	if runErr != nil {
 		grepArgs := []string{"-RIn", "--exclude-dir=.git"}
+		for name := range indexNoiseDirs {
+			grepArgs = append(grepArgs, "--exclude-dir="+name)
+		}
 		if fixed {
 			grepArgs = append(grepArgs, "-F")
 		}

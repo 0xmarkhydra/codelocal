@@ -219,6 +219,15 @@ func TestContextForTaskIncludesBoundedProjectBrainRules(t *testing.T) {
 	if !ok {
 		t.Fatalf("context_for_task returned %T", result)
 	}
+	projectSummary, ok := packetMap["project"].(map[string]any)
+	if !ok {
+		t.Fatalf("compact project summary missing: %#v", packetMap["project"])
+	}
+	for _, forbidden := range []string{"manifests", "modules", "knowledgeSources", "lockfiles", "instructionFiles"} {
+		if _, exists := projectSummary[forbidden]; exists {
+			t.Fatalf("context_for_task leaked bulky project field %q: %#v", forbidden, projectSummary[forbidden])
+		}
+	}
 	brain, ok := packetMap["projectBrain"].(projectbrain.ContextPacket)
 	if !ok {
 		t.Fatalf("projectBrain packet = %T %#v", packetMap["projectBrain"], packetMap["projectBrain"])

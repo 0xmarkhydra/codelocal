@@ -137,6 +137,18 @@ func TestCodeLocalStateIsIgnoredAndGitIgnoreIsRepaired(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".codelocal", "worktrees", "nested"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, ".codelocal", "tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".codelocal", "tmp", "trace.txt"), []byte("local-only-trace\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "node_modules", "dep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "node_modules", "dep", "index.js"), []byte("generated-dependency-needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, ".codelocal", "worktrees", "nested", "copy.go"), []byte("package nested // private-needle\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +176,12 @@ func TestCodeLocalStateIsIgnoredAndGitIgnoreIsRepaired(t *testing.T) {
 	if !fs.Ignored(".codelocal/worktrees", true) || !fs.Ignored(".codelocal/worktrees/nested/copy.go", false) {
 		t.Fatal("CodeLocal runtime worktrees must remain hard-ignored from project indexing")
 	}
+	if !fs.Ignored(".codelocal/tmp", true) || !fs.Ignored(".codelocal/tmp/trace.txt", false) {
+		t.Fatal("CodeLocal local runtime artifacts must be private-by-default")
+	}
+	if !fs.Ignored("node_modules", true) || !fs.Ignored("node_modules/dep/index.js", false) {
+		t.Fatal("generated/dependency trees must be hard-ignored from project indexing")
+	}
 	listed, err := fs.List(".", 4, true)
 	if err != nil {
 		t.Fatal(err)
@@ -189,6 +207,13 @@ func TestCodeLocalStateIsIgnoredAndGitIgnoreIsRepaired(t *testing.T) {
 	if strings.Contains(string(ignoreData), ".codelocal/\n") || !strings.Contains(string(ignoreData), ".codelocal/worktrees/\n") {
 		t.Fatalf(".gitignore was not migrated to runtime-only state: %q", string(ignoreData))
 	}
+	excludeData, err := os.ReadFile(filepath.Join(root, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(excludeData), "# BEGIN CodeLocal local-only state") || !strings.Contains(string(excludeData), "!.codelocal/project.json") {
+		t.Fatalf("local-only Git exclude policy missing: %q", string(excludeData))
+	}
 	result, err := fs.Search("portable-rule", ".", 20, true, false)
 	if err != nil {
 		t.Fatal(err)
@@ -202,6 +227,15 @@ func TestCodeLocalStateIsIgnoredAndGitIgnoreIsRepaired(t *testing.T) {
 	}
 	if matches, _ := result["matches"].([]string); len(matches) != 0 {
 		t.Fatalf("CodeLocal internal worktree leaked into search: %#v", matches)
+	}
+	for _, needle := range []string{"local-only-trace", "generated-dependency-needle"} {
+		result, err = fs.Search(needle, ".", 20, true, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if matches, _ := result["matches"].([]string); len(matches) != 0 {
+			t.Fatalf("private/generated content leaked into search for %q: %#v", needle, matches)
+		}
 	}
 }
 

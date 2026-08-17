@@ -940,8 +940,9 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 			graphEdges = append(graphEdges, map[string]any{"from": from, "to": to, "specifier": specifier})
 		}
 	}
-	if len(graphEdges) > 120 {
-		graphEdges = graphEdges[:120]
+	edgeLimit := min(40, max(12, limit*2))
+	if len(graphEdges) > edgeLimit {
+		graphEdges = graphEdges[:edgeLimit]
 	}
 
 	type scored struct {
@@ -998,6 +999,10 @@ func (e *Engine) ContextForTask(ctx context.Context, task string, limit int) (ma
 		snippets = append(snippets, map[string]any{"path": item.path, "startLine": read["startLine"], "endLine": read["endLine"], "totalLines": read["totalLines"], "content": content, "reason": strings.Join(unique(reasons[item.path]), ", ")})
 	}
 
+	symbolLimit := min(60, max(12, limit*2))
+	if len(symbols) > symbolLimit {
+		symbols = symbols[:symbolLimit]
+	}
 	projectMap, _ := e.Map(false)
 	return map[string]any{
 		"taskHint":       task,

@@ -5,6 +5,14 @@ npm-debug.log*
 dist/
 .release/
 .codelocal-npm-cache/
-.codelocal/
 vision-computer-worktree/
 grap/
+
+# CodeLocal local-only runtime artifacts. Portable project config is explicitly allowed.
+.codelocal/*
+!.codelocal/project.json
+!.codelocal/quality.json
+!.codelocal/rules/
+!.codelocal/rules/**
+!.codelocal/skills/
+!.codelocal/skills/**

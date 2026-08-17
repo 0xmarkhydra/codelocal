@@ -154,6 +154,8 @@ func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *tes
 		".codelocal/quality.json":                              `{"schemaVersion":1,"languages":{"go":{"maxFunctionLines":10}}}`,
 		".codelocal/secrets.json":                              `{"token":"must-not-be-discovered"}`,
 		".claude/settings.local.json":                          `{"dangerouslyAllow":"not-a-knowledge-source"}`,
+		"web/node_modules/recharts/AGENTS.md":                  "dependency instructions must not leak",
+		"web/.next/generated/index.ts":                         "export const generated = true",
 	}
 	for rel, content := range fixtures {
 		writeKnowledgeFixture(t, root, rel, content)
@@ -230,7 +232,7 @@ func TestProjectMapDiscoversCanonicalKnowledgeSourcesWithoutSecondScanner(t *tes
 	if byPath[".codelocal/quality.json"]["sourceType"] != "quality_policy" || byPath[".codelocal/quality.json"]["classification"] != "private_project" {
 		t.Fatalf("unexpected CodeLocal quality policy classification: %v", byPath[".codelocal/quality.json"])
 	}
-	excludedPaths := []string{"ignored/AGENTS.md", ".cursor/rules/ignored.mdc", ".codelocal/secrets.json", ".claude/settings.local.json"}
+	excludedPaths := []string{"ignored/AGENTS.md", ".cursor/rules/ignored.mdc", ".codelocal/secrets.json", ".claude/settings.local.json", "web/node_modules/recharts/AGENTS.md"}
 	if symlinkCreated {
 		excludedPaths = append(excludedPaths, "symlinked/AGENTS.md")
 	}

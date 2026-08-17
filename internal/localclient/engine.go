@@ -511,6 +511,36 @@ func projectBrainTargets(result map[string]any, explicit []string) []string {
 	return out
 }
 
+func boundedContextList(value any, limit int) []any {
+	out := []any{}
+	switch typed := value.(type) {
+	case []any:
+		out = append(out, typed...)
+	case []string:
+		for _, item := range typed {
+			out = append(out, item)
+		}
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func compactProjectContext(projectMap map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, key := range []string{"languages", "frameworks", "workspaceRoots", "sourceRoots", "testRoots"} {
+		out[key] = boundedContextList(projectMap[key], 16)
+	}
+	out["entrypoints"] = boundedContextList(projectMap["entrypoints"], 12)
+	out["packageManager"] = projectMap["packageManager"]
+	out["commands"] = map[string]any{"build": boundedContextList(projectMap["buildCommands"], 8), "test": boundedContextList(projectMap["testCommands"], 8), "lint": boundedContextList(projectMap["lintCommands"], 8), "typecheck": boundedContextList(projectMap["typecheckCommands"], 8)}
+	if intelligence, ok := projectMap["intelligence"].(map[string]any); ok {
+		out["intelligence"] = map[string]any{"builtAt": intelligence["builtAt"], "dirty": intelligence["dirty"], "files": intelligence["files"], "sourceFiles": intelligence["sourceFiles"], "knowledgeSources": intelligence["knowledgeSources"], "languages": boundedContextList(intelligence["languages"], 16)}
+	}
+	return out
+}
+
 func (e *Engine) attachProjectBrainContext(result map[string]any, explicitTargets []string, taskHint string) {
 	if e == nil || e.FS == nil || result == nil {
 		return
@@ -902,7 +932,7 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		projectMap, _ := e.Project.Map(false)
 		instructions, _ := e.readInstructions(".")
 		branch, _ := runGit(e.Root, "branch", "--show-current")
-		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": projectMap, "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "Agent Mode can auto-approve only deterministic rememberable actions for this locally enabled workspace", "rememberable prompt approvals are stored only on this machine and scoped to the workspace, MCP session, risk ceiling, and local TTL", "critical actions always require fresh user confirmation in the current MCP client", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": string(approval.ResolveMode(e.WorkspaceID)), "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
+		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": compactProjectContext(projectMap), "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "Agent Mode can auto-approve only deterministic rememberable actions for this locally enabled workspace", "rememberable prompt approvals are stored only on this machine and scoped to the workspace, MCP session, risk ceiling, and local TTL", "critical actions always require fresh user confirmation in the current MCP client", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": string(approval.ResolveMode(e.WorkspaceID)), "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": strings.TrimSpace(asString(branch["stdout"])), "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
 	case "project_map":
 		return e.Project.Map(asBool(args["force"], false))
 	case "context_for_task":
@@ -912,6 +942,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 			return nil, err
 		}
 		e.attachProjectBrainContext(result, stringSlice(args["targets"]), taskHint)
+		if projectMap, ok := result["project"].(map[string]any); ok {
+			result["project"] = compactProjectContext(projectMap)
+		}
 		return result, nil
 	case "read_instructions":
 		return e.readInstructions(defaultString(asString(args["path"]), "."))
