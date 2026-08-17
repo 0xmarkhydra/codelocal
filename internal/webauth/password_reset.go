@@ -20,8 +20,10 @@ import (
 )
 
 const (
-	passwordResetTTL         = 10 * time.Minute
-	passwordResetMaxAttempts = 5
+	passwordResetTTL            = 10 * time.Minute
+	passwordResetMaxAttempts    = 5
+	passwordResetDailySendLimit = 2
+	passwordResetDailyWindow    = 24 * time.Hour
 )
 
 var (
@@ -311,7 +313,7 @@ func (m *Manager) changePasswordPost(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) registerPasswordReset(mux *http.ServeMux) {
 	mux.HandleFunc("GET /forgot-password", m.forgotPasswordGet)
-	forgot := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-account", Limit: 4, Window: time.Hour, Subject: func(r *http.Request) string {
+	forgot := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-account", Limit: passwordResetDailySendLimit, Window: passwordResetDailyWindow, Subject: func(r *http.Request) string {
 		_ = r.ParseForm()
 		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
 	}}, http.HandlerFunc(m.forgotPasswordPost))

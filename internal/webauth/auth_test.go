@@ -3,6 +3,7 @@ package webauth
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 )
@@ -108,5 +109,14 @@ func TestPasswordResetOTPIsScopedAwayFromSignup(t *testing.T) {
 	}
 	if validResetCode(token, "654321", resetHash) {
 		t.Fatal("wrong reset code was accepted")
+	}
+}
+
+func TestPasswordResetDailySendPolicy(t *testing.T) {
+	if passwordResetDailySendLimit != 2 {
+		t.Fatalf("password reset daily send limit=%d want 2", passwordResetDailySendLimit)
+	}
+	if passwordResetDailyWindow != 24*time.Hour {
+		t.Fatalf("password reset daily window=%s want 24h", passwordResetDailyWindow)
 	}
 }
