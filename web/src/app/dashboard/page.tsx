@@ -4,7 +4,7 @@ import styles from "./dashboard.module.css";
 const migration = [
   { label: "Web foundation", state: "Ready", note: "Next.js App Router, TypeScript, design tokens and shared dashboard layout." },
   { label: "Overview", state: "Ready", note: "Validated read-only Go overview DTO with honest unavailable/unauthenticated states." },
-  { label: "Workspaces + Devices", state: "Ready", note: "Read-only route families use minimal client-neutral DTOs and shared resource loading." },
+  { label: "Workspaces + Devices + Usage", state: "Ready", note: "Read-only route families use minimal client-neutral DTOs, runtime validation and shared resource loading." },
   { label: "Session bridge", state: "Implemented", note: "Same-origin browser API proxy is in place without replaying HttpOnly session secrets in Next." },
   { label: "Deployment parity", state: "Next", note: "Verify Set-Cookie, browser User-Agent and trusted client-IP forwarding on the real edge before cutover." },
   { label: "Remaining routes", state: "Queued", note: "Knowledge, Code Graph, Security, Account and mutations remain on Go until individually migrated." },

@@ -50,9 +50,10 @@ The client-neutral read contracts currently include:
 
 - `GET /api/v1/dashboard/overview` — compact overview DTO, typed in `src/lib/contracts/dashboard.ts`;
 - `GET /api/v1/workspaces` — authorized workspace display/status DTO;
-- `GET /api/v1/devices` — paired device display/status DTO.
+- `GET /api/v1/devices` — paired device display/status DTO;
+- `GET /api/v1/usage` — 24h/30d/all-time MCP tool payload estimates, explicitly separated from provider billing.
 
-The resource DTOs are typed and runtime-validated in `src/lib/contracts/resources.ts`. They are intentionally narrower than internal Go device/workspace structs and exclude credential identifiers, public keys, secret hashes, project roots, capabilities, routing keys and infrastructure diagnostics.
+The device/workspace DTOs are typed and runtime-validated in `src/lib/contracts/resources.ts`; usage is typed and validated in `src/lib/contracts/usage.ts`. Resource DTOs are intentionally narrower than internal Go structs and exclude credential identifiers, public keys, secret hashes, project roots, capabilities, routing keys and infrastructure diagnostics. Usage does not infer USD cost or provider billing.
 
 Browser-session-bound reads use same-origin `/api/v1/...` requests. `next.config.ts` rewrites those requests to the Go service and falls back unmatched routes to Go during incremental migration. This lets the browser send the existing HttpOnly session cookie and User-Agent naturally instead of having a Server Component replay session secrets.
 
@@ -70,9 +71,9 @@ Current slice provides:
 - product design tokens/reset;
 - landing page;
 - dashboard shell;
-- versioned Go overview/workspaces/devices read contracts;
+- versioned Go overview/workspaces/devices/usage read contracts;
 - same-origin browser session bridge through explicit Next rewrites (implemented, pending real-edge cookie/User-Agent/client-IP parity verification before cutover);
-- real Overview, Workspaces and Devices rendering only when authenticated backend data validates against runtime TypeScript contracts;
+- real Overview, Workspaces, Devices and Usage rendering only when authenticated backend data validates against runtime TypeScript contracts;
 - shared dashboard layout/navigation with legacy-route fallback to Go for unported route families;
 - no production route cutover yet;
 - no fake live telemetry.

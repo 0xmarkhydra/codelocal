@@ -260,6 +260,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/dashboard/overview", s.dashboardOverviewAPI)
 	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspacesResourceAPI)
+	mux.HandleFunc("GET /api/v1/usage", s.usageResourceAPI)
 	mux.Handle("GET /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesGet)))
 	mux.Handle("POST /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesPost)))
 	mux.HandleFunc("GET /health", s.health)

@@ -466,6 +466,69 @@
   background: rgba(255, 255, 255, 0.018);
 }
 
+.usageList {
+  display: grid;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.usageRow {
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 22px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.usageRow:last-child {
+  border-bottom: 0;
+}
+
+.usageRow > div {
+  display: grid;
+  gap: 4px;
+}
+
+.usageRow > div strong {
+  font-size: 11.5px;
+}
+
+.usageRow > div span {
+  color: var(--muted-2);
+  font-size: 9.5px;
+}
+
+.usageRow dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.usageRow dl > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.014);
+}
+
+.usageRow dt {
+  color: var(--muted-2);
+  font-size: 8.5px;
+}
+
+.usageRow dd {
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: #e5edf9;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
 .routeGuardrail {
   width: min(100%, 1360px);
   margin: 16px auto 0;
@@ -700,5 +763,13 @@
 
   .recentHead span {
     text-align: left;
+  }
+
+  .usageRow {
+    grid-template-columns: 1fr;
+  }
+
+  .usageRow dl {
+    grid-template-columns: 1fr;
   }
 }

@@ -39,20 +39,13 @@ type dashboardWorkspaceSummaryDTO struct {
 	Recent   []dashboardWorkspaceDTO `json:"recent"`
 }
 
-type dashboardUsageWindowDTO struct {
-	Calls                 int64 `json:"calls"`
-	InputTokensEstimated  int64 `json:"inputTokensEstimated"`
-	OutputTokensEstimated int64 `json:"outputTokensEstimated"`
-	TotalTokensEstimated  int64 `json:"totalTokensEstimated"`
-}
-
 type dashboardUsageDTO struct {
-	Available bool                    `json:"available"`
-	Estimated bool                    `json:"estimated"`
-	Scope     string                  `json:"scope"`
-	Last24h   dashboardUsageWindowDTO `json:"last24h"`
-	Last30d   dashboardUsageWindowDTO `json:"last30d"`
-	AllTime   dashboardUsageWindowDTO `json:"allTime"`
+	Available bool           `json:"available"`
+	Estimated bool           `json:"estimated"`
+	Scope     string         `json:"scope"`
+	Last24h   usageWindowDTO `json:"last24h"`
+	Last30d   usageWindowDTO `json:"last30d"`
+	AllTime   usageWindowDTO `json:"allTime"`
 }
 
 type dashboardOverviewDTO struct {
@@ -60,15 +53,6 @@ type dashboardOverviewDTO struct {
 	Devices    dashboardDeviceSummaryDTO    `json:"devices"`
 	Workspaces dashboardWorkspaceSummaryDTO `json:"workspaces"`
 	Usage      dashboardUsageDTO            `json:"usage"`
-}
-
-func dashboardUsageWindow(value cloud.MCPUsageSummary) dashboardUsageWindowDTO {
-	return dashboardUsageWindowDTO{
-		Calls:                 value.Calls,
-		InputTokensEstimated:  value.InputTokensEst,
-		OutputTokensEstimated: value.OutputTokensEst,
-		TotalTokensEstimated:  value.TotalTokensEst,
-	}
 }
 
 func dashboardWorkspaceStatus(status string) string {
@@ -142,9 +126,9 @@ func buildDashboardOverviewDTO(source dashboardOverviewSource) dashboardOverview
 			Available: source.UsageAvailable,
 			Estimated: true,
 			Scope:     dashboardUsageScope,
-			Last24h:   dashboardUsageWindow(source.Usage24h),
-			Last30d:   dashboardUsageWindow(source.Usage30d),
-			AllTime:   dashboardUsageWindow(source.UsageAll),
+			Last24h:   usageWindow(source.Usage24h),
+			Last30d:   usageWindow(source.Usage30d),
+			AllTime:   usageWindow(source.UsageAll),
 		},
 	}
 }
