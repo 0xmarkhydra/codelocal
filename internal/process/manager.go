@@ -402,6 +402,13 @@ func processPathAliases(value string) []string {
 		rest := windowsSlash[2:]
 		add("/" + strings.ToLower(drive) + rest)
 		add("/" + strings.ToUpper(drive) + rest)
+		lower := strings.ToLower(windowsSlash)
+		if index := strings.Index(lower, "/appdata/local/temp/"); index >= 0 {
+			relativeTempPath := strings.TrimPrefix(windowsSlash[index+len("/appdata/local/temp/"):], "/")
+			if relativeTempPath != "" {
+				add("/tmp/" + relativeTempPath)
+			}
+		}
 	}
 	return aliases
 }

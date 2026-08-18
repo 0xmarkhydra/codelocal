@@ -97,6 +97,7 @@ func TestProcessPathAliasesIncludeMSYSWindowsForm(t *testing.T) {
 		`C:\Users\runneradmin\AppData\Local\Temp\private-worktree`,
 		"C:/Users/runneradmin/AppData/Local/Temp/private-worktree",
 		"/c/Users/runneradmin/AppData/Local/Temp/private-worktree",
+		"/tmp/private-worktree",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing Windows path alias %q in %#v", want, aliases)
