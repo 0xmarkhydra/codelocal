@@ -301,7 +301,7 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
-	sessionID, err := m.createBrowserSession(w, r, user.ID, csrf)
+	sessionID, err := m.createBrowserSession(w, r, user.ID, csrf, user.SecurityVersion)
 	if err != nil {
 		http.Error(w, "Unable to create session", http.StatusInternalServerError)
 		return

@@ -1026,6 +1026,9 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		args = map[string]any{}
 	}
 	audit.Write(audit.Event{Event: "tool.call", RequestID: opts.RequestID, MCPSessionID: opts.SessionID, WorkspaceKey: e.WorkspaceKey, Tool: tool, Detail: args})
+	if result, handled, err := e.handleCodeIntelligence(ctx, tool, args); handled {
+		return result, err
+	}
 	switch tool {
 	case "learned_skill_list":
 		recipes, err := e.Skills.List(e.WorkspaceKey, asInt(args["limit"], 20))
@@ -1104,57 +1107,6 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		return e.readDependency(args)
 	case "search_dependency":
 		return e.searchDependency(args)
-	case "semantic_info":
-		return e.Project.SemanticInfo(), nil
-	case "workspace_symbols", "find_symbol":
-		symbols, err := e.Project.WorkspaceSymbols(ctx, asString(args["query"]), asInt(args["limit"], 200))
-		return map[string]any{"symbols": symbols}, err
-	case "document_symbols":
-		symbols, err := e.Project.DocumentSymbolsAt(ctx, asString(args["path"]), asInt(args["limit"], 500))
-		return map[string]any{"symbols": symbols}, err
-	case "find_definition":
-		path := asString(args["path"])
-		line := asInt(args["line"], 1)
-		column := asInt(args["column"], 1)
-		name := first(asString(args["name"]), asString(args["query"]))
-		if name == "" && path != "" {
-			name = symbolAt(e, path, line, column)
-		}
-		defs, err := e.Project.DefinitionAt(ctx, path, line, column, name, asInt(args["limit"], 100))
-		return map[string]any{"definitions": defs}, err
-	case "find_references":
-		path := asString(args["path"])
-		line := asInt(args["line"], 1)
-		column := asInt(args["column"], 1)
-		name := first(asString(args["name"]), asString(args["query"]))
-		if name == "" && path != "" {
-			name = symbolAt(e, path, line, column)
-		}
-		refs, err := e.Project.ReferencesAt(ctx, path, line, column, name, asInt(args["limit"], 500))
-		return map[string]any{"references": refs}, err
-	case "find_implementations":
-		path := asString(args["path"])
-		line := asInt(args["line"], 1)
-		column := asInt(args["column"], 1)
-		name := first(asString(args["name"]), asString(args["query"]))
-		if name == "" {
-			name = symbolAt(e, path, line, column)
-		}
-		items, err := e.Project.ImplementationsAt(ctx, path, line, column, name, asInt(args["limit"], 200))
-		return map[string]any{"implementations": items}, err
-	case "get_hover":
-		return e.Project.HoverAt(ctx, asString(args["path"]), asInt(args["line"], 1), asInt(args["column"], 1))
-	case "get_diagnostics":
-		return e.Project.Diagnostics(ctx, asString(args["path"]), asInt(args["limit"], 500))
-	case "get_callers":
-		items, err := e.Project.Callers(asString(args["name"]), asInt(args["limit"], 300))
-		return map[string]any{"callers": items}, err
-	case "get_callees":
-		items, err := e.Project.Callees(asString(args["name"]), asInt(args["limit"], 300))
-		return map[string]any{"callees": items}, err
-	case "get_import_graph":
-		items, err := e.Project.ImportGraph(asInt(args["limit"], 2000))
-		return map[string]any{"edges": items}, err
 	case "write_file":
 		result, err := e.taskWriteFile(ctx, args, opts, asString(args["path"]), asString(args["content"]), asString(args["expectedHash"]))
 		if err == nil && asString(args[privateTaskExecutionID]) == "" {

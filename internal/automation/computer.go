@@ -60,6 +60,8 @@ func computerOperationTimeout(operation string) time.Duration {
 		return 20 * time.Second
 	case "element_read", "user_activity":
 		return 2500 * time.Millisecond
+	case "scene_events":
+		return 750 * time.Millisecond
 	case "semantic_click", "semantic_type":
 		return 5 * time.Second
 	default:
@@ -250,6 +252,11 @@ func (c *ComputerController) InvalidateScene(windowID string) {
 }
 
 func (c *ComputerController) Windows(ctx context.Context, fresh bool) (any, error) {
+	if !fresh && c.EventDrivenSceneSupported() {
+		if err := c.SyncSceneEvents(ctx); err != nil {
+			fresh = true
+		}
+	}
 	if !fresh {
 		if value, ok := c.cachedWindows(); ok {
 			return value, nil
@@ -263,6 +270,11 @@ func (c *ComputerController) Windows(ctx context.Context, fresh bool) (any, erro
 }
 
 func (c *ComputerController) UITree(ctx context.Context, windowID string, fresh bool) (any, error) {
+	if !fresh && c.EventDrivenSceneSupported() {
+		if err := c.SyncSceneEvents(ctx); err != nil {
+			fresh = true
+		}
+	}
 	if !fresh {
 		if value, ok := c.cachedScene(windowID); ok {
 			return value, nil
@@ -385,7 +397,7 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 	allowed := map[string]bool{
 		"status": true, "list_windows": true, "ui_tree": true, "screenshot": true,
 		"focus": true, "click": true, "type": true, "key": true, "scroll": true, "drag": true,
-		"semantic_click": true, "semantic_type": true, "semantic_batch": true, "element_read": true, "user_activity": true,
+		"semantic_click": true, "semantic_type": true, "semantic_batch": true, "element_read": true, "user_activity": true, "scene_events": true,
 	}
 	if !allowed[operation] {
 		return nil, fmt.Errorf("unsupported Computer Use operation: %s", operation)

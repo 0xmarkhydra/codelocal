@@ -2,7 +2,7 @@ name: CodeLocal CI
 
 on:
   push:
-    branches: [main, go-migration]
+    branches: [main, dev, go-migration]
   pull_request:
 
 jobs:

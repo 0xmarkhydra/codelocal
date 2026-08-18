@@ -83,16 +83,22 @@ func TestAuthFormAvoidsImmediateIOSKeyboardAndUsesEmailInputHints(t *testing.T) 
 	}
 }
 
-func TestSessionInvalidAfterPasswordChange(t *testing.T) {
-	user := cloud.User{PasswordChangedAt: 200}
-	if !sessionInvalidAfterPasswordChange(cloud.SessionState{CreatedAt: 199}, user) {
-		t.Fatal("session created before password change must be invalid")
+func TestSessionInvalidForUserUsesSecurityVersionAndLegacyFallback(t *testing.T) {
+	user := cloud.User{PasswordChangedAt: 200, SecurityVersion: 3}
+	if sessionInvalidForUser(cloud.SessionState{CreatedAt: 250, SecurityVersion: 3}, user) {
+		t.Fatal("matching security version must remain valid")
 	}
-	if sessionInvalidAfterPasswordChange(cloud.SessionState{CreatedAt: 200}, user) {
-		t.Fatal("replacement session created at the password change timestamp must remain valid")
+	if !sessionInvalidForUser(cloud.SessionState{CreatedAt: 250, SecurityVersion: 2}, user) {
+		t.Fatal("security version mismatch must revoke the session even when timestamps are newer")
 	}
-	if sessionInvalidAfterPasswordChange(cloud.SessionState{CreatedAt: 0}, cloud.User{}) {
-		t.Fatal("legacy session must remain valid until the user changes their password")
+	if !sessionInvalidForUser(cloud.SessionState{CreatedAt: 199}, user) {
+		t.Fatal("legacy session created before password change must be invalid")
+	}
+	if sessionInvalidForUser(cloud.SessionState{CreatedAt: 200}, user) {
+		t.Fatal("legacy replacement session created at the password change timestamp must remain compatible")
+	}
+	if sessionInvalidForUser(cloud.SessionState{CreatedAt: 0}, cloud.User{}) {
+		t.Fatal("legacy session must remain valid until a security-changing event occurs")
 	}
 }
 
@@ -118,6 +124,13 @@ func TestPasswordResetDailySendPolicy(t *testing.T) {
 	}
 	if passwordResetDailyWindow != 24*time.Hour {
 		t.Fatalf("password reset daily window=%s want 24h", passwordResetDailyWindow)
+	}
+	token := "abcdefghijklmnopqrstuvwxyzABCDEF"
+	if got := passwordResetFinalizeLockKey(token); got != passwordResetKey(token)+":finalize" {
+		t.Fatalf("unexpected finalize lock key %q", got)
+	}
+	if got := passwordResetAttemptKey(token); got != passwordResetKey(token)+":attempts" {
+		t.Fatalf("unexpected attempt counter key %q", got)
 	}
 }
 

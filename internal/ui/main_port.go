@@ -28,6 +28,7 @@ var UIIcons = map[string]string{
 	"overview":     navIcons["overview"],
 	"workspaces":   navIcons["workspaces"],
 	"knowledge":    navIcons["knowledge"],
+	"codegraph":    navIcons["codegraph"],
 	"devices":      navIcons["devices"],
 	"usage":        navIcons["usage"],
 	"connect":      navIcons["connect"],
@@ -338,6 +339,7 @@ func DashboardPage(options DashboardOptions) string {
 	nav.WriteString(navLink("/dashboard", "overview", "Overview", options.Active == "overview"))
 	nav.WriteString(navLink("/dashboard/workspaces", "workspaces", "Workspaces", options.Active == "workspaces"))
 	nav.WriteString(navLink("/dashboard/knowledge", "knowledge", "Knowledge Graph", options.Active == "knowledge"))
+	nav.WriteString(navLink("/dashboard/code-graph", "codegraph", "Code Graph", options.Active == "codegraph"))
 	nav.WriteString(navLink("/dashboard/devices", "devices", "Devices", options.Active == "devices"))
 	nav.WriteString(navLink("/dashboard/connect", "connect", "MCP Connections", options.Active == "connect"))
 	nav.WriteString(navLink("/dashboard/account", "account", "Account", options.Active == "account"))

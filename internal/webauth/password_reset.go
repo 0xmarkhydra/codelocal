@@ -40,7 +40,28 @@ type pendingPasswordReset struct {
 	CreatedAt int64  `json:"createdAt"`
 }
 
-func passwordResetKey(token string) string { return "codelocal:password-reset:" + token }
+func passwordResetKey(token string) string             { return "codelocal:password-reset:" + token }
+func passwordResetFinalizeLockKey(token string) string { return passwordResetKey(token) + ":finalize" }
+func passwordResetAttemptKey(token string) string      { return passwordResetKey(token) + ":attempts" }
+
+func (m *Manager) incrementPasswordResetAttempts(ctx context.Context, token string, ttl time.Duration) (int64, error) {
+	if !passwordResetTokenRE.MatchString(token) || ttl <= 0 {
+		return 0, nil
+	}
+	const script = `local count=redis.call('INCR',KEYS[1]); redis.call('PEXPIRE',KEYS[1],ARGV[1]); return count`
+	return m.Store.Redis.Eval(ctx, script, []string{passwordResetAttemptKey(token)}, ttl.Milliseconds()).Int64()
+}
+
+func (m *Manager) acquirePasswordResetFinalizeLock(ctx context.Context, token string, ttl time.Duration) (bool, error) {
+	if !passwordResetTokenRE.MatchString(token) || ttl <= 0 {
+		return false, nil
+	}
+	return m.Store.Redis.SetNX(ctx, passwordResetFinalizeLockKey(token), "1", ttl).Result()
+}
+
+func (m *Manager) releasePasswordResetFinalizeLock(ctx context.Context, token string) {
+	_ = m.Store.Redis.Del(ctx, passwordResetFinalizeLockKey(token)).Err()
+}
 
 func passwordResetCodeHash(token, code string) string {
 	secret := os.Getenv("MCP_AUTH_SECRET")
@@ -236,14 +257,17 @@ func validResetCode(token, code, expected string) bool {
 }
 
 func (m *Manager) rejectResetAttempt(w http.ResponseWriter, r *http.Request, csrf, token string, pending pendingPasswordReset, ttl time.Duration) {
-	pending.Attempts++
-	if pending.Attempts >= passwordResetMaxAttempts {
-		_ = m.Store.Redis.Del(r.Context(), passwordResetKey(token)).Err()
+	attempts, err := m.incrementPasswordResetAttempts(r.Context(), token, ttl)
+	if err != nil {
+		http.Error(w, "Unable to verify reset code", http.StatusServiceUnavailable)
+		return
+	}
+	if attempts >= passwordResetMaxAttempts {
+		_ = m.Store.Redis.Del(r.Context(), passwordResetKey(token), passwordResetAttemptKey(token), passwordResetFinalizeLockKey(token)).Err()
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(resetExpiredPage()))
 		return
 	}
-	_ = m.savePasswordReset(r.Context(), token, pending, ttl)
 	w.WriteHeader(http.StatusBadRequest)
 	_, _ = w.Write([]byte(m.resetPasswordForm(csrf, token, pending.Email, "The reset code is incorrect.")))
 }
@@ -293,12 +317,23 @@ func (m *Manager) resetPasswordPost(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(m.resetPasswordForm(csrf, token, pending.Email, "Choose a password you have not already been using.")))
 		return
 	}
-	changedAt := time.Now().UnixMilli()
-	if err := m.Store.UpdateUserPassword(r.Context(), user.ID, hash, salt, changedAt); err != nil {
+	locked, err := m.acquirePasswordResetFinalizeLock(r.Context(), token, ttl)
+	if err != nil {
 		http.Error(w, "Unable to reset password", http.StatusInternalServerError)
 		return
 	}
-	_ = m.Store.Redis.Del(r.Context(), passwordResetKey(token)).Err()
+	if !locked {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(ui.Page("Reset already in progress", "This password reset is already being finalized. If it does not complete, request a new reset code.", `<div class="actions"><a class="btn" href="/forgot-password">Request a new reset</a><a class="btn" href="/login">Back to sign in</a></div>`)))
+		return
+	}
+	changedAt := time.Now().UnixMilli()
+	if err := m.Store.UpdateUserPassword(r.Context(), user.ID, hash, salt, changedAt); err != nil {
+		m.releasePasswordResetFinalizeLock(r.Context(), token)
+		http.Error(w, "Unable to reset password", http.StatusInternalServerError)
+		return
+	}
+	_ = m.Store.Redis.Del(r.Context(), passwordResetKey(token), passwordResetAttemptKey(token), passwordResetFinalizeLockKey(token)).Err()
 	m.setCookie(w, SessionCookie, "", -1, true)
 	m.Store.Audit(cloud.AuditEvent{UserID: user.ID, Event: "auth.password_reset_completed"})
 	_, _ = w.Write([]byte(ui.Page("Password reset", "Your CodeLocal password has been updated. Existing signed-in sessions were revoked.", `<div class="actions"><a class="btn primary" href="/login">Sign in</a></div>`)))
@@ -337,11 +372,12 @@ func (m *Manager) changePasswordPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changedAt := time.Now().UnixMilli()
-	if err := m.Store.UpdateUserPassword(r.Context(), identity.User.ID, hash, salt, changedAt); err != nil {
+	securityVersion, err := m.Store.UpdateUserPasswordAndVersion(r.Context(), identity.User.ID, hash, salt, changedAt)
+	if err != nil {
 		http.Error(w, "Unable to change password", http.StatusInternalServerError)
 		return
 	}
-	newSessionID, err := m.createBrowserSession(w, r, identity.User.ID, identity.CSRF)
+	newSessionID, err := m.createBrowserSession(w, r, identity.User.ID, identity.CSRF, securityVersion)
 	if err != nil {
 		http.Error(w, "Password changed, but unable to refresh session", http.StatusInternalServerError)
 		return

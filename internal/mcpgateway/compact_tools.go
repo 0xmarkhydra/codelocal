@@ -219,7 +219,7 @@ func compactToolDefinitions() []compactToolDef {
 			Schema:      actionSchema([]string{"info", "workspace_symbols", "document_symbols", "definition", "references", "implementations", "hover", "diagnostics", "callers", "callees", "import_graph"}, map[string]any{"path": path, "line": integer("1-based line.", 1, 0), "column": integer("1-based column.", 1, 0), "name": str("Symbol name."), "query": str("Symbol/fallback query."), "limit": limit}),
 			Annotations: compactAnnotations("Navigate code intelligence", true, false, false),
 			Resolve: func(args map[string]any) (operationInvocation, map[string]any, error) {
-				return resolveAction(args, lspActions, map[string][]string{"document_symbols": {"path"}, "implementations": {"path", "line", "column"}, "hover": {"path", "line", "column"}, "callers": {"name"}, "callees": {"name"}})
+				return resolveAction(args, lspActions, map[string][]string{"document_symbols": {"path"}, "implementations": {"path", "line", "column"}, "hover": {"path", "line", "column"}})
 			},
 		},
 		{

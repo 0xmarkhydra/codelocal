@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/cloudserver"
 	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
 )
@@ -20,6 +21,19 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	migrationMode, err := cloud.StoreMigrationMode()
+	if err != nil {
+		slog.Error("CodeLocal migration mode is invalid", "error", err)
+		os.Exit(1)
+	}
+	if migrationMode == cloud.StoreMigrationOnly {
+		if err := cloud.MigrateOnly(ctx); err != nil {
+			slog.Error("CodeLocal migration failed", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("CodeLocal migration completed")
+		return
+	}
 	server, err := cloudserver.New(ctx)
 	if err != nil {
 		slog.Error("CodeLocal Cloud initialization failed", "error", err)

@@ -95,10 +95,10 @@ func (m *Manager) EnsureSecurityDevice(w http.ResponseWriter, r *http.Request) s
 	return value
 }
 
-func (m *Manager) createBrowserSession(w http.ResponseWriter, r *http.Request, userID, csrf string) (string, error) {
+func (m *Manager) createBrowserSession(w http.ResponseWriter, r *http.Request, userID, csrf string, securityVersion int64) (string, error) {
 	deviceToken := m.EnsureSecurityDevice(w, r)
 	signal := webutil.RequestSecuritySignal(r, deviceToken)
-	return m.Store.CreateSessionWithSecurity(r.Context(), userID, csrf, m.SessionTTL, signal)
+	return m.Store.CreateSessionWithSecurityVersion(r.Context(), userID, csrf, m.SessionTTL, securityVersion, signal)
 }
 
 func (m *Manager) VerifyCSRF(r *http.Request) bool {
@@ -148,7 +148,10 @@ func VerifyPassword(password, salt, expected string) bool {
 	return len(a) == len(b) && subtle.ConstantTimeCompare(a, b) == 1
 }
 
-func sessionInvalidAfterPasswordChange(state cloud.SessionState, user cloud.User) bool {
+func sessionInvalidForUser(state cloud.SessionState, user cloud.User) bool {
+	if state.SecurityVersion > 0 && user.SecurityVersion > 0 {
+		return state.SecurityVersion != user.SecurityVersion
+	}
 	return user.PasswordChangedAt > 0 && state.CreatedAt < user.PasswordChangedAt
 }
 
@@ -168,7 +171,7 @@ func (m *Manager) Identity(r *http.Request) (*Identity, error) {
 	if err != nil || user == nil {
 		return nil, err
 	}
-	if sessionInvalidAfterPasswordChange(state, *user) {
+	if sessionInvalidForUser(state, *user) {
 		_ = m.Store.DeleteSession(r.Context(), cookie.Value)
 		return nil, nil
 	}
@@ -248,100 +251,108 @@ func (m *Manager) form(mode, csrf, next, errorMessage string, referralCodes ...s
 	return ui.Page(title, subtitle, body)
 }
 
-func (m *Manager) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
-		identity, _ := m.Identity(r)
-		if identity != nil {
-			http.Redirect(w, r, webutil.SafeNext(r.URL.Query().Get("next")), http.StatusFound)
-			return
-		}
-		csrf := m.EnsureCSRF(w, r)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(m.form("login", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "")))
-	})
-	login := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		csrf := m.EnsureCSRF(w, r)
-		next := webutil.SafeNext(r.FormValue("next"))
-		if !m.VerifyCSRF(r) {
-			w.WriteHeader(403)
-			_, _ = w.Write([]byte(m.form("login", csrf, next, "Security token expired. Please try again.")))
-			return
-		}
-		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
-		password := r.FormValue("password")
-		user, _ := m.Store.UserByEmail(r.Context(), email)
-		valid := false
+func (m *Manager) loginGet(w http.ResponseWriter, r *http.Request) {
+	identity, _ := m.Identity(r)
+	if identity != nil {
+		http.Redirect(w, r, webutil.SafeNext(r.URL.Query().Get("next")), http.StatusFound)
+		return
+	}
+	csrf := m.EnsureCSRF(w, r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(m.form("login", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "")))
+}
+
+func loginRateSubject(r *http.Request) string {
+	_ = r.ParseForm()
+	return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
+}
+
+func (m *Manager) loginPost(w http.ResponseWriter, r *http.Request) {
+	csrf := m.EnsureCSRF(w, r)
+	next := webutil.SafeNext(r.FormValue("next"))
+	if !m.VerifyCSRF(r) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(m.form("login", csrf, next, "Security token expired. Please try again.")))
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+	password := r.FormValue("password")
+	user, _ := m.Store.UserByEmail(r.Context(), email)
+	valid := false
+	if user != nil {
+		valid = VerifyPassword(password, user.PasswordSalt, user.PasswordHash)
+	} else if len(password) <= 256 {
+		_, _ = derivePassword(password, "codelocal-login-timing-padding-v1")
+	}
+	if user == nil || !valid {
+		userID := ""
 		if user != nil {
-			valid = VerifyPassword(password, user.PasswordSalt, user.PasswordHash)
-		} else if len(password) <= 256 {
-			_, _ = derivePassword(password, "codelocal-login-timing-padding-v1")
+			userID = user.ID
 		}
-		if user == nil || !valid {
-			m.Store.Audit(cloud.AuditEvent{UserID: func() string {
-				if user != nil {
-					return user.ID
-				}
-				return ""
-			}(), Event: "auth.login_failed", Detail: map[string]any{"email": email}})
-			w.WriteHeader(401)
-			_, _ = w.Write([]byte(m.form("login", csrf, next, "Email or password is incorrect.")))
-			return
-		}
-		sessionID, err := m.createBrowserSession(w, r, user.ID, csrf)
-		if err != nil {
-			http.Error(w, "Unable to create session", 500)
-			return
-		}
-		m.setCookie(w, SessionCookie, sessionID, int(m.SessionTTL.Seconds()), true)
-		m.Store.Audit(cloud.AuditEvent{UserID: user.ID, Event: "auth.login", Detail: map[string]any{"method": "password"}})
-		http.Redirect(w, r, next, http.StatusSeeOther)
-	})
-	mux.Handle("POST /login", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-ip", Limit: 40, Window: 10 * time.Minute}, webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-account", Limit: 12, Window: 10 * time.Minute, Subject: func(r *http.Request) string {
-		_ = r.ParseForm()
-		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
-	}}, login)))
-	mux.HandleFunc("GET /register", func(w http.ResponseWriter, r *http.Request) {
-		params := url.Values{}
-		params.Set("next", webutil.SafeNext(r.URL.Query().Get("next")))
-		if ref := cloud.NormalizeReferralCode(r.URL.Query().Get("ref")); cloud.ValidReferralCode(ref) {
-			params.Set("ref", ref)
-		}
-		http.Redirect(w, r, "/signup?"+params.Encode(), http.StatusFound)
-	})
-	mux.HandleFunc("GET /signup", func(w http.ResponseWriter, r *http.Request) {
-		identity, _ := m.Identity(r)
-		if identity != nil {
-			http.Redirect(w, r, webutil.SafeNext(r.URL.Query().Get("next")), http.StatusFound)
-			return
-		}
-		csrf := m.EnsureCSRF(w, r)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(m.form("signup", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "", r.URL.Query().Get("ref"))))
-	})
-	signup := http.HandlerFunc(m.signupStart)
-	mux.Handle("POST /signup", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-ip", Limit: 20, Window: time.Hour}, webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-account", Limit: 4, Window: time.Hour, Subject: func(r *http.Request) string {
-		_ = r.ParseForm()
-		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
-	}}, signup)))
+		m.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "auth.login_failed", Detail: map[string]any{"email": email}})
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(m.form("login", csrf, next, "Email or password is incorrect.")))
+		return
+	}
+	sessionID, err := m.createBrowserSession(w, r, user.ID, csrf, user.SecurityVersion)
+	if err != nil {
+		http.Error(w, "Unable to create session", http.StatusInternalServerError)
+		return
+	}
+	m.setCookie(w, SessionCookie, sessionID, int(m.SessionTTL.Seconds()), true)
+	m.Store.Audit(cloud.AuditEvent{UserID: user.ID, Event: "auth.login", Detail: map[string]any{"method": "password"}})
+	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+func (m *Manager) registerRedirect(w http.ResponseWriter, r *http.Request) {
+	params := url.Values{}
+	params.Set("next", webutil.SafeNext(r.URL.Query().Get("next")))
+	if ref := cloud.NormalizeReferralCode(r.URL.Query().Get("ref")); cloud.ValidReferralCode(ref) {
+		params.Set("ref", ref)
+	}
+	http.Redirect(w, r, "/signup?"+params.Encode(), http.StatusFound)
+}
+
+func (m *Manager) signupGet(w http.ResponseWriter, r *http.Request) {
+	identity, _ := m.Identity(r)
+	if identity != nil {
+		http.Redirect(w, r, webutil.SafeNext(r.URL.Query().Get("next")), http.StatusFound)
+		return
+	}
+	csrf := m.EnsureCSRF(w, r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(m.form("signup", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "", r.URL.Query().Get("ref"))))
+}
+
+func (m *Manager) logoutPost(w http.ResponseWriter, r *http.Request) {
+	identity, _ := m.Identity(r)
+	if !m.VerifyCSRF(r) {
+		http.Error(w, "Invalid security token.", http.StatusForbidden)
+		return
+	}
+	next := webutil.SafeNext(r.FormValue("next"))
+	if identity != nil {
+		_ = m.Store.DeleteSession(r.Context(), identity.SessionID)
+		m.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "auth.logout"})
+	}
+	m.setCookie(w, SessionCookie, "", -1, true)
+	if next != "/dashboard" {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (m *Manager) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /login", m.loginGet)
+	login := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-account", Limit: 12, Window: 10 * time.Minute, Subject: loginRateSubject}, http.HandlerFunc(m.loginPost))
+	mux.Handle("POST /login", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-ip", Limit: 40, Window: 10 * time.Minute}, login))
+	mux.HandleFunc("GET /register", m.registerRedirect)
+	mux.HandleFunc("GET /signup", m.signupGet)
+	signup := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-account", Limit: 4, Window: time.Hour, Subject: loginRateSubject}, http.HandlerFunc(m.signupStart))
+	mux.Handle("POST /signup", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-ip", Limit: 20, Window: time.Hour}, signup))
 	m.registerSignupVerification(mux)
 	m.registerPasswordReset(mux)
 	m.registerAccountSecurity(mux)
-	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) {
-		identity, _ := m.Identity(r)
-		if !m.VerifyCSRF(r) {
-			http.Error(w, "Invalid security token.", 403)
-			return
-		}
-		next := webutil.SafeNext(r.FormValue("next"))
-		if identity != nil {
-			_ = m.Store.DeleteSession(r.Context(), identity.SessionID)
-			m.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "auth.logout"})
-		}
-		m.setCookie(w, SessionCookie, "", -1, true)
-		if next != "/dashboard" {
-			http.Redirect(w, r, "/login?next="+url.QueryEscape(next), http.StatusSeeOther)
-			return
-		}
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-	})
+	mux.HandleFunc("POST /logout", m.logoutPost)
 }

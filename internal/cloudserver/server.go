@@ -241,6 +241,7 @@ func (s *Server) routes() {
 	mux.Handle("GET /dashboard/devices", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/workspaces", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/knowledge", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
+	mux.Handle("GET /dashboard/code-graph", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/usage", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /dashboard/admin", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /api/status", s.WebAuth.Require(http.HandlerFunc(s.apiStatus)))
@@ -381,6 +382,10 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/dashboard/knowledge" {
 		s.knowledgeDashboard(w, r, identity)
+		return
+	}
+	if r.URL.Path == "/dashboard/code-graph" {
+		s.codeGraphDashboard(w, r, identity)
 		return
 	}
 	devices, _ := s.Store.ListDevices(r.Context(), identity.User.ID)

@@ -114,11 +114,24 @@ func macUserActivity(ctx context.Context) (any, error) {
 
 func platformCapabilities() map[string]any {
 	ctx := context.Background()
-	trusted := macAccessibilityTrusted(ctx)
+	nativeCapabilities, nativeReady := macNativeDaemonProbe(ctx)
+	trusted := false
+	if nativeTrusted, ok := nativeCapabilities["accessibilityTrusted"].(bool); nativeReady && ok {
+		trusted = nativeTrusted
+	} else {
+		trusted = macAccessibilityTrusted(ctx)
+	}
+	nativeSceneEvents, _ := nativeCapabilities["sceneEvents"].(bool)
+	backend := "macos-persistent-ax+coregraphics"
+	engine := "computer-v2"
+	if nativeReady {
+		backend = "macos-native-ax+jxa-fallback"
+		engine = "computer-v3"
+	}
 	capabilities := map[string]any{
 		"available":              true,
-		"backend":                "macos-persistent-ax+coregraphics",
-		"engine":                 "computer-v2",
+		"backend":                backend,
+		"engine":                 engine,
 		"persistentEngine":       true,
 		"sceneCache":             true,
 		"batchActions":           trusted,
@@ -140,8 +153,8 @@ func platformCapabilities() map[string]any {
 	}
 	return applyDesktopBackendContract(capabilities, desktopBackendContract{
 		Name:                 "desktop-v3-transition",
-		NativeAXBackend:      false,
-		EventDrivenScene:     false,
+		NativeAXBackend:      nativeReady,
+		EventDrivenScene:     nativeReady && nativeSceneEvents,
 		TargetedVerification: trusted,
 		UserActivityGuard:    true,
 	})
@@ -221,6 +234,12 @@ func macWindows(ctx context.Context) (any, error) {
 		return cached, nil
 	}
 	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentWindowBudget)
+	if sharedMacNativeWorker.ensureReady(persistentCtx) {
+		if windows, err := macNativeWindows(persistentCtx); err == nil && len(windows) > 0 {
+			persistentCancel()
+			return macRememberWindows(windows), nil
+		}
+	}
 	windows, persistentErr := macPersistentWindows(persistentCtx)
 	persistentCancel()
 	if persistentErr == nil && len(windows) > 0 {
@@ -325,6 +344,13 @@ func macSemanticAction(ctx context.Context, operation, windowID, target, text st
 		windowIndex = index
 	}
 	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentSemanticBudget)
+	if sharedMacNativeWorker.ensureReady(persistentCtx) {
+		value, nativeErr := macNativeSemanticAction(persistentCtx, pid, windowIndex, operation, target, text)
+		persistentCancel()
+		// Once a native action is dispatched, never replay it through JXA. The
+		// native daemon may have completed the mutation before a transport error.
+		return value, nativeErr
+	}
 	persistentValue, persistentErr := macPersistentSemanticAction(persistentCtx, pid, windowIndex, operation, target, text)
 	persistentCancel()
 	if persistentErr == nil {
@@ -363,7 +389,12 @@ func macSemanticBatch(ctx context.Context, windowID string, steps any) (any, err
 	}
 	batchCtx, cancel := context.WithTimeout(ctx, macPersistentBatchBudget)
 	defer cancel()
-	// Never replay a partially executed batch through the one-shot fallback.
+	if sharedMacNativeWorker.ensureReady(batchCtx) {
+		// Never replay a native batch after dispatch. Some steps may already have
+		// completed before an error is observed by the bridge.
+		return macNativeSemanticBatch(batchCtx, pid, windowIndex, rawSteps)
+	}
+	// Never replay a partially executed JXA batch through a one-shot fallback.
 	return macPersistentSemanticBatch(batchCtx, pid, windowIndex, rawSteps)
 }
 
@@ -377,7 +408,14 @@ func macElementRead(ctx context.Context, windowID, elementID string) (any, error
 	if err != nil {
 		return nil, err
 	}
-	return macPersistentElementRead(ctx, pid, elementID)
+	readCtx, cancel := context.WithTimeout(ctx, macPersistentSemanticBudget)
+	defer cancel()
+	if sharedMacNativeWorker.ensureReady(readCtx) {
+		if value, nativeErr := macNativeElementRead(readCtx, pid, elementID); nativeErr == nil {
+			return value, nil
+		}
+	}
+	return macPersistentElementRead(readCtx, pid, elementID)
 }
 
 func macAXWindowRef(windowID string) (pid, windowIndex int, ok bool) {
@@ -585,12 +623,19 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 		windowIndex = index
 	}
 	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentTreeBudget)
-	out, persistentErr := macPersistentTree(persistentCtx, pid, windowIndex, 500)
+	var out map[string]any
+	var persistentErr error
+	if sharedMacNativeWorker.ensureReady(persistentCtx) {
+		out, persistentErr = macNativeTree(persistentCtx, pid, windowIndex, 500)
+	}
+	if out == nil || persistentErr != nil {
+		out, persistentErr = macPersistentTree(persistentCtx, pid, windowIndex, 500)
+	}
 	persistentCancel()
 	if persistentErr != nil {
 		// Preserve the v1 tree path as a compatibility fallback. The normal path
-		// keeps one JXA process warm across requests and therefore avoids process
-		// startup on every observation.
+		// keeps one native/JXA process warm across requests and therefore avoids
+		// process startup on every observation.
 		text, err := runOSA(ctx, "JavaScript", macTreeScript, strconv.Itoa(pid), "500", strconv.Itoa(windowIndex))
 		if err != nil {
 			return nil, err
@@ -787,6 +832,15 @@ func platformHandle(ctx context.Context, input request) (any, error) {
 		return platformCapabilities(), nil
 	case "user_activity":
 		return macUserActivity(ctx)
+	case "scene_events":
+		if !sharedMacNativeWorker.ensureReady(ctx) {
+			return map[string]any{"events": []any{}}, nil
+		}
+		events, err := macNativeSceneEvents(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"events": events}, nil
 	case "list_windows":
 		return macWindows(ctx)
 	case "ui_tree":

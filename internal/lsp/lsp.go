@@ -237,6 +237,7 @@ func startClient(parent context.Context, spec Spec, command, root string) (*Clie
 				"definition":      map[string]any{"dynamicRegistration": false, "linkSupport": true},
 				"references":      map[string]any{"dynamicRegistration": false},
 				"implementation":  map[string]any{"dynamicRegistration": false, "linkSupport": true},
+				"callHierarchy":   map[string]any{"dynamicRegistration": false},
 				"documentSymbol":  map[string]any{"dynamicRegistration": false, "hierarchicalDocumentSymbolSupport": true},
 				"hover":           map[string]any{"dynamicRegistration": false, "contentFormat": []string{"markdown", "plaintext"}},
 			},

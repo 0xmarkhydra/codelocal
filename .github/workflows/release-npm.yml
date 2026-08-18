@@ -4,32 +4,33 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Internal second-stage release tag. Leave empty for a manual release reservation.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
+  actions: write
   id-token: write
 
 concurrency:
-  group: codelocal-npm-publish
+  group: codelocal-npm-${{ inputs.release_tag != '' && 'publish' || 'prepare' }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    if: github.repository == '0xmarkhydra/codex-mcp'
+  prepare:
+    if: github.repository == '0xmarkhydra/codex-mcp' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.release_tag == '' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Checkout source commit
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.x'
-          cache: true
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -37,12 +38,6 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
-
-      - name: Ensure npm supports trusted publishing
-        run: |
-          npm install --global 'npm@^11.5.1'
-          node --version
-          npm --version
 
       - name: Validate source version
         id: source
@@ -56,34 +51,25 @@ jobs:
             echo 'Could not resolve package/runtime version.' >&2
             exit 1
           fi
-
           if [[ "$source_version" != "$runtime_version" ]]; then
             echo "Version mismatch: package.json=$source_version runtime=$runtime_version" >&2
             exit 1
           fi
-
           if [[ ! "$source_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Source version must be a stable semver, got: $source_version" >&2
             exit 1
           fi
-
           echo "version=$source_version" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve and reserve release version
+      - name: Resolve next unreserved release version
         id: release
         shell: bash
         env:
           SOURCE_VERSION: ${{ steps.source.outputs.version }}
         run: |
           set -euo pipefail
-
-          existing_tag="$(git tag --points-at "$GITHUB_SHA" --list 'codelocal-v*' | sort -V | tail -n 1 || true)"
-          if [[ -n "$existing_tag" ]]; then
-            version="${existing_tag#codelocal-v}"
-            echo "Reusing reserved release $version for commit $GITHUB_SHA."
-          else
-            latest="$(npm view 'codelocal@latest' version --prefer-online 2>/dev/null || true)"
-            version="$(node - "$SOURCE_VERSION" "$latest" <<'NODE'
+          latest="$(npm view 'codelocal@latest' version --prefer-online 2>/dev/null || true)"
+          version="$(node - "$SOURCE_VERSION" "$latest" <<'NODE'
           const [source, latest] = process.argv.slice(2);
           const parse = (value) => {
             const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value || '');
@@ -91,83 +77,49 @@ jobs:
             return match.slice(1).map(Number);
           };
           const compare = (a, b) => {
-            for (let i = 0; i < 3; i += 1) {
-              if (a[i] !== b[i]) return a[i] - b[i];
-            }
+            for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] - b[i];
             return 0;
           };
-
           let next = parse(source);
           if (latest) {
             const latestParts = parse(latest);
             const bumpedLatest = [latestParts[0], latestParts[1], latestParts[2] + 1];
             if (compare(bumpedLatest, next) > 0) next = bumpedLatest;
           }
-
           process.stdout.write(next.join('.'));
           NODE
-            )"
+          )"
 
-            bump_patch() {
-              node - "$1" <<'NODE'
+          bump_patch() {
+            node - "$1" <<'NODE'
           const parts = process.argv[2].split('.').map(Number);
           if (parts.length !== 3 || parts.some(Number.isNaN)) process.exit(1);
           parts[2] += 1;
           process.stdout.write(parts.join('.'));
           NODE
-            }
+          }
 
-            while git rev-parse -q --verify "refs/tags/codelocal-v$version" >/dev/null 2>&1 || \
-              npm view "codelocal@$version" version --prefer-online >/dev/null 2>&1; do
-              version="$(bump_patch "$version")"
-            done
-
-            tag="codelocal-v$version"
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git tag "$tag" "$GITHUB_SHA"
-            git push origin "refs/tags/$tag"
-            echo "Reserved $version with tag $tag for commit $GITHUB_SHA."
-          fi
-
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Resolved version is not stable semver: $version" >&2
-            exit 1
-          fi
+          while git rev-parse -q --verify "refs/tags/codelocal-v$version" >/dev/null 2>&1 || \
+            npm view "codelocal@$version" version --prefer-online >/dev/null 2>&1; do
+            version="$(bump_patch "$version")"
+          done
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=codelocal-v$version" >> "$GITHUB_OUTPUT"
 
-      - name: Check whether reserved version is already published
-        id: registry
+      - name: Create immutable release commit and tag
+        id: tagged
         shell: bash
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          if npm view "codelocal@$VERSION" version --prefer-online >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "codelocal@$VERSION is already on npm; this commit has already been released."
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            echo "codelocal@$VERSION is reserved and ready to publish."
-          fi
+          npm version "$VERSION" --no-git-tag-version --ignore-scripts
 
-      - name: Apply reserved version to release workspace
-        if: steps.registry.outputs.published != 'true'
-        shell: bash
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
           node <<'NODE'
           const fs = require('node:fs');
           const version = process.env.VERSION;
-
-          const packagePath = 'package.json';
-          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-          pkg.version = version;
-          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-
           const runtimePath = 'internal/version/version.go';
           const runtime = fs.readFileSync(runtimePath, 'utf8');
           const pattern = /^const Version = "[^"]*"$/m;
@@ -176,10 +128,120 @@ jobs:
           NODE
 
           package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').version")"
+          lock_root_version="$(node -p "require('./package-lock.json').packages[''].version")"
           runtime_version="$(sed -n 's/^const Version = "\([^"]*\)"$/\1/p' internal/version/version.go)"
-          if [[ "$package_version" != "$VERSION" || "$runtime_version" != "$VERSION" ]]; then
-            echo "Failed to apply release version: package=$package_version runtime=$runtime_version expected=$VERSION" >&2
+          if [[ "$package_version" != "$VERSION" || "$lock_version" != "$VERSION" || "$lock_root_version" != "$VERSION" || "$runtime_version" != "$VERSION" ]]; then
+            echo "Failed to materialize release version: package=$package_version lock=$lock_version lockRoot=$lock_root_version runtime=$runtime_version expected=$VERSION" >&2
             exit 1
+          fi
+
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json internal/version/version.go
+          git commit -m "release: codelocal v$VERSION"
+          release_sha="$(git rev-parse HEAD)"
+          git tag "$TAG" "$release_sha"
+          git push origin "refs/tags/$TAG"
+
+          echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
+          echo "Created immutable release source $TAG at $release_sha (parent $GITHUB_SHA)."
+
+      - name: Dispatch publish from exact release tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run release-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f "release_tag=$TAG"
+          echo "Dispatched publish stage from $TAG."
+
+  publish:
+    if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate publish ref
+        id: release
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != "$REQUESTED_TAG" ]]; then
+            echo "Publish stage must run from its exact release tag: requested=$REQUESTED_TAG actual=$GITHUB_REF_TYPE/$GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          if [[ ! "$REQUESTED_TAG" =~ ^codelocal-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Invalid CodeLocal release tag: $REQUESTED_TAG" >&2
+            exit 1
+          fi
+          echo "version=${REQUESTED_TAG#codelocal-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout immutable release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Verify tag, commit and source versions match
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag_sha="$(git rev-list -n 1 "$TAG")"
+          head_sha="$(git rev-parse HEAD)"
+          package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').version")"
+          lock_root_version="$(node -p "require('./package-lock.json').packages[''].version")"
+          runtime_version="$(sed -n 's/^const Version = "\([^"]*\)"$/\1/p' internal/version/version.go)"
+
+          if [[ "$tag_sha" != "$head_sha" ]]; then
+            echo "Tag/source mismatch: tag=$tag_sha checkout=$head_sha" >&2
+            exit 1
+          fi
+          if [[ "$package_version" != "$VERSION" || "$lock_version" != "$VERSION" || "$lock_root_version" != "$VERSION" || "$runtime_version" != "$VERSION" ]]; then
+            echo "Release source mismatch: package=$package_version lock=$lock_version lockRoot=$lock_root_version runtime=$runtime_version expected=$VERSION" >&2
+            exit 1
+          fi
+          echo "Verified $TAG -> $head_sha -> source version $VERSION."
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install --global 'npm@^11.5.1'
+          node --version
+          npm --version
+
+      - name: Check whether exact release is already published
+        id: registry
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "codelocal@$VERSION" version --prefer-online >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "codelocal@$VERSION is already on npm; publish stage is idempotent."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and verify release package
@@ -195,17 +257,14 @@ jobs:
           set -euo pipefail
           staged_version="$(node -p "require('./.release/npm/package.json').version")"
           repository_url="$(node -p "require('./.release/npm/package.json').repository?.url || ''")"
-
           if [[ "$staged_version" != "$VERSION" ]]; then
             echo "Staged version mismatch: expected $VERSION, got $staged_version" >&2
             exit 1
           fi
-
           if [[ "$repository_url" != 'https://github.com/0xmarkhydra/codex-mcp.git' ]]; then
             echo "Unexpected repository.url: $repository_url" >&2
             exit 1
           fi
-
           node .release/npm/bin/codelocal.js --version
 
       - name: Publish to npm with GitHub OIDC
@@ -224,15 +283,12 @@ jobs:
           for attempt in $(seq 1 20); do
             published="$(npm view "codelocal@$VERSION" version --prefer-online 2>/dev/null || true)"
             latest="$(npm view 'codelocal@latest' version --prefer-online 2>/dev/null || true)"
-
             if [[ "$published" == "$VERSION" && "$latest" == "$VERSION" ]]; then
               echo "Published codelocal@$VERSION and latest now points to it."
               exit 0
             fi
-
             echo "Registry sync $attempt/20: version=${published:-pending}, latest=${latest:-pending}"
             sleep 3
           done
-
           echo "npm registry did not converge to codelocal@$VERSION in time." >&2
           exit 1
