@@ -21,6 +21,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/identity"
 	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
 	"github.com/0xmarkhydra/codelocal/internal/localclient"
+	"github.com/0xmarkhydra/codelocal/internal/mediatransport"
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
@@ -57,6 +58,8 @@ type Runtime struct {
 	pollCancel              context.CancelFunc
 	syncedRegistrySignature string
 	syncedSignature         string
+	mediaOnce               sync.Once
+	mediaPublisher          *mediatransport.Publisher
 }
 
 type WorkspaceWorker struct {
@@ -666,7 +669,7 @@ func (w *WorkspaceWorker) handleCall(parent context.Context, msg struct {
 	result, err := w.handleTool(ctx, msg.Tool, msg.Args, localclient.HandleOptions{RequestID: requestID, SessionID: msg.SessionID, IdempotencyKey: msg.IdempotencyKey})
 	if err == nil {
 		var mediaErr error
-		result, mediaErr = prepareOutboundMedia(ctx, result)
+		result, mediaErr = w.Runtime.prepareOutboundMedia(ctx, result)
 		if mediaErr != nil {
 			err = mediaErr
 		}

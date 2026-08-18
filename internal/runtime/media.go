@@ -2,25 +2,33 @@ package runtime
 
 import (
 	"context"
-	"sync"
+	"net/http"
+	"time"
 
+	"github.com/0xmarkhydra/codelocal/internal/deviceauth"
 	"github.com/0xmarkhydra/codelocal/internal/mediatransport"
 )
 
-var (
-	outboundMediaOnce sync.Once
-	outboundMedia     *mediatransport.Publisher
-)
-
-func outboundMediaPublisher() *mediatransport.Publisher {
-	outboundMediaOnce.Do(func() {
-		outboundMedia = mediatransport.New(mediatransport.ConfigFromEnvironment(), nil)
+func (r *Runtime) outboundMediaPublisher() *mediatransport.Publisher {
+	if r == nil {
+		return nil
+	}
+	r.mediaOnce.Do(func() {
+		authorize := func(request *http.Request, body []byte) error {
+			r.headers(request)
+			return deviceauth.SignRequest(request, body, r.Options.Credential.DevicePrivateKey, time.Now())
+		}
+		r.mediaPublisher = mediatransport.New(mediatransport.Config{
+			PrepareURL:     normalizeBase(r.Options.BaseURL) + "/api/client/media/presign",
+			Authorize:      authorize,
+			Base64Fallback: mediatransport.Base64FallbackFromEnvironment(),
+		}, nil)
 	})
-	return outboundMedia
+	return r.mediaPublisher
 }
 
-func prepareOutboundMedia(ctx context.Context, result any) (any, error) {
-	publisher := outboundMediaPublisher()
+func (r *Runtime) prepareOutboundMedia(ctx context.Context, result any) (any, error) {
+	publisher := r.outboundMediaPublisher()
 	if publisher == nil || !publisher.Enabled() {
 		return result, nil
 	}

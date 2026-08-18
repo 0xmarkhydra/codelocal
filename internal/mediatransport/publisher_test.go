@@ -23,70 +23,92 @@ func testImageResult(data []byte) map[string]any {
 	}
 }
 
-func TestTransformUploadsPrivateImageAndRemovesBase64(t *testing.T) {
+func testAuthorize(request *http.Request, _ []byte) error {
+	request.Header.Set("X-Test-Device-Auth", "signed")
+	return nil
+}
+
+func TestTransformUsesPresignedDirectUploadAndRemovesBase64(t *testing.T) {
 	image := []byte("fake-png-image-data")
 	hash := imageHash(image)
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		if r.Header.Get("Authorization") != "Bearer secret" {
-			t.Fatalf("authorization header missing")
+	var prepareCalls atomic.Int32
+	var uploadCalls atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/prepare":
+			prepareCalls.Add(1)
+			if r.Header.Get("X-Test-Device-Auth") != "signed" {
+				t.Fatal("device authorization missing from presign request")
+			}
+			var input prepareRequest
+			if json.NewDecoder(r.Body).Decode(&input) != nil || input.SHA256 != hash || input.Size != int64(len(image)) || input.ContentType != "image/png" {
+				t.Fatalf("unexpected presign input: %#v", input)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"imageRef": "sha256:" + hash, "url": server.URL + "/object?read=1", "contentType": "image/png",
+				"size": len(image), "sha256": hash, "expiresAt": time.Now().Add(3 * time.Minute).UnixMilli(),
+				"upload": map[string]any{"required": true, "url": server.URL + "/object", "method": "PUT", "headers": map[string][]string{"Content-Type": {"image/png"}, "X-Test-Signed": {"yes"}}},
+			})
+		case "/object":
+			uploadCalls.Add(1)
+			if r.Method != http.MethodPut || r.Header.Get("Content-Type") != "image/png" || r.Header.Get("X-Test-Signed") != "yes" {
+				t.Fatalf("unexpected direct upload request: method=%s headers=%v", r.Method, r.Header)
+			}
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != string(image) {
+				t.Fatalf("unexpected direct upload body: %q", body)
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
 		}
-		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			t.Fatal(err)
-		}
-		file, header, err := r.FormFile("media")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer file.Close()
-		body, _ := io.ReadAll(file)
-		if string(body) != string(image) || header.Header.Get("Content-Type") != "image/png" {
-			t.Fatalf("unexpected multipart image: type=%q data=%q", header.Header.Get("Content-Type"), body)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"imageRef":    "sha256:" + hash,
-			"url":         serverURL(r) + "/signed/image.png?sig=x",
-			"contentType": "image/png",
-			"size":        len(image),
-			"sha256":      hash,
-			"expiresAt":   time.Now().Add(3 * time.Minute).UnixMilli(),
-		})
 	}))
 	defer server.Close()
 
-	publisher := New(Config{UploadURL: server.URL, Token: "secret"}, server.Client())
-	firstResult, err := publisher.Transform(context.Background(), testImageResult(image))
+	publisher := New(Config{PrepareURL: server.URL + "/prepare", Authorize: testAuthorize}, server.Client())
+	result, err := publisher.Transform(context.Background(), testImageResult(image))
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := firstResult.(map[string]any)
+	root := result.(map[string]any)
 	if _, exists := root["__mcpImage"]; exists {
 		t.Fatal("base64 marker must be removed before cloud transport")
 	}
 	ref := root["__mcpImageRef"].(map[string]any)
-	if ref["transport"] != "signed-url" || ref["sha256"] != hash {
+	if ref["transport"] != "signed-url-direct" || ref["sha256"] != hash {
 		t.Fatalf("unexpected media ref: %#v", ref)
 	}
-
 	if _, err := publisher.Transform(context.Background(), testImageResult(image)); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("same image should reuse cached signed URL, calls=%d", calls.Load())
+	if prepareCalls.Load() != 1 || uploadCalls.Load() != 1 {
+		t.Fatalf("same image should reuse cached signed URL: prepare=%d upload=%d", prepareCalls.Load(), uploadCalls.Load())
 	}
 }
 
-func serverURL(r *http.Request) string {
-	return "http://" + r.Host
+func TestTransformPreservesBase64WhenCloudMediaIsNotConfigured(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"media_not_configured"}`))
+	}))
+	defer server.Close()
+	publisher := New(Config{PrepareURL: server.URL, Authorize: testAuthorize}, server.Client())
+	result, err := publisher.Transform(context.Background(), testImageResult([]byte("image")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.(map[string]any)["__mcpImage"] == nil {
+		t.Fatal("unconfigured cloud media must preserve compatibility base64")
+	}
 }
 
-func TestTransformFailsClosedWhenConfiguredUploadFails(t *testing.T) {
+func TestTransformFailsClosedWhenConfiguredTransportFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "no", http.StatusBadGateway)
 	}))
 	defer server.Close()
-	publisher := New(Config{UploadURL: server.URL, Token: "secret"}, server.Client())
+	publisher := New(Config{PrepareURL: server.URL, Authorize: testAuthorize}, server.Client())
 	result, err := publisher.Transform(context.Background(), testImageResult([]byte("image")))
 	if err == nil {
 		t.Fatal("configured signed-url transport must fail closed by default")
@@ -105,7 +127,7 @@ func TestTransformCanExplicitlyFallbackToBase64(t *testing.T) {
 		http.Error(w, "no", http.StatusBadGateway)
 	}))
 	defer server.Close()
-	publisher := New(Config{UploadURL: server.URL, Token: "secret", Base64Fallback: true}, server.Client())
+	publisher := New(Config{PrepareURL: server.URL, Authorize: testAuthorize, Base64Fallback: true}, server.Client())
 	result, err := publisher.Transform(context.Background(), testImageResult([]byte("image")))
 	if err != nil {
 		t.Fatal(err)

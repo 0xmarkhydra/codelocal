@@ -50,6 +50,7 @@ type Server struct {
 	OAuth       *oauth.Server
 	MCP         *mcpgateway.Service
 	Memory      *memory.Store
+	Media       *s3MediaStore
 	Mux         *http.ServeMux
 	HTTP        *http.Server
 	InstanceID  string
@@ -167,6 +168,13 @@ func New(ctx context.Context) (*Server, error) {
 			}()
 		}
 	}
+	mediaStore, err := newS3MediaStoreFromEnvironment(ctx)
+	if err != nil {
+		_ = activation.Close()
+		_ = coordinator.Close()
+		store.Close()
+		return nil, err
+	}
 	mcpService := mcpgateway.New(store, hub, workspaceService, memoryStore)
 
 	s := &Server{
@@ -179,6 +187,7 @@ func New(ctx context.Context) (*Server, error) {
 		OAuth:       oauthServer,
 		MCP:         mcpService,
 		Memory:      memoryStore,
+		Media:       mediaStore,
 		Mux:         http.NewServeMux(),
 		InstanceID:  instanceID,
 		startedAt:   time.Now(),
@@ -192,6 +201,9 @@ func New(ctx context.Context) (*Server, error) {
 		MaxHeaderBytes:    1 << 20,
 	}
 	go hub.HeartbeatLoop(ctx, 20*time.Second, 70*time.Second)
+	if mediaStore != nil {
+		go mediaStore.cleanupLoop(ctx)
+	}
 	return s, nil
 }
 
@@ -277,6 +289,11 @@ func (s *Server) routes() {
 	mux.Handle("POST /pair/claim", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "pair-claim-ip", Limit: 300, Window: time.Minute}, claim))
 	mux.HandleFunc("POST /api/client/auth/check", s.clientAuthCheck)
 	mux.HandleFunc("POST /api/client/auth/logout", s.clientAuthLogout)
+	mediaPresign := webutil.RateLimit(s.Store, webutil.RateLimitOptions{
+		Scope: "media-presign-device", Limit: 240, Window: time.Minute,
+		Subject: func(r *http.Request) string { id, _ := deviceAuth(r); return id },
+	}, http.HandlerFunc(s.mediaPresign))
+	mux.Handle("POST /api/client/media/presign", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "media-presign-ip", Limit: 600, Window: time.Minute}, mediaPresign))
 	mux.HandleFunc("POST /api/client/workspaces/sync", s.workspaceSync)
 	mux.HandleFunc("POST /api/client/knowledge/sync", s.knowledgeSync)
 	mux.HandleFunc("POST /api/client/runtime/poll", s.runtimePoll)
@@ -653,6 +670,12 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	semanticCanary, _ := s.Store.CanonicalSemanticCanaryMetrics(canaryCtx, "")
 	canaryCancel()
 	agentMemory := map[string]any{"enabled": s.Memory != nil}
+	visualMedia := map[string]any{"configured": s.Media != nil}
+	if s.Media != nil {
+		visualMedia["urlTTLSeconds"] = int64(s.Media.urlTTL.Seconds())
+		visualMedia["retentionSeconds"] = int64(s.Media.retention.Seconds())
+		visualMedia["maxBytes"] = s.Media.maxBytes
+	}
 	if s.Memory != nil {
 		agentMemory["vectorAvailable"] = s.Memory.VectorAvailable()
 		agentMemory["vectorDimension"] = s.Memory.VectorDimension()
@@ -677,6 +700,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		},
 		"goroutines":                  runtime.NumGoroutine(),
 		"agentMemory":                 agentMemory,
+		"visualMedia":                 visualMedia,
 		"schemaMigration":             schemaMigrationPayload(schemaStatus, schemaErr),
 		"durableLearning":             durableLearning,
 		"canonicalGraphFreshness":     canonicalGraphFreshness,
