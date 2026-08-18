@@ -106,10 +106,13 @@ func TestReleaseWorkflowPackagesNativeMacOSComputerWorkers(t *testing.T) {
 		"goarch: amd64",
 		"swiftc -O -target \"$SWIFT_ARCH-apple-macos14.0\" cmd/computernative/main.swift",
 		"computer-native-darwin-$GOARCH",
-		"actions/upload-artifact@v4",
+		"codelocal-native-unsigned-${{ matrix.goarch }}",
+		"sign-native-macos:",
 		"needs: native-macos",
-		"actions/download-artifact@v4",
-		"pattern: codelocal-native-*",
+		"runs-on: [codelocal-signing]",
+		"pattern: codelocal-native-unsigned-*",
+		"name: codelocal-native-signed",
+		"needs: sign-native-macos",
 		".release/npm/bin/helpers",
 		"computer-native-darwin-arm64 computer-native-darwin-amd64",
 	} {
@@ -121,22 +124,39 @@ func TestReleaseWorkflowPackagesNativeMacOSComputerWorkers(t *testing.T) {
 
 func TestReleaseWorkflowSupportsDeveloperIDSigningAndNotarization(t *testing.T) {
 	workflow := releaseWorkflowText(t)
+	signIndex := strings.Index(workflow, "\n  sign-native-macos:\n")
+	publishIndex := strings.Index(workflow, "\n  publish:\n")
+	if signIndex < 0 || publishIndex < 0 || publishIndex <= signIndex {
+		t.Fatal("dedicated native signing job must run before publish")
+	}
+	signingJob := workflow[signIndex:publishIndex]
+
 	for _, required := range []string{
-		"CODELOCAL_REQUIRE_APPLE_SIGNING",
-		"APPLE_CERTIFICATE_P12_BASE64",
-		"APPLE_CERTIFICATE_PASSWORD",
+		"runs-on: [codelocal-signing]",
 		"APPLE_DEVELOPER_ID_APPLICATION",
+		"APPLE_DEVELOPER_ID_APPLICATION is required on the CodeLocal signing runner",
 		"codesign --force --timestamp --options runtime",
 		"codesign --verify --strict",
 		"Authority=Developer ID Application",
+		"APPLE_ID",
+		"APPLE_TEAM_ID",
 		"APPLE_APP_SPECIFIC_PASSWORD",
 		"xcrun notarytool submit",
 		"--wait",
-		"Apple signing configuration is partial",
 		"Apple notarization configuration is partial",
 	} {
-		if !strings.Contains(workflow, required) {
-			t.Fatalf("release workflow must support safe optional Apple signing/notarization: missing %q", required)
+		if !strings.Contains(signingJob, required) {
+			t.Fatalf("release workflow must support dedicated-runner Apple signing/notarization: missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"APPLE_CERTIFICATE_P12_BASE64",
+		"APPLE_CERTIFICATE_PASSWORD",
+		"security import",
+		"actions/checkout@v6",
+	} {
+		if strings.Contains(signingJob, forbidden) {
+			t.Fatalf("dedicated signing runner must keep the local Developer ID key in Keychain and avoid source checkout: found %q", forbidden)
 		}
 	}
 }
