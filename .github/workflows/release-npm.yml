@@ -238,7 +238,7 @@ jobs:
   sign-native-macos:
     needs: native-macos
     if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-    runs-on: [codelocal-signing]
+    runs-on: macos-15
     timeout-minutes: 20
     steps:
       - name: Download unsigned native macOS Computer workers
@@ -248,19 +248,53 @@ jobs:
           path: native-artifact
           merge-multiple: true
 
+      - name: Import Developer ID Application certificate
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APPLE_CERTIFICATE_P12_BASE64" || -z "$APPLE_CERTIFICATE_PASSWORD" ]]; then
+            echo "APPLE_CERTIFICATE_P12_BASE64 and APPLE_CERTIFICATE_PASSWORD are required." >&2
+            exit 1
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/codelocal-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          CERTIFICATE_PATH="$RUNNER_TEMP/codelocal-developer-id.p12"
+          printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 -D > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          echo "CODELOCAL_SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          rm -f "$CERTIFICATE_PATH"
+
       - name: Sign and notarize native macOS Computer workers
         shell: bash
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
-          APPLE_NOTARY_KEYCHAIN_PROFILE: ${{ vars.APPLE_NOTARY_KEYCHAIN_PROFILE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
           set -euo pipefail
           if [[ -z "$APPLE_DEVELOPER_ID_APPLICATION" ]]; then
-            echo "APPLE_DEVELOPER_ID_APPLICATION is required on the CodeLocal signing runner." >&2
+            echo "APPLE_DEVELOPER_ID_APPLICATION is required." >&2
             exit 1
           fi
-          if [[ -z "$APPLE_NOTARY_KEYCHAIN_PROFILE" ]]; then
-            echo "APPLE_NOTARY_KEYCHAIN_PROFILE is required on the CodeLocal signing runner." >&2
+          if [[ -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
+            echo "APPLE_ID, APPLE_TEAM_ID and APPLE_APP_SPECIFIC_PASSWORD are required for notarization." >&2
+            exit 1
+          fi
+          if ! security find-identity -v -p codesigning "$CODELOCAL_SIGNING_KEYCHAIN" | grep -F "$APPLE_DEVELOPER_ID_APPLICATION" >/dev/null; then
+            echo "Developer ID Application identity was not found in the imported p12." >&2
+            security find-identity -v -p codesigning "$CODELOCAL_SIGNING_KEYCHAIN" || true
             exit 1
           fi
 
@@ -280,10 +314,23 @@ jobs:
             archive="$RUNNER_TEMP/codelocal-native-$goarch.zip"
             rm -f "$archive"
             ditto -c -k --sequesterRsrc --keepParent "$output" "$archive"
-            xcrun notarytool submit "$archive" --keychain-profile "$APPLE_NOTARY_KEYCHAIN_PROFILE" --wait
+            xcrun notarytool submit "$archive" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --wait
             rm -f "$archive"
             echo "Apple notarization accepted for $output."
           done
+
+      - name: Remove temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${CODELOCAL_SIGNING_KEYCHAIN:-}" && -f "$CODELOCAL_SIGNING_KEYCHAIN" ]]; then
+            security delete-keychain "$CODELOCAL_SIGNING_KEYCHAIN" || rm -f "$CODELOCAL_SIGNING_KEYCHAIN"
+          fi
 
       - name: Upload signed native macOS Computer workers
         uses: actions/upload-artifact@v4

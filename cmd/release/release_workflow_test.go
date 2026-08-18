@@ -109,7 +109,14 @@ func TestReleaseWorkflowPackagesNativeMacOSComputerWorkers(t *testing.T) {
 		"codelocal-native-unsigned-${{ matrix.goarch }}",
 		"sign-native-macos:",
 		"needs: native-macos",
-		"runs-on: [codelocal-signing]",
+		"runs-on: macos-15",
+		"APPLE_CERTIFICATE_P12_BASE64",
+		"APPLE_CERTIFICATE_PASSWORD",
+		"security create-keychain",
+		"security import",
+		"security set-key-partition-list",
+		"security find-identity -v -p codesigning",
+		"Remove temporary signing keychain",
 		"pattern: codelocal-native-unsigned-*",
 		"name: codelocal-native-signed",
 		"needs: sign-native-macos",
@@ -132,33 +139,40 @@ func TestReleaseWorkflowSupportsDeveloperIDSigningAndNotarization(t *testing.T) 
 	signingJob := workflow[signIndex:publishIndex]
 
 	for _, required := range []string{
-		"runs-on: [codelocal-signing]",
+		"runs-on: macos-15",
+		"APPLE_CERTIFICATE_P12_BASE64",
+		"APPLE_CERTIFICATE_PASSWORD",
+		"security create-keychain",
+		"security import",
+		"security set-key-partition-list",
+		"security find-identity -v -p codesigning",
 		"APPLE_DEVELOPER_ID_APPLICATION",
-		"APPLE_DEVELOPER_ID_APPLICATION is required on the CodeLocal signing runner",
-		"APPLE_NOTARY_KEYCHAIN_PROFILE",
-		"APPLE_NOTARY_KEYCHAIN_PROFILE is required on the CodeLocal signing runner",
+		"APPLE_DEVELOPER_ID_APPLICATION is required",
+		"APPLE_ID",
+		"APPLE_TEAM_ID",
+		"APPLE_APP_SPECIFIC_PASSWORD",
 		"codesign --force --timestamp --options runtime",
 		"codesign --verify --strict",
 		"Authority=Developer ID Application",
 		"xcrun notarytool submit",
-		"--keychain-profile",
+		"--apple-id",
+		"--team-id",
+		"--password",
 		"--wait",
+		"Remove temporary signing keychain",
+		"security delete-keychain",
 	} {
 		if !strings.Contains(signingJob, required) {
-			t.Fatalf("release workflow must support dedicated-runner Apple signing/notarization: missing %q", required)
+			t.Fatalf("release workflow must support GitHub-hosted Apple signing/notarization: missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{
-		"APPLE_CERTIFICATE_P12_BASE64",
-		"APPLE_CERTIFICATE_PASSWORD",
-		"APPLE_ID",
-		"APPLE_TEAM_ID",
-		"APPLE_APP_SPECIFIC_PASSWORD",
-		"security import",
+		"runs-on: [codelocal-signing]",
+		"APPLE_NOTARY_KEYCHAIN_PROFILE",
 		"actions/checkout@v6",
 	} {
 		if strings.Contains(signingJob, forbidden) {
-			t.Fatalf("dedicated signing runner must keep the local Developer ID key in Keychain and avoid source checkout: found %q", forbidden)
+			t.Fatalf("GitHub-hosted signing job must not depend on self-hosted signing state or source checkout: found %q", forbidden)
 		}
 	}
 }
