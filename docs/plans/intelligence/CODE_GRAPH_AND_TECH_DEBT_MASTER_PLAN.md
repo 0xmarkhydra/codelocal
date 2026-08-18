@@ -7,10 +7,10 @@ Owner: **CodeLocal**
 
 Depends on:
 
-- [`../PROJECT_BRAIN_MASTER_PLAN.md`](../PROJECT_BRAIN_MASTER_PLAN.md)
+- [`PROJECT_BRAIN_MASTER_PLAN.md`](./PROJECT_BRAIN_MASTER_PLAN.md)
 - [`../MEMORY_GRAPH_PLAN.md`](../MEMORY_GRAPH_PLAN.md)
 - [`../KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md`](../KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md)
-- [`../NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`](../NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md)
+- [`NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`](../ui/NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md)
 - [`../MULTI_REPO_MULTI_TASK_LOCAL_EXECUTION_PLAN.md`](../MULTI_REPO_MULTI_TASK_LOCAL_EXECUTION_PLAN.md)
 
 This document is the source of truth for two connected workstreams:
@@ -1132,7 +1132,7 @@ A visually impressive but semantically incorrect Code Graph is considered a fail
 ## Remaining debt / rollout gates after security + lifecycle hardening
 
 - [x] **TD-D6 auth/security core hardening:** new browser sessions are bound to `user.security_version`, so security-changing password updates invalidate older sessions without relying only on timestamps; zero-version legacy sessions retain the timestamp compatibility path. Password-reset finalization is single-writer under concurrency and wrong OTP attempts use a per-token atomic Redis counter, preserving the advertised five-attempt ceiling. Existing IP/account rate limits, hashed device/network/agent signals and sensitive-route reauthentication remain in place. Future auth changes stay a protected subsystem and require focused regression tests.
-- [x] **TD-D7 migration lifecycle — source implementation:** `CODELOCAL_MIGRATION_MODE` now provides `startup` (compatibility/default), `only` (migration process with no workers/HTTP server) and `external` (steady-state service skips DB schema DDL). Unknown modes fail closed. The Railway transition and rollback sequence is documented in `docs/MIGRATION_ROLLOUT.md`. **Production rollout proof remains required** before removing the `startup` recovery path.
+- [x] **TD-D7 migration lifecycle — source implementation:** `CODELOCAL_MIGRATION_MODE` now provides `startup` (compatibility/default), `only` (migration process with no workers/HTTP server) and `external` (steady-state service skips DB schema DDL). Unknown modes fail closed. The Railway transition and rollback sequence is documented in `docs/operations/MIGRATION_ROLLOUT.md`. **Production rollout proof remains required** before removing the `startup` recovery path.
 - [~] **TD-D5 legacy TypeScript runtime quarantined with a deletion gate:** root build/test/release scripts and `cmd/release` remain native-Go only; `src/LEGACY_RUNTIME.md` now defines measurable physical-deletion criteria. The files are intentionally not deleted until deployed runtime inventory and external-consumer evidence satisfy that gate.
 - [x] **TD-D1 Store God-file/domain split milestone:** `internal/cloud/store.go` fell from roughly 1,445 to roughly 594 executable LOC, below the default 800-LOC file limit. Runtime/bootstrap lives in `store_runtime.go`, retention in `retention.go`, user/auth/session persistence in `store_auth.go`, pairing/device/workspace persistence in `store_devices_workspaces.go`, and telemetry/admin persistence in `store_usage_admin.go`. Usage producer/consumer and persistence hot paths were also decomposed into named helpers without changing the telemetry authority contract. The historical `Store.Migrate` registry remains one isolated oversized-function advisory; its schema SQL/order is intentionally not bulk-rewritten inside this security/lifecycle transaction.
 

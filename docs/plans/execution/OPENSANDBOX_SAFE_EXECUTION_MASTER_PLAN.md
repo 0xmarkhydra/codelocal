@@ -5,7 +5,7 @@ Date: **2026-08-17**
 Owner: **CodeLocal**  
 Primary implementation target: **native Go runtime + CodeLocal Cloud + OpenSandbox provider**  
 Public MCP surface: **must remain compact; OpenSandbox is an internal execution provider, not a second public tool surface**  
-Depends on: [`PROJECT_BRAIN_MASTER_PLAN.md`](./PROJECT_BRAIN_MASTER_PLAN.md), [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md)
+Depends on: [`PROJECT_BRAIN_MASTER_PLAN.md`](../intelligence/PROJECT_BRAIN_MASTER_PLAN.md), [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](../runtime/UNIVERSAL_AGENT_RUNTIME_PLAN.md)
 
 > This document defines how CodeLocal safely executes untrusted or high-risk agent work without giving the agent direct write/execute authority over the user's authoritative workspace. It also defines the private Workspace State Engine used to move workspace state into isolated execution environments, reconcile results, support concurrent user edits, and provide task-level rollback/checkpoint semantics.
 

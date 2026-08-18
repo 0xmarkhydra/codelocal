@@ -7,9 +7,9 @@ Primary implementation target: native Go runtime + CodeLocal Cloud
 
 > This document exists so the architectural intent is not lost across chats, machines, branches, or future refactors. When implementation details conflict with this document, either update this document with a dated decision or explicitly document why the implementation diverged.
 >
-> The provider-neutral multi-agent execution layer is specified separately in [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md). Project Brain owns durable intelligence; Universal Agent Runtime owns execution/routing across Codex, Claude, Cosine and future coding engines.
+> The provider-neutral multi-agent execution layer is specified separately in [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](../runtime/UNIVERSAL_AGENT_RUNTIME_PLAN.md). Project Brain owns durable intelligence; Universal Agent Runtime owns execution/routing across Codex, Claude, Cosine and future coding engines.
 >
-> The reusable design-intelligence layer is specified separately in [`DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md`](./DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md). Design Recipes preserve legally usable Composition + Style + Assets + Motion/3D specifications; Learned Skills preserve verified adaptation procedures; Project Brain owns durable metadata, provenance, and reusable verified knowledge without treating unlicensed third-party raw content as canonical cloud knowledge.
+> The reusable design-intelligence layer is specified separately in [`DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md`](../ui/DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md). Design Recipes preserve legally usable Composition + Style + Assets + Motion/3D specifications; Learned Skills preserve verified adaptation procedures; Project Brain owns durable metadata, provenance, and reusable verified knowledge without treating unlicensed third-party raw content as canonical cloud knowledge.
 
 ---
 
@@ -1776,7 +1776,7 @@ Exit gate:
 
 ## PB13 — Universal Agent Runtime / coding-engine router
 
-Detailed source of truth: [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md).
+Detailed source of truth: [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](../runtime/UNIVERSAL_AGENT_RUNTIME_PLAN.md).
 
 Goal:
 
@@ -2176,7 +2176,7 @@ Reason: CodeLocal can improve whichever strong model the user chooses.
 
 Reason: durable project identity, rules, memory, experiences, skills, verification and user continuity must survive a change from Codex to Claude, Cosine or a future agent. Universal Agent Runtime is therefore a first-class subsystem, while provider-specific engines remain replaceable adapters.
 
-Detailed design: [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md).
+Detailed design: [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](../runtime/UNIVERSAL_AGENT_RUNTIME_PLAN.md).
 
 ---
 

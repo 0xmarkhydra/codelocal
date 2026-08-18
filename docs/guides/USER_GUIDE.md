@@ -32,7 +32,7 @@ Check the installed version:
 codelocal --version
 ```
 
-Installing another global channel replaces the currently installed global `codelocal` command. See [Beta Channel](./BETA_CHANNEL.md).
+Installing another global channel replaces the currently installed global `codelocal` command. See [Beta Channel](../operations/BETA_CHANNEL.md).
 
 ## 3. Connect an MCP-compatible AI client
 

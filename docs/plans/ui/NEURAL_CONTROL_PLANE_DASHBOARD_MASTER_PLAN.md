@@ -4,7 +4,8 @@ Status: **Proposed implementation blueprint**
 Date: **2026-08-17**  
 Owner: **CodeLocal**  
 Primary target: **CodeLocal Cloud web dashboard first; native/npm runtime only when realtime execution telemetry needs new events**  
-Depends on: [`PROJECT_BRAIN_MASTER_PLAN.md`](./PROJECT_BRAIN_MASTER_PLAN.md), [`KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md`](./KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md), [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md)
+Depends on: [`PROJECT_BRAIN_MASTER_PLAN.md`](../intelligence/PROJECT_BRAIN_MASTER_PLAN.md), [`KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md`](../intelligence/KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md), [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](../runtime/UNIVERSAL_AGENT_RUNTIME_PLAN.md)
+Product-wide umbrella: [`PRODUCT_UI_MASTER_PLAN.md`](./PRODUCT_UI_MASTER_PLAN.md)
 
 > Product goal: when a user opens the CodeLocal dashboard, it should feel like looking into a living AI operating system rather than a conventional SaaS admin panel. The visual impact must come from real Project Brain, runtime, skill, verification and relationship data — not decorative fake telemetry.
 
@@ -71,9 +72,9 @@ Current production UI path is already viable:
 
 ```text
 Go Cloud server
-  -> internal/cloudserver/main_ui.go
+  -> internal/cloudserver/dashboard_handler.go
   -> internal/cloudserver/knowledge_dashboard.go
-  -> internal/ui/main_port.go
+  -> internal/ui/product_pages.go
   -> server-rendered HTML + CSS + focused client-side JavaScript
 ```
 
@@ -464,9 +465,9 @@ Acceptance criteria:
 Primary files:
 
 ```text
-internal/ui/main_port.go
+internal/ui/product_pages.go
 internal/ui/main_port_test.go
-internal/cloudserver/main_ui.go
+internal/cloudserver/dashboard_handler.go
 ```
 
 ---
@@ -528,8 +529,8 @@ Primary files:
 
 ```text
 internal/cloudserver/knowledge_dashboard.go
-internal/cloudserver/main_ui.go
-internal/ui/main_port.go
+internal/cloudserver/dashboard_handler.go
+internal/ui/product_pages.go
 internal/cloud/knowledge.go        # only if projection metadata genuinely needs extension
 ```
 
@@ -600,7 +601,7 @@ Primary files:
 internal/cloud/knowledge.go
 internal/cloud/store.go
 internal/cloudserver/server.go
-internal/cloudserver/main_ui.go
+internal/cloudserver/dashboard_handler.go
 new internal/cloudserver/projects_dashboard.go
 ```
 
@@ -817,9 +818,9 @@ Acceptance criteria:
 Primary files:
 
 ```text
-internal/cloudserver/main_ui.go
+internal/cloudserver/dashboard_handler.go
 internal/cloudserver/server.go
-internal/ui/main_port.go
+internal/ui/product_pages.go
 ```
 
 ---
@@ -1148,7 +1149,7 @@ The line above is the intentional release boundary:
 
 # 23. Suggested implementation file split
 
-Avoid continuing to grow `internal/ui/main_port.go` and `knowledge_dashboard.go` indefinitely.
+Avoid continuing to grow `internal/ui/product_pages.go` and `knowledge_dashboard.go` indefinitely.
 
 When implementation starts, split by responsibility.
 

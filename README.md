@@ -7,11 +7,11 @@ Website: [https://codelocal.cloud](https://codelocal.cloud/)
 User documentation:
 
 - [Start here](./docs/README.md)
-- [User Guide](./docs/USER_GUIDE.md)
-- [How CodeLocal Works](./docs/HOW_CODELOCAL_WORKS.md)
-- [Security & Privacy](./docs/SECURITY_AND_PRIVACY.md)
-- [Beta Channel](./docs/BETA_CHANNEL.md)
-- [OpenAI Plugin Submission Pack](./docs/plugin-submission/README.md)
+- [User Guide](./docs/guides/USER_GUIDE.md)
+- [How CodeLocal Works](./docs/guides/HOW_CODELOCAL_WORKS.md)
+- [Security & Privacy](./docs/architecture/SECURITY_AND_PRIVACY.md)
+- [Beta Channel](./docs/operations/BETA_CHANNEL.md)
+- [OpenAI Plugin Submission Pack](./docs/integrations/openai/submission/README.md)
 
 ```text
 You

@@ -1,6 +1,6 @@
 # CodeLocal Desktop Automation Plan
 
-> **Historical design (superseded by Computer Engine V3).** Keep this file as the original threat-model/product sketch. Current desktop-control implementation, acceptance and remaining work live in `docs/COMPUTER_ENGINE_V3_MASTER_PLAN.md`; unchecked items below must not be interpreted as current release blockers without checking the V3 plan and source.
+> **Historical design (superseded by Computer Engine V3).** Keep this file as the original threat-model/product sketch. Current desktop-control implementation, acceptance and remaining work live in `COMPUTER_ENGINE_V3_MASTER_PLAN.md`; unchecked items below must not be interpreted as current release blockers without checking the V3 plan and source.
 
 ## Goal
 
