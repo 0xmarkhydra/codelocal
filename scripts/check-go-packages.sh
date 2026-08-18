@@ -13,7 +13,7 @@ while IFS= read -r pkg; do
     mv ".go-check/${name}.log" ".go-check/${name}.fail"
     status=1
   fi
-done < <(go list ./...)
+done < <(go list ./cmd/... ./internal/...)
 if [ "$status" -eq 0 ]; then
   printf 'PASS\n' > .go-check/ALL_PASS
 fi

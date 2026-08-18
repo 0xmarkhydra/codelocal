@@ -26,6 +26,9 @@ for (const entry of rootEntries) {
 for (const required of [
   "AGENTS.md",
   "docs/architecture/REPOSITORY_STRUCTURE.md",
+  "docs/architecture/PRODUCT_STACK.md",
+  "web/AGENTS.md",
+  "web/package.json",
   "docs/plans",
   "docs/guides",
   "docs/operations",
@@ -59,6 +62,16 @@ const scripts = Object.values(pkg.scripts ?? {}).join("\n");
 for (const legacyEntrypoint of ["src/index.ts", "src/client-v2", "src/server-saas", "node src/"]) {
   if (scripts.includes(legacyEntrypoint)) {
     failures.push(`root package script must not execute legacy runtime: ${legacyEntrypoint}`);
+  }
+}
+
+if (await exists("web/package.json")) {
+  const webPkg = JSON.parse(await readFile(path.join(root, "web/package.json"), "utf8"));
+  if (!webPkg.dependencies?.next || !webPkg.dependencies?.react || !webPkg.dependencies?.["react-dom"]) {
+    failures.push("web/ must remain a Next.js + React product surface");
+  }
+  if (!webPkg.scripts?.build || !webPkg.scripts?.typecheck || !webPkg.scripts?.lint) {
+    failures.push("web/ must expose build, typecheck and lint scripts");
   }
 }
 
