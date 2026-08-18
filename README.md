@@ -10,6 +10,7 @@ User documentation:
 - [User Guide](./docs/guides/USER_GUIDE.md)
 - [How CodeLocal Works](./docs/guides/HOW_CODELOCAL_WORKS.md)
 - [Security & Privacy](./docs/architecture/SECURITY_AND_PRIVACY.md)
+- [Product Stack](./docs/architecture/PRODUCT_STACK.md)
 - [Beta Channel](./docs/operations/BETA_CHANNEL.md)
 - [OpenAI Plugin Submission Pack](./docs/integrations/openai/submission/README.md)
 
@@ -35,7 +36,7 @@ Verification                 evidence → verified Experience → safe learning
 
 Use `codelocal --version` for the installed runtime. Stable installs use `codelocal@latest`; reviewer and canary builds use the npm beta channel until promoted.
 
-The application runtime and Cloud gateway are implemented in Go. The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
+The canonical backend, Cloud gateway, CLI and local runtime are implemented in Go. The browser product is migrating to Next.js + TypeScript, while Flutter + Dart is the accepted application stack for future mobile and desktop clients; OS-specific bridges remain native only where required. See [Product Stack](./docs/architecture/PRODUCT_STACK.md). The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 
 ## Why Go
 

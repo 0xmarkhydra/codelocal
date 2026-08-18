@@ -64,18 +64,26 @@ The long-term repository should converge toward:
 ├── go.sum
 ├── package.json
 ├── package-lock.json
-├── tsconfig.json                 # temporary while legacy TS tooling remains
 ├── Dockerfile
 ├── Dockerfile.reviewer
 ├── railway.json
 ├── .github/
-├── cmd/
-├── internal/
-├── web/                          # future public/static web assets if migration justifies it
-├── scripts/
+├── backend/                      # target Go cloud/API/server product surface
+├── web/                          # Next.js + TypeScript browser product
+├── app/                          # Flutter + Dart mobile app (iOS/Android)
+├── desktop/                      # Flutter + Dart desktop app (macOS/Windows/Linux)
+├── cli/                          # target Go CLI/local-runtime surface
+├── native/                       # OS-specific bridges (Swift/macOS first)
+├── tools/                        # reviewer/release/developer tooling
 ├── docs/
-└── legacy/                       # only after legacy deletion/move gate is proven safe
+├── scripts/
+├── cmd/                          # transitional Go entrypoints until migrated safely
+├── internal/                     # transitional/canonical Go domains until migrated safely
+├── src/                          # quarantined legacy TypeScript until deletion gate passes
+└── legacy/                       # eventual quarantine destination only if deletion is not yet possible
 ```
+
+The accepted technology ownership for these surfaces is defined in [`PRODUCT_STACK.md`](./PRODUCT_STACK.md). The product-level directories are a convergence target; `cmd/` and `internal/` remain canonical Go implementation locations until each dependency-safe migration lands.
 
 The root should answer only four questions:
 
@@ -471,24 +479,32 @@ go run ./cmd/release
 npm pack --dry-run ./.release/npm
 ```
 
-### RA3 — UI package cleanup
+### RA3 — Next.js web migration
 
-Align with `PRODUCT_UI_MASTER_PLAN`:
+The destination browser architecture is `web/` using Next.js App Router + TypeScript. Align implementation with `PRODUCT_UI_MASTER_PLAN` while keeping the existing Go-rendered UI as a compatibility fallback until route-family parity is proven.
+
+Target direction:
 
 ```text
-internal/ui/
-  tokens.go
-  icons.go
-  shell.go
-  components.go
-  forms.go
-  graph.go
-  motion.go
-  auth.go
-  public.go
+web/
+  src/app/                route families and layouts
+  src/components/         reusable product UI
+  src/features/           dashboard/graph/account feature boundaries
+  src/lib/server/         server-only Go backend HTTP access
+  src/styles/             shared design-system primitives when needed
 ```
 
-Migrate incrementally as UI surfaces are redesigned.
+Migration order:
+
+1. establish Next.js foundation and design tokens;
+2. define explicit Go backend DTO/API boundaries;
+3. migrate auth with session/CSRF/rate-limit parity;
+4. migrate dashboard route families incrementally;
+5. migrate Knowledge Graph and Code Graph using real server data;
+6. cut over only after parity tests and rollback proof;
+7. remove the old Go rendering layer only after no production route depends on it.
+
+Do not duplicate backend authorization, billing or Project Brain truth in TypeScript. Do not use fake telemetry during visual migration.
 
 ### RA4 — Cloud domain extraction
 

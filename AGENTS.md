@@ -4,30 +4,40 @@ These instructions apply to the entire repository unless a deeper `AGENTS.md` ov
 
 ## Canonical implementation
 
-CodeLocal production runtime is Go-first.
+CodeLocal is a multi-surface product with explicit technology ownership. The accepted decision is documented in `docs/architecture/PRODUCT_STACK.md`.
 
-- `cmd/` contains executable entrypoints only.
-- `internal/` contains production Go packages and domain logic.
-- `cmd/computernative/` contains the packaged native macOS Swift helper.
+- Backend/cloud/runtime domain: **Go**.
+- Browser product under `web/`: **Next.js + TypeScript + React**.
+- Mobile application under `app/`: **Flutter + Dart** for iOS and Android.
+- Desktop application under `desktop/`: **Flutter + Dart** for macOS, Windows and Linux.
+- CLI/local runtime: **Go**.
+- Native OS bridges: platform-specific code only where required; macOS Computer Engine remains Swift/native.
+- Existing `cmd/` entrypoints and `internal/` Go packages remain canonical during incremental migration; do not mass-move them for cosmetics.
 - `src/` is the quarantined legacy TypeScript runtime. Do not add new product behavior there and do not edit it unless the task explicitly targets legacy compatibility, migration evidence, or deletion work.
-- Root `package.json` is release/tooling orchestration for the Go runtime; its existence does not make `src/` the canonical product implementation.
+- Root `package.json` orchestrates repository-wide build/release tasks; legacy `src/` is not canonical web TypeScript. New browser TypeScript belongs in `web/`.
 
 ## Where new code belongs
 
-Choose ownership by domain before creating a file.
+Choose ownership by product surface first, then domain.
 
+- Browser UI/product: `web/` (Next.js App Router + TypeScript). Do not add new production browser surfaces to legacy Go-rendered UI once a Next.js route-family boundary exists.
+- Mobile application: `app/` (Flutter/Dart).
+- Desktop application: `desktop/` (Flutter/Dart).
+- Go backend/cloud domains: existing `internal/*` packages until their safe migration into `backend/` is explicitly performed.
+- Go CLI/local runtime domains: existing `cmd/codelocal` + local/runtime packages until their safe migration into `cli/` is explicitly performed.
+- Native platform bridges: existing `cmd/computerhelper`, `cmd/computernative` until their safe migration into `native/` is explicitly performed.
 - AI/agent orchestration: `internal/orchestration`, `internal/agentruntime`
 - MCP public gateway/tool contract: `internal/mcpgateway`, `internal/mcphub`
 - Project/code intelligence: `internal/project`, `internal/projectbrain`, `internal/lsp`
 - Local runtime/client execution: `internal/runtime`, `internal/localclient`, `internal/taskexecution`
-- Browser/computer automation: `internal/automation`; native helper entrypoints stay under `cmd/computerhelper` or `cmd/computernative`
+- Browser/computer automation implementation: `internal/automation`; presentation belongs to `web/` or Flutter clients.
 - Cloud domain/storage: `internal/cloud`
-- Cloud HTTP/web presentation: `internal/cloudserver`, shared HTML/CSS primitives in `internal/ui`
+- Existing Go HTTP/API transport: `internal/cloudserver`; new browser rendering belongs in `web/`.
 - Authentication/security policy: `internal/webauth`, `internal/oauth`, `internal/deviceauth`, `internal/security`, `internal/webutil`
 - Files/process/platform support: `internal/localfs`, `internal/process`, `internal/osutil`, `internal/runtimecontrol`
 - Release-only logic: `cmd/release`, `.github/workflows`, `scripts`
 
-Do not create a new top-level source directory without an architecture decision.
+Approved product-level source directories are `backend/`, `web/`, `app/`, `desktop/`, `cli/`, `native/`, and `tools/`. Create them incrementally only when the corresponding migration/implementation starts; do not mass-move existing code for symmetry.
 
 ## File placement rules
 
@@ -57,7 +67,11 @@ For these packages, prefer extracting a cohesive subdomain over adding another u
 
 Follow the product-wide UI direction in `docs/plans/ui/PRODUCT_UI_MASTER_PLAN.md` and `docs/plans/ui/NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`.
 
-Do not keep stacking unrelated CSS overrides into one giant file. Extract touched UI responsibilities incrementally into coherent primitives/components when the change is already in that area.
+New production browser UI belongs in the Next.js application under `web/`. The existing Go-rendered UI is a migration fallback, not the destination architecture. Migrate route families incrementally and preserve auth/security behavior before cutover.
+
+Flutter is the default application UI framework for both `app/` and `desktop/`; share Dart features where behavior is common, but allow device-class-specific shells.
+
+Do not keep stacking unrelated CSS overrides into one giant file. Extract touched UI responsibilities incrementally into coherent tokens, components, scenes and feature modules.
 
 ## Documentation taxonomy
 
