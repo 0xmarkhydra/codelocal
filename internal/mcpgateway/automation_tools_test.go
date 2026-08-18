@@ -114,12 +114,15 @@ func TestCompactComputerSupportsSemanticTargetAndObserve(t *testing.T) {
 	if err != nil || observe.RuntimeTool != "computer_observe" {
 		t.Fatalf("observe did not resolve to smart runtime operation: %#v %v", observe, err)
 	}
-	click, forwarded, err := computer.Resolve(map[string]any{"action": "click", "windowId": "42", "target": "Continue", "verify": true})
+	click, forwarded, err := computer.Resolve(map[string]any{"action": "click", "windowId": "42", "target": "Continue", "verify": true, "verifyMode": "target"})
 	if err != nil || click.RuntimeTool != "computer_click" {
 		t.Fatalf("semantic click did not resolve: %#v %v", click, err)
 	}
-	if forwarded["target"] != "Continue" || forwarded["verify"] != true {
+	if forwarded["target"] != "Continue" || forwarded["verify"] != true || forwarded["verifyMode"] != "target" {
 		t.Fatalf("semantic click arguments were not forwarded: %#v", forwarded)
+	}
+	if _, _, err := computer.Resolve(map[string]any{"action": "click", "windowId": "42", "target": "Continue", "verify": true, "verifyMode": "invalid"}); err == nil {
+		t.Fatal("invalid computer verifyMode must be rejected")
 	}
 	clickByHint, forwardedHint, err := computer.Resolve(map[string]any{"action": "click", "windowHint": "Google Chrome Facebook", "target": "Notifications", "verify": true})
 	if err != nil || clickByHint.RuntimeTool != "computer_click" {

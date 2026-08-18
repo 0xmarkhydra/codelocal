@@ -20,6 +20,7 @@ type ComputerObservation struct {
 	UITreeError            string `json:"uiTreeError,omitempty"`
 	ScreenshotError        string `json:"screenshotError,omitempty"`
 	WindowID               string `json:"windowId,omitempty"`
+	Scene                  any    `json:"scene,omitempty"`
 	VisionFallback         bool   `json:"visionFallback,omitempty"`
 	VisualContextAvailable bool   `json:"visualContextAvailable,omitempty"`
 	MCPImage               any    `json:"__mcpImage,omitempty"`
@@ -38,6 +39,7 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 	}
 	observation := ComputerObservation{Windows: windows, WindowID: strings.TrimSpace(windowID)}
 	if observation.WindowID == "" {
+		observation.Scene = computer.SceneMetadata("")
 		return observation, nil
 	}
 	treeCtx, cancel := context.WithTimeout(ctx, computerObserveTreeTimeout)
@@ -45,9 +47,11 @@ func ObserveComputer(ctx context.Context, computer *ComputerController, windowID
 	uiTree, err := computer.UITree(treeCtx, observation.WindowID, false)
 	if err != nil {
 		observation.UITreeError = err.Error()
+		observation.Scene = computer.SceneMetadata(observation.WindowID)
 		return observation, nil
 	}
 	observation.UITree = uiTree
+	observation.Scene = computer.SceneMetadata(observation.WindowID)
 	if tree, ok := uiTree.(map[string]any); ok {
 		observation.VisionFallback, _ = tree["visionFallback"].(bool)
 	}

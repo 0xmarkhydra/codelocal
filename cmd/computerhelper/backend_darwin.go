@@ -73,10 +73,49 @@ func macAccessibilityTrusted(ctx context.Context) bool {
 	return trusted
 }
 
+func parseMacHIDIdleMilliseconds(output string) (int64, error) {
+	marker := `"HIDIdleTime"`
+	index := strings.Index(output, marker)
+	if index < 0 {
+		return 0, errors.New("IOHIDSystem did not report HIDIdleTime")
+	}
+	rest := output[index+len(marker):]
+	equals := strings.Index(rest, "=")
+	if equals < 0 {
+		return 0, errors.New("invalid HIDIdleTime payload")
+	}
+	rest = strings.TrimSpace(rest[equals+1:])
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0, errors.New("invalid HIDIdleTime value")
+	}
+	nanoseconds, err := strconv.ParseUint(rest[:end], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse HIDIdleTime: %w", err)
+	}
+	return int64(nanoseconds / uint64(time.Millisecond)), nil
+}
+
+func macUserActivity(ctx context.Context) (any, error) {
+	cmd := exec.CommandContext(ctx, "/usr/sbin/ioreg", "-c", "IOHIDSystem")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("read macOS HID idle time: %w", err)
+	}
+	idleMs, err := parseMacHIDIdleMilliseconds(string(output))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"idleMs": idleMs, "source": "IOHIDSystem"}, nil
+}
+
 func platformCapabilities() map[string]any {
 	ctx := context.Background()
 	trusted := macAccessibilityTrusted(ctx)
-	return map[string]any{
+	capabilities := map[string]any{
 		"available":              true,
 		"backend":                "macos-persistent-ax+coregraphics",
 		"engine":                 "computer-v2",
@@ -99,6 +138,13 @@ func platformCapabilities() map[string]any {
 			"screenRecording": true,
 		},
 	}
+	return applyDesktopBackendContract(capabilities, desktopBackendContract{
+		Name:                 "desktop-v3-transition",
+		NativeAXBackend:      false,
+		EventDrivenScene:     false,
+		TargetedVerification: trusted,
+		UserActivityGuard:    true,
+	})
 }
 
 const macWindowScript = `ObjC.import('CoreGraphics');
@@ -134,6 +180,7 @@ const (
 	macPersistentWindowBudget   = 1800 * time.Millisecond
 	macPersistentTreeBudget     = 1500 * time.Millisecond
 	macPersistentSemanticBudget = 1500 * time.Millisecond
+	macPersistentBatchBudget    = 18 * time.Second
 	macPersistentVisionBudget   = 1500 * time.Millisecond
 )
 
@@ -295,6 +342,42 @@ func macSemanticAction(ctx context.Context, operation, windowID, target, text st
 		return nil, fmt.Errorf("decode semantic action: %w", err)
 	}
 	return value, nil
+}
+
+func macSemanticBatch(ctx context.Context, windowID string, steps any) (any, error) {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" || windowID == "screen:main" {
+		return nil, errors.New("background semantic batch requires an application window")
+	}
+	rawSteps, ok := steps.([]any)
+	if !ok || len(rawSteps) == 0 || len(rawSteps) > 12 {
+		return nil, errors.New("background semantic batch requires 1-12 steps")
+	}
+	pid, err := macWindowPID(ctx, windowID)
+	if err != nil {
+		return nil, err
+	}
+	windowIndex := -1
+	if _, index, ok := macAXWindowRef(windowID); ok {
+		windowIndex = index
+	}
+	batchCtx, cancel := context.WithTimeout(ctx, macPersistentBatchBudget)
+	defer cancel()
+	// Never replay a partially executed batch through the one-shot fallback.
+	return macPersistentSemanticBatch(batchCtx, pid, windowIndex, rawSteps)
+}
+
+func macElementRead(ctx context.Context, windowID, elementID string) (any, error) {
+	windowID = strings.TrimSpace(windowID)
+	elementID = strings.TrimSpace(elementID)
+	if windowID == "" || windowID == "screen:main" || elementID == "" {
+		return nil, errors.New("background element read requires application windowId and elementId")
+	}
+	pid, err := macWindowPID(ctx, windowID)
+	if err != nil {
+		return nil, err
+	}
+	return macPersistentElementRead(ctx, pid, elementID)
 }
 
 func macAXWindowRef(windowID string) (pid, windowIndex int, ok bool) {
@@ -702,6 +785,8 @@ func platformHandle(ctx context.Context, input request) (any, error) {
 	switch input.Operation {
 	case "status":
 		return platformCapabilities(), nil
+	case "user_activity":
+		return macUserActivity(ctx)
 	case "list_windows":
 		return macWindows(ctx)
 	case "ui_tree":
@@ -712,8 +797,12 @@ func platformHandle(ctx context.Context, input request) (any, error) {
 		return macFocus(ctx, stringValue(input.Arguments, "windowId"))
 	case "semantic_click":
 		return macSemanticAction(ctx, "click", stringValue(input.Arguments, "windowId"), stringValue(input.Arguments, "target"), "")
+	case "element_read":
+		return macElementRead(ctx, stringValue(input.Arguments, "windowId"), stringValue(input.Arguments, "elementId"))
 	case "semantic_type":
 		return macSemanticAction(ctx, "type", stringValue(input.Arguments, "windowId"), stringValue(input.Arguments, "target"), stringValue(input.Arguments, "text"))
+	case "semantic_batch":
+		return macSemanticBatch(ctx, stringValue(input.Arguments, "windowId"), input.Arguments["steps"])
 	case "click":
 		if element := stringValue(input.Arguments, "elementId"); element != "" {
 			return macElementClick(ctx, element)

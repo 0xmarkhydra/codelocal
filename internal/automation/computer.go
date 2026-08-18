@@ -32,6 +32,7 @@ type ComputerController struct {
 	sceneMu      sync.RWMutex
 	scene        map[string]sceneCacheEntry
 	windows      sceneCacheEntry
+	sceneState   map[string]computerSceneState
 }
 
 type sceneCacheEntry struct {
@@ -55,6 +56,10 @@ func computerOperationTimeout(operation string) time.Duration {
 		return 6 * time.Second
 	case "screenshot":
 		return 8 * time.Second
+	case "semantic_batch":
+		return 20 * time.Second
+	case "element_read", "user_activity":
+		return 2500 * time.Millisecond
 	case "semantic_click", "semantic_type":
 		return 5 * time.Second
 	default:
@@ -132,7 +137,7 @@ func helperCapabilities(helper string, environment Environment) map[string]any {
 	if json.Unmarshal(output, &reported) != nil {
 		return base
 	}
-	for _, key := range []string{"available", "backend", "engine", "persistentEngine", "sceneCache", "batchActions", "semanticActions", "screenCapture", "screenCaptureStreaming", "uiTree", "visionFallback", "physicalInputFallback", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
+	for _, key := range []string{"available", "backend", "engine", "backendContract", "nativeAXBackend", "eventDrivenScene", "targetedVerification", "userActivityGuard", "persistentEngine", "sceneCache", "batchActions", "semanticActions", "screenCapture", "screenCaptureStreaming", "uiTree", "visionFallback", "physicalInputFallback", "pointer", "keyboard", "clipboard", "backgroundControl", "secureDesktop"} {
 		if value, ok := reported[key]; ok {
 			base[key] = value
 		}
@@ -195,7 +200,7 @@ func NewComputerController(workspaceID, workspaceKey, root string) (*ComputerCon
 	backend, _ := capabilities["backend"].(string)
 	return &ComputerController{
 		WorkspaceID: workspaceID, WorkspaceKey: workspaceKey, Root: root, Helper: helper, Backend: backend,
-		Capabilities: capabilities, scene: map[string]sceneCacheEntry{},
+		Capabilities: capabilities, scene: map[string]sceneCacheEntry{}, sceneState: map[string]computerSceneState{},
 	}, nil
 }
 
@@ -212,6 +217,7 @@ func (c *ComputerController) rememberWindows(value any) {
 	c.sceneMu.Lock()
 	c.windows = sceneCacheEntry{Value: value, ExpiresAt: time.Now().Add(computerWindowCacheTTL)}
 	c.sceneMu.Unlock()
+	c.MarkWindowRegistryClean()
 }
 
 func (c *ComputerController) cachedScene(windowID string) (any, bool) {
@@ -236,17 +242,11 @@ func (c *ComputerController) rememberScene(windowID string, value any) {
 	c.sceneMu.Lock()
 	c.scene[windowID] = sceneCacheEntry{Value: value, ExpiresAt: time.Now().Add(computerSceneCacheTTL)}
 	c.sceneMu.Unlock()
+	c.MarkSceneClean(windowID)
 }
 
 func (c *ComputerController) InvalidateScene(windowID string) {
-	c.sceneMu.Lock()
-	if strings.TrimSpace(windowID) == "" {
-		c.scene = map[string]sceneCacheEntry{}
-		c.windows = sceneCacheEntry{}
-	} else {
-		delete(c.scene, strings.TrimSpace(windowID))
-	}
-	c.sceneMu.Unlock()
+	c.MarkSceneDirty(windowID, "explicit-invalidation")
 }
 
 func (c *ComputerController) Windows(ctx context.Context, fresh bool) (any, error) {
@@ -285,7 +285,7 @@ func (c *ComputerController) SemanticAction(ctx context.Context, operation, wind
 	}
 	value, err := c.Call(ctx, "semantic_"+operation, args)
 	if err == nil {
-		c.InvalidateScene(windowID)
+		c.NotifySceneEvent(ComputerSceneEvent{WindowID: windowID, Kind: "semantic-" + operation, ElementID: resolvedElementID(value)})
 	}
 	return value, err
 }
@@ -385,7 +385,7 @@ func (c *ComputerController) Call(ctx context.Context, operation string, args ma
 	allowed := map[string]bool{
 		"status": true, "list_windows": true, "ui_tree": true, "screenshot": true,
 		"focus": true, "click": true, "type": true, "key": true, "scroll": true, "drag": true,
-		"semantic_click": true, "semantic_type": true,
+		"semantic_click": true, "semantic_type": true, "semantic_batch": true, "element_read": true, "user_activity": true,
 	}
 	if !allowed[operation] {
 		return nil, fmt.Errorf("unsupported Computer Use operation: %s", operation)

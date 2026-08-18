@@ -256,8 +256,10 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 		status := ComputerCapabilities()
 		if c.Computer != nil {
 			status["agentCursor"] = c.Computer.AgentCursorSupported()
+			status["health"] = c.Computer.Health(ctx)
 		} else {
 			status["agentCursor"] = false
+			status["health"] = map[string]any{"status": "degraded", "reason": "COMPUTER_CONTROLLER_UNAVAILABLE"}
 		}
 		return status, nil
 	case "computer_observe":
@@ -293,8 +295,9 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 		}
 		physicalInput := action.Physical
 
-		verify := boolArg(args, "verify", false)
 		windowID := stringArg(args, "windowId")
+		semanticTargetable := (op == "click" || op == "type") && target != "" && windowID != "" && windowID != "screen:main"
+		verifyMode := computerVerificationMode(args, semanticTargetable)
 
 		// Fast path: resolve + interact inside the local native helper. AX-backed
 		// actions do not move the user's physical cursor and avoid a separate
@@ -317,14 +320,7 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 						}
 					}
 				}
-				if verify {
-					observation, observeErr := ObserveComputer(ctx, c.Computer, windowID)
-					if observeErr != nil {
-						envelope["verificationError"] = observeErr.Error()
-					} else {
-						envelope["observation"] = observation
-					}
-				}
+				c.attachComputerVerification(ctx, envelope, verifyMode, op, windowID, target, stringArg(args, "text"), fast)
 				return envelope, nil
 			}
 			if op == "type" {
@@ -362,6 +358,9 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 			}
 		}
 
+		if err := c.guardDisruptiveComputerAction(ctx, op, physicalInput); err != nil {
+			return nil, err
+		}
 		if physicalInput {
 			physicalComputerInputMu.Lock()
 			defer physicalComputerInputMu.Unlock()
@@ -370,7 +369,11 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 		if err != nil {
 			return nil, err
 		}
-		if !verify {
+		effectiveVerifyMode := verifyMode
+		if physicalInput && effectiveVerifyMode != computerVerifyNone {
+			effectiveVerifyMode = computerVerifyScene
+		}
+		if effectiveVerifyMode == computerVerifyNone {
 			if resolved == nil && !cursorVisible(agentCursor) {
 				return result, nil
 			}
@@ -383,18 +386,16 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 			}
 			return envelope, nil
 		}
-		observation, observeErr := ObserveComputer(ctx, c.Computer, stringArg(args, "windowId"))
-		envelope := map[string]any{"result": result, "observation": observation}
+		envelope := map[string]any{"result": result}
+		verificationResult := result
 		if resolved != nil {
 			envelope["resolvedTarget"] = resolved
+			verificationResult = map[string]any{"resolvedTarget": resolved}
 		}
 		if cursorVisible(agentCursor) {
 			envelope["agentCursor"] = agentCursor
 		}
-		if observeErr != nil {
-			delete(envelope, "observation")
-			envelope["verificationError"] = observeErr.Error()
-		}
+		c.attachComputerVerification(ctx, envelope, effectiveVerifyMode, op, windowID, target, stringArg(args, "text"), verificationResult)
 		return envelope, nil
 	default:
 		return nil, errors.New("unsupported automation tool: " + tool)

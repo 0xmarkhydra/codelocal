@@ -212,7 +212,12 @@ func ClassifyAutomation(action Action) security.Decision {
 			decision.ApprovalKey = "computer:screenshot:" + scope
 			decision.ApprovalLabel = "Allow CodeLocal screen capture for " + scope
 			decision.Reason = "screen capture may reveal private application content"
-		case "focus", "click", "type", "key", "scroll", "drag", "run":
+		case "focus":
+			decision.RiskLevel = security.RiskCritical
+			decision.RequiresApproval = true
+			decision.ApprovalPolicy = security.ApprovalAlways
+			decision.Reason = "foreground focus can interrupt the user's active application and always requires fresh confirmation"
+		case "click", "type", "key", "scroll", "drag", "run":
 			decision.RiskLevel = security.RiskHigh
 			decision.RequiresApproval = true
 			decision.ApprovalPolicy = security.ApprovalRememberable

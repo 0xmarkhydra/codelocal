@@ -65,6 +65,15 @@ func TestMacSemanticFastPathDoesNotSynthesizePhysicalInput(t *testing.T) {
 	}
 }
 
+func TestMacPersistentWorkerHasNativeSemanticBatch(t *testing.T) {
+	if !strings.Contains(macPersistentWorkerScript, "function semanticBatch(req)") || !strings.Contains(macPersistentWorkerScript, "req.op==='semantic_batch'") {
+		t.Fatal("persistent macOS worker must execute semantic batches in one worker request")
+	}
+	if !strings.Contains(macPersistentWorkerScript, "failed after '+i+' completed step(s)") {
+		t.Fatal("semantic batch failure must preserve completed-step context")
+	}
+}
+
 func TestMacSemanticFastPathRejectsAmbiguousTargets(t *testing.T) {
 	for _, script := range []string{macSemanticActionScript, macPersistentWorkerScript} {
 		if !strings.Contains(script, "runnerUpScore") || !strings.Contains(script, "ambiguous accessible UI target") {
@@ -95,6 +104,41 @@ func TestMacPersistentWindowEnumerationAvoidsWhoseVisibleFilter(t *testing.T) {
 	}
 	if macPersistentWindowBudget < 1500*time.Millisecond {
 		t.Fatalf("persistent window cold-start budget too small: %s", macPersistentWindowBudget)
+	}
+}
+
+func TestMacPersistentWorkerHasTargetedElementRead(t *testing.T) {
+	if !strings.Contains(macPersistentWorkerScript, "function elementRead(req)") || !strings.Contains(macPersistentWorkerScript, "req.op==='element_read'") {
+		t.Fatal("persistent macOS worker must support exact element reads for targeted verification")
+	}
+	if !strings.Contains(macPersistentWorkerScript, "persistent-jxa-element") {
+		t.Fatal("targeted element reads should identify the persistent element engine")
+	}
+}
+
+func TestParseMacHIDIdleMilliseconds(t *testing.T) {
+	idleMs, err := parseMacHIDIdleMilliseconds(`    "HIDIdleTime" = 2500000000`)
+	if err != nil || idleMs != 2500 {
+		t.Fatalf("idleMs=%d err=%v, want 2500", idleMs, err)
+	}
+	if _, err := parseMacHIDIdleMilliseconds(`{"OtherValue" = 1}`); err == nil {
+		t.Fatal("missing HIDIdleTime should fail closed")
+	}
+}
+
+func TestMacBackendContractExposesV3MigrationState(t *testing.T) {
+	caps := platformCapabilities()
+	if got, _ := caps["backendContract"].(string); got != "desktop-v3-transition" {
+		t.Fatalf("backend contract = %q", got)
+	}
+	if native, _ := caps["nativeAXBackend"].(bool); native {
+		t.Fatal("JXA migration backend must not claim the future native AX daemon is already active")
+	}
+	if guarded, _ := caps["userActivityGuard"].(bool); !guarded {
+		t.Fatal("macOS migration backend must protect disruptive foreground/physical control while the user is active")
+	}
+	if targeted, _ := caps["targetedVerification"].(bool); !targeted {
+		t.Skip("Accessibility permission unavailable; targeted verification capability is intentionally disabled")
 	}
 }
 

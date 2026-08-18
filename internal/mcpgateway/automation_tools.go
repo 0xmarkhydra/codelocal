@@ -55,7 +55,7 @@ func compactAutomationToolDefinitions() []compactToolDef {
 		{
 			Name:        "computer",
 			Title:       "Use desktop apps",
-			Description: "Observe desktop windows/UI and interact with native apps. Prefer action=observe, then semantic target text for click. action=run executes a bounded same-window sequence of semantic background click/type steps in one MCP round trip when the client advertises batchActions. Raw coordinates remain a last-resort single action. Set verify=true when the result should include a fresh post-action observation.",
+			Description: "Observe desktop windows/UI and interact with native apps. Prefer action=observe, then semantic target text for click. action=run executes a bounded same-window sequence of semantic background click/type steps in one MCP round trip when the client advertises batchActions. Raw coordinates remain a last-resort single action. Set verify=true for post-action verification; semantic actions default to targeted element verification, while verifyMode=scene requests the full window observation.",
 			Schema: actionSchema(
 				[]string{"status", "observe", "list_windows", "ui_tree", "screenshot", "focus", "click", "type", "key", "scroll", "drag", "run"},
 				map[string]any{
@@ -63,7 +63,8 @@ func compactAutomationToolDefinitions() []compactToolDef {
 					"windowHint":    str("Stable app/title hint used to resolve a fresh windowId, especially when replaying a learned skill."),
 					"elementId":     str("Accessibility element identifier returned by action=ui_tree. Usually omit this and provide target instead."),
 					"target":        str("Semantic UI target such as Continue or Save. For click, CodeLocal resolves this against a fresh accessibility tree when elementId is omitted."),
-					"verify":        boolean("After an input action, return a fresh native observation in the same MCP call. Defaults to false."),
+					"verify":        boolean("After an input action, verify the result in the same MCP call. Semantic actions default to lightweight target verification. Defaults to false."),
+					"verifyMode":    str("Optional verification mode: target for the acted element or scene for a full window observation."),
 					"x":             integer("Fallback screen X coordinate.", 0, 0),
 					"y":             integer("Fallback screen Y coordinate.", 0, 0),
 					"text":          str("Text to type into the focused/selected element."),
@@ -87,6 +88,12 @@ func compactAutomationToolDefinitions() []compactToolDef {
 				})
 				if err != nil {
 					return operationInvocation{}, nil, err
+				}
+				if rawMode, exists := forward["verifyMode"]; exists {
+					mode := strings.ToLower(strings.TrimSpace(fmt.Sprint(rawMode)))
+					if mode != "" && mode != "target" && mode != "scene" && mode != "none" {
+						return operationInvocation{}, nil, errors.New("verifyMode must be target, scene, or none")
+					}
 				}
 				action, _ := args["action"].(string)
 				if action == "focus" {

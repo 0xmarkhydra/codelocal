@@ -88,6 +88,35 @@ function semantic(req){
   }else throw new Error('unsupported semantic action');
   return {operation:op,background:true,physicalInput:false,engine:'persistent-jxa',resolvedTarget:{elementId:best.elementId,role:best.role,name:best.name,description:best.description,value:best.value,bounds:best.bounds,score:bestScore}};
 }
+function semanticBatch(req){
+  var pid=Number(req.pid||0),windowIndex=Number(req.windowIndex==null?-1:req.windowIndex),steps=req.steps||[],results=[],started=Date.now();
+  if(!pid)throw new Error('semantic batch requires pid');
+  if(!Array.isArray(steps)||steps.length<1||steps.length>12)throw new Error('semantic batch requires 1-12 steps');
+  for(var i=0;i<steps.length;i++){
+    var step=steps[i]||{},op=String(step.operation||step.action||'').trim().toLowerCase(),target=String(step.target||'').trim(),text=String(step.text==null?'':step.text);
+    if((op!=='click'&&op!=='type')||!target)throw new Error('semantic batch step '+(i+1)+' is invalid');
+    try{
+      results.push(semantic({pid:pid,windowIndex:windowIndex,operation:op,target:target,text:text,max:500}));
+    }catch(e){
+      throw new Error('semantic batch step '+(i+1)+' '+op+' target '+JSON.stringify(target)+' failed after '+i+' completed step(s): '+String(e.message||e));
+    }
+  }
+  return {ok:true,background:true,physicalInput:false,engine:'persistent-jxa-batch',completed:results.length,results:results,durationMs:Date.now()-started};
+}
+function elementRead(req){
+  var pid=Number(req.pid||0),elementId=String(req.elementId||'');
+  if(!pid||!elementId)throw new Error('element read requires pid and elementId');
+  var prefix=String(pid)+':';if(elementId.indexOf(prefix)!==0)throw new Error('elementId pid does not match window pid');
+  var rawPath=elementId.slice(prefix.length),parts=rawPath.split('.').filter(function(x){return x!==''}),path=[];
+  for(var pi=0;pi<parts.length;pi++){var n=Number(parts[pi]);if(!Number.isInteger(n)||n<0)throw new Error('invalid element path');path.push(n)}
+  if(!path.length)throw new Error('invalid element path');
+  var pp=processFor(pid),wins=safe(function(){return pp.p.windows()},[]);if(path[0]>=wins.length)throw new Error('UI element is stale or not found');
+  var e=wins[path[0]];
+  for(var i=1;i<path.length;i++){var children=safe(function(){return e.uiElements()},[]);if(path[i]>=children.length)throw new Error('UI element is stale or not found');e=children[path[i]]}
+  var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),value=safe(function(){var v=e.value();return v==null?null:String(v)},null),enabled=safe(function(){return !!e.enabled()},true),bounds=null;
+  var pos=safe(function(){return e.position()},null),size=safe(function(){return e.size()},null);if(pos&&size&&pos.length>=2&&size.length>=2)bounds={x:Number(pos[0]),y:Number(pos[1]),width:Number(size[0]),height:Number(size[1])};
+  return {elementId:elementId,role:role,name:name,description:desc,value:value,enabled:enabled,bounds:bounds,engine:'persistent-jxa-element'};
+}
 function windows(){
   var se=Application('System Events'),ps=safe(function(){return se.applicationProcesses()},[]),out=[];
   for(var pi=0;pi<ps.length;pi++){
@@ -118,7 +147,7 @@ function visionFile(req){
   }
   return {nodes:out,engine:'persistent-jxa-vision'};
 }
-function handle(req){if(req.op==='ping')return {ready:true,engine:'persistent-jxa'};if(req.op==='windows')return windows();if(req.op==='tree')return tree(req);if(req.op==='semantic')return semantic(req);if(req.op==='vision_file')return visionFile(req);throw new Error('unsupported worker operation')}
+function handle(req){if(req.op==='ping')return {ready:true,engine:'persistent-jxa'};if(req.op==='windows')return windows();if(req.op==='tree')return tree(req);if(req.op==='element_read')return elementRead(req);if(req.op==='semantic')return semantic(req);if(req.op==='semantic_batch')return semanticBatch(req);if(req.op==='vision_file')return visionFile(req);throw new Error('unsupported worker operation')}
 function writeLine(out,obj){var s=$(JSON.stringify(obj)+'\n'),d=s.dataUsingEncoding($.NSUTF8StringEncoding);out.writeData(d)}
 function run(){
   var input=$.NSFileHandle.fileHandleWithStandardInput,out=$.NSFileHandle.fileHandleWithStandardOutput,buffer='';
@@ -276,9 +305,21 @@ func macPersistentTree(ctx context.Context, pid, windowIndex, max int) (map[stri
 	return root, nil
 }
 
+func macPersistentElementRead(ctx context.Context, pid int, elementID string) (any, error) {
+	return sharedMacJXAWorker.call(ctx, map[string]any{
+		"op": "element_read", "pid": pid, "elementId": elementID,
+	})
+}
+
 func macPersistentSemanticAction(ctx context.Context, pid, windowIndex int, operation, target, text string) (any, error) {
 	return sharedMacJXAWorker.call(ctx, map[string]any{
 		"op": "semantic", "pid": pid, "windowIndex": windowIndex, "operation": operation, "target": target, "text": text, "max": 500,
+	})
+}
+
+func macPersistentSemanticBatch(ctx context.Context, pid, windowIndex int, steps any) (any, error) {
+	return sharedMacJXAWorker.call(ctx, map[string]any{
+		"op": "semantic_batch", "pid": pid, "windowIndex": windowIndex, "steps": steps,
 	})
 }
 

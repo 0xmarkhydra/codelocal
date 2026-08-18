@@ -94,6 +94,18 @@ func executeComputerSequence(ctx context.Context, windowID string, steps []compu
 	return results, nil
 }
 
+func nativeComputerSequenceResults(value any) ([]any, map[string]any, error) {
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil, nil, errors.New("native semantic batch returned an invalid payload")
+	}
+	results, ok := root["results"].([]any)
+	if !ok {
+		return nil, root, errors.New("native semantic batch returned invalid results")
+	}
+	return results, root, nil
+}
+
 func (c *Controller) runComputerSequence(ctx context.Context, args map[string]any, sessionID string) (any, error) {
 	if c == nil || c.Computer == nil {
 		return nil, errors.New("Computer Use is enabled but a compatible native helper is not available on this CodeLocal build")
@@ -108,11 +120,29 @@ func (c *Controller) runComputerSequence(ctx context.Context, args map[string]an
 	}
 
 	started := time.Now()
-	results, stepErr := executeComputerSequence(ctx, windowID, steps, func(ctx context.Context, step computerSequenceStep, windowID string) (any, error) {
-		return c.Computer.SemanticAction(ctx, step.Operation, windowID, step.Target, step.Text)
-	})
-	if stepErr != nil {
-		return nil, stepErr
+	results := []any(nil)
+	executionMode := "semantic-sequence"
+	helperCalls := len(steps)
+	var nativeRoot map[string]any
+	if c.Computer.NativeBatchSupported() {
+		executionMode = "native-semantic-batch"
+		helperCalls = 1
+		nativeValue, batchErr := c.Computer.SemanticBatch(ctx, windowID, steps)
+		if batchErr != nil {
+			return nil, fmt.Errorf("native computer run failed without replay: %w", batchErr)
+		}
+		results, nativeRoot, err = nativeComputerSequenceResults(nativeValue)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var stepErr error
+		results, stepErr = executeComputerSequence(ctx, windowID, steps, func(ctx context.Context, step computerSequenceStep, windowID string) (any, error) {
+			return c.Computer.SemanticAction(ctx, step.Operation, windowID, step.Target, step.Text)
+		})
+		if stepErr != nil {
+			return nil, stepErr
+		}
 	}
 
 	envelope := map[string]any{
@@ -123,14 +153,21 @@ func (c *Controller) runComputerSequence(ctx context.Context, args map[string]an
 		"completed":     len(steps),
 		"results":       results,
 		"durationMs":    time.Since(started).Milliseconds(),
+		"executionMode": executionMode,
+		"helperCalls":   helperCalls,
 	}
-	if boolArg(args, "verify", false) {
-		observation, observeErr := ObserveComputer(ctx, c.Computer, windowID)
-		if observeErr != nil {
-			envelope["verificationError"] = observeErr.Error()
-		} else {
-			envelope["observation"] = observation
+	if nativeRoot != nil {
+		if nativeDuration, ok := nativeRoot["durationMs"]; ok {
+			envelope["nativeDurationMs"] = nativeDuration
 		}
+		if engine, ok := nativeRoot["engine"]; ok {
+			envelope["nativeEngine"] = engine
+		}
+	}
+	verifyMode := computerVerificationMode(args, len(steps) > 0)
+	if verifyMode != computerVerifyNone && len(steps) > 0 && len(results) > 0 {
+		lastStep := steps[len(steps)-1]
+		c.attachComputerVerification(ctx, envelope, verifyMode, lastStep.Operation, windowID, lastStep.Target, lastStep.Text, results[len(results)-1])
 	}
 	return envelope, nil
 }
