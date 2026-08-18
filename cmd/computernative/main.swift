@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import ApplicationServices
 import ScreenCaptureKit
+import Vision
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -456,8 +457,13 @@ private func pngData(_ image: CGImage) throws -> Data {
     return data as Data
 }
 
+private struct CapturedNativeWindow {
+    let image: CGImage
+    let frame: CGRect
+}
+
 @available(macOS 14.0, *)
-private func capture(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -> [String: Any] {
+private func captureWindowImage(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -> CapturedNativeWindow {
     guard pid > 0 && windowIndex >= 0 else { throw NativeError.message("native capture requires application pid and windowIndex") }
     let target = try axWindowFrame(pid: pid, windowIndex: windowIndex)
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -473,15 +479,64 @@ private func capture(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -
     configuration.showsCursor = false
     configuration.ignoreShadowsSingleWindow = true
     let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-    let data = try pngData(image)
+    return CapturedNativeWindow(image: image, frame: target.frame)
+}
+
+@available(macOS 14.0, *)
+private func capture(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -> [String: Any] {
+    let captured = try await captureWindowImage(pid: pid, windowIndex: windowIndex, maxWidth: maxWidth)
+    let data = try pngData(captured.image)
     return [
         "windowId": "ax:\(pid):\(windowIndex)",
         "mimeType": "image/png",
         "data": data.base64EncodedString(),
-        "width": image.width,
-        "height": image.height,
+        "width": captured.image.width,
+        "height": captured.image.height,
         "byteLength": data.count,
         "engine": "screencapturekit",
+    ]
+}
+
+@available(macOS 14.0, *)
+private func vision(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -> [String: Any] {
+    let captured = try await captureWindowImage(pid: pid, windowIndex: windowIndex, maxWidth: maxWidth)
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = true
+    let handler = VNImageRequestHandler(cgImage: captured.image, options: [:])
+    try handler.perform([request])
+
+    var nodes: [[String: Any]] = []
+    for observation in request.results ?? [] {
+        guard nodes.count < 300, let candidate = observation.topCandidates(1).first else { continue }
+        let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, candidate.confidence >= 0.25 else { continue }
+        let box = observation.boundingBox
+        let x = captured.frame.minX + box.minX * captured.frame.width
+        let y = captured.frame.minY + (1.0 - box.maxY) * captured.frame.height
+        let width = box.width * captured.frame.width
+        let height = box.height * captured.frame.height
+        let centerX = x + width / 2.0
+        let centerY = y + height / 2.0
+        nodes.append([
+            "elementId": String(format: "vision:%.2f:%.2f", centerX, centerY),
+            "windowId": "ax:\(pid):\(windowIndex)",
+            "role": "visionText",
+            "name": text,
+            "description": "Vision OCR text",
+            "value": text,
+            "enabled": true,
+            "source": "vision",
+            "confidence": candidate.confidence,
+            "bounds": ["x": x, "y": y, "width": width, "height": height],
+        ])
+    }
+    return [
+        "nodes": nodes,
+        "engine": "native-vision",
+        "windowId": "ax:\(pid):\(windowIndex)",
+        "imageWidth": captured.image.width,
+        "imageHeight": captured.image.height,
     ]
 }
 
@@ -546,6 +601,15 @@ private func handle(_ request: [String: Any]) async throws -> Any {
             )
         }
         throw NativeError.message("ScreenCaptureKit screenshot capture requires macOS 14 or newer")
+    case "vision":
+        if #available(macOS 14.0, *) {
+            return try await vision(
+                pid: pid_t(integer(request, "pid")),
+                windowIndex: integer(request, "windowIndex", fallback: -1),
+                maxWidth: integer(request, "maxWidth", fallback: 1440)
+            )
+        }
+        throw NativeError.message("in-memory native Vision requires macOS 14 or newer")
     default:
         throw NativeError.message("unsupported native computer operation")
     }

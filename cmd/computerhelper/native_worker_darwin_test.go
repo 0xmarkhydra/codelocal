@@ -92,6 +92,53 @@ func TestMacNativeCaptureLive(t *testing.T) {
 	}
 }
 
+func TestMacNativeVisionLive(t *testing.T) {
+	if os.Getenv("CODELOCAL_LIVE_COMPUTER_TEST") != "1" {
+		t.Skip("set CODELOCAL_LIVE_COMPUTER_TEST=1 for local native Vision smoke test")
+	}
+	if macNativeDaemonPath() == "" {
+		t.Skip("native macOS daemon is not configured")
+	}
+	resetSharedMacNativeWorkerForTest()
+	t.Cleanup(resetSharedMacNativeWorkerForTest)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	windows, err := macNativeWindows(ctx)
+	if err != nil || len(windows) == 0 {
+		t.Fatalf("native windows unavailable: count=%d err=%v", len(windows), err)
+	}
+	var lastErr error
+	attempted := 0
+	for _, raw := range windows {
+		item, _ := raw.(map[string]any)
+		windowID, _ := item["windowId"].(string)
+		pid, windowIndex, ok := macAXWindowRef(windowID)
+		if !ok {
+			continue
+		}
+		attempted++
+		nodes, visionErr := macNativeVision(ctx, pid, windowIndex, 960)
+		if visionErr != nil {
+			lastErr = visionErr
+			if attempted < 8 {
+				continue
+			}
+			break
+		}
+		for _, node := range nodes {
+			entry, _ := node.(map[string]any)
+			if entry["source"] != "vision" || entry["elementId"] == nil {
+				t.Fatalf("unexpected native Vision node: %#v", entry)
+			}
+		}
+		return
+	}
+	if attempted == 0 {
+		t.Skip("no native AX application window available")
+	}
+	t.Skipf("no currently captureable native AX window for Vision smoke test after %d candidate(s): %v", attempted, lastErr)
+}
+
 func TestMacNativeDaemonProbeAndPersistentHandshake(t *testing.T) {
 	path := writeFakeMacNativeDaemon(t)
 	t.Setenv("CODELOCAL_COMPUTER_NATIVE_DAEMON", path)

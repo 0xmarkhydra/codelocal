@@ -379,6 +379,7 @@ Any normal workflow that steals focus, moves the physical cursor, or types into 
 - [ ] Add Apple Developer ID signing/notarization hardening for the packaged native worker; packaging does not claim signed/notarized status yet.
 - [ ] Remove remaining `osascript` fallback from normal action hot paths after native packaging reaches production.
 - [x] ScreenCaptureKit in-memory app-window capture on the native path; captured windows are bounded to 1440px wide and the disk-based `screencapture` path remains compatibility fallback only.
+- [x] In-memory native Vision OCR for AX application windows (`ScreenCaptureKit -> CGImage -> Vision -> semantic nodes`); the temp-PNG/JXA Vision path remains a compatibility fallback for `screen:main`, older macOS, or windows ScreenCaptureKit cannot capture.
 - [x] Private MediaUpload signed-image transport before the local runtime sends `ToolResult` to cloud. Configure `CODELOCAL_MEDIA_UPLOAD_URL` + `CODELOCAL_MEDIA_UPLOAD_TOKEN`; signed URL mode removes `__mcpImage` base64 from the WebSocket payload.
 - [x] MCP gateway converts signed image metadata into `mcp.ResourceLink`; base64 `mcp.ImageContent` remains only when URL transport is disabled or `CODELOCAL_MEDIA_BASE64_FALLBACK=1` is explicitly enabled.
 - [x] Visual content SHA-256, client-side signed-URL cache and server-side object dedupe by content hash; repeated identical captures do not upload a new object.

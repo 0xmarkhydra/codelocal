@@ -556,6 +556,21 @@ function run(argv){
 }`
 
 func macVisionTree(ctx context.Context, windowID string) ([]any, error) {
+	if pid, windowIndex, ok := macAXWindowRef(windowID); ok {
+		nativeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if sharedMacNativeWorker.ensureReady(nativeCtx) {
+			vision, nativeErr := macNativeVision(nativeCtx, pid, windowIndex, 1440)
+			cancel()
+			if nativeErr == nil {
+				return vision, nil
+			}
+		} else {
+			cancel()
+		}
+	}
+
+	// Compatibility path for screen:main, older macOS, or a missing native
+	// worker. Native app-window Vision never writes a screenshot to disk.
 	bounds, err := macWindowBounds(ctx, windowID)
 	if err != nil {
 		return nil, err

@@ -280,6 +280,24 @@ func macNativeCapture(ctx context.Context, pid, windowIndex, maxWidth int) (map[
 	return root, nil
 }
 
+func macNativeVision(ctx context.Context, pid, windowIndex, maxWidth int) ([]any, error) {
+	value, err := sharedMacNativeWorker.call(ctx, map[string]any{
+		"op": "vision", "pid": pid, "windowIndex": windowIndex, "maxWidth": maxWidth,
+	})
+	if err != nil {
+		return nil, err
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("native macOS Vision returned invalid payload")
+	}
+	nodes, ok := root["nodes"].([]any)
+	if !ok {
+		return nil, errors.New("native macOS Vision nodes are invalid")
+	}
+	return nodes, nil
+}
+
 func macNativeElementRead(ctx context.Context, pid int, elementID string) (any, error) {
 	return sharedMacNativeWorker.call(ctx, map[string]any{
 		"op": "element_read", "pid": pid, "elementId": elementID,
