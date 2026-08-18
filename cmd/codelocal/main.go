@@ -589,7 +589,7 @@ func runRuntime(parent context.Context, server string) error {
 			return map[string]any{"reloaded": true, "authorizedWorkspaces": len(items), "phase": phase}, nil
 		case "shutdown":
 			phase = "stopping"
-			go cancel()
+			cancel()
 			return map[string]any{"stopping": true}, nil
 		}
 		return nil, errors.New("invalid runtime command")

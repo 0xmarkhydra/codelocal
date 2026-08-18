@@ -91,7 +91,7 @@ func TestPurgeLocalStateStopsRunningRuntime(t *testing.T) {
 	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
 	server, err := runtimecontrol.Start(runtimeCtx, dir, lease.Record.InstanceID, func(_ context.Context, command runtimecontrol.Command) (any, error) {
 		if command.Type == "shutdown" {
-			go cancelRuntime()
+			cancelRuntime()
 		}
 		return map[string]any{"stopping": command.Type == "shutdown"}, nil
 	})
