@@ -377,9 +377,12 @@ Any normal workflow that steals focus, moves the physical cursor, or types into 
 - [x] Desktop backend migration contract exposes whether native AX, event-driven scene, targeted verification, and user-activity guard are actually active.
 - [ ] Package/sign the Swift native worker in npm releases on macOS runners; until then production packages continue using the JXA fallback unless `CODELOCAL_COMPUTER_NATIVE_DAEMON` points to a built native worker.
 - [ ] Remove remaining `osascript` fallback from normal action hot paths after native packaging reaches production.
-- [ ] ScreenCaptureKit/in-memory visual capture.
-- [ ] MediaUpload signed image references.
-- [ ] Visual diff/crop/hash dedupe.
+- [x] ScreenCaptureKit in-memory app-window capture on the native path; captured windows are bounded to 1440px wide and the disk-based `screencapture` path remains compatibility fallback only.
+- [x] Private MediaUpload signed-image transport before the local runtime sends `ToolResult` to cloud. Configure `CODELOCAL_MEDIA_UPLOAD_URL` + `CODELOCAL_MEDIA_UPLOAD_TOKEN`; signed URL mode removes `__mcpImage` base64 from the WebSocket payload.
+- [x] MCP gateway converts signed image metadata into `mcp.ResourceLink`; base64 `mcp.ImageContent` remains only when URL transport is disabled or `CODELOCAL_MEDIA_BASE64_FALLBACK=1` is explicitly enabled.
+- [x] Visual content SHA-256, client-side signed-URL cache and server-side object dedupe by content hash; repeated identical captures do not upload a new object.
+- [x] Window crop/resize: native ScreenCaptureKit captures the requested app window instead of the full desktop and scales large windows down for AI transport.
+- [ ] Changed-region/pixel diff so only a dirty subregion is encoded when a small part of the window changes.
 
 ### Phase C — cross-platform parity
 

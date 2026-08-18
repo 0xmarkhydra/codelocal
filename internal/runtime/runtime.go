@@ -664,6 +664,13 @@ func (w *WorkspaceWorker) handleCall(parent context.Context, msg struct {
 	slog.Debug("MCP tool received", "requestId", requestID, "sessionId", msg.SessionID, "workspace", w.Workspace.WorkspaceID, "tool", msg.Tool)
 	startedAt := time.Now()
 	result, err := w.handleTool(ctx, msg.Tool, msg.Args, localclient.HandleOptions{RequestID: requestID, SessionID: msg.SessionID, IdempotencyKey: msg.IdempotencyKey})
+	if err == nil {
+		var mediaErr error
+		result, mediaErr = prepareOutboundMedia(ctx, result)
+		if mediaErr != nil {
+			err = mediaErr
+		}
+	}
 	response := protocol.ToolResult{Type: "tool_result", ProtocolVersion: protocol.Version, RequestID: requestID, OK: err == nil, Result: result}
 	if err != nil {
 		response.ErrorCode = normalizeErrorCode(err)

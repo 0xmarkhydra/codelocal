@@ -55,6 +55,43 @@ func resetSharedMacNativeWorkerForTest() {
 	sharedMacNativeWorker.mu.Unlock()
 }
 
+func TestMacNativeCaptureLive(t *testing.T) {
+	if os.Getenv("CODELOCAL_LIVE_COMPUTER_TEST") != "1" {
+		t.Skip("set CODELOCAL_LIVE_COMPUTER_TEST=1 for local native capture smoke test")
+	}
+	if macNativeDaemonPath() == "" {
+		t.Skip("native macOS daemon is not configured")
+	}
+	resetSharedMacNativeWorkerForTest()
+	t.Cleanup(resetSharedMacNativeWorkerForTest)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	windows, err := macNativeWindows(ctx)
+	if err != nil || len(windows) == 0 {
+		t.Fatalf("native windows unavailable: count=%d err=%v", len(windows), err)
+	}
+	var pid, windowIndex int
+	for _, raw := range windows {
+		item, _ := raw.(map[string]any)
+		windowID, _ := item["windowId"].(string)
+		if parsedPID, parsedIndex, ok := macAXWindowRef(windowID); ok {
+			pid, windowIndex = parsedPID, parsedIndex
+			break
+		}
+	}
+	if pid == 0 {
+		t.Skip("no native AX application window available")
+	}
+	capture, err := macNativeCapture(ctx, pid, windowIndex, 960)
+	if err != nil {
+		t.Fatalf("native ScreenCaptureKit capture failed: %v", err)
+	}
+	encoded, _ := capture["data"].(string)
+	if encoded == "" || capture["mimeType"] != "image/png" || capture["engine"] != "screencapturekit" {
+		t.Fatalf("unexpected native capture metadata: mime=%v engine=%v dataBytes=%d", capture["mimeType"], capture["engine"], len(encoded))
+	}
+}
+
 func TestMacNativeDaemonProbeAndPersistentHandshake(t *testing.T) {
 	path := writeFakeMacNativeDaemon(t)
 	t.Setenv("CODELOCAL_COMPUTER_NATIVE_DAEMON", path)

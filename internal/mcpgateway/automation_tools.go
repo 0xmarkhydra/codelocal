@@ -208,10 +208,57 @@ func ensureAutomationOperationSupported(runtimeTool string, workspace *gateway.W
 	return nil
 }
 
+func linkedImageToolResult(root map[string]any, isError bool, notice string) *mcp.CallToolResult {
+	marker := nestedMap(root["__mcpImageRef"])
+	uri, _ := marker["url"].(string)
+	mimeType, _ := marker["mimeType"].(string)
+	if strings.TrimSpace(uri) == "" || strings.TrimSpace(mimeType) == "" {
+		return nil
+	}
+	metadata := map[string]any{}
+	for key, item := range root {
+		if key != "__mcpImageRef" && key != "__mcpImage" {
+			metadata[key] = item
+		}
+	}
+	metadata["visual"] = marker
+	metadata["codeLocalToolSurface"] = PublicToolSurface()
+	var text string
+	if raw, err := json.MarshalIndent(metadata, "", "  "); err == nil {
+		text = string(raw)
+	}
+	if strings.TrimSpace(notice) != "" {
+		text = notice + "\n\n" + text
+	}
+	content := []mcp.Content{}
+	if strings.TrimSpace(text) != "" && text != "{}" {
+		content = append(content, &mcp.TextContent{Text: text})
+	}
+	var size *int64
+	switch raw := marker["size"].(type) {
+	case float64:
+		value := int64(raw)
+		size = &value
+	case int:
+		value := int64(raw)
+		size = &value
+	case int64:
+		value := raw
+		size = &value
+	}
+	content = append(content, &mcp.ResourceLink{
+		URI: uri, Name: "CodeLocal visual", Title: "CodeLocal visual", MIMEType: mimeType, Size: size,
+	})
+	return &mcp.CallToolResult{Content: content, StructuredContent: metadata, IsError: isError}
+}
+
 func toolResultWithNotice(value any, isError bool, notice string) *mcp.CallToolResult {
 	root, ok := value.(map[string]any)
 	if !ok {
 		return textResultWithNotice(value, isError, notice)
+	}
+	if linked := linkedImageToolResult(root, isError, notice); linked != nil {
+		return linked
 	}
 	marker := nestedMap(root["__mcpImage"])
 	encoded, _ := marker["data"].(string)

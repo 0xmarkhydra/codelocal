@@ -611,7 +611,8 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 		}
 		return map[string]any{"nodes": vision, "source": "vision", "accessibilityDegraded": true, "visionFallback": true, "visionElementCount": len(vision)}, nil
 	}
-	if !macAccessibilityTrusted(ctx) {
+	nativeReady := sharedMacNativeWorker.ensureReady(ctx)
+	if !nativeReady && !macAccessibilityTrusted(ctx) {
 		return nil, errors.New("macOS Accessibility permission is required")
 	}
 	pid, err := macWindowPID(ctx, windowID)
@@ -625,7 +626,7 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 	persistentCtx, persistentCancel := context.WithTimeout(ctx, macPersistentTreeBudget)
 	var out map[string]any
 	var persistentErr error
-	if sharedMacNativeWorker.ensureReady(persistentCtx) {
+	if nativeReady {
 		out, persistentErr = macNativeTree(persistentCtx, pid, windowIndex, 500)
 	}
 	if out == nil || persistentErr != nil {
@@ -667,6 +668,35 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 }
 
 func macScreenshot(ctx context.Context, windowID string) (any, error) {
+	if pid, windowIndex, ok := macAXWindowRef(windowID); ok {
+		captureCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if sharedMacNativeWorker.ensureReady(captureCtx) {
+			capture, captureErr := macNativeCapture(captureCtx, pid, windowIndex, 1440)
+			cancel()
+			if captureErr == nil {
+				encoded, _ := capture["data"].(string)
+				mimeType, _ := capture["mimeType"].(string)
+				if strings.TrimSpace(encoded) != "" && strings.TrimSpace(mimeType) != "" {
+					return map[string]any{
+						"windowId": windowID,
+						"width":    capture["width"],
+						"height":   capture["height"],
+						"engine":   capture["engine"],
+						"__mcpImage": map[string]any{
+							"mimeType": mimeType,
+							"data":     encoded,
+						},
+					}, nil
+				}
+			}
+		} else {
+			cancel()
+		}
+	}
+
+	// Compatibility fallback for screen:main, older macOS versions, or when the
+	// native worker/ScreenCaptureKit path is unavailable. The native v3 path
+	// above keeps the normal app-window screenshot entirely in memory.
 	dir, err := os.MkdirTemp("", "codelocal-screen-")
 	if err != nil {
 		return nil, err
@@ -695,7 +725,7 @@ func macScreenshot(ctx context.Context, windowID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"windowId": windowID, "__mcpImage": map[string]any{"mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(data)}}, nil
+	return map[string]any{"windowId": windowID, "engine": "screencapture-fallback", "__mcpImage": map[string]any{"mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(data)}}, nil
 }
 
 func macFocus(ctx context.Context, windowID string) (any, error) {

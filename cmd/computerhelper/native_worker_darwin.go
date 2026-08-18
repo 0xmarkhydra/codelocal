@@ -266,6 +266,20 @@ func macNativeTree(ctx context.Context, pid, windowIndex, max int) (map[string]a
 	return root, nil
 }
 
+func macNativeCapture(ctx context.Context, pid, windowIndex, maxWidth int) (map[string]any, error) {
+	value, err := sharedMacNativeWorker.call(ctx, map[string]any{
+		"op": "capture", "pid": pid, "windowIndex": windowIndex, "maxWidth": maxWidth,
+	})
+	if err != nil {
+		return nil, err
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("native macOS capture returned invalid payload")
+	}
+	return root, nil
+}
+
 func macNativeElementRead(ctx context.Context, pid int, elementID string) (any, error) {
 	return sharedMacNativeWorker.call(ctx, map[string]any{
 		"op": "element_read", "pid": pid, "elementId": elementID,

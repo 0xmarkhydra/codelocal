@@ -1,6 +1,9 @@
 import Foundation
 import AppKit
 import ApplicationServices
+import ScreenCaptureKit
+import ImageIO
+import UniformTypeIdentifiers
 
 private let protocolVersion = 1
 
@@ -417,6 +420,71 @@ private func semanticBatch(pid: pid_t, windowIndex: Int, steps: [[String: Any]])
     ]
 }
 
+private func axWindowFrame(pid: pid_t, windowIndex: Int) throws -> (title: String, frame: CGRect) {
+    let app = AXUIElementCreateApplication(pid)
+    let appWindows = axElements(app, kAXWindowsAttribute)
+    guard windowIndex >= 0 && windowIndex < appWindows.count else { throw NativeError.message("window reference is stale") }
+    let window = appWindows[windowIndex]
+    guard let point = axPoint(window, kAXPositionAttribute), let size = axSize(window, kAXSizeAttribute), size.width > 0, size.height > 0 else {
+        throw NativeError.message("window has no captureable bounds")
+    }
+    return (axString(window, kAXTitleAttribute), CGRect(origin: point, size: size))
+}
+
+private func frameDistance(_ lhs: CGRect, _ rhs: CGRect) -> Double {
+    abs(lhs.minX - rhs.minX) + abs(lhs.minY - rhs.minY) + abs(lhs.width - rhs.width) + abs(lhs.height - rhs.height)
+}
+
+private func bestCaptureWindow(_ windows: [SCWindow], pid: pid_t, title: String, frame: CGRect) -> SCWindow? {
+    let normalizedTitle = normalize(title)
+    return windows
+        .filter { $0.owningApplication?.processID == pid && $0.frame.width > 1 && $0.frame.height > 1 }
+        .min { left, right in
+            let leftTitlePenalty = normalizedTitle.isEmpty || normalize(left.title ?? "") == normalizedTitle ? 0.0 : 10_000.0
+            let rightTitlePenalty = normalizedTitle.isEmpty || normalize(right.title ?? "") == normalizedTitle ? 0.0 : 10_000.0
+            return frameDistance(left.frame, frame) + leftTitlePenalty < frameDistance(right.frame, frame) + rightTitlePenalty
+        }
+}
+
+private func pngData(_ image: CGImage) throws -> Data {
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
+        throw NativeError.message("could not create PNG encoder")
+    }
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else { throw NativeError.message("could not encode PNG capture") }
+    return data as Data
+}
+
+@available(macOS 14.0, *)
+private func capture(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -> [String: Any] {
+    guard pid > 0 && windowIndex >= 0 else { throw NativeError.message("native capture requires application pid and windowIndex") }
+    let target = try axWindowFrame(pid: pid, windowIndex: windowIndex)
+    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+    guard let window = bestCaptureWindow(content.windows, pid: pid, title: target.title, frame: target.frame) else {
+        throw NativeError.message("ScreenCaptureKit could not match the AX window")
+    }
+    let filter = SCContentFilter(desktopIndependentWindow: window)
+    let configuration = SCStreamConfiguration()
+    let boundedMaxWidth = max(640, min(maxWidth, 1920))
+    let scale = min(1.0, Double(boundedMaxWidth) / max(Double(window.frame.width), 1.0))
+    configuration.width = max(1, Int(Double(window.frame.width) * scale))
+    configuration.height = max(1, Int(Double(window.frame.height) * scale))
+    configuration.showsCursor = false
+    configuration.ignoreShadowsSingleWindow = true
+    let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    let data = try pngData(image)
+    return [
+        "windowId": "ax:\(pid):\(windowIndex)",
+        "mimeType": "image/png",
+        "data": data.base64EncodedString(),
+        "width": image.width,
+        "height": image.height,
+        "byteLength": data.count,
+        "engine": "screencapturekit",
+    ]
+}
+
 private enum NativeError: Error {
     case message(String)
 }
@@ -433,7 +501,7 @@ private func integer(_ request: [String: Any], _ key: String, fallback: Int = 0)
     return fallback
 }
 
-private func handle(_ request: [String: Any]) throws -> Any {
+private func handle(_ request: [String: Any]) async throws -> Any {
     let version = integer(request, "version", fallback: protocolVersion)
     guard version == protocolVersion else { throw NativeError.message("unsupported native computer protocol") }
     let op = request["op"] as? String ?? ""
@@ -469,6 +537,15 @@ private func handle(_ request: [String: Any]) throws -> Any {
         )
     case "events":
         return SceneEventStore.shared.drain()
+    case "capture":
+        if #available(macOS 14.0, *) {
+            return try await capture(
+                pid: pid_t(integer(request, "pid")),
+                windowIndex: integer(request, "windowIndex", fallback: -1),
+                maxWidth: integer(request, "maxWidth", fallback: 1440)
+            )
+        }
+        throw NativeError.message("ScreenCaptureKit screenshot capture requires macOS 14 or newer")
     default:
         throw NativeError.message("unsupported native computer operation")
     }
@@ -500,23 +577,30 @@ private func capabilities() -> [String: Any] {
     ]
 }
 
-private func serve() {
+private func serve() async {
     while let line = readLine() {
         guard let data = line.data(using: .utf8), !data.isEmpty else { continue }
         do {
             guard let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw NativeError.message("invalid native request")
             }
-            writeResponse(["ok": true, "result": try handle(request)])
+            writeResponse(["ok": true, "result": try await handle(request)])
         } catch {
             writeResponse(["ok": false, "error": error.localizedDescription])
         }
     }
 }
 
+private func initializeNativeRuntime() {
+    _ = NSApplication.shared
+    NSApp.setActivationPolicy(.prohibited)
+}
+
+initializeNativeRuntime()
+
 switch CommandLine.arguments.dropFirst().first {
 case "--serve":
-    serve()
+    await serve()
 case "--capabilities":
     writeResponse(capabilities())
 default:
