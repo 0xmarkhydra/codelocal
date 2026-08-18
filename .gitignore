@@ -2,6 +2,7 @@ node_modules/
 .env
 .DS_Store
 npm-debug.log*
+*.test
 dist/
 .release/
 .codelocal-npm-cache/
