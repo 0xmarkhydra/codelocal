@@ -63,6 +63,26 @@ func hashKey(value string) string {
 	return hex.EncodeToString(sum[:])[:24]
 }
 
+func IsSensitiveEnvName(name string) bool {
+	return reSensitiveEnv.MatchString(strings.TrimSpace(name))
+}
+
+func SanitizeEnvironment(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		idx := strings.IndexByte(entry, '=')
+		if idx <= 0 {
+			continue
+		}
+		key := entry[:idx]
+		if IsSensitiveEnvName(key) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 func RedactCommand(command string) string {
 	value := command
 	value = reBearer.ReplaceAllString(value, `${1}[REDACTED]`)
@@ -98,8 +118,81 @@ func IsSensitivePath(relativePath string) bool {
 	return credentialNames.MatchString(base)
 }
 
+func HasComplexShellComposition(command string) bool {
+	return strings.ContainsAny(command, ";|<>`\r\n") || strings.Contains(command, "$(")
+}
+
 func HasShellComposition(command string) bool {
 	return strings.ContainsAny(command, ";&|<>`\r\n") || strings.Contains(command, "$(")
+}
+
+func splitAndChain(command string) ([]string, bool) {
+	if HasComplexShellComposition(command) {
+		return nil, false
+	}
+	var parts []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	runes := []rune(command)
+	n := len(runes)
+	i := 0
+	for i < n {
+		char := runes[i]
+		if escaped {
+			current.WriteRune(char)
+			escaped = false
+			i++
+			continue
+		}
+		if char == '\\' && quote != '\'' {
+			escaped = true
+			current.WriteRune(char)
+			i++
+			continue
+		}
+		if quote != 0 {
+			current.WriteRune(char)
+			if char == quote {
+				quote = 0
+			}
+			i++
+			continue
+		}
+		if char == '\'' || char == '"' {
+			quote = char
+			current.WriteRune(char)
+			i++
+			continue
+		}
+		if char == '&' {
+			if i+1 < n && runes[i+1] == '&' {
+				sub := strings.TrimSpace(current.String())
+				if sub == "" {
+					return nil, false
+				}
+				parts = append(parts, sub)
+				current.Reset()
+				i += 2
+				continue
+			}
+			return nil, false
+		}
+		current.WriteRune(char)
+		i++
+	}
+	if quote != 0 || escaped {
+		return nil, false
+	}
+	last := strings.TrimSpace(current.String())
+	if last == "" {
+		return nil, false
+	}
+	parts = append(parts, last)
+	if len(parts) <= 1 {
+		return nil, false
+	}
+	return parts, true
 }
 
 func shellWords(command string) ([]string, bool) {
@@ -272,7 +365,21 @@ func explicitPathEscapeParsed(command string, ctx Context) string {
 var osUserHomeDir = os.UserHomeDir
 
 func structuredApproval(command string) (key, label string, ok bool) {
-	if HasShellComposition(command) {
+	if HasComplexShellComposition(command) {
+		return "", "", false
+	}
+	if subcmds, isChain := splitAndChain(command); isChain {
+		normalized := strings.Join(strings.Fields(command), " ")
+		redacted := RedactCommand(normalized)
+		for _, sub := range subcmds {
+			d := Classify(sub, NetworkApproval, Context{})
+			if d.Blocked || d.RiskLevel > RiskReview || (d.RequiresApproval && d.ApprovalPolicy != ApprovalRememberable) {
+				return "", "", false
+			}
+		}
+		return "workspace-exec:" + hashKey(redacted), redacted, true
+	}
+	if strings.Contains(command, "&") {
 		return "", "", false
 	}
 	parsed, valid := parseCommand(command)
@@ -377,9 +484,84 @@ func contains(values []string, value string) bool {
 	return false
 }
 
+func classifyAndChain(command string, subcmds []string, network NetworkPolicy, ctx Context) Decision {
+	if network == "" {
+		network = NetworkApproval
+	}
+	normalized := strings.Join(strings.Fields(command), " ")
+	redacted := RedactCommand(normalized)
+	rank := map[RiskLevel]int{RiskSafe: 0, RiskReview: 1, RiskHigh: 2, RiskCritical: 3, RiskBlocked: 4}
+	highestRisk := RiskSafe
+	blocked := false
+	approval := false
+	var allRules []string
+	allRememberable := true
+
+	for _, sub := range subcmds {
+		d := Classify(sub, network, ctx)
+		if rank[d.RiskLevel] > rank[highestRisk] {
+			highestRisk = d.RiskLevel
+		}
+		if d.Blocked {
+			blocked = true
+		}
+		if d.RequiresApproval {
+			approval = true
+			if d.ApprovalPolicy != ApprovalRememberable {
+				allRememberable = false
+			}
+		}
+		allRules = append(allRules, d.MatchedRules...)
+	}
+
+	unique := []string{}
+	seen := map[string]struct{}{}
+	for _, r := range allRules {
+		if _, ok := seen[r]; ok {
+			continue
+		}
+		seen[r] = struct{}{}
+		unique = append(unique, r)
+	}
+	reason := "no risky policy rule matched"
+	if len(unique) > 0 {
+		reason = strings.Join(unique, "; ")
+	}
+
+	policy := ApprovalNone
+	key, label := "", ""
+	if blocked {
+		policy = ApprovalBlocked
+		highestRisk = RiskBlocked
+	} else if approval {
+		if highestRisk == RiskReview && allRememberable {
+			policy = ApprovalRememberable
+			key = "workspace-exec:" + hashKey(redacted)
+			label = redacted
+		} else {
+			policy = ApprovalAlways
+		}
+	}
+
+	return Decision{
+		RiskLevel:        highestRisk,
+		MatchedRules:     unique,
+		RequiresApproval: !blocked && approval,
+		Blocked:          blocked,
+		RedactedCommand:  redacted,
+		Reason:           reason,
+		ApprovalPolicy:   policy,
+		ApprovalKey:      key,
+		ApprovalLabel:    label,
+	}
+}
+
 func Classify(command string, network NetworkPolicy, ctx Context) Decision {
 	if network == "" {
 		network = NetworkApproval
+	}
+	if subcmds, isChain := splitAndChain(command); isChain {
+		return classifyAndChain(command, subcmds, network, ctx)
 	}
 	normalized := strings.Join(strings.Fields(command), " ")
 	rules := []string{}

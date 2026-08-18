@@ -203,7 +203,7 @@ func hostShell(command, cwd string) *exec.Cmd {
 }
 
 func withEnv(cmd *exec.Cmd) {
-	env := os.Environ()
+	env := security.SanitizeEnvironment(os.Environ())
 	env = append(env, "PAGER=cat", "GIT_PAGER=cat", "CODELOCAL_EXECUTION_MODE=host-policy")
 	if os.Getenv("CI") == "" {
 		env = append(env, "CI=1")

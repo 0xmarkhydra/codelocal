@@ -2,6 +2,7 @@ package security
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,5 +39,71 @@ func TestRedaction(t *testing.T) {
 	redacted := RedactCommand("curl -H 'Authorization: Bearer abc123' https://example.test?token=secret")
 	if redacted == "" || redacted == "curl -H 'Authorization: Bearer abc123' https://example.test?token=secret" {
 		t.Fatalf("expected secrets to be redacted: %q", redacted)
+	}
+}
+
+func TestSanitizeEnvironment(t *testing.T) {
+	env := []string{
+		"PATH=/usr/bin:/bin",
+		"HOME=/Users/test",
+		"USER=testuser",
+		"LANG=en_US.UTF-8",
+		"OPENAI_API_KEY=sk-test-12345",
+		"AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		"AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+		"GITHUB_TOKEN=ghp_exampletoken123",
+		"DB_PASSWORD=supersecret",
+		"AUTH_COOKIE=session=xyz",
+		"MY_PRIVATE_KEY=pemdata",
+	}
+
+	sanitized := SanitizeEnvironment(env)
+	joined := strings.Join(sanitized, "\n")
+
+	for _, keep := range []string{"PATH=/usr/bin:/bin", "HOME=/Users/test", "USER=testuser", "LANG=en_US.UTF-8"} {
+		if !strings.Contains(joined, keep) {
+			t.Fatalf("expected safe env %q to be preserved in:\n%s", keep, joined)
+		}
+	}
+
+	for _, drop := range []string{"OPENAI_API_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "GITHUB_TOKEN", "DB_PASSWORD", "AUTH_COOKIE", "MY_PRIVATE_KEY"} {
+		if strings.Contains(joined, drop) {
+			t.Fatalf("expected sensitive env %q to be stripped from:\n%s", drop, joined)
+		}
+	}
+}
+
+func TestPolicyChainedAndCommands(t *testing.T) {
+	root := t.TempDir()
+	ctx := Context{WorkspaceRoot: root, CWD: root}
+
+	// 1. Chained routine commands -> RiskReview & rememberable
+	chainReview := Classify("go test ./... && go vet ./...", NetworkApproval, ctx)
+	if chainReview.Blocked || chainReview.RiskLevel != RiskReview || !chainReview.RequiresApproval || chainReview.ApprovalPolicy != ApprovalRememberable || chainReview.ApprovalKey == "" {
+		t.Fatalf("expected routine chained command to be rememberable review: %#v", chainReview)
+	}
+
+	// 2. Chained safe commands -> RiskSafe & no approval
+	chainSafe := Classify("echo 1 && echo 2", NetworkApproval, ctx)
+	if chainSafe.Blocked || chainSafe.RiskLevel != RiskSafe || chainSafe.RequiresApproval || chainSafe.ApprovalPolicy != ApprovalNone {
+		t.Fatalf("expected chained safe commands to be safe: %#v", chainSafe)
+	}
+
+	// 3. Chained command containing a blocked action -> RiskBlocked
+	chainBlocked := Classify("echo 1 && sudo rm -rf /", NetworkApproval, ctx)
+	if !chainBlocked.Blocked || chainBlocked.RiskLevel != RiskBlocked || chainBlocked.ApprovalPolicy != ApprovalBlocked {
+		t.Fatalf("expected chained command with sudo to be blocked: %#v", chainBlocked)
+	}
+
+	// 4. Chained command containing a critical action -> RiskCritical & ApprovalAlways
+	chainCritical := Classify("npm test && git push --force origin main", NetworkApproval, ctx)
+	if chainCritical.Blocked || chainCritical.RiskLevel != RiskCritical || !chainCritical.RequiresApproval || chainCritical.ApprovalPolicy != ApprovalAlways {
+		t.Fatalf("expected chained command with force push to be critical: %#v", chainCritical)
+	}
+
+	// 5. Shell composition with pipes -> still classified as critical composition
+	pipeCmd := Classify("go test ./... | grep FAIL", NetworkApproval, ctx)
+	if pipeCmd.Blocked || pipeCmd.RiskLevel != RiskCritical || pipeCmd.ApprovalPolicy != ApprovalAlways {
+		t.Fatalf("expected piped command to require critical approval: %#v", pipeCmd)
 	}
 }

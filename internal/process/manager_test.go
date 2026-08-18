@@ -162,3 +162,26 @@ func TestTail(t *testing.T) {
 		t.Fatalf("Tail=%q", got)
 	}
 }
+
+func TestProcessSubprocessEnvironmentSanitization(t *testing.T) {
+	usePortableTestShell(t)
+	t.Setenv("OPENAI_API_KEY", "secret-key-12345")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "aws-secret-67890")
+	t.Setenv("MY_APP_TOKEN", "my-token-abcde")
+	t.Setenv("SAFE_TEST_VAR", "safe-value-xyz")
+
+	root := t.TempDir()
+	manager := NewManager(root, "test-workspace", nil, nil)
+	started, err := manager.Start("echo $OPENAI_API_KEY $AWS_SECRET_ACCESS_KEY $MY_APP_TOKEN $SAFE_TEST_VAR", StartOptions{CWD: root, Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := waitExited(t, manager, started.ProcessID)
+	stdout, _ := finished.Stdout["text"].(string)
+	if strings.Contains(stdout, "secret-key-12345") || strings.Contains(stdout, "aws-secret-67890") || strings.Contains(stdout, "my-token-abcde") {
+		t.Fatalf("subprocess leaked sensitive environment variables: %q", stdout)
+	}
+	if !strings.Contains(stdout, "safe-value-xyz") {
+		t.Fatalf("subprocess failed to preserve safe environment variables: %q", stdout)
+	}
+}
