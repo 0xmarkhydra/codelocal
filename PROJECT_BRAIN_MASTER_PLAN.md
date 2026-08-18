@@ -8,6 +8,8 @@ Primary implementation target: native Go runtime + CodeLocal Cloud
 > This document exists so the architectural intent is not lost across chats, machines, branches, or future refactors. When implementation details conflict with this document, either update this document with a dated decision or explicitly document why the implementation diverged.
 >
 > The provider-neutral multi-agent execution layer is specified separately in [`UNIVERSAL_AGENT_RUNTIME_PLAN.md`](./UNIVERSAL_AGENT_RUNTIME_PLAN.md). Project Brain owns durable intelligence; Universal Agent Runtime owns execution/routing across Codex, Claude, Cosine and future coding engines.
+>
+> The reusable design-intelligence layer is specified separately in [`DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md`](./DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md). Design Recipes preserve legally usable Composition + Style + Assets + Motion/3D specifications; Learned Skills preserve verified adaptation procedures; Project Brain owns durable metadata, provenance, and reusable verified knowledge without treating unlicensed third-party raw content as canonical cloud knowledge.
 
 ---
 

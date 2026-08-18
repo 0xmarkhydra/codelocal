@@ -5,6 +5,8 @@
 > The management-review execution plan for Knowledge V2 hardening, Knowledge Health, Collective Intelligence, and deterministic Code Quality Policy is tracked in [`KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md`](./KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md). It is an implementation plan and does not replace the Project Brain source of truth.
 >
 > The web-first Neural Control Plane / living Project Brain dashboard redesign, including the explicit boundary between web-only phases and later npm/native realtime telemetry, is tracked in [`NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`](./NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md).
+>
+> The local/open design-recipe architecture — reusable Composition + Style + Assets + Motion/3D specifications, provenance-aware recipe storage, retrieval, framework adaptation, preview/verification, and durable design state — is tracked in [`DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md`](./DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md). It explicitly excludes scraping/bypassing paid libraries and only permits user-provided, licensed, open-source, or original recipes.
 
 ## Goal
 
