@@ -62,8 +62,8 @@ func (s *Server) knowledgeDashboard(w http.ResponseWriter, r *http.Request, iden
 	recommendations, _ := s.Store.CollectiveRecommendations(r.Context(), identity.User.ID, 6)
 
 	body := knowledgeStats(graph) + knowledgeNeuralGraph(graph)
-	body += `<div class="card" style="margin-top:14px"><div class="section-kicker">Brain health</div><div class="title">Diagnostics & rollout controls</div><div class="label">The neural view is presentation only. Durable Knowledge Graph truth remains provenance-aware and independent from the rebuildable local Code Graph.</div></div>`
-	body += durableLearningHealthCard(durableLearning) + canonicalGraphFreshnessCard(graphFreshness) + canonicalEmbeddingFreshnessCard(embeddingFreshness) + canonicalSemanticCanaryCard(semanticCanary) + collectivePreferencesCard(identity, preference) + collectiveRecommendationsCard(preference, recommendations)
+	diagnostics := durableLearningHealthCard(durableLearning) + canonicalGraphFreshnessCard(graphFreshness) + canonicalEmbeddingFreshnessCard(embeddingFreshness) + canonicalSemanticCanaryCard(semanticCanary) + collectivePreferencesCard(identity, preference) + collectiveRecommendationsCard(preference, recommendations)
+	body += `<details class="knowledge-health"><summary><div class="knowledge-health-copy"><strong>Project Brain health & controls</strong><span>Pipeline freshness, canonical indexes, semantic rollout and collective-learning preferences. The graph above stays the primary workspace.</span></div><span class="knowledge-health-toggle" aria-hidden="true"></span></summary><div class="knowledge-health-body">` + diagnostics + `</div></details>`
 
 	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
 		Title: "Knowledge Graph", Active: "knowledge", Email: identity.User.Email, CSRF: identity.CSRF,
