@@ -227,81 +227,87 @@ jobs:
           fi
           echo "Built $output on $(uname -m)."
 
-      - name: Sign and notarize native macOS Computer worker when configured
+      - name: Upload unsigned native macOS Computer worker
+        uses: actions/upload-artifact@v4
+        with:
+          name: codelocal-native-unsigned-${{ matrix.goarch }}
+          path: native-artifact/computer-native-darwin-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  sign-native-macos:
+    needs: native-macos
+    if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    runs-on: [codelocal-signing]
+    timeout-minutes: 20
+    steps:
+      - name: Download unsigned native macOS Computer workers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: codelocal-native-unsigned-*
+          path: native-artifact
+          merge-multiple: true
+
+      - name: Sign and optionally notarize native macOS Computer workers
         shell: bash
         env:
-          GOARCH: ${{ matrix.goarch }}
-          REQUIRE_APPLE_SIGNING: ${{ vars.CODELOCAL_REQUIRE_APPLE_SIGNING }}
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
           set -euo pipefail
-          output="native-artifact/computer-native-darwin-$GOARCH"
-          signing_values=("$APPLE_CERTIFICATE_P12_BASE64" "$APPLE_CERTIFICATE_PASSWORD" "$APPLE_DEVELOPER_ID_APPLICATION")
-          signing_count=0
-          for value in "${signing_values[@]}"; do [[ -n "$value" ]] && signing_count=$((signing_count + 1)); done
-          if [[ "$signing_count" -eq 0 ]]; then
-            if [[ "${REQUIRE_APPLE_SIGNING:-}" == "true" ]]; then
-              echo "Apple signing is required but Developer ID certificate secrets are not configured." >&2
+          if [[ -z "$APPLE_DEVELOPER_ID_APPLICATION" ]]; then
+            echo "APPLE_DEVELOPER_ID_APPLICATION is required on the CodeLocal signing runner." >&2
+            exit 1
+          fi
+
+          notarize=false
+          if [[ -n "$APPLE_ID" || -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
+            if [[ -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
+              echo "Apple notarization configuration is partial; configure Apple ID, team ID and app-specific password together." >&2
               exit 1
             fi
-            echo "Apple Developer ID secrets are not configured; shipping the compatibility unsigned native worker."
-            exit 0
-          fi
-          if [[ "$signing_count" -ne 3 ]]; then
-            echo "Apple signing configuration is partial; configure certificate, password and Developer ID identity together." >&2
-            exit 1
+            notarize=true
           fi
 
-          keychain="$RUNNER_TEMP/codelocal-signing-$GOARCH.keychain-db"
-          certificate="$RUNNER_TEMP/codelocal-signing-$GOARCH.p12"
-          keychain_password="codelocal-$GITHUB_RUN_ID-$GOARCH"
-          cleanup() {
-            security delete-keychain "$keychain" >/dev/null 2>&1 || true
-            rm -f "$certificate" "$RUNNER_TEMP/codelocal-native-$GOARCH.zip"
-          }
-          trap cleanup EXIT
-          printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
-          codesign --force --timestamp --options runtime --keychain "$keychain" --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$output"
-          codesign --verify --strict --verbose=2 "$output"
-          codesign -dv --verbose=2 "$output" 2>&1 | grep -F 'Authority=Developer ID Application' >/dev/null
-          echo "Developer ID signature verified for $output."
+          for goarch in arm64 amd64; do
+            output="native-artifact/computer-native-darwin-$goarch"
+            if [[ ! -f "$output" ]]; then
+              echo "Missing unsigned native worker: $output" >&2
+              exit 1
+            fi
 
-          notary_values=("$APPLE_ID" "$APPLE_TEAM_ID" "$APPLE_APP_SPECIFIC_PASSWORD")
-          notary_count=0
-          for value in "${notary_values[@]}"; do [[ -n "$value" ]] && notary_count=$((notary_count + 1)); done
-          if [[ "$notary_count" -eq 0 ]]; then
-            echo "Notary credentials are not configured; keeping the verified Developer ID signed worker."
-            exit 0
-          fi
-          if [[ "$notary_count" -ne 3 ]]; then
-            echo "Apple notarization configuration is partial; configure Apple ID, team ID and app-specific password together." >&2
-            exit 1
-          fi
-          archive="$RUNNER_TEMP/codelocal-native-$GOARCH.zip"
-          ditto -c -k --sequesterRsrc --keepParent "$output" "$archive"
-          xcrun notarytool submit "$archive" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-          echo "Apple notarization accepted for $output."
+            chmod 755 "$output"
+            codesign --force --timestamp --options runtime --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$output"
+            codesign --verify --strict --verbose=2 "$output"
+            codesign -dv --verbose=2 "$output" 2>&1 | grep -F 'Authority=Developer ID Application' >/dev/null
+            echo "Developer ID signature verified for $output."
 
-      - name: Upload native macOS Computer worker
+            if [[ "$notarize" == "true" ]]; then
+              archive="$RUNNER_TEMP/codelocal-native-$goarch.zip"
+              rm -f "$archive"
+              ditto -c -k --sequesterRsrc --keepParent "$output" "$archive"
+              xcrun notarytool submit "$archive" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+              rm -f "$archive"
+              echo "Apple notarization accepted for $output."
+            fi
+          done
+
+          if [[ "$notarize" == "false" ]]; then
+            echo "Notary credentials are not configured; publishing verified Developer ID signed workers."
+          fi
+
+      - name: Upload signed native macOS Computer workers
         uses: actions/upload-artifact@v4
         with:
-          name: codelocal-native-${{ matrix.goarch }}
-          path: native-artifact/computer-native-darwin-${{ matrix.goarch }}
+          name: codelocal-native-signed
+          path: native-artifact/computer-native-darwin-*
           if-no-files-found: error
           retention-days: 1
 
   publish:
-    needs: native-macos
+    needs: sign-native-macos
     if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -395,9 +401,8 @@ jobs:
         if: steps.registry.outputs.published != 'true'
         uses: actions/download-artifact@v4
         with:
-          pattern: codelocal-native-*
+          name: codelocal-native-signed
           path: .release/npm/bin/helpers
-          merge-multiple: true
 
       - name: Validate native macOS Computer workers
         if: steps.registry.outputs.published != 'true'
