@@ -150,13 +150,8 @@ func buildDashboardOverviewDTO(source dashboardOverviewSource) dashboardOverview
 }
 
 func (s *Server) dashboardOverviewAPI(w http.ResponseWriter, r *http.Request) {
-	identity, err := s.WebAuth.Identity(r)
-	if err != nil {
-		webutil.JSON(w, http.StatusInternalServerError, map[string]string{"error": "identity_unavailable"})
-		return
-	}
-	if identity == nil {
-		webutil.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	identity, ok := s.authenticatedAPIIdentity(w, r)
+	if !ok {
 		return
 	}
 

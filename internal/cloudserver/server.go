@@ -258,6 +258,8 @@ func (s *Server) routes() {
 	mux.Handle("GET /dashboard/admin", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /api/status", s.WebAuth.Require(http.HandlerFunc(s.apiStatus)))
 	mux.HandleFunc("GET /api/v1/dashboard/overview", s.dashboardOverviewAPI)
+	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)
+	mux.HandleFunc("GET /api/v1/workspaces", s.workspacesResourceAPI)
 	mux.Handle("GET /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesGet)))
 	mux.Handle("POST /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesPost)))
 	mux.HandleFunc("GET /health", s.health)

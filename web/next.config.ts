@@ -26,8 +26,8 @@ const nextConfig: NextConfig = {
         {
           // Browser requests keep their same-origin URL/cookies while Next
           // proxies this explicit versioned API family to the Go authority.
-          source: "/api/v1/dashboard/:path*",
-          destination: `${backend}/api/v1/dashboard/:path*`,
+          source: "/api/v1/:path*",
+          destination: `${backend}/api/v1/:path*`,
         },
       ],
       fallback: [

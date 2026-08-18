@@ -1,21 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { DashboardOverview, isDashboardOverview } from "@/lib/contracts/dashboard";
+import { DashboardResourceFeedback } from "./dashboard-resource-feedback";
 import styles from "./dashboard.module.css";
-
-type OverviewState =
-  | { kind: "loading" }
-  | { kind: "ready"; overview: DashboardOverview }
-  | { kind: "unauthenticated" }
-  | { kind: "error"; message: string };
+import { useDashboardResource } from "./use-dashboard-resource";
 
 const compactNumber = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
 
-function workspaceStateLabel(status: "active" | "sleeping" | "offline") {
+function workspaceStateLabel(status: DashboardOverview["workspaces"]["recent"][number]["status"]) {
   switch (status) {
     case "active":
       return "Active";
@@ -27,90 +22,20 @@ function workspaceStateLabel(status: "active" | "sleeping" | "offline") {
 }
 
 export function LiveOverview() {
-  const [state, setState] = useState<OverviewState>({ kind: "loading" });
-  const [attempt, setAttempt] = useState(0);
+  const { state, retry } = useDashboardResource("/api/v1/dashboard/overview", isDashboardOverview);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const response = await fetch("/api/v1/dashboard/overview", {
-          method: "GET",
-          credentials: "same-origin",
-          cache: "no-store",
-          headers: { Accept: "application/json" },
-          signal: controller.signal,
-        });
-        if (response.status === 401) {
-          setState({ kind: "unauthenticated" });
-          return;
-        }
-        if (!response.ok) {
-          setState({ kind: "error", message: `Backend returned ${response.status}.` });
-          return;
-        }
-        const body: unknown = await response.json();
-        if (!isDashboardOverview(body)) {
-          setState({ kind: "error", message: "Backend response did not match the dashboard contract." });
-          return;
-        }
-        setState({ kind: "ready", overview: body });
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setState({
-          kind: "error",
-          message: error instanceof Error ? error.message : "Unable to reach the CodeLocal backend.",
-        });
-      }
-    }
-
-    void load();
-    return () => controller.abort();
-  }, [attempt]);
-
-  if (state.kind === "loading") {
+  if (state.kind !== "ready") {
     return (
-      <section className={styles.livePanel} aria-live="polite">
-        <span className={styles.eyebrow}>Authenticated overview</span>
-        <h2>Checking the Go backend…</h2>
-        <p>No local placeholder values are shown while real state is loading.</p>
-      </section>
+      <DashboardResourceFeedback
+        label="Authenticated overview"
+        {...(state.kind === "error"
+          ? { kind: "error" as const, message: state.message, onRetry: retry }
+          : { kind: state.kind })}
+      />
     );
   }
 
-  if (state.kind === "unauthenticated") {
-    return (
-      <section className={styles.livePanel} aria-live="polite">
-        <span className={styles.eyebrow}>Authenticated overview</span>
-        <h2>Sign in to load real CodeLocal state.</h2>
-        <p>The browser session remains owned and verified by the Go backend.</p>
-        <a className={styles.liveAction} href="/login?next=%2Fdashboard">Sign in through CodeLocal</a>
-      </section>
-    );
-  }
-
-  if (state.kind === "error") {
-    return (
-      <section className={styles.livePanel} aria-live="polite">
-        <span className={styles.eyebrow}>Authenticated overview</span>
-        <h2>Live backend state is unavailable.</h2>
-        <p>{state.message} The UI will not substitute mocked activity.</p>
-        <button
-          className={styles.liveAction}
-          type="button"
-          onClick={() => {
-            setState({ kind: "loading" });
-            setAttempt((value) => value + 1);
-          }}
-        >
-          Retry
-        </button>
-      </section>
-    );
-  }
-
-  const { overview } = state;
+  const { overview } = { overview: state.value };
   return (
     <section className={styles.livePanel} aria-live="polite">
       <div className={styles.liveHead}>
