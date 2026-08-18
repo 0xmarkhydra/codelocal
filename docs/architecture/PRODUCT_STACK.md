@@ -51,6 +51,8 @@ Primary stack: **Next.js App Router + TypeScript + React**.
 
 The web app consumes explicit backend HTTP/API contracts. It must not duplicate backend authorization or entitlement truth in browser/client code.
 
+For browser-session-bound reads, prefer same-origin versioned API requests that Next rewrites/proxies to Go. The browser should send CodeLocal HttpOnly cookies and User-Agent naturally; do not read and replay the session cookie from Next Server Components. The trusted deployment proxy must preserve a trustworthy client-IP chain and the browser User-Agent while overwriting/rejecting spoofed forwarding headers before Go evaluates session security signals.
+
 Migration rule: the existing Go-rendered web UI remains a compatibility fallback until the corresponding Next.js route family reaches behavior/security parity and has a rollback path.
 
 ### app/

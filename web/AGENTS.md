@@ -15,7 +15,9 @@ CodeLocal Web is the canonical browser product and uses Next.js App Router + Typ
 - Keep pages/layouts as Server Components by default. Add `"use client"` only at the smallest interactive boundary.
 - The Go backend remains authoritative for identity, authorization, tenant scope, billing/entitlements, Project Brain and durable state.
 - Treat the Go backend as an external HTTP API with Zero Trust semantics. Do not import Go persistence/business logic into the web app or recreate authorization truth in TypeScript.
-- Put server-only backend access behind `src/lib/server/` and use `import "server-only"` for modules that touch private environment variables or privileged APIs.
+- Browser-session-bound reads should call explicit same-origin `/api/v1/...` routes that Next rewrites to Go. Let the browser send HttpOnly cookies/User-Agent naturally; do not read and replay the CodeLocal session cookie from a Server Component.
+- The trusted deployment proxy must preserve the real browser User-Agent and a trustworthy client-IP chain while overwriting/rejecting spoofed forwarding headers before Go evaluates security signals.
+- Put non-browser privileged server-only backend access behind `src/lib/server/` and use `import "server-only"` for modules that touch private environment variables or privileged APIs.
 - Never expose backend credentials through `NEXT_PUBLIC_*` variables.
 - Route Handlers/Server Actions are public/reachable boundaries; authenticate, authorize and validate again at every mutation boundary.
 - Existing Go-rendered routes remain compatibility fallback until a Next.js route family has security/behavior parity and an explicit cutover/rollback plan.

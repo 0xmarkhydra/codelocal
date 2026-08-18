@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { LiveOverview } from "./overview-live";
 import styles from "./dashboard.module.css";
 
 const navigation = [
@@ -16,8 +17,9 @@ const navigation = [
 const migration = [
   { label: "Web foundation", state: "Ready", note: "Next.js App Router, TypeScript, design tokens and route shell." },
   { label: "Backend contract", state: "Ready", note: "Versioned read-only Go DTO exists without exposing internal device/workspace structs." },
-  { label: "Session bridge", state: "Next", note: "Preserve existing session risk checks before forwarding authenticated server requests." },
-  { label: "Dashboard parity", state: "Queued", note: "Move real server-backed cards route by route; no mocked live telemetry." },
+  { label: "Session bridge", state: "Implemented", note: "Same-origin browser API proxy is in place without replaying HttpOnly session secrets in Next." },
+  { label: "Deployment parity", state: "Next", note: "Verify Set-Cookie, browser User-Agent and trusted client-IP forwarding on the real edge before cutover." },
+  { label: "Dashboard parity", state: "Queued", note: "Move remaining real server-backed route families one by one; no mocked live telemetry." },
 ];
 
 export default function DashboardPage() {
@@ -43,7 +45,7 @@ export default function DashboardPage() {
 
         <div className={styles.sidebarNotice}>
           <span>Migration shell</span>
-          <p>This route is presentation-only until Go API/auth parity is connected.</p>
+          <p>Read-only overview data comes from Go. Mutations and unported routes remain on the existing backend.</p>
         </div>
       </aside>
 
@@ -54,16 +56,18 @@ export default function DashboardPage() {
             <h1>Overview</h1>
             <p>New browser architecture without changing the current production authority model.</p>
           </div>
-          <a className={styles.productionLink} href="https://codelocal.cloud/dashboard">Current production dashboard</a>
+          <span className={styles.productionLink}>Read-only overview · Go authority</span>
         </header>
+
+        <LiveOverview />
 
         <section className={styles.heroPanel}>
           <div>
-            <span className={styles.eyebrow}>Boundary status</span>
-            <h2>UI foundation is live in the repo. Production data is intentionally not wired yet.</h2>
+            <span className={styles.eyebrow}>Migration guardrails</span>
+            <h2>Next renders the product surface. Go still owns identity, authorization and local/cloud truth.</h2>
             <p>
-              The next migration step is to expose explicit Go backend DTOs and preserve current auth/security semantics.
-              Until then, this shell does not claim device, workspace, token or Project Brain activity.
+              Authenticated overview reads use a same-origin versioned API proxy so HttpOnly session cookies stay browser-managed.
+              Mutations and route families that have not reached parity continue to fall back to the existing Go application.
             </p>
           </div>
           <div className={styles.boundaryDiagram} aria-label="Web and backend ownership diagram">

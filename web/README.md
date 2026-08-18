@@ -48,6 +48,14 @@ Copy `.env.example` to an untracked local environment file when needed. Never ex
 
 The first client-neutral read contract is `GET /api/v1/dashboard/overview`. Its TypeScript shape is documented in `src/lib/contracts/dashboard.ts`. The DTO is intentionally narrower than internal Go device/workspace structs and excludes credentials, public keys, project roots, capabilities and infrastructure diagnostics.
 
+Browser-session-bound reads use same-origin `/api/v1/...` requests. `next.config.ts` rewrites those requests to the Go service and falls back unmatched routes to Go during incremental migration. This lets the browser send the existing HttpOnly session cookie and User-Agent naturally instead of having a Server Component replay session secrets.
+
+Deployment requirements:
+
+- `CODELOCAL_BACKEND_URL` must point directly at the Go service, not the public Next.js origin;
+- the trusted edge/proxy must preserve the real browser User-Agent and trustworthy client-IP chain while overwriting or rejecting spoofed forwarding headers;
+- unported login/signup/account routes continue to resolve to the Go application through the fallback rewrite.
+
 ## Migration state
 
 Current slice provides:
@@ -56,8 +64,11 @@ Current slice provides:
 - product design tokens/reset;
 - landing page;
 - dashboard shell;
-- server-only Go backend URL boundary;
-- no production route cutover;
+- versioned Go dashboard overview contract;
+- same-origin browser session bridge through explicit Next rewrites (implemented, pending real-edge cookie/User-Agent/client-IP parity verification before cutover);
+- real overview rendering only when authenticated backend data validates against the TypeScript contract;
+- legacy-route fallback to Go for incremental migration;
+- no production route cutover yet;
 - no fake live telemetry.
 
 The existing Go-rendered web UI remains the production compatibility fallback until individual Next.js route families pass behavior/security parity and have a rollback path.
