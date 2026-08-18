@@ -10,16 +10,18 @@ private final class SceneEventStore {
     private var sequence: UInt64 = 0
     private var events: [[String: Any]] = []
 
-    func append(pid: pid_t, kind: String) {
+    func append(pid: pid_t, kind: String, windowID: String? = nil) {
         lock.lock()
         defer { lock.unlock() }
         sequence &+= 1
-        events.append([
+        var event: [String: Any] = [
             "sequence": sequence,
             "pid": Int(pid),
             "kind": kind,
             "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
-        ])
+        ]
+        if let windowID, !windowID.isEmpty { event["windowId"] = windowID }
+        events.append(event)
         if events.count > 256 {
             events.removeFirst(events.count - 256)
         }
@@ -44,10 +46,36 @@ private struct ObserverHandle {
     let context: ObserverContext
 }
 
-private let observerCallback: AXObserverCallback = { _, _, notification, refcon in
+private let windowNotifications = [
+    kAXValueChangedNotification,
+    kAXMovedNotification,
+    kAXResizedNotification,
+    kAXTitleChangedNotification,
+    kAXUIElementDestroyedNotification,
+]
+
+private func nativeWindowID(pid: pid_t, element: AXUIElement) -> String? {
+    let app = AXUIElementCreateApplication(pid)
+    for (index, window) in axElements(app, kAXWindowsAttribute).enumerated() where CFEqual(window, element) {
+        return "ax:\(pid):\(index)"
+    }
+    return nil
+}
+
+private func observeWindow(_ observer: AXObserver, _ window: AXUIElement, _ refcon: UnsafeMutableRawPointer) {
+    for notification in windowNotifications {
+        _ = AXObserverAddNotification(observer, window, notification as CFString, refcon)
+    }
+}
+
+private let observerCallback: AXObserverCallback = { observer, element, notification, refcon in
     guard let refcon else { return }
     let context = Unmanaged<ObserverContext>.fromOpaque(refcon).takeUnretainedValue()
-    SceneEventStore.shared.append(pid: context.pid, kind: notification as String)
+    let kind = notification as String
+    if kind == kAXWindowCreatedNotification as String {
+        observeWindow(observer, element, refcon)
+    }
+    SceneEventStore.shared.append(pid: context.pid, kind: kind, windowID: nativeWindowID(pid: context.pid, element: element))
 }
 
 private final class ObserverRegistry {
@@ -77,9 +105,7 @@ private final class ObserverRegistry {
             _ = AXObserverAddNotification(observer, app, notification as CFString, refcon)
         }
         for window in axElements(app, kAXWindowsAttribute) {
-            for notification in [kAXValueChangedNotification, kAXMovedNotification, kAXResizedNotification, kAXTitleChangedNotification, kAXUIElementDestroyedNotification] {
-                _ = AXObserverAddNotification(observer, window, notification as CFString, refcon)
-            }
+            observeWindow(observer, window, refcon)
         }
 
         let source = AXObserverGetRunLoopSource(observer)

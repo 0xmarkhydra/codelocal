@@ -365,14 +365,18 @@ Any normal workflow that steals focus, moves the physical cursor, or types into 
 
 ### Phase B — P1 macOS quality
 
-- [ ] Native Swift/Objective-C AX daemon.
+- [x] Native Swift AX daemon source with persistent JSON-line protocol, real AX window enumeration/tree traversal, targeted element read, semantic click/type and bounded semantic batch.
+- [x] Go native-daemon bridge prefers the Swift worker only after a successful handshake and keeps JXA as compatibility fallback without changing the public MCP schema.
 - [x] Scene generation + native event invalidation boundary (`ComputerSceneEvent`) so AXObserver/UIA can plug in without changing the public MCP schema.
-- [ ] Wire a real macOS `AXObserver` event source into that boundary.
+- [x] Real macOS `AXObserver` event source with a bounded local event queue; the Go controller drains events before trusting cached window/UI state.
+- [x] Window-specific AX events dirty only the affected scene where a current AX window id can be resolved; app/window lifecycle events can invalidate the global registry.
+- [x] Native live smoke test enumerates real application windows (Chrome/Finder/Terminal/Zalo/Telegram/System Settings/ChatGPT) instead of synthetic `screen:main`, and returns a native Chrome AX tree.
 - [x] Targeted verification for semantic click/type and `computer_run` using exact `element_read`; full scene verification remains available with `verifyMode=scene`.
 - [x] Target verification avoids echoing typed field contents; it returns match/length metadata and fails verification safely when the value cannot be confirmed.
 - [x] Device user-activity guard for foreground focus and physical-input fallback on macOS; background semantic AX actions are not delayed by user activity.
 - [x] Desktop backend migration contract exposes whether native AX, event-driven scene, targeted verification, and user-activity guard are actually active.
-- [ ] Remove `osascript` from normal action hot paths by switching the migration backend to the native daemon.
+- [ ] Package/sign the Swift native worker in npm releases on macOS runners; until then production packages continue using the JXA fallback unless `CODELOCAL_COMPUTER_NATIVE_DAEMON` points to a built native worker.
+- [ ] Remove remaining `osascript` fallback from normal action hot paths after native packaging reaches production.
 - [ ] ScreenCaptureKit/in-memory visual capture.
 - [ ] MediaUpload signed image references.
 - [ ] Visual diff/crop/hash dedupe.
