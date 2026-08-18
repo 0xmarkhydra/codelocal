@@ -46,6 +46,8 @@ Copy `.env.example` to an untracked local environment file when needed. Never ex
 
 `src/lib/server/backend.ts` is the initial server-only HTTP boundary. Do not turn it into a generic authenticated proxy. Existing Go session, CSRF, rate-limit, authorization and tenant behavior must be migrated route by route with parity tests.
 
+The first client-neutral read contract is `GET /api/v1/dashboard/overview`. Its TypeScript shape is documented in `src/lib/contracts/dashboard.ts`. The DTO is intentionally narrower than internal Go device/workspace structs and excludes credentials, public keys, project roots, capabilities and infrastructure diagnostics.
+
 ## Migration state
 
 Current slice provides:

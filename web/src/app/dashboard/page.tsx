@@ -15,8 +15,8 @@ const navigation = [
 
 const migration = [
   { label: "Web foundation", state: "Ready", note: "Next.js App Router, TypeScript, design tokens and route shell." },
-  { label: "Backend contract", state: "Next", note: "Expose minimal Go HTTP DTOs without moving authorization truth into Next.js." },
-  { label: "Auth parity", state: "Queued", note: "Preserve existing session, CSRF, rate-limit and redirect behavior before cutover." },
+  { label: "Backend contract", state: "Ready", note: "Versioned read-only Go DTO exists without exposing internal device/workspace structs." },
+  { label: "Session bridge", state: "Next", note: "Preserve existing session risk checks before forwarding authenticated server requests." },
   { label: "Dashboard parity", state: "Queued", note: "Move real server-backed cards route by route; no mocked live telemetry." },
 ];
 
