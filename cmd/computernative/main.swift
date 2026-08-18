@@ -478,14 +478,43 @@ private func bestCaptureWindow(_ windows: [SCWindow], pid: pid_t, title: String,
         }
 }
 
-private func pngData(_ image: CGImage) throws -> Data {
+private func encodedImageData(_ image: CGImage, type: UTType, properties: [CFString: Any]? = nil) throws -> Data {
     let data = NSMutableData()
-    guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
-        throw NativeError.message("could not create PNG encoder")
+    guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else {
+        throw NativeError.message("could not create \(type.identifier) encoder")
     }
-    CGImageDestinationAddImage(destination, image, nil)
-    guard CGImageDestinationFinalize(destination) else { throw NativeError.message("could not encode PNG capture") }
+    CGImageDestinationAddImage(destination, image, properties as CFDictionary?)
+    guard CGImageDestinationFinalize(destination) else {
+        throw NativeError.message("could not encode \(type.identifier) capture")
+    }
     return data as Data
+}
+
+private struct EncodedNativeImage {
+    let data: Data
+    let mimeType: String
+    let encoding: String
+}
+
+private func encodeNativeScreenshot(_ image: CGImage) throws -> EncodedNativeImage {
+    let png = try encodedImageData(image, type: .png)
+    guard png.count >= 64 * 1024 else {
+        return EncodedNativeImage(data: png, mimeType: "image/png", encoding: "png")
+    }
+    let webP: Data
+    do {
+        webP = try encodedImageData(
+            image,
+            type: .webP,
+            properties: [kCGImageDestinationLossyCompressionQuality: 0.92]
+        )
+    } catch {
+        return EncodedNativeImage(data: png, mimeType: "image/png", encoding: "png")
+    }
+    if webP.count * 100 <= png.count * 80 {
+        return EncodedNativeImage(data: webP, mimeType: "image/webp", encoding: "webp")
+    }
+    return EncodedNativeImage(data: png, mimeType: "image/png", encoding: "png")
 }
 
 private struct CapturedNativeWindow {
@@ -517,14 +546,15 @@ private func captureWindowImage(pid: pid_t, windowIndex: Int, maxWidth: Int) asy
 @available(macOS 14.0, *)
 private func capture(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -> [String: Any] {
     let captured = try await captureWindowImage(pid: pid, windowIndex: windowIndex, maxWidth: maxWidth)
-    let data = try pngData(captured.image)
+    let encoded = try encodeNativeScreenshot(captured.image)
     return [
         "windowId": "ax:\(pid):\(windowIndex)",
-        "mimeType": "image/png",
-        "data": data.base64EncodedString(),
+        "mimeType": encoded.mimeType,
+        "data": encoded.data.base64EncodedString(),
         "width": captured.image.width,
         "height": captured.image.height,
-        "byteLength": data.count,
+        "byteLength": encoded.data.count,
+        "encoding": encoded.encoding,
         "engine": "screencapturekit",
     ]
 }

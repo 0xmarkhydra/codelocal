@@ -717,10 +717,12 @@ func macScreenshot(ctx context.Context, windowID string) (any, error) {
 				mimeType, _ := capture["mimeType"].(string)
 				if strings.TrimSpace(encoded) != "" && strings.TrimSpace(mimeType) != "" {
 					return map[string]any{
-						"windowId": windowID,
-						"width":    capture["width"],
-						"height":   capture["height"],
-						"engine":   capture["engine"],
+						"windowId":   windowID,
+						"width":      capture["width"],
+						"height":     capture["height"],
+						"byteLength": capture["byteLength"],
+						"encoding":   capture["encoding"],
+						"engine":     capture["engine"],
 						"__mcpImage": map[string]any{
 							"mimeType": mimeType,
 							"data":     encoded,

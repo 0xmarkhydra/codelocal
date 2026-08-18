@@ -389,7 +389,8 @@ Any normal workflow that steals focus, moves the physical cursor, or types into 
 - [x] MCP gateway converts signed image metadata into `mcp.ResourceLink`; base64 `mcp.ImageContent` remains only when URL transport is disabled or `CODELOCAL_MEDIA_BASE64_FALLBACK=1` is explicitly enabled.
 - [x] Visual content SHA-256, client-side signed-URL cache and server-side object dedupe by content hash; repeated identical captures do not upload a new object.
 - [x] Window crop/resize: native ScreenCaptureKit captures the requested app window instead of the full desktop and scales large windows down for AI transport.
-- [ ] Changed-region/pixel diff so only a dirty subregion is encoded when a small part of the window changes.
+- [x] Adaptive screenshot encoding on the native path: keep PNG for small/text-sensitive captures, and use WebP quality 0.92 only when a >=64 KB frame shrinks by at least 20%; screenshot semantics remain a complete standalone window image.
+- [ ] Changed-region/pixel diff requires an explicit receiver contract (`baseFrameId`/`sinceFrameId`) before shipping. Do not send a dirty crop as if it were a complete `computer_screenshot`; that would break standalone screenshot semantics.
 
 ### Phase C — cross-platform parity
 
