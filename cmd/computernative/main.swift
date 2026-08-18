@@ -261,6 +261,31 @@ private func elementRead(pid: pid_t, elementID: String) throws -> [String: Any] 
     return elementSnapshot(try resolveElement(pid: pid, path: reference.path), elementID: elementID)
 }
 
+private func elementAction(pid: pid_t, elementID: String, operation: String, text: String) throws -> [String: Any] {
+    let reference = try parseElementID(elementID)
+    guard reference.pid == pid else { throw NativeError.message("elementId pid does not match window pid") }
+    ObserverRegistry.shared.ensure(pid: pid)
+    let element = try resolveElement(pid: pid, path: reference.path)
+    guard axBool(element, kAXEnabledAttribute) else { throw NativeError.message("UI element is disabled") }
+    switch operation {
+    case "click":
+        let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        guard error == .success else { throw NativeError.message("background native AX click failed: \(error.rawValue)") }
+    case "type":
+        let error = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFTypeRef)
+        guard error == .success else { throw NativeError.message("background native AX value update failed: \(error.rawValue)") }
+    default:
+        throw NativeError.message("unsupported exact element operation")
+    }
+    return [
+        "operation": operation,
+        "background": true,
+        "physicalInput": false,
+        "engine": "native-ax-element",
+        "resolvedTarget": elementSnapshot(element, elementID: elementID),
+    ]
+}
+
 private func treeNode(_ element: AXUIElement, pid: pid_t, path: [Int], depth: Int, max: Int, count: inout Int) -> [String: Any]? {
     if count >= max || depth > 8 { return nil }
     count += 1
@@ -575,6 +600,13 @@ private func handle(_ request: [String: Any]) async throws -> Any {
         return try tree(pid: pid_t(integer(request, "pid")), windowIndex: integer(request, "windowIndex", fallback: -1), max: min(max(integer(request, "max", fallback: 500), 1), 1000))
     case "element_read":
         return try elementRead(pid: pid_t(integer(request, "pid")), elementID: request["elementId"] as? String ?? "")
+    case "element_action":
+        return try elementAction(
+            pid: pid_t(integer(request, "pid")),
+            elementID: request["elementId"] as? String ?? "",
+            operation: request["operation"] as? String ?? "",
+            text: request["text"] as? String ?? ""
+        )
     case "semantic":
         return try semantic(
             pid: pid_t(integer(request, "pid")),

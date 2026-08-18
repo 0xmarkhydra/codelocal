@@ -796,14 +796,46 @@ func macElementClick(ctx context.Context, elementID string) (any, error) {
 	if err != nil {
 		return nil, errors.New("invalid elementId pid")
 	}
+	if sharedMacNativeWorker.ensureReady(ctx) {
+		// Do not replay after native dispatch: the AXPress may have completed even
+		// if the worker transport reports a later error.
+		return macNativeElementAction(ctx, pid, elementID, "click", "")
+	}
 	path := parts[1]
-	script := `function run(argv){var pid=Number(argv[0]);var path=String(argv[1]||'').split('.').filter(function(x){return x!==''}).map(Number);var s=Application('System Events');var ps=s.applicationProcesses.whose({unixId:pid})();if(!ps.length)throw new Error('process not found');var e=ps[0];for(var i=0;i<path.length;i++){var list=(i===0?e.windows():e.uiElements());e=list[path[i]];if(!e)throw new Error('element path stale')}e.click();return JSON.stringify({clicked:true,elementId:String(pid)+':'+path.join('.')})}`
+	script := `function run(argv){var pid=Number(argv[0]);var path=String(argv[1]||'').split('.').filter(function(x){return x!==''}).map(Number);var s=Application('System Events');var ps=s.applicationProcesses.whose({unixId:pid})();if(!ps.length)throw new Error('process not found');var e=ps[0];for(var i=0;i<path.length;i++){var list=(i===0?e.windows():e.uiElements());e=list[path[i]];if(!e)throw new Error('element path stale')}e.click();var id=String(pid)+':'+path.join('.');return JSON.stringify({operation:'click',background:true,physicalInput:false,engine:'jxa-element',resolvedTarget:{elementId:id}})}`
 	text, err := runOSA(ctx, "JavaScript", script, strconv.Itoa(pid), path)
 	if err != nil {
 		return nil, err
 	}
 	var out any
 	_ = json.Unmarshal([]byte(text), &out)
+	return out, nil
+}
+
+func macElementType(ctx context.Context, elementID, textValue string) (any, error) {
+	if strings.HasPrefix(elementID, "vision:") {
+		return nil, errors.New("Vision elements do not support background typing")
+	}
+	parts := strings.SplitN(elementID, ":", 2)
+	if len(parts) != 2 {
+		return nil, errors.New("invalid elementId")
+	}
+	pid, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil, errors.New("invalid elementId pid")
+	}
+	if sharedMacNativeWorker.ensureReady(ctx) {
+		// Do not replay a value mutation after native dispatch.
+		return macNativeElementAction(ctx, pid, elementID, "type", textValue)
+	}
+	path := parts[1]
+	script := `function run(argv){var pid=Number(argv[0]),text=String(argv[2]||'');var path=String(argv[1]||'').split('.').filter(function(x){return x!==''}).map(Number);var s=Application('System Events');var ps=s.applicationProcesses.whose({unixId:pid})();if(!ps.length)throw new Error('process not found');var e=ps[0];for(var i=0;i<path.length;i++){var list=(i===0?e.windows():e.uiElements());e=list[path[i]];if(!e)throw new Error('element path stale')}e.value=text;var id=String(pid)+':'+path.join('.');return JSON.stringify({operation:'type',background:true,physicalInput:false,engine:'jxa-element',resolvedTarget:{elementId:id}})}`
+	output, err := runOSA(ctx, "JavaScript", script, strconv.Itoa(pid), path, textValue)
+	if err != nil {
+		return nil, err
+	}
+	var out any
+	_ = json.Unmarshal([]byte(output), &out)
 	return out, nil
 }
 
@@ -913,6 +945,9 @@ func platformHandle(ctx context.Context, input request) (any, error) {
 		}
 		return macPointer(ctx, "click", x, y)
 	case "type":
+		if element := stringValue(input.Arguments, "elementId"); element != "" {
+			return macElementType(ctx, element, stringValue(input.Arguments, "text"))
+		}
 		return macType(ctx, stringValue(input.Arguments, "text"))
 	case "key":
 		return macKey(ctx, stringValue(input.Arguments, "key"))

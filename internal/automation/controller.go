@@ -135,6 +135,9 @@ func computerActionUsesPhysicalInput(operation string, args map[string]any, targ
 	case "click":
 		return strings.HasPrefix(elementID, "vision:") || (elementID == "" && strings.TrimSpace(target) == "")
 	case "type":
+		if elementID != "" && !strings.HasPrefix(elementID, "vision:") {
+			return false
+		}
 		return strings.TrimSpace(target) == ""
 	case "key", "scroll", "drag":
 		return true
@@ -296,7 +299,9 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 		physicalInput := action.Physical
 
 		windowID := stringArg(args, "windowId")
-		semanticTargetable := (op == "click" || op == "type") && target != "" && windowID != "" && windowID != "screen:main"
+		elementID := stringArg(args, "elementId")
+		exactElementTarget := elementID != "" && !strings.HasPrefix(elementID, "vision:")
+		semanticTargetable := (op == "click" || op == "type") && (target != "" || exactElementTarget) && windowID != "" && windowID != "screen:main"
 		verifyMode := computerVerificationMode(args, semanticTargetable)
 
 		// Fast path: resolve + interact inside the local native helper. AX-backed

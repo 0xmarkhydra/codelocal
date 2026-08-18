@@ -377,7 +377,8 @@ Any normal workflow that steals focus, moves the physical cursor, or types into 
 - [x] Desktop backend migration contract exposes whether native AX, event-driven scene, targeted verification, and user-activity guard are actually active.
 - [x] Package the Swift native worker in npm releases from architecture-matched macOS runners (`arm64` + `amd64`), then inject both artifacts into `.release/npm/bin/helpers` while retaining the Go/JXA compatibility path.
 - [ ] Add Apple Developer ID signing/notarization hardening for the packaged native worker; packaging does not claim signed/notarized status yet.
-- [ ] Remove remaining `osascript` fallback from normal action hot paths after native packaging reaches production.
+- [x] Exact AX element click/type from a UI-tree `elementId` uses native `AXPress` / `AXValue` in background; exact typing is no longer misclassified as global physical keyboard input.
+- [ ] Remove remaining `osascript` compatibility paths after native packaging reaches production; foreground focus/raw physical keyboard-pointer fallbacks intentionally remain outside the normal background lane.
 - [x] ScreenCaptureKit in-memory app-window capture on the native path; captured windows are bounded to 1440px wide and the disk-based `screencapture` path remains compatibility fallback only.
 - [x] In-memory native Vision OCR for AX application windows (`ScreenCaptureKit -> CGImage -> Vision -> semantic nodes`); the temp-PNG/JXA Vision path remains a compatibility fallback for `screen:main`, older macOS, or windows ScreenCaptureKit cannot capture.
 - [x] Private MediaUpload signed-image transport before the local runtime sends `ToolResult` to cloud. Configure `CODELOCAL_MEDIA_UPLOAD_URL` + `CODELOCAL_MEDIA_UPLOAD_TOKEN`; signed URL mode removes `__mcpImage` base64 from the WebSocket payload.

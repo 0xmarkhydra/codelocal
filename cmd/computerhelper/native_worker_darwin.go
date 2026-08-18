@@ -304,6 +304,12 @@ func macNativeElementRead(ctx context.Context, pid int, elementID string) (any, 
 	})
 }
 
+func macNativeElementAction(ctx context.Context, pid int, elementID, operation, text string) (any, error) {
+	return sharedMacNativeWorker.call(ctx, map[string]any{
+		"op": "element_action", "pid": pid, "elementId": elementID, "operation": operation, "text": text,
+	})
+}
+
 func macNativeSemanticAction(ctx context.Context, pid, windowIndex int, operation, target, text string) (any, error) {
 	return sharedMacNativeWorker.call(ctx, map[string]any{
 		"op": "semantic", "pid": pid, "windowIndex": windowIndex, "operation": operation, "target": target, "text": text, "max": 500,

@@ -215,6 +215,17 @@ func TestScreenMainInputIsPhysicalBeforeFirstApproval(t *testing.T) {
 	}
 }
 
+func TestExactAccessibleElementTypeIsBackgroundInput(t *testing.T) {
+	args := map[string]any{"windowId": "ax:123:0", "elementId": "123:0.2.1", "text": "hello"}
+	if computerActionUsesPhysicalInput("type", args, "") {
+		t.Fatal("typing into an exact accessible element must remain background input")
+	}
+	visionArgs := map[string]any{"windowId": "ax:123:0", "elementId": "vision:50.00:60.00", "text": "hello"}
+	if !computerActionUsesPhysicalInput("type", visionArgs, "") {
+		t.Fatal("Vision-only typing cannot silently become background input")
+	}
+}
+
 func TestComputerPolicyRequiresFreshApprovalForUnscopedInput(t *testing.T) {
 	for _, action := range []Action{
 		{Domain: "computer", Operation: "click", Origin: "ax:123:0"},
