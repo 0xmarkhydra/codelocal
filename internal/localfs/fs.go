@@ -712,6 +712,24 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(name, path)
 }
 
+func adaptExactEditLineEndings(text, oldText, newText string) (string, string) {
+	if strings.Contains(text, oldText) {
+		return oldText, newText
+	}
+	oldLF := strings.ReplaceAll(oldText, "\r\n", "\n")
+	newLF := strings.ReplaceAll(newText, "\r\n", "\n")
+	if strings.Contains(text, "\r\n") && strings.Contains(oldLF, "\n") {
+		candidate := strings.ReplaceAll(oldLF, "\n", "\r\n")
+		if strings.Contains(text, candidate) {
+			return candidate, strings.ReplaceAll(newLF, "\n", "\r\n")
+		}
+	}
+	if !strings.Contains(text, "\r\n") && strings.Contains(oldText, "\r\n") && strings.Contains(text, oldLF) {
+		return oldLF, newLF
+	}
+	return oldText, newText
+}
+
 func (f *FS) ExactEdit(relative, oldText, newText string, replaceAll bool, expectedHash string) (map[string]any, error) {
 	path, err := f.Existing(relative)
 	if err != nil {
@@ -725,6 +743,7 @@ func (f *FS) ExactEdit(relative, oldText, newText string, replaceAll bool, expec
 		return nil, errors.New("file changed since read; hash mismatch")
 	}
 	text := string(data)
+	oldText, newText = adaptExactEditLineEndings(text, oldText, newText)
 	count := strings.Count(text, oldText)
 	if count == 0 {
 		return nil, errors.New("oldText not found")

@@ -1086,7 +1086,9 @@ Verification evidence refreshed;
 
 The classifier MUST preserve legitimate decisions, milestones, project facts, constraints, goals, preferences, problems, and verified scenarios.
 
-Migration stores old->new identifiers for audit/rollback.
+**Pre-main implementation status — 2026-08-18:** deterministic operational-noise records are now blocked at promotion and recall, and a bounded retention sweep quarantines matching legacy task memories by changing their lifecycle to `invalidated`. Canonical memory history is retained for audit; the cleanup closes active Knowledge Graph nodes/edges and removes derived aliases/source links so historical telemetry no longer remains visible as durable knowledge. Cleanup runs in batches and stops scanning once a sweep finds no remaining matches.
+
+Migration stores old->new identifiers for audit/rollback where an actual identity migration occurs; this legacy-noise quarantine does not manufacture replacement knowledge IDs because the records are invalidated rather than rewritten into new facts.
 
 ---
 

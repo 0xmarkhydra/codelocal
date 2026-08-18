@@ -569,6 +569,53 @@ func (m *Manager) activeClients() []*Client {
 	return clients
 }
 
+func lspPosition(value any) (int, int) {
+	position, _ := value.(map[string]any)
+	line, _ := position["line"].(float64)
+	character, _ := position["character"].(float64)
+	return int(line) + 1, int(character) + 1
+}
+
+func lspSymbolKindName(value any) string {
+	kind := 0
+	switch typed := value.(type) {
+	case float64:
+		kind = int(typed)
+	case int:
+		kind = typed
+	}
+	names := map[int]string{1: "file", 2: "module", 3: "namespace", 4: "package", 5: "class", 6: "method", 7: "property", 8: "field", 9: "constructor", 10: "enum", 11: "interface", 12: "function", 13: "variable", 14: "constant", 22: "enumMember", 23: "struct", 25: "operator", 26: "typeParameter"}
+	return names[kind]
+}
+
+func normalizeWorkspaceSymbol(symbol map[string]any, provider string) map[string]any {
+	if symbol == nil {
+		return symbol
+	}
+	symbol["provider"] = provider
+	symbol["resolutionMode"] = "lsp"
+	symbol["confidence"] = 1.0
+	if kind := lspSymbolKindName(symbol["kind"]); kind != "" {
+		symbol["symbolKind"] = kind
+	}
+	if container, _ := symbol["containerName"].(string); strings.TrimSpace(container) != "" {
+		symbol["detail"] = container
+	}
+	location, _ := symbol["location"].(map[string]any)
+	if location == nil {
+		return symbol
+	}
+	if uri, _ := location["uri"].(string); strings.TrimSpace(uri) != "" {
+		symbol["path"] = uriPath(uri)
+	}
+	if rangeValue, ok := location["range"].(map[string]any); ok {
+		line, column := lspPosition(rangeValue["start"])
+		symbol["line"], symbol["column"] = line, column
+	}
+	delete(symbol, "location")
+	return symbol
+}
+
 func workspaceSymbolsFromClients(ctx context.Context, clients []*Client, query string) []map[string]any {
 	type providerResult struct {
 		values []map[string]any
@@ -586,8 +633,7 @@ func workspaceSymbolsFromClients(ctx context.Context, clients []*Client, query s
 			out := make([]map[string]any, 0, len(values))
 			for _, value := range values {
 				if symbol, ok := value.(map[string]any); ok {
-					symbol["provider"] = client.spec.ID
-					out = append(out, symbol)
+					out = append(out, normalizeWorkspaceSymbol(symbol, client.spec.ID))
 				}
 			}
 			results <- providerResult{values: out}

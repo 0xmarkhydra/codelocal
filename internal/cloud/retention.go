@@ -38,6 +38,16 @@ func (s *Store) runRetentionSweep() {
 	if days := envInt("CODELOCAL_AUDIT_RETENTION_DAYS", 90); days > 0 {
 		s.retentionExec(ctx, "audit_logs", `DELETE FROM codelocal_audit_logs WHERE created_at < $1`, now.Add(-time.Duration(days)*24*time.Hour).UnixMilli())
 	}
+	if !s.legacyNoiseCleanupDone.Load() {
+		count, err := s.quarantineLegacyOperationalNoiseBatch(ctx, now.UnixMilli(), defaultLegacyNoiseCleanupBatch)
+		if err != nil {
+			slog.Warn("legacy operational knowledge quarantine failed", "error", err)
+		} else if count == 0 {
+			s.legacyNoiseCleanupDone.Store(true)
+		} else {
+			slog.Info("legacy operational knowledge quarantined", "count", count)
+		}
+	}
 }
 
 func (s *Store) retentionExec(ctx context.Context, target, query string, args ...any) {

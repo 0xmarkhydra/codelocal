@@ -110,7 +110,10 @@ func (e *Engine) codeGraphNode(value map[string]any) CodeGraphNode {
 	e.annotateCanonicalSymbol(value)
 	path := e.workspacePath(graphValue(value, "path"))
 	name := graphValue(value, "name")
-	kind := graphValue(value, "kind")
+	kind := graphValue(value, "symbolKind")
+	if kind == "" {
+		kind = graphValue(value, "kind")
+	}
 	if kind == "" || kind == "symbol" {
 		kind = "symbol"
 	}
@@ -192,24 +195,20 @@ func addGraphNode(nodes map[string]CodeGraphNode, order *[]string, node CodeGrap
 	return true
 }
 
-func chooseGraphSymbol(symbols []map[string]any, query, repository string) map[string]any {
-	query = strings.TrimSpace(query)
-	filtered := make([]map[string]any, 0, len(symbols))
-	for _, symbol := range symbols {
-		if repository != "" && graphValue(symbol, "repositoryId") != repository && graphValue(symbol, "repositoryPath") != repository {
-			continue
-		}
-		filtered = append(filtered, symbol)
-	}
-	for _, symbol := range filtered {
-		if strings.EqualFold(graphValue(symbol, "name"), query) {
-			return symbol
+func (e *Engine) ambiguousCodeGraphView(query string, candidates []map[string]any, depth, maxNodes int, snapshots []CodeGraphSnapshot) CodeGraphView {
+	nodes := make([]CodeGraphNode, 0, min(len(candidates), maxNodes))
+	for _, candidate := range candidates {
+		node := e.codeGraphNode(candidate)
+		node.FallbackReason = "ambiguous_query"
+		nodes = append(nodes, node)
+		if len(nodes) >= maxNodes {
+			break
 		}
 	}
-	if len(filtered) > 0 {
-		return filtered[0]
+	return CodeGraphView{
+		Status: "ambiguous", View: "symbols", Query: query, Depth: depth, MaxNodes: maxNodes, Snapshots: snapshots,
+		Nodes: nodes, Edges: []CodeGraphEdge{}, Truncated: len(candidates) > len(nodes), GeneratedBy: "local-runtime",
 	}
-	return nil
 }
 
 func (e *Engine) codeGraphSymbolView(ctx context.Context, query, repository string, depth, maxNodes int, snapshots []CodeGraphSnapshot) (CodeGraphView, error) {
@@ -217,11 +216,16 @@ func (e *Engine) codeGraphSymbolView(ctx context.Context, query, repository stri
 	if err != nil {
 		return CodeGraphView{}, err
 	}
-	selectedValue := chooseGraphSymbol(symbols, query, repository)
+	selectedValue, ambiguous := chooseGraphSymbol(symbols, query, repository)
 	if selectedValue == nil {
+		if len(ambiguous) > 0 {
+			return e.ambiguousCodeGraphView(query, ambiguous, depth, maxNodes, snapshots), nil
+		}
 		return CodeGraphView{Status: "empty", View: "symbols", Query: query, Depth: depth, MaxNodes: maxNodes, Snapshots: snapshots, Nodes: []CodeGraphNode{}, Edges: []CodeGraphEdge{}, GeneratedBy: "local-runtime"}, nil
 	}
 	selected := e.codeGraphNode(selectedValue)
+	typeRelations := e.goTypeRelationsForPath(selected.Path)
+	selected = refineGraphNode(selected, typeRelations, e.codeGraphNode)
 	selected.Selected = true
 	snapshot := snapshotForPath(snapshots, e, selected.Path)
 	if snapshot == nil {
@@ -232,66 +236,15 @@ func (e *Engine) codeGraphSymbolView(ctx context.Context, query, repository stri
 		revision = snapshot.Revision
 	}
 
-	nodes := map[string]CodeGraphNode{}
-	order := []string{}
-	addGraphNode(nodes, &order, selected, maxNodes)
-	edges := []CodeGraphEdge{}
-	edgeSeen := map[string]struct{}{}
-	type frontierItem struct {
-		node  CodeGraphNode
-		level int
-	}
-	frontier := []frontierItem{{node: selected, level: 0}}
-	expanded := map[string]struct{}{}
-	expansions := 0
-
-	for len(frontier) > 0 && len(nodes) < maxNodes && expansions < maxCodeGraphExpansions {
-		item := frontier[0]
-		frontier = frontier[1:]
-		if item.level >= depth {
-			continue
-		}
-		if _, seen := expanded[item.node.ID]; seen {
-			continue
-		}
-		expanded[item.node.ID] = struct{}{}
-		expansions++
-		limit := min(18, max(4, (maxNodes-len(nodes))/2))
-		incoming, _ := e.CallersAt(ctx, item.node.Path, item.node.Line, item.node.Column, item.node.Name, limit)
-		for _, raw := range incoming {
-			node := e.codeGraphNode(raw)
-			if !addGraphNode(nodes, &order, node, maxNodes) {
-				break
-			}
-			edge := codeGraphEdge(revision, node, item.node, "CALLS", raw)
-			if _, exists := edgeSeen[edge.ID]; !exists {
-				edges, edgeSeen[edge.ID] = append(edges, edge), struct{}{}
-			}
-			frontier = append(frontier, frontierItem{node: node, level: item.level + 1})
-		}
-		outgoing, _ := e.CalleesAt(ctx, item.node.Path, item.node.Line, item.node.Column, item.node.Name, limit)
-		for _, raw := range outgoing {
-			node := e.codeGraphNode(raw)
-			if !addGraphNode(nodes, &order, node, maxNodes) {
-				break
-			}
-			edge := codeGraphEdge(revision, item.node, node, "CALLS", raw)
-			if _, exists := edgeSeen[edge.ID]; !exists {
-				edges, edgeSeen[edge.ID] = append(edges, edge), struct{}{}
-			}
-			frontier = append(frontier, frontierItem{node: node, level: item.level + 1})
-		}
-	}
-
-	out := make([]CodeGraphNode, 0, len(order))
-	for _, id := range order {
-		out = append(out, nodes[id])
-	}
-	truncated := len(nodes) >= maxNodes || expansions >= maxCodeGraphExpansions
+	state := newCodeGraphBuildState(revision, maxNodes, selected)
+	structuralTruncated := e.expandGraphStructuralRelations(selected, typeRelations, depth, state)
+	_, callTruncated := e.expandCodeGraphCalls(ctx, selected, depth, state)
+	out := state.orderedNodes()
+	truncated := structuralTruncated || callTruncated
 	return CodeGraphView{
 		Status: "current", View: "symbols", Query: query, Depth: depth, MaxNodes: maxNodes, SelectedID: selected.ID,
-		Snapshots: snapshots, Snapshot: snapshot, Nodes: out, Edges: edges,
-		Impact: codeGraphImpact(selected.ID, out, edges, truncated), Truncated: truncated, GeneratedBy: "local-runtime",
+		Snapshots: snapshots, Snapshot: snapshot, Nodes: out, Edges: state.edges,
+		Impact: codeGraphImpact(selected.ID, out, state.edges, truncated), Truncated: truncated, GeneratedBy: "local-runtime",
 	}, nil
 }
 

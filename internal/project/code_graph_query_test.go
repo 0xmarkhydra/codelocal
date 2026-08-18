@@ -97,6 +97,55 @@ func caller() { target() }
 	}
 }
 
+func TestChooseGraphSymbolRefusesAmbiguousDuplicateMethods(t *testing.T) {
+	symbols := []map[string]any{
+		{"name": "Save", "path": "store.go", "line": 10, "detail": "*Store"},
+		{"name": "Save", "path": "cache.go", "line": 20, "detail": "*Cache"},
+	}
+	selected, ambiguous := chooseGraphSymbol(symbols, "Save", "")
+	if selected != nil || len(ambiguous) != 2 {
+		t.Fatalf("duplicate method name must remain ambiguous: selected=%#v ambiguous=%#v", selected, ambiguous)
+	}
+	selected, ambiguous = chooseGraphSymbol(symbols, "Store.Save", "")
+	if selected == nil || selected["path"] != "store.go" || len(ambiguous) != 0 {
+		t.Fatalf("qualified receiver method should resolve deterministically: selected=%#v ambiguous=%#v", selected, ambiguous)
+	}
+}
+
+func TestCodeGraphGoTypesConnectsMethodReceiverAndInterface(t *testing.T) {
+	root := initCodeGraphRepo(t)
+	writeCodeGraphFile(t, root, "go.mod", "module example.com/graph\n\ngo 1.22\n")
+	writeCodeGraphFile(t, root, "store.go", `package graph
+
+type Saver interface { Save() error }
+type Store struct{}
+func (*Store) Save() error { return nil }
+`)
+	engine := newCodeGraphEngine(t, root)
+	if engine.LSP != nil {
+		engine.LSP.Close()
+		engine.LSP = nil
+	}
+
+	view, err := engine.CodeGraphNeighborhood(context.Background(), "Save", "", 2, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Status != "current" || view.SelectedID == "" {
+		t.Fatalf("method graph did not resolve: %#v", view)
+	}
+	relations := map[string]bool{}
+	for _, edge := range view.Edges {
+		relations[edge.Relation] = true
+		if edge.Relation == "IMPLEMENTS" && (edge.Provider != "go-types" || edge.ResolutionMode != "type-analysis" || edge.Confidence != 1) {
+			t.Fatalf("IMPLEMENTS edge lacks authoritative type evidence: %#v", edge)
+		}
+	}
+	if !relations["CONTAINS"] || !relations["IMPLEMENTS"] {
+		t.Fatalf("expected method -> receiver -> interface chain, got edges=%#v nodes=%#v", view.Edges, view.Nodes)
+	}
+}
+
 func TestBoundedCodeGraphArgsClampDepthAndNodes(t *testing.T) {
 	depth, nodes := boundedCodeGraphArgs(99, 9999)
 	if depth != maxCodeGraphDepth || nodes != maxCodeGraphNodes {

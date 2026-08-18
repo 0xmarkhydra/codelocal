@@ -374,6 +374,38 @@ func (m *Manager) displayCWD(record *Record) string {
 	return filepath.ToSlash(rel)
 }
 
+func processPathAliases(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	aliases := make([]string, 0, 5)
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || candidate == "." {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		aliases = append(aliases, candidate)
+	}
+	clean := filepath.Clean(value)
+	add(clean)
+	add(filepath.ToSlash(clean))
+	windowsSlash := strings.ReplaceAll(value, "\\", "/")
+	add(windowsSlash)
+	if len(windowsSlash) >= 3 && windowsSlash[1] == ':' && windowsSlash[2] == '/' {
+		drive := windowsSlash[:1]
+		rest := windowsSlash[2:]
+		add("/" + strings.ToLower(drive) + rest)
+		add("/" + strings.ToUpper(drive) + rest)
+	}
+	return aliases
+}
+
 func sanitizeProcessOutput(record *Record, read map[string]any) map[string]any {
 	if record == nil || strings.TrimSpace(record.DisplayCWD) == "" || strings.TrimSpace(record.CWD) == "" || read == nil {
 		return read
@@ -386,10 +418,8 @@ func sanitizeProcessOutput(record *Record, read map[string]any) map[string]any {
 	if replacement == "" || replacement == "./" {
 		replacement = "."
 	}
-	for _, privatePath := range []string{filepath.Clean(record.CWD), filepath.ToSlash(filepath.Clean(record.CWD))} {
-		if privatePath != "" && privatePath != "." {
-			text = strings.ReplaceAll(text, privatePath, replacement)
-		}
+	for _, privatePath := range processPathAliases(record.CWD) {
+		text = strings.ReplaceAll(text, privatePath, replacement)
 	}
 	read["text"] = text
 	return read

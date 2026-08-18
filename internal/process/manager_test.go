@@ -90,6 +90,20 @@ func TestProcessSnapshotUsesDisplayCWDWithoutLeakingExecutionPath(t *testing.T) 
 	}
 }
 
+func TestProcessPathAliasesIncludeMSYSWindowsForm(t *testing.T) {
+	aliases := processPathAliases(`C:\Users\runneradmin\AppData\Local\Temp\private-worktree`)
+	joined := strings.Join(aliases, "\n")
+	for _, want := range []string{
+		`C:\Users\runneradmin\AppData\Local\Temp\private-worktree`,
+		"C:/Users/runneradmin/AppData/Local/Temp/private-worktree",
+		"/c/Users/runneradmin/AppData/Local/Temp/private-worktree",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing Windows path alias %q in %#v", want, aliases)
+		}
+	}
+}
+
 func TestReadBufferUsesUTF8ByteOffsets(t *testing.T) {
 	data := []byte("😀é")
 	buffer := streamBuffer{Data: append([]byte(nil), data...), BaseOffset: 0, TotalBytes: int64(len(data))}

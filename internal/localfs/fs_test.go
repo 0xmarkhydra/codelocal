@@ -65,6 +65,41 @@ func TestReadWriteEditAndSensitivePolicy(t *testing.T) {
 	}
 }
 
+func TestExactEditAdaptsOnlyLineEndingConvention(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		initial string
+		oldText string
+		newText string
+		want    string
+	}{
+		{name: "crlf file accepts lf edit", initial: "alpha\r\nbeta\r\n", oldText: "alpha\nbeta\n", newText: "alpha\ngamma\n", want: "alpha\r\ngamma\r\n"},
+		{name: "lf file accepts crlf edit", initial: "alpha\nbeta\n", oldText: "alpha\r\nbeta\r\n", newText: "alpha\r\ngamma\r\n", want: "alpha\ngamma\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "line-endings.txt")
+			if err := os.WriteFile(path, []byte(test.initial), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			fs, err := New(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fs.ExactEdit("line-endings.txt", test.oldText, test.newText, false, ""); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != test.want {
+				t.Fatalf("line ending convention changed: got %q want %q", data, test.want)
+			}
+		})
+	}
+}
+
 func TestReadManyPreservesInputOrderWithParallelWorkers(t *testing.T) {
 	root := t.TempDir()
 	paths := make([]string, 12)

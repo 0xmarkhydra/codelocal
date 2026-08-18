@@ -51,6 +51,16 @@ func TestCodeGraphStatusExplainsOfflineWithoutCloudFallback(t *testing.T) {
 	}
 }
 
+func TestCodeGraphStatusExplainsAmbiguousSymbolWithoutGuessing(t *testing.T) {
+	workspace := &gateway.WorkspaceView{DeviceName: "MacBook", WorkspaceName: "repo"}
+	html := codeGraphStatus(project.CodeGraphView{Status: "ambiguous"}, workspace, "current")
+	for _, want := range []string{"Multiple symbols match this query", "will not guess", "Store.Save"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("ambiguous state must explain safe disambiguation %q: %s", want, html)
+		}
+	}
+}
+
 func TestCodeGraphNeuralUsesBoundedRuntimePayload(t *testing.T) {
 	view := project.CodeGraphView{
 		Status: "current", Depth: 1, MaxNodes: codeGraphMaxVisibleNodes, GeneratedBy: "local-runtime",

@@ -14,7 +14,7 @@ func releaseWorkflowText(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(raw)
+	return strings.ReplaceAll(string(raw), "\r\n", "\n")
 }
 
 func TestReleaseWorkflowPublishesOnlyFromImmutableVersionedTag(t *testing.T) {
@@ -93,6 +93,28 @@ func TestReleaseWorkflowPackagesNativeMacOSComputerWorkers(t *testing.T) {
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Fatalf("release workflow must package native macOS Computer workers: missing %q", required)
+		}
+	}
+}
+
+func TestReleaseWorkflowSupportsDeveloperIDSigningAndNotarization(t *testing.T) {
+	workflow := releaseWorkflowText(t)
+	for _, required := range []string{
+		"CODELOCAL_REQUIRE_APPLE_SIGNING",
+		"APPLE_CERTIFICATE_P12_BASE64",
+		"APPLE_CERTIFICATE_PASSWORD",
+		"APPLE_DEVELOPER_ID_APPLICATION",
+		"codesign --force --timestamp --options runtime",
+		"codesign --verify --strict",
+		"Authority=Developer ID Application",
+		"APPLE_APP_SPECIFIC_PASSWORD",
+		"xcrun notarytool submit",
+		"--wait",
+		"Apple signing configuration is partial",
+		"Apple notarization configuration is partial",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("release workflow must support safe optional Apple signing/notarization: missing %q", required)
 		}
 	}
 }

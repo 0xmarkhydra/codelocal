@@ -92,6 +92,30 @@ func ResetPassword() {
 	}
 }
 
+func TestGoCalleesRecognizesGenericAndSelectorCalls(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	if err := os.WriteFile(path, []byte(`package sample
+func Target() {
+	Generic[int]()
+	service.Run[string]()
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callees, err := goCallees(path, 2, "Target", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, callee := range callees {
+		seen[callee["name"].(string)] = true
+	}
+	if !seen["Generic"] || !seen["service.Run"] {
+		t.Fatalf("generic call expressions were not normalized correctly: %#v", callees)
+	}
+}
+
 func TestGoCalleesStopsAtSelectedFunctionBody(t *testing.T) {
 	engine := newProjectTestEngine(t, map[string]string{
 		"main.go": `package sample

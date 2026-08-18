@@ -1213,6 +1213,10 @@ Rules:
 4. **Impact Analysis V1 completed:** symbol views now summarize direct callers/callees, reverse reachable upstream callers, affected files, semantic/evidence edge counts, average confidence and a conservative bounded risk level. A truncated neighborhood is always treated conservatively. Future V2 may add test/module/API-route summaries only where explicit evidence exists.
 5. **Architecture/module clustering V1 completed:** structural module regions and aggregated dependency edges are the default lightweight overview. Future V2 may add semantic component ownership only when backed by explicit project metadata/evidence.
 6. **TD-D4 release provenance source fix completed:** two-stage immutable-tag publishing is implemented and guarded by workflow invariant tests. The first real GitHub run after push remains the deployment proof for repository rules/trusted-publishing configuration.
+7. **Pre-main Go semantic relationship hardening completed:** workspace LSP symbols are normalized to path/line/column/container/kind with semantic provenance; Go fallback uses a fully type-checked `go/types` package before emitting `CONTAINS`, `IMPLEMENTS`, `EMBEDS` or interface `EXTENDS` edges. Type-check failures emit no type relationship instead of guessing.
+8. **Duplicate-symbol ambiguity is fail-closed:** multiple receiver methods such as `Store.Save` and `Cache.Save` are never collapsed into the first textual match. Unqualified `Save` returns an explicit ambiguous state; a qualified receiver query can resolve the intended method.
+9. **Generic call regression covered:** Go AST call extraction recognizes indexed/generic function and selector calls such as `Generic[int]()` and `service.Run[string]()` without inventing unrelated edges.
+10. **Pre-main rollout proof remains external where appropriate:** deployed browser smoke and a real immutable-tag npm release are rollout proofs after CI is green; source tests do not pretend to prove a deployment that has not happened.
 
 ---
 

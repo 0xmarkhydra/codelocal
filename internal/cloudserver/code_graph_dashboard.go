@@ -172,6 +172,9 @@ func codeGraphStatus(view project.CodeGraphView, workspace *gateway.WorkspaceVie
 		}
 		return `<div class="codegraph-state ` + ui.Escape(state) + `"><strong>` + ui.Escape(title) + `</strong><span>` + ui.Escape(copy) + `</span></div>`
 	}
+	if view.Status == "ambiguous" {
+		return `<div class="codegraph-state unavailable"><strong>Multiple symbols match this query</strong><span>CodeLocal will not guess which symbol you meant. Choose a more specific name such as <code>Store.Save</code>, or inspect one of the candidate nodes below.</span></div>`
+	}
 	snapshot := view.Snapshot
 	if snapshot == nil && len(view.Snapshots) > 0 {
 		snapshot = &view.Snapshots[0]

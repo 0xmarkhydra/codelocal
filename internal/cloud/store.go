@@ -154,6 +154,7 @@ type Store struct {
 	usageQ                     chan MCPUsageEvent
 	usageConsumerID            string
 	usageDropped               atomic.Uint64
+	legacyNoiseCleanupDone     atomic.Bool
 	outboxWorkerID             string
 	outboxWake                 chan struct{}
 	canonicalEmbeddingProvider CanonicalEmbeddingProvider
