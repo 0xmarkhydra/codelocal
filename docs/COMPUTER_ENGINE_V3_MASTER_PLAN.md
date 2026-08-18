@@ -375,7 +375,8 @@ Any normal workflow that steals focus, moves the physical cursor, or types into 
 - [x] Target verification avoids echoing typed field contents; it returns match/length metadata and fails verification safely when the value cannot be confirmed.
 - [x] Device user-activity guard for foreground focus and physical-input fallback on macOS; background semantic AX actions are not delayed by user activity.
 - [x] Desktop backend migration contract exposes whether native AX, event-driven scene, targeted verification, and user-activity guard are actually active.
-- [ ] Package/sign the Swift native worker in npm releases on macOS runners; until then production packages continue using the JXA fallback unless `CODELOCAL_COMPUTER_NATIVE_DAEMON` points to a built native worker.
+- [x] Package the Swift native worker in npm releases from architecture-matched macOS runners (`arm64` + `amd64`), then inject both artifacts into `.release/npm/bin/helpers` while retaining the Go/JXA compatibility path.
+- [ ] Add Apple Developer ID signing/notarization hardening for the packaged native worker; packaging does not claim signed/notarized status yet.
 - [ ] Remove remaining `osascript` fallback from normal action hot paths after native packaging reaches production.
 - [x] ScreenCaptureKit in-memory app-window capture on the native path; captured windows are bounded to 1440px wide and the disk-based `screencapture` path remains compatibility fallback only.
 - [x] Private MediaUpload signed-image transport before the local runtime sends `ToolResult` to cloud. Configure `CODELOCAL_MEDIA_UPLOAD_URL` + `CODELOCAL_MEDIA_UPLOAD_TOKEN`; signed URL mode removes `__mcpImage` base64 from the WebSocket payload.

@@ -71,3 +71,42 @@ func TestReleaseWorkflowChecksPackageLockAndRuntimeVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseWorkflowPackagesNativeMacOSComputerWorkers(t *testing.T) {
+	workflow := releaseWorkflowText(t)
+	for _, required := range []string{
+		"native-macos:",
+		"runner: macos-15",
+		"runner: macos-15-intel",
+		"swift_arch: arm64",
+		"swift_arch: x86_64",
+		"goarch: arm64",
+		"goarch: amd64",
+		"swiftc -O -target \"$SWIFT_ARCH-apple-macos14.0\" cmd/computernative/main.swift",
+		"computer-native-darwin-$GOARCH",
+		"actions/upload-artifact@v4",
+		"needs: native-macos",
+		"actions/download-artifact@v4",
+		"pattern: codelocal-native-*",
+		".release/npm/bin/helpers",
+		"computer-native-darwin-arm64 computer-native-darwin-amd64",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("release workflow must package native macOS Computer workers: missing %q", required)
+		}
+	}
+}
+
+func TestReleaseWorkflowKeepsNativeMacOSWorkerOptionalAtRuntime(t *testing.T) {
+	workflow := releaseWorkflowText(t)
+	publishIndex := strings.Index(workflow, "\n  publish:\n")
+	if publishIndex < 0 {
+		t.Fatal("publish job not found")
+	}
+	if strings.Contains(workflow, "CODELOCAL_COMPUTER_NATIVE_DAEMON=") {
+		t.Fatal("release workflow must not require a development-only explicit native daemon path")
+	}
+	if !strings.Contains(workflow[publishIndex:], "npm run release:prepare") {
+		t.Fatal("publish stage must keep the cross-platform Go package build as the compatibility base")
+	}
+}

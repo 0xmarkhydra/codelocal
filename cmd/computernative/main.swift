@@ -596,10 +596,9 @@ private func initializeNativeRuntime() {
     NSApp.setActivationPolicy(.prohibited)
 }
 
-initializeNativeRuntime()
-
 switch CommandLine.arguments.dropFirst().first {
 case "--serve":
+    initializeNativeRuntime()
     await serve()
 case "--capabilities":
     writeResponse(capabilities())

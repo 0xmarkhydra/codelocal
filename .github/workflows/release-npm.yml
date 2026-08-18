@@ -158,7 +158,68 @@ jobs:
           gh workflow run release-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f "release_tag=$TAG"
           echo "Dispatched publish stage from $TAG."
 
+  native-macos:
+    if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            swift_arch: arm64
+            goarch: arm64
+          - runner: macos-15-intel
+            swift_arch: x86_64
+            goarch: amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 1
+
+      - name: Verify native runner architecture
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.swift_arch }}
+        run: |
+          set -euo pipefail
+          actual="$(uname -m)"
+          if [[ "$actual" != "$EXPECTED_ARCH" ]]; then
+            echo "Unexpected macOS runner architecture: expected=$EXPECTED_ARCH actual=$actual" >&2
+            exit 1
+          fi
+          swiftc --version
+
+      - name: Build native macOS Computer worker
+        shell: bash
+        env:
+          SWIFT_ARCH: ${{ matrix.swift_arch }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p native-artifact
+          output="native-artifact/computer-native-darwin-$GOARCH"
+          swiftc -O -target "$SWIFT_ARCH-apple-macos14.0" cmd/computernative/main.swift -o "$output"
+          chmod 755 "$output"
+          capabilities="$("$output" --capabilities)"
+          if [[ "$capabilities" != *'"ready":true'* || "$capabilities" != *'"nativeAXBackend":true'* ]]; then
+            echo "Native worker capability handshake failed: $capabilities" >&2
+            exit 1
+          fi
+          echo "Built $output on $(uname -m)."
+
+      - name: Upload native macOS Computer worker
+        uses: actions/upload-artifact@v4
+        with:
+          name: codelocal-native-${{ matrix.goarch }}
+          path: native-artifact/computer-native-darwin-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
+    needs: native-macos
     if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -247,6 +308,33 @@ jobs:
       - name: Build and verify release package
         if: steps.registry.outputs.published != 'true'
         run: npm run release:prepare
+
+      - name: Download native macOS Computer workers
+        if: steps.registry.outputs.published != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: codelocal-native-*
+          path: .release/npm/bin/helpers
+          merge-multiple: true
+
+      - name: Validate native macOS Computer workers
+        if: steps.registry.outputs.published != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in computer-native-darwin-arm64 computer-native-darwin-amd64; do
+            path=".release/npm/bin/helpers/$name"
+            if [[ ! -f "$path" ]]; then
+              echo "Missing packaged native Computer worker: $path" >&2
+              exit 1
+            fi
+            chmod 755 "$path"
+            if [[ ! -x "$path" ]]; then
+              echo "Native Computer worker is not executable: $path" >&2
+              exit 1
+            fi
+          done
+          ls -lh .release/npm/bin/helpers/computer-native-darwin-*
 
       - name: Validate staged npm metadata
         if: steps.registry.outputs.published != 'true'
