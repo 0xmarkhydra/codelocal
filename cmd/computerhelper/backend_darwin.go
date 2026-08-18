@@ -122,6 +122,10 @@ func platformCapabilities() map[string]any {
 		trusted = macAccessibilityTrusted(ctx)
 	}
 	nativeSceneEvents, _ := nativeCapabilities["sceneEvents"].(bool)
+	controlState, controlStateErr := macControlState()
+	if controlStateErr != nil {
+		controlState = "unknown"
+	}
 	backend := "macos-persistent-ax+coregraphics"
 	engine := "computer-v2"
 	if nativeReady {
@@ -145,6 +149,9 @@ func platformCapabilities() map[string]any {
 		"keyboard":               trusted,
 		"clipboard":              false,
 		"backgroundControl":      trusted,
+		"activityIndicator":      nativeReady,
+		"userControlGate":        nativeReady,
+		"controlState":           controlState,
 		"secureDesktop":          false,
 		"permissionRequired": map[string]any{
 			"accessibility":   !trusted,
@@ -331,6 +338,9 @@ function run(argv){
 }`
 
 func macSemanticAction(ctx context.Context, operation, windowID, target, text string) (any, error) {
+	if err := guardMacComputerControl("semantic_" + strings.ToLower(strings.TrimSpace(operation))); err != nil {
+		return nil, err
+	}
 	windowID = strings.TrimSpace(windowID)
 	if windowID == "" || windowID == "screen:main" {
 		return nil, errors.New("background semantic action requires an application window")
@@ -371,6 +381,9 @@ func macSemanticAction(ctx context.Context, operation, windowID, target, text st
 }
 
 func macSemanticBatch(ctx context.Context, windowID string, steps any) (any, error) {
+	if err := guardMacComputerControl("semantic_batch"); err != nil {
+		return nil, err
+	}
 	windowID = strings.TrimSpace(windowID)
 	if windowID == "" || windowID == "screen:main" {
 		return nil, errors.New("background semantic batch requires an application window")
@@ -556,6 +569,11 @@ function run(argv){
 }`
 
 func macVisionTree(ctx context.Context, windowID string) ([]any, error) {
+	if err := guardMacComputerControl("ui_tree"); err != nil {
+		return nil, err
+	}
+	setMacActivityStateBestEffort("viewing", windowID, "Viewing screen")
+	defer setMacActivityStateBestEffort("background", windowID, "Inspecting interface")
 	if pid, windowIndex, ok := macAXWindowRef(windowID); ok {
 		nativeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		if sharedMacNativeWorker.ensureReady(nativeCtx) {
@@ -619,6 +637,9 @@ func macVisionTree(ctx context.Context, windowID string) ([]any, error) {
 }
 
 func macUITree(ctx context.Context, windowID string) (any, error) {
+	if err := guardMacComputerControl("ui_tree"); err != nil {
+		return nil, err
+	}
 	if windowID == "screen:main" {
 		vision, err := macVisionTree(ctx, windowID)
 		if err != nil {
@@ -683,6 +704,9 @@ func macUITree(ctx context.Context, windowID string) (any, error) {
 }
 
 func macScreenshot(ctx context.Context, windowID string) (any, error) {
+	if err := guardMacComputerControl("screenshot"); err != nil {
+		return nil, err
+	}
 	if pid, windowIndex, ok := macAXWindowRef(windowID); ok {
 		captureCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		if sharedMacNativeWorker.ensureReady(captureCtx) {
@@ -744,6 +768,9 @@ func macScreenshot(ctx context.Context, windowID string) (any, error) {
 }
 
 func macFocus(ctx context.Context, windowID string) (any, error) {
+	if err := guardMacComputerControl("focus"); err != nil {
+		return nil, err
+	}
 	if windowID == "screen:main" {
 		return map[string]any{"focused": true, "windowId": windowID, "fallback": true}, nil
 	}
@@ -781,6 +808,9 @@ func macVisionPoint(elementID string) (float64, float64, bool) {
 }
 
 func macElementClick(ctx context.Context, elementID string) (any, error) {
+	if err := guardMacComputerControl("click"); err != nil {
+		return nil, err
+	}
 	if strings.HasPrefix(elementID, "vision:") {
 		x, y, ok := macVisionPoint(elementID)
 		if !ok {
@@ -813,6 +843,9 @@ func macElementClick(ctx context.Context, elementID string) (any, error) {
 }
 
 func macElementType(ctx context.Context, elementID, textValue string) (any, error) {
+	if err := guardMacComputerControl("type"); err != nil {
+		return nil, err
+	}
 	if strings.HasPrefix(elementID, "vision:") {
 		return nil, errors.New("Vision elements do not support background typing")
 	}
@@ -854,6 +887,9 @@ function run(argv){
 }`
 
 func macPointer(ctx context.Context, operation string, values ...float64) (any, error) {
+	if err := guardMacComputerControl(operation); err != nil {
+		return nil, err
+	}
 	if !macAccessibilityTrusted(ctx) {
 		return nil, errors.New("macOS Accessibility permission is required")
 	}
@@ -871,6 +907,9 @@ func macPointer(ctx context.Context, operation string, values ...float64) (any, 
 }
 
 func macType(ctx context.Context, text string) (any, error) {
+	if err := guardMacComputerControl("type"); err != nil {
+		return nil, err
+	}
 	if !macAccessibilityTrusted(ctx) {
 		return nil, errors.New("macOS Accessibility permission is required")
 	}
@@ -885,6 +924,9 @@ func macType(ctx context.Context, text string) (any, error) {
 }
 
 func macKey(ctx context.Context, key string) (any, error) {
+	if err := guardMacComputerControl("key"); err != nil {
+		return nil, err
+	}
 	if !macAccessibilityTrusted(ctx) {
 		return nil, errors.New("macOS Accessibility permission is required")
 	}
@@ -904,6 +946,14 @@ func macKey(ctx context.Context, key string) (any, error) {
 }
 
 func platformHandle(ctx context.Context, input request) (any, error) {
+	if err := guardMacComputerControl(input.Operation); err != nil {
+		return nil, err
+	}
+	mode := macActivityMode(input.Operation, input.Arguments)
+	if mode != "" {
+		setMacActivityBestEffort(mode, input.Operation, input.Arguments)
+		defer clearMacActivityBestEffort()
+	}
 	switch input.Operation {
 	case "status":
 		return platformCapabilities(), nil

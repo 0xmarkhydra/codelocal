@@ -114,7 +114,15 @@ func (w *macNativeWorker) startLocked(path string) error {
 	}
 	w.resetLocked()
 	cmd := exec.Command(path, "--serve")
-	cmd.Env = append(os.Environ(), "CI=1")
+	if err := ensureMacComputerStateDir(); err != nil {
+		return fmt.Errorf("prepare local Computer Use state directory: %w", err)
+	}
+	cmd.Env = append(os.Environ(),
+		"CI=1",
+		"CODELOCAL_COMPUTER_CONTROL_STATE_FILE="+macControlStateFile(),
+		"CODELOCAL_COMPUTER_ACTIVITY_STATE_FILE="+macActivityStateFile(),
+		"CODELOCAL_COMPUTER_ACTIVITY_INDICATOR=1",
+	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -336,4 +344,11 @@ func macNativeSceneEvents(ctx context.Context) ([]any, error) {
 		return nil, errors.New("native macOS scene events are invalid")
 	}
 	return events, nil
+}
+
+func macNativeActivity(ctx context.Context, mode, windowID, detail string) error {
+	_, err := sharedMacNativeWorker.call(ctx, map[string]any{
+		"op": "activity", "mode": mode, "windowId": windowID, "detail": detail,
+	})
+	return err
 }

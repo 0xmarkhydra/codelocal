@@ -5,6 +5,7 @@ import ScreenCaptureKit
 import Vision
 import ImageIO
 import UniformTypeIdentifiers
+import Darwin
 
 private let protocolVersion = 1
 
@@ -183,6 +184,7 @@ private func runningAppName(pid: pid_t) -> String {
 }
 
 private func windows() throws -> [[String: Any]] {
+    try requireNativeControl(observation: true)
     guard AXIsProcessTrusted() else { throw NativeError.message("macOS Accessibility permission is required") }
     var output: [[String: Any]] = []
     for app in NSWorkspace.shared.runningApplications where app.processIdentifier > 0 && app.activationPolicy == .regular {
@@ -255,6 +257,7 @@ private func elementSnapshot(_ element: AXUIElement, elementID: String) -> [Stri
 }
 
 private func elementRead(pid: pid_t, elementID: String) throws -> [String: Any] {
+    try requireNativeControl(observation: true)
     let reference = try parseElementID(elementID)
     guard reference.pid == pid else { throw NativeError.message("elementId pid does not match window pid") }
     ObserverRegistry.shared.ensure(pid: pid)
@@ -262,6 +265,7 @@ private func elementRead(pid: pid_t, elementID: String) throws -> [String: Any] 
 }
 
 private func elementAction(pid: pid_t, elementID: String, operation: String, text: String) throws -> [String: Any] {
+    try requireNativeControl(mutation: true)
     let reference = try parseElementID(elementID)
     guard reference.pid == pid else { throw NativeError.message("elementId pid does not match window pid") }
     ObserverRegistry.shared.ensure(pid: pid)
@@ -303,6 +307,7 @@ private func treeNode(_ element: AXUIElement, pid: pid_t, path: [Int], depth: In
 }
 
 private func tree(pid: pid_t, windowIndex: Int, max: Int) throws -> [String: Any] {
+    try requireNativeControl(observation: true)
     guard AXIsProcessTrusted() else { throw NativeError.message("macOS Accessibility permission is required") }
     let app = AXUIElementCreateApplication(pid)
     let appWindows = axElements(app, kAXWindowsAttribute)
@@ -377,6 +382,7 @@ private func collectCandidates(_ element: AXUIElement, pid: pid_t, path: [Int], 
 }
 
 private func semantic(pid: pid_t, windowIndex: Int, operation: String, target: String, text: String, max: Int) throws -> [String: Any] {
+    try requireNativeControl(mutation: true)
     guard AXIsProcessTrusted() else { throw NativeError.message("macOS Accessibility permission is required") }
     let app = AXUIElementCreateApplication(pid)
     let appWindows = axElements(app, kAXWindowsAttribute)
@@ -489,6 +495,7 @@ private struct CapturedNativeWindow {
 
 @available(macOS 14.0, *)
 private func captureWindowImage(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws -> CapturedNativeWindow {
+    try requireNativeControl(observation: true)
     guard pid > 0 && windowIndex >= 0 else { throw NativeError.message("native capture requires application pid and windowIndex") }
     let target = try axWindowFrame(pid: pid, windowIndex: windowIndex)
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -565,6 +572,225 @@ private func vision(pid: pid_t, windowIndex: Int, maxWidth: Int) async throws ->
     ]
 }
 
+private let controlStateFile = ProcessInfo.processInfo.environment["CODELOCAL_COMPUTER_CONTROL_STATE_FILE"] ?? ""
+private let activityStateFile = ProcessInfo.processInfo.environment["CODELOCAL_COMPUTER_ACTIVITY_STATE_FILE"] ?? ""
+
+private func atomicWrite(_ data: Data, to path: String) throws {
+    guard !path.isEmpty else { return }
+    let url = URL(fileURLWithPath: path)
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try data.write(to: url, options: .atomic)
+    try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: path)
+}
+
+private func readControlState(at path: String) -> String {
+    guard !path.isEmpty,
+          let data = FileManager.default.contents(atPath: path),
+          let raw = String(data: data, encoding: .utf8) else { return "active" }
+    switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "paused": return "paused"
+    case "stopped": return "stopped"
+    default: return "active"
+    }
+}
+
+private func requireNativeControl(observation: Bool = false, mutation: Bool = false) throws {
+    let state = readControlState(at: controlStateFile)
+    if state == "stopped" && (observation || mutation) {
+        throw NativeError.message("Computer Use is stopped from the CodeLocal menu bar")
+    }
+    if state == "paused" && mutation {
+        throw NativeError.message("Computer Use control is paused from the CodeLocal menu bar")
+    }
+}
+
+private func activityAppName(windowID: String) -> String {
+    let parts = windowID.split(separator: ":")
+    guard parts.count == 3, parts[0] == "ax", let pid = Int32(parts[1]) else { return "" }
+    return runningAppName(pid: pid)
+}
+
+@discardableResult
+private func writeActivityState(mode: String, windowID: String, detail: String) throws -> [String: Any] {
+    let normalizedMode: String
+    switch mode.lowercased() {
+    case "background", "viewing", "foreground", "idle": normalizedMode = mode.lowercased()
+    default: normalizedMode = "idle"
+    }
+    let payload: [String: Any] = [
+        "mode": normalizedMode,
+        "windowId": windowID,
+        "app": activityAppName(windowID: windowID),
+        "detail": detail,
+        "timestampMs": Int(Date().timeIntervalSince1970 * 1000),
+    ]
+    if !activityStateFile.isEmpty {
+        try atomicWrite(try JSONSerialization.data(withJSONObject: payload), to: activityStateFile)
+    }
+    return payload
+}
+
+private final class IndicatorProcessOwner {
+    static let shared = IndicatorProcessOwner()
+    private var process: Process?
+
+    func startIfEnabled() {
+        guard ProcessInfo.processInfo.environment["CODELOCAL_COMPUTER_ACTIVITY_INDICATOR"] == "1",
+              !controlStateFile.isEmpty, !activityStateFile.isEmpty else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        process.arguments = ["--indicator", controlStateFile, activityStateFile, String(getpid())]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            self.process = process
+        } catch {
+            self.process = nil
+        }
+    }
+
+    func stop() {
+        guard let process else { return }
+        if process.isRunning { process.terminate() }
+        self.process = nil
+    }
+}
+
+@MainActor
+private final class ComputerActivityStatusItem: NSObject {
+    private let controlPath: String
+    private let activityPath: String
+    private let parentPID: pid_t
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let stateItem = NSMenuItem(title: "Idle", action: nil, keyEquivalent: "")
+    private let appItem = NSMenuItem(title: "No active app", action: nil, keyEquivalent: "")
+    private let pauseItem = NSMenuItem(title: "Pause Computer Control", action: #selector(togglePause), keyEquivalent: "")
+    private let stopItem = NSMenuItem(title: "Stop Computer Control", action: #selector(stopControl), keyEquivalent: "")
+    private var timer: Timer?
+
+    init(controlPath: String, activityPath: String, parentPID: pid_t) {
+        self.controlPath = controlPath
+        self.activityPath = activityPath
+        self.parentPID = parentPID
+        super.init()
+    }
+
+    func start() {
+        NSApp.setActivationPolicy(.accessory)
+        statusItem.button?.title = "○ CodeLocal"
+        statusItem.button?.toolTip = "CodeLocal Computer Use · Idle"
+
+        stateItem.isEnabled = false
+        appItem.isEnabled = false
+        pauseItem.target = self
+        stopItem.target = self
+
+        let menu = NSMenu()
+        let title = NSMenuItem(title: "CodeLocal Computer Use", action: nil, keyEquivalent: "")
+        title.isEnabled = false
+        menu.addItem(title)
+        menu.addItem(stateItem)
+        menu.addItem(appItem)
+        menu.addItem(.separator())
+        menu.addItem(pauseItem)
+        menu.addItem(stopItem)
+        statusItem.menu = menu
+
+        refresh()
+        timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
+    }
+
+    @objc private func timerFired() {
+        refresh()
+    }
+
+    private func controlState() -> String { readControlState(at: controlPath) }
+
+    private func activity() -> [String: Any] {
+        guard let data = FileManager.default.contents(atPath: activityPath),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return value
+    }
+
+    private func parentAlive() -> Bool {
+        if kill(parentPID, 0) == 0 { return true }
+        return errno != ESRCH
+    }
+
+    private func render(mode: String, state: String, app: String, detail: String) {
+        let title: String
+        let label: String
+        if state == "stopped" {
+            title = "■ CodeLocal"
+            label = "Stopped"
+        } else if state == "paused" {
+            title = "Ⅱ CodeLocal"
+            label = "Paused"
+        } else {
+            switch mode {
+            case "viewing":
+                title = "◉ CodeLocal"
+                label = "Viewing Screen"
+            case "foreground":
+                title = "⚠︎ CodeLocal"
+                label = "Foreground Control"
+            case "background":
+                title = "● CodeLocal"
+                label = detail.isEmpty ? "Background Control" : detail
+            default:
+                title = "○ CodeLocal"
+                label = "Idle"
+            }
+        }
+        statusItem.button?.title = title
+        statusItem.button?.toolTip = "CodeLocal Computer Use · \(label)"
+        stateItem.title = label
+        appItem.title = app.isEmpty ? "No active app" : "App: \(app)"
+        pauseItem.title = state == "active" ? "Pause Computer Control" : "Resume Computer Control"
+        stopItem.isEnabled = state != "stopped"
+    }
+
+    private func refresh() {
+        guard parentAlive() else {
+            NSApp.terminate(nil)
+            return
+        }
+        let state = controlState()
+        let activity = activity()
+        var mode = activity["mode"] as? String ?? "idle"
+        let app = activity["app"] as? String ?? ""
+        let detail = activity["detail"] as? String ?? ""
+        let timestamp = activity["timestampMs"] as? Int ?? 0
+        if timestamp > 0 && Int(Date().timeIntervalSince1970 * 1000) - timestamp > 3000 {
+            mode = "idle"
+        }
+        render(mode: mode, state: state, app: app, detail: detail)
+    }
+
+    private func writeControl(_ state: String) {
+        try? atomicWrite(Data((state + "\n").utf8), to: controlPath)
+        refresh()
+    }
+
+    @objc private func togglePause() {
+        writeControl(controlState() == "active" ? "paused" : "active")
+    }
+
+    @objc private func stopControl() {
+        writeControl("stopped")
+    }
+}
+
+@MainActor
+private func runIndicator(controlPath: String, activityPath: String, parentPID: pid_t) {
+    _ = NSApplication.shared
+    let controller = ComputerActivityStatusItem(controlPath: controlPath, activityPath: activityPath, parentPID: parentPID)
+    controller.start()
+    NSApp.run()
+    _ = controller
+}
+
 private enum NativeError: Error {
     case message(String)
 }
@@ -624,6 +850,12 @@ private func handle(_ request: [String: Any]) async throws -> Any {
         )
     case "events":
         return SceneEventStore.shared.drain()
+    case "activity":
+        return try writeActivityState(
+            mode: request["mode"] as? String ?? "idle",
+            windowID: request["windowId"] as? String ?? "",
+            detail: request["detail"] as? String ?? ""
+        )
     case "capture":
         if #available(macOS 14.0, *) {
             return try await capture(
@@ -674,6 +906,9 @@ private func capabilities() -> [String: Any] {
 }
 
 private func serve() async {
+    IndicatorProcessOwner.shared.startIfEnabled()
+    _ = try? writeActivityState(mode: "idle", windowID: "", detail: "")
+    defer { IndicatorProcessOwner.shared.stop() }
     while let line = readLine() {
         guard let data = line.data(using: .utf8), !data.isEmpty else { continue }
         do {
@@ -698,7 +933,14 @@ case "--serve":
     await serve()
 case "--capabilities":
     writeResponse(capabilities())
+case "--indicator":
+    let args = Array(CommandLine.arguments.dropFirst(2))
+    guard args.count == 3, let parentPID = Int32(args[2]), parentPID > 0 else {
+        fputs("usage: codelocal-computer-native --indicator <control-state> <activity-state> <parent-pid>\n", stderr)
+        exit(2)
+    }
+    runIndicator(controlPath: args[0], activityPath: args[1], parentPID: parentPID)
 default:
-    fputs("usage: codelocal-computer-native --serve|--capabilities\n", stderr)
+    fputs("usage: codelocal-computer-native --serve|--capabilities|--indicator\n", stderr)
     exit(2)
 }

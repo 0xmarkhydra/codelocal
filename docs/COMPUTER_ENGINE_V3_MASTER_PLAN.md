@@ -374,6 +374,10 @@ Any normal workflow that steals focus, moves the physical cursor, or types into 
 - [x] Targeted verification for semantic click/type and `computer_run` using exact `element_read`; full scene verification remains available with `verifyMode=scene`.
 - [x] Target verification avoids echoing typed field contents; it returns match/length metadata and fails verification safely when the value cannot be confirmed.
 - [x] Device user-activity guard for foreground focus and physical-input fallback on macOS; background semantic AX actions are not delayed by user activity.
+- [x] Lifecycle-managed macOS menu-bar Computer Use indicator owned by the native worker: idle (`○`), background control (`●`), viewing/capture (`◉`), foreground/physical (`⚠︎`), paused (`Ⅱ`), and stopped (`■`).
+- [x] User-visible Pause/Resume/Stop controls are hard gates rather than decoration: Go blocks every fallback lane and the native worker rechecks control state before AX mutations, capture, and each semantic-batch step.
+- [x] `paused` blocks mutating input while observation remains available; `stopped` blocks both observation and input while status/user-activity probes remain available for recovery and explanation.
+- [x] `computer_status` exposes `activityIndicator`, `userControlGate`, and current `controlState`; ScreenCaptureKit/Vision transitions the CodeLocal indicator to `Viewing Screen` while macOS retains its own system capture/privacy indicator.
 - [x] Desktop backend migration contract exposes whether native AX, event-driven scene, targeted verification, and user-activity guard are actually active.
 - [x] Package the Swift native worker in npm releases from architecture-matched macOS runners (`arm64` + `amd64`), then inject both artifacts into `.release/npm/bin/helpers` while retaining the Go/JXA compatibility path.
 - [ ] Add Apple Developer ID signing/notarization hardening for the packaged native worker; packaging does not claim signed/notarized status yet.
