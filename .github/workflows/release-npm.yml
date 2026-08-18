@@ -248,27 +248,20 @@ jobs:
           path: native-artifact
           merge-multiple: true
 
-      - name: Sign and optionally notarize native macOS Computer workers
+      - name: Sign and notarize native macOS Computer workers
         shell: bash
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_NOTARY_KEYCHAIN_PROFILE: ${{ vars.APPLE_NOTARY_KEYCHAIN_PROFILE }}
         run: |
           set -euo pipefail
           if [[ -z "$APPLE_DEVELOPER_ID_APPLICATION" ]]; then
             echo "APPLE_DEVELOPER_ID_APPLICATION is required on the CodeLocal signing runner." >&2
             exit 1
           fi
-
-          notarize=false
-          if [[ -n "$APPLE_ID" || -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
-            if [[ -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
-              echo "Apple notarization configuration is partial; configure Apple ID, team ID and app-specific password together." >&2
-              exit 1
-            fi
-            notarize=true
+          if [[ -z "$APPLE_NOTARY_KEYCHAIN_PROFILE" ]]; then
+            echo "APPLE_NOTARY_KEYCHAIN_PROFILE is required on the CodeLocal signing runner." >&2
+            exit 1
           fi
 
           for goarch in arm64 amd64; do
@@ -284,19 +277,13 @@ jobs:
             codesign -dv --verbose=2 "$output" 2>&1 | grep -F 'Authority=Developer ID Application' >/dev/null
             echo "Developer ID signature verified for $output."
 
-            if [[ "$notarize" == "true" ]]; then
-              archive="$RUNNER_TEMP/codelocal-native-$goarch.zip"
-              rm -f "$archive"
-              ditto -c -k --sequesterRsrc --keepParent "$output" "$archive"
-              xcrun notarytool submit "$archive" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-              rm -f "$archive"
-              echo "Apple notarization accepted for $output."
-            fi
+            archive="$RUNNER_TEMP/codelocal-native-$goarch.zip"
+            rm -f "$archive"
+            ditto -c -k --sequesterRsrc --keepParent "$output" "$archive"
+            xcrun notarytool submit "$archive" --keychain-profile "$APPLE_NOTARY_KEYCHAIN_PROFILE" --wait
+            rm -f "$archive"
+            echo "Apple notarization accepted for $output."
           done
-
-          if [[ "$notarize" == "false" ]]; then
-            echo "Notary credentials are not configured; publishing verified Developer ID signed workers."
-          fi
 
       - name: Upload signed native macOS Computer workers
         uses: actions/upload-artifact@v4

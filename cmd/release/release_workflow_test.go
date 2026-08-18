@@ -135,15 +135,14 @@ func TestReleaseWorkflowSupportsDeveloperIDSigningAndNotarization(t *testing.T) 
 		"runs-on: [codelocal-signing]",
 		"APPLE_DEVELOPER_ID_APPLICATION",
 		"APPLE_DEVELOPER_ID_APPLICATION is required on the CodeLocal signing runner",
+		"APPLE_NOTARY_KEYCHAIN_PROFILE",
+		"APPLE_NOTARY_KEYCHAIN_PROFILE is required on the CodeLocal signing runner",
 		"codesign --force --timestamp --options runtime",
 		"codesign --verify --strict",
 		"Authority=Developer ID Application",
-		"APPLE_ID",
-		"APPLE_TEAM_ID",
-		"APPLE_APP_SPECIFIC_PASSWORD",
 		"xcrun notarytool submit",
+		"--keychain-profile",
 		"--wait",
-		"Apple notarization configuration is partial",
 	} {
 		if !strings.Contains(signingJob, required) {
 			t.Fatalf("release workflow must support dedicated-runner Apple signing/notarization: missing %q", required)
@@ -152,6 +151,9 @@ func TestReleaseWorkflowSupportsDeveloperIDSigningAndNotarization(t *testing.T) 
 	for _, forbidden := range []string{
 		"APPLE_CERTIFICATE_P12_BASE64",
 		"APPLE_CERTIFICATE_PASSWORD",
+		"APPLE_ID",
+		"APPLE_TEAM_ID",
+		"APPLE_APP_SPECIFIC_PASSWORD",
 		"security import",
 		"actions/checkout@v6",
 	} {
