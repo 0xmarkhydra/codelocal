@@ -135,7 +135,7 @@ CodeLocal has requirements OpenCode does not have in exactly the same form, incl
 
 ## 5. Recommended target public surface
 
-The current recommendation is **18 public domain tools**: the original 16 coding/platform domains plus one Browser Automation domain and one Computer Use domain.
+The current implemented surface is **19 public domain tools**: the compact coding/platform domains plus Browser Automation, Computer Use, and the bounded `agent` orchestration tool. Historical 18-tool estimates below are retained only where they describe an earlier measurement checkpoint.
 
 ### 5.1 `device`
 
@@ -486,7 +486,7 @@ This architecture should remain dynamic. Do not flatten installed third-party MC
 | MCP Hub | 4 | 1 |
 | Browser Automation | 11 | 1 |
 | Computer Use | 10 | 1 |
-| **Total** | **98** | **18** |
+| **Total** | **98** | **19 current** |
 
 Note: the exact grouping is intentionally subject to implementation validation. The target is a semantic surface, not a requirement to hit exactly 16 at any cost.
 
@@ -1022,7 +1022,7 @@ This preserves the semantic-first behavior CodeLocal already wants while reducin
 
 The migration is considered successful when all of the following are true:
 
-- [x] Modern sessions expose exactly 18 first-party CodeLocal tools.
+- [x] Modern sessions expose exactly 19 first-party CodeLocal tools.
 - [x] All important capability from the current 98 tools remains reachable through compact operation mappings.
 - [ ] No security/approval regression exists.
 - [x] Workspace/thread routing behavior remains correct in gateway tests.
@@ -1049,7 +1049,7 @@ The migration is considered successful when all of the following are true:
 
 **Decision:** CodeLocal should reduce its model-facing first-party MCP catalog substantially, but should not reduce its actual runtime capability.
 
-**Current:** 18 public domain tools backed by 98 private native runtime commands.
+**Current:** 19 public domain tools backed by the private native runtime command surface.
 
 **Recommended target:** approximately **16 domain-oriented public tools**, allowing a practical final range of **15-20** after safety/schema testing.
 
@@ -1091,7 +1091,7 @@ Recommended actions:
 - `status` (optional)
 - `delete` (optional/user privacy)
 
-This changes the compact target from approximately 16 to approximately **17 public tools**, which is acceptable because this is a distinct user-facing capability rather than an implementation alias.
+If implemented now, this would change the current compact surface from 19 to **20 public tools**, which is acceptable because continuity is a distinct user-facing capability rather than an implementation alias.
 
 Conceptually:
 
@@ -1355,13 +1355,14 @@ These three IDs solve different problems and should not be conflated.
 
 ### 20.14 Interaction with compact tool surface
 
-Recommended final compact surface now becomes approximately:
+If handoff is implemented, the current compact surface would become:
 
 ```text
 device
 workspace
 project
 context
+agent
 handoff
 read
 search
@@ -1375,9 +1376,11 @@ process
 approvals
 security
 mcp
+browser
+computer
 ```
 
-Total: **17 domain tools** before any safety-driven split discovered during implementation.
+Total: **20 domain tools** before any future safety-driven split discovered during implementation.
 
 `handoff` should remain its own tool rather than being hidden inside `context`, because it has durable cross-session semantics, persistence, ownership checks, and lifecycle operations.
 

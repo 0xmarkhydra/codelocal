@@ -45,15 +45,24 @@ CodeLocal Cloud verifies the GitHub OIDC signature plus issuer, audience, reposi
 
 ## Release flow
 
+The npm workflow is two-stage so `main` itself is not mutated just to reserve a release version:
+
 ```text
 merge/push main
-  -> Publish CodeLocal to npm
-  -> codelocal-vX.Y.Z tag exists
-  -> Notify CodeLocal release by email
+  -> CodeLocal CI must complete successfully for that exact main SHA
+  -> prepare run checks out the CI-accepted SHA and chooses next version
+  -> create immutable release commit
+  -> tag release commit as codelocal-vX.Y.Z
+  -> tag-dispatched publish run builds/publishes that exact commit
+  -> release-email workflow observes successful publish workflow runs
+       -> prepare run has no tag at head SHA: notify=false, exit success
+       -> immutable tag run has codelocal-vX.Y.Z: validate tag/package/runtime versions
   -> POST https://codelocal.cloud/internal/releases/notify
   -> CodeLocal reads registered emails from Postgres
   -> Resend /emails/batch in groups of <= 100
 ```
+
+This avoids both failure modes: the first-stage `main` run no longer fails merely because its SHA is intentionally untagged, and the second-stage immutable tag run is no longer skipped because it is not a normal `main` branch run.
 
 Release email delivery is idempotent per version and batch. Redis stores completion markers, while each Resend batch also receives a deterministic idempotency key.
 

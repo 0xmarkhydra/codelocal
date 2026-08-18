@@ -1,5 +1,7 @@
 # CodeLocal Desktop Automation Plan
 
+> **Historical design (superseded by Computer Engine V3).** Keep this file as the original threat-model/product sketch. Current desktop-control implementation, acceptance and remaining work live in `docs/COMPUTER_ENGINE_V3_MASTER_PLAN.md`; unchecked items below must not be interpreted as current release blockers without checking the V3 plan and source.
+
 ## Goal
 
 After the coding core is production-ready, extend CodeLocal so ChatGPT can optionally observe and control the user's computer for developer workflows such as opening an app, clicking through a local UI, taking screenshots, reproducing a bug, testing a desktop/web app, and validating visual results.

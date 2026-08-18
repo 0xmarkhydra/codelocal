@@ -116,6 +116,19 @@ func TestMacPersistentWorkerHasTargetedElementRead(t *testing.T) {
 	}
 }
 
+func TestMacJXAFallbackSuppressesSecureValuesAndTypedResultValues(t *testing.T) {
+	for _, script := range []string{macTreeScript, macPersistentWorkerScript} {
+		if !strings.Contains(script, "secure") || !strings.Contains(script, "api key") {
+			t.Fatal("JXA accessibility tree must suppress secure and semantically sensitive field values")
+		}
+	}
+	for _, script := range []string{macSemanticActionScript, macPersistentWorkerScript} {
+		if !strings.Contains(script, "op!=='type'") {
+			t.Fatal("semantic type results must not return accessibility field values")
+		}
+	}
+}
+
 func TestParseMacHIDIdleMilliseconds(t *testing.T) {
 	idleMs, err := parseMacHIDIdleMilliseconds(`    "HIDIdleTime" = 2500000000`)
 	if err != nil || idleMs != 2500 {

@@ -171,8 +171,18 @@ private func bounds(_ element: AXUIElement) -> [String: Double]? {
     return ["x": point.x, "y": point.y, "width": size.width, "height": size.height]
 }
 
-private func safeValue(_ element: AXUIElement, role: String) -> Any? {
-    if role.lowercased().contains("secure") { return nil }
+private func sensitiveFieldMetadata(role: String, name: String, description: String) -> Bool {
+    let haystack = "\(role) \(name) \(description)".lowercased()
+    let markers = [
+        "secure", "password", "passcode", "otp", "2fa", "verification code",
+        "one-time code", "one time code", "authenticator code", "security code",
+        "api key", "private key", "seed phrase", "secret key", "credential",
+    ]
+    return markers.contains { haystack.contains($0) }
+}
+
+private func safeValue(_ element: AXUIElement, role: String, name: String, description: String) -> Any? {
+    if sensitiveFieldMetadata(role: role, name: name, description: description) { return nil }
     guard let value = axAttribute(element, kAXValueAttribute) else { return nil }
     if let text = value as? String { return text }
     if let number = value as? NSNumber { return number }
@@ -243,15 +253,17 @@ private func resolveElement(pid: pid_t, path: [Int]) throws -> AXUIElement {
 
 private func elementSnapshot(_ element: AXUIElement, elementID: String) -> [String: Any] {
     let role = axString(element, kAXRoleAttribute)
+    let name = axString(element, kAXTitleAttribute)
+    let description = axString(element, kAXDescriptionAttribute)
     var result: [String: Any] = [
         "elementId": elementID,
         "role": role,
-        "name": axString(element, kAXTitleAttribute),
-        "description": axString(element, kAXDescriptionAttribute),
+        "name": name,
+        "description": description,
         "enabled": axBool(element, kAXEnabledAttribute),
         "engine": "native-ax",
     ]
-    if let value = safeValue(element, role: role) { result["value"] = value }
+    if let value = safeValue(element, role: role, name: name, description: description) { result["value"] = value }
     if let rect = bounds(element) { result["bounds"] = rect }
     return result
 }
@@ -281,12 +293,14 @@ private func elementAction(pid: pid_t, elementID: String, operation: String, tex
     default:
         throw NativeError.message("unsupported exact element operation")
     }
+    var resolved = elementSnapshot(element, elementID: elementID)
+    if operation == "type" { resolved.removeValue(forKey: "value") }
     return [
         "operation": operation,
         "background": true,
         "physicalInput": false,
         "engine": "native-ax-element",
-        "resolvedTarget": elementSnapshot(element, elementID: elementID),
+        "resolvedTarget": resolved,
     ]
 }
 
@@ -415,6 +429,7 @@ private func semantic(pid: pid_t, windowIndex: Int, operation: String, target: S
     }
     var resolved = best.snapshot
     resolved["score"] = best.score
+    if operation == "type" { resolved.removeValue(forKey: "value") }
     return [
         "operation": operation,
         "background": true,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -34,8 +35,17 @@ func probeMacAgentCursor() bool {
 	return agentCursorProbe.supported
 }
 
+func legacyAgentCursorEnabled() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_AGENT_CURSOR")))
+	return value == "1" || value == "true" || value == "on"
+}
+
 func (c *ComputerController) AgentCursorSupported() bool {
-	if c == nil || c.Helper == "" || runtime.GOOS != "darwin" || !strings.Contains(strings.ToLower(c.Backend), "macos") {
+	// The legacy overlay launches JXA/osascript and therefore must not sit on the
+	// default native background-control hot path. The menu-bar activity indicator
+	// remains the default transparency surface until cursor rendering is moved into
+	// the persistent native worker.
+	if !legacyAgentCursorEnabled() || c == nil || c.Helper == "" || runtime.GOOS != "darwin" || !strings.Contains(strings.ToLower(c.Backend), "macos") {
 		return false
 	}
 	uiTree, _ := c.Capabilities["uiTree"].(bool)

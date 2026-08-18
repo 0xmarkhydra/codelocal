@@ -1,5 +1,7 @@
 # CodeLocal Production Readiness Plan
 
+> **Historical baseline (superseded for current release gating).** This document records the original production-readiness roadmap and intentionally keeps old unchecked 1.0-era items for history. Current pre-main/release decisions must use `docs/CODE_GRAPH_AND_TECH_DEBT_MASTER_PLAN.md`, `docs/COMPUTER_ENGINE_V3_MASTER_PLAN.md`, the active CI workflows, and current runtime/tool-surface tests instead of treating every checkbox below as an outstanding blocker.
+
 ## Goal
 
 Ship CodeLocal as a real-world coding bridge that is safe, reliable, language-agnostic, observable, and pleasant enough to use daily as a remote counterpart to Codex CLI.

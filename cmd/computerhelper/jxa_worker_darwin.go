@@ -26,6 +26,7 @@ const macWorkerLockPoll = 10 * time.Millisecond
 const macPersistentWorkerScript = `ObjC.import('Foundation'); ObjC.import('Vision');
 function safe(fn,fb){try{return fn()}catch(e){return fb}}
 function norm(v){return String(v==null?'':v).trim().toLowerCase().replace(/\s+/g,' ')}
+function sensitiveField(role,name,desc){var h=norm(role)+' '+norm(name)+' '+norm(desc);return /(secure|password|passcode|otp|2fa|verification code|one[- ]time code|authenticator code|security code|api key|private key|seed phrase|secret key|credential)/i.test(h)}
 function score(target,role,name,desc,value){
   var t=norm(target),best=0;
   function one(text,exact,inside){text=norm(text);if(!text)return;if(text===t)best=Math.max(best,exact);else if(text.indexOf(t)>=0||t.indexOf(text)>=0)best=Math.max(best,inside)}
@@ -40,7 +41,8 @@ function processFor(pid){
 }
 function nodeFor(e,pid,path,count,max,depth){
   if(count.n++>=max||depth>8)return null;
-  var item={elementId:String(pid)+':'+path.join('.'),role:safe(function(){return String(e.role())},''),name:safe(function(){return String(e.name())},''),description:safe(function(){return String(e.description())},''),value:safe(function(){var v=e.value();return v==null?null:String(v)},null),enabled:safe(function(){return !!e.enabled()},true),children:[]};
+  var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),sensitive=sensitiveField(role,name,desc);
+  var item={elementId:String(pid)+':'+path.join('.'),role:role,name:name,description:desc,value:sensitive?null:safe(function(){var v=e.value();return v==null?null:String(v)},null),enabled:safe(function(){return !!e.enabled()},true),children:[]};
   var pos=safe(function(){return e.position()},null),size=safe(function(){return e.size()},null);
   if(pos&&size&&pos.length>=2&&size.length>=2)item.bounds={x:Number(pos[0]),y:Number(pos[1]),width:Number(size[0]),height:Number(size[1])};
   var children=safe(function(){return e.uiElements()},[]);
@@ -62,7 +64,7 @@ function semantic(req){
   if(!target)throw new Error('semantic target required');
   function walk(e,path,depth){
     if(count++>=max||depth>8)return;
-    var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),value=safe(function(){var v=e.value();return v==null?'':String(v)},''),enabled=safe(function(){return !!e.enabled()},true);
+    var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),sensitive=sensitiveField(role,name,desc),value=sensitive?'':safe(function(){var v=e.value();return v==null?'':String(v)},''),enabled=safe(function(){return !!e.enabled()},true);
     var s=score(target,role,name,desc,value);if(!enabled)s-=60;var candidateId=String(pid)+':'+path.join('.');
     if(s>bestScore){
       if(best){runnerUp={elementId:best.elementId};runnerUpScore=bestScore}
@@ -86,7 +88,8 @@ function semantic(req){
   }else if(op==='type'){
     try{best.element.value=text}catch(e){throw new Error('background accessibility value update failed: '+String(e))}
   }else throw new Error('unsupported semantic action');
-  return {operation:op,background:true,physicalInput:false,engine:'persistent-jxa',resolvedTarget:{elementId:best.elementId,role:best.role,name:best.name,description:best.description,value:best.value,bounds:best.bounds,score:bestScore}};
+  var resolved={elementId:best.elementId,role:best.role,name:best.name,description:best.description,bounds:best.bounds,score:bestScore};if(op!=='type')resolved.value=best.value;
+  return {operation:op,background:true,physicalInput:false,engine:'persistent-jxa',resolvedTarget:resolved};
 }
 function semanticBatch(req){
   var pid=Number(req.pid||0),windowIndex=Number(req.windowIndex==null?-1:req.windowIndex),steps=req.steps||[],results=[],started=Date.now();
@@ -113,7 +116,7 @@ function elementRead(req){
   var pp=processFor(pid),wins=safe(function(){return pp.p.windows()},[]);if(path[0]>=wins.length)throw new Error('UI element is stale or not found');
   var e=wins[path[0]];
   for(var i=1;i<path.length;i++){var children=safe(function(){return e.uiElements()},[]);if(path[i]>=children.length)throw new Error('UI element is stale or not found');e=children[path[i]]}
-  var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),value=safe(function(){var v=e.value();return v==null?null:String(v)},null),enabled=safe(function(){return !!e.enabled()},true),bounds=null;
+  var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),sensitive=sensitiveField(role,name,desc),value=sensitive?null:safe(function(){var v=e.value();return v==null?null:String(v)},null),enabled=safe(function(){return !!e.enabled()},true),bounds=null;
   var pos=safe(function(){return e.position()},null),size=safe(function(){return e.size()},null);if(pos&&size&&pos.length>=2&&size.length>=2)bounds={x:Number(pos[0]),y:Number(pos[1]),width:Number(size[0]),height:Number(size[1])};
   return {elementId:elementId,role:role,name:name,description:desc,value:value,enabled:enabled,bounds:bounds,engine:'persistent-jxa-element'};
 }

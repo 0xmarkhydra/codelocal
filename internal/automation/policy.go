@@ -13,12 +13,13 @@ import (
 )
 
 type Action struct {
-	Domain    string
-	Operation string
-	Origin    string
-	Target    string
-	Text      string
-	Physical  bool
+	Domain          string
+	Operation       string
+	Origin          string
+	Target          string
+	Text            string
+	Physical        bool
+	SensitiveTarget bool
 }
 
 type Authorizer struct {
@@ -53,12 +54,15 @@ func automationCommand(action Action) string {
 	if action.Physical {
 		parts = append(parts, "physical-input")
 	}
+	if action.SensitiveTarget {
+		parts = append(parts, "sensitive-target")
+	}
 	return strings.Join(parts, " ")
 }
 
 func sensitiveAutomationText(value string) bool {
 	value = strings.ToLower(value)
-	for _, marker := range []string{"password", "passcode", "otp", "2fa", "private key", "seed phrase", "secret key", "credential", "api key"} {
+	for _, marker := range []string{"password", "passcode", "otp", "2fa", "verification code", "one-time code", "one time code", "authenticator code", "security code", "private key", "seed phrase", "secret key", "credential", "api key"} {
 		if strings.Contains(value, marker) {
 			return true
 		}
@@ -156,7 +160,7 @@ func ClassifyAutomation(action Action) security.Decision {
 			decision.ApprovalKey = "browser:interact:" + browserOriginKey(action.Origin)
 			decision.ApprovalLabel = "Allow browser interaction on " + browserOriginKey(action.Origin)
 			decision.Reason = "browser interaction can change remote or local application state"
-			if (op == "fill" || op == "press") && sensitiveAutomationText(action.Target) {
+			if action.SensitiveTarget || ((op == "fill" || op == "press") && sensitiveAutomationText(action.Target)) {
 				decision.RiskLevel = security.RiskCritical
 				decision.ApprovalPolicy = security.ApprovalAlways
 				decision.ApprovalKey = ""
@@ -238,7 +242,7 @@ func ClassifyAutomation(action Action) security.Decision {
 					decision.Reason = "unscoped desktop input requires fresh confirmation"
 				}
 			}
-			if (op == "type" || op == "key" || op == "run") && sensitiveAutomationText(action.Target) {
+			if action.SensitiveTarget || ((op == "type" || op == "key" || op == "run") && sensitiveAutomationText(action.Target)) {
 				decision.RiskLevel = security.RiskCritical
 				decision.ApprovalPolicy = security.ApprovalAlways
 				decision.ApprovalKey = ""

@@ -21,7 +21,12 @@ func TestReleaseWorkflowPublishesOnlyFromImmutableVersionedTag(t *testing.T) {
 	workflow := releaseWorkflowText(t)
 	for _, required := range []string{
 		"release_tag:",
-		"github.ref == 'refs/heads/main'",
+		"workflow_run:",
+		"workflows: ['CodeLocal CI']",
+		"github.event.workflow_run.conclusion == 'success'",
+		"github.event.workflow_run.head_branch == 'main'",
+		"ref: ${{ github.event.workflow_run.head_sha }}",
+		"CI source mismatch:",
 		"npm version \"$VERSION\" --no-git-tag-version --ignore-scripts",
 		"git add package.json package-lock.json internal/version/version.go",
 		"git commit -m \"release: codelocal v$VERSION\"",
@@ -35,6 +40,23 @@ func TestReleaseWorkflowPublishesOnlyFromImmutableVersionedTag(t *testing.T) {
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Fatalf("release workflow missing provenance invariant %q", required)
+		}
+	}
+}
+
+func TestReleaseWorkflowCannotPrepareBeforeMainCIPasses(t *testing.T) {
+	workflow := releaseWorkflowText(t)
+	if strings.Contains(workflow, "branches: [main]") {
+		t.Fatal("release preparation must not trigger directly from a main push before CI concludes")
+	}
+	for _, required := range []string{
+		"github.event_name == 'workflow_run'",
+		"github.event.workflow_run.conclusion == 'success'",
+		"github.event.workflow_run.head_branch == 'main'",
+		"This manual entry point never reserves a new release from main.",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("release workflow missing CI-gated prepare invariant %q", required)
 		}
 	}
 }
@@ -130,5 +152,28 @@ func TestReleaseWorkflowKeepsNativeMacOSWorkerOptionalAtRuntime(t *testing.T) {
 	}
 	if !strings.Contains(workflow[publishIndex:], "npm run release:prepare") {
 		t.Fatal("publish stage must keep the cross-platform Go package build as the compatibility base")
+	}
+}
+
+func TestReleaseWorkflowDryRunsFinalTarballAfterNativeWorkersAreInjected(t *testing.T) {
+	workflow := releaseWorkflowText(t)
+	publishIndex := strings.Index(workflow, "\n  publish:\n")
+	if publishIndex < 0 {
+		t.Fatal("publish job not found")
+	}
+	publish := workflow[publishIndex:]
+	download := strings.Index(publish, "Download native macOS Computer workers")
+	finalPack := strings.Index(publish, "npm pack --dry-run --json ./.release/npm")
+	if download < 0 || finalPack < 0 || finalPack <= download {
+		t.Fatal("publish stage must dry-run the final npm tarball after native workers are downloaded")
+	}
+	for _, required := range []string{
+		"bin/helpers/computer-native-darwin-arm64",
+		"bin/helpers/computer-native-darwin-amd64",
+		"Final npm tarball is missing",
+	} {
+		if !strings.Contains(publish, required) {
+			t.Fatalf("final tarball verification missing %q", required)
+		}
 	}
 }

@@ -283,8 +283,8 @@ func FindComputerWindow(ctx context.Context, computer *ComputerController, targe
 }
 
 // FindComputerElement resolves human wording to the best accessibility element
-// in a fresh UI tree. This is a deterministic local fast-path; vision remains a
-// fallback for interfaces that expose no useful accessibility metadata.
+// in the current UI tree. This is a deterministic local fast-path; vision remains
+// a fallback for interfaces that expose no useful accessibility metadata.
 func FindComputerElement(ctx context.Context, computer *ComputerController, windowID, target string) (map[string]any, error) {
 	windowID = strings.TrimSpace(windowID)
 	target = strings.TrimSpace(target)

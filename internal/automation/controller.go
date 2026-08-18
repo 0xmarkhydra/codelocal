@@ -204,7 +204,11 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 		}
 		ref := stringArg(args, "ref")
 		text := stringArg(args, "text")
-		approved, state, err := c.authorize(sessionID, Action{Domain: "browser", Operation: "fill", Origin: c.browserOrigin(), Target: firstNonEmpty(stringArg(args, "description"), ref), Text: text}, args)
+		description := stringArg(args, "description")
+		approved, state, err := c.authorize(sessionID, Action{
+			Domain: "browser", Operation: "fill", Origin: c.browserOrigin(), Target: firstNonEmpty(description, ref), Text: text,
+			SensitiveTarget: description == "",
+		}, args)
 		if err != nil || !approved {
 			return state, err
 		}
@@ -288,9 +292,13 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 		}
 		op := strings.TrimPrefix(tool, "computer_")
 		target := firstNonEmpty(stringArg(args, "target"), stringArg(args, "description"))
+		sensitiveTarget := false
+		if op == "type" {
+			sensitiveTarget = c.prepareComputerTypeAuthorization(ctx, args, target)
+		}
 		action := Action{
 			Domain: "computer", Operation: op, Origin: firstNonEmpty(stringArg(args, "windowHint"), stringArg(args, "windowId")), Target: target, Text: stringArg(args, "text"),
-			Physical: computerActionUsesPhysicalInput(op, args, target),
+			Physical: computerActionUsesPhysicalInput(op, args, target), SensitiveTarget: sensitiveTarget,
 		}
 		approved, state, err := c.authorize(sessionID, action, args)
 		if err != nil || !approved {

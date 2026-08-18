@@ -1,15 +1,15 @@
 name: Publish CodeLocal to npm
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ['CodeLocal CI']
+    types: [completed]
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Internal second-stage release tag. Leave empty for a manual release reservation.'
-        required: false
+        description: 'Immutable codelocal-vX.Y.Z tag to publish. This manual entry point never reserves a new release from main.'
+        required: true
         type: string
-        default: ''
 
 permissions:
   contents: write
@@ -17,20 +17,37 @@ permissions:
   id-token: write
 
 concurrency:
-  group: codelocal-npm-${{ inputs.release_tag != '' && 'publish' || 'prepare' }}
+  group: codelocal-npm-${{ github.event_name == 'workflow_dispatch' && 'publish' || 'prepare' }}
   cancel-in-progress: false
 
 jobs:
   prepare:
-    if: github.repository == '0xmarkhydra/codex-mcp' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.release_tag == '' && github.ref == 'refs/heads/main'))
+    if: >-
+      github.repository == '0xmarkhydra/codex-mcp' &&
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout source commit
+      - name: Checkout CI-accepted main commit
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Verify CI-accepted source identity
+        shell: bash
+        env:
+          CI_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "$head_sha" != "$CI_HEAD_SHA" ]]; then
+            echo "CI source mismatch: checked out $head_sha, expected $CI_HEAD_SHA" >&2
+            exit 1
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -419,6 +436,24 @@ jobs:
             exit 1
           fi
           node .release/npm/bin/codelocal.js --version
+
+      - name: Verify final npm tarball includes native macOS workers
+        if: steps.registry.outputs.published != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pack_json="$(npm pack --dry-run --json ./.release/npm)"
+          PACK_JSON="$pack_json" node <<'NODE'
+          const payload = JSON.parse(process.env.PACK_JSON || '[]');
+          if (!Array.isArray(payload) || payload.length !== 1) throw new Error('Unexpected npm pack dry-run output.');
+          const files = new Set((payload[0].files || []).map((entry) => entry.path));
+          for (const required of [
+            'bin/helpers/computer-native-darwin-arm64',
+            'bin/helpers/computer-native-darwin-amd64',
+          ]) {
+            if (!files.has(required)) throw new Error(`Final npm tarball is missing ${required}`);
+          }
+          NODE
 
       - name: Publish to npm with GitHub OIDC
         if: steps.registry.outputs.published != 'true'

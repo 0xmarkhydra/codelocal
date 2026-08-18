@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -137,6 +138,20 @@ func TestMacNativeVisionLive(t *testing.T) {
 		t.Skip("no native AX application window available")
 	}
 	t.Skipf("no currently captureable native AX window for Vision smoke test after %d candidate(s): %v", attempted, lastErr)
+}
+
+func TestNativeSwiftTypeResultsDoNotExposeFieldValues(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "computernative", "main.swift"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(raw)
+	if strings.Count(source, `if operation == "type" { resolved.removeValue(forKey: "value") }`) < 2 {
+		t.Fatal("native exact and semantic type results must both remove accessibility values before returning")
+	}
+	if !strings.Contains(source, `sensitiveFieldMetadata(role: role, name: name, description: description)`) || !strings.Contains(source, `"api key"`) {
+		t.Fatal("native accessibility snapshots must suppress secure and semantically sensitive field values")
+	}
 }
 
 func TestMacNativeDaemonProbeAndPersistentHandshake(t *testing.T) {

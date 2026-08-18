@@ -65,18 +65,23 @@ func parseComputerSequence(args map[string]any) (string, []computerSequenceStep,
 func sequenceApprovalAction(windowID string, steps []computerSequenceStep) Action {
 	targets := make([]string, 0, len(steps))
 	texts := make([]string, 0, len(steps))
+	hasTyping := false
 	for _, step := range steps {
 		targets = append(targets, step.Operation+":"+step.Target)
+		if step.Operation == "type" {
+			hasTyping = true
+		}
 		if step.Text != "" {
 			texts = append(texts, step.Text)
 		}
 	}
 	return Action{
-		Domain:    "computer",
-		Operation: "run",
-		Origin:    windowID,
-		Target:    strings.Join(targets, " -> "),
-		Text:      strings.Join(texts, "\x00"),
+		Domain:          "computer",
+		Operation:       "run",
+		Origin:          windowID,
+		Target:          strings.Join(targets, " -> "),
+		Text:            strings.Join(texts, "\x00"),
+		SensitiveTarget: hasTyping,
 	}
 }
 

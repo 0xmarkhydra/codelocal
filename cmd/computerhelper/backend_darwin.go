@@ -274,6 +274,7 @@ func macWindows(ctx context.Context) (any, error) {
 }
 
 const macTreeScript = `function safe(fn,fb){try{return fn()}catch(e){return fb}}
+function sensitiveField(role,name,desc){var h=String(role||'')+' '+String(name||'')+' '+String(desc||'');return /(secure|password|passcode|otp|2fa|verification code|one[- ]time code|authenticator code|security code|api key|private key|seed phrase|secret key|credential)/i.test(h)}
 function run(argv){
  var pid=Number(argv[0]||0), max=Number(argv[1]||400), windowIndex=Number(argv[2]==null?-1:argv[2]);
  var se=Application('System Events');
@@ -282,7 +283,8 @@ function run(argv){
  var p=ps[0], count=0;
  function walk(e,path,depth){
    if(count++>=max || depth>8) return null;
-   var item={elementId:String(pid)+':'+path.join('.'),role:safe(function(){return String(e.role())},''),name:safe(function(){return String(e.name())},''),description:safe(function(){return String(e.description())},''),value:safe(function(){var v=e.value(); return v==null?null:String(v)},null),enabled:safe(function(){return !!e.enabled()},true),children:[]};
+   var role=safe(function(){return String(e.role())},''),name=safe(function(){return String(e.name())},''),desc=safe(function(){return String(e.description())},''),sensitive=sensitiveField(role,name,desc);
+   var item={elementId:String(pid)+':'+path.join('.'),role:role,name:name,description:desc,value:sensitive?null:safe(function(){var v=e.value(); return v==null?null:String(v)},null),enabled:safe(function(){return !!e.enabled()},true),children:[]};
    var children=safe(function(){return e.uiElements()},[]);
    for(var i=0;i<children.length && count<max;i++){var child=walk(children[i],path.concat([i]),depth+1);if(child)item.children.push(child)}
    return item;
@@ -298,6 +300,7 @@ function run(argv){
 // updates without moving the user's physical cursor.
 const macSemanticActionScript = `function safe(fn,fb){try{return fn()}catch(e){return fb}}
 function norm(v){return String(v==null?'':v).trim().toLowerCase().replace(/\s+/g,' ')}
+function sensitiveField(role,name,desc){var h=norm(role)+' '+norm(name)+' '+norm(desc);return /(secure|password|passcode|otp|2fa|verification code|one[- ]time code|authenticator code|security code|api key|private key|seed phrase|secret key|credential)/i.test(h)}
 function score(target,role,name,desc,value){
  var t=norm(target), best=0;
  function one(text,exact,inside){text=norm(text);if(!text)return;if(text===t)best=Math.max(best,exact);else if(text.indexOf(t)>=0||t.indexOf(text)>=0)best=Math.max(best,inside)}
@@ -313,7 +316,7 @@ function run(argv){
  var p=ps[0], count=0, best=null, bestScore=0, runnerUp=null, runnerUpScore=0;
  function walk(e,path,depth){
    if(count++>=max||depth>8)return;
-   var role=safe(function(){return String(e.role())},''), name=safe(function(){return String(e.name())},''), desc=safe(function(){return String(e.description())},''), value=safe(function(){var v=e.value();return v==null?'':String(v)},''), enabled=safe(function(){return !!e.enabled()},true);
+   var role=safe(function(){return String(e.role())},''), name=safe(function(){return String(e.name())},''), desc=safe(function(){return String(e.description())},''), sensitive=sensitiveField(role,name,desc), value=sensitive?'':safe(function(){var v=e.value();return v==null?'':String(v)},''), enabled=safe(function(){return !!e.enabled()},true);
    var s=score(target,role,name,desc,value); if(!enabled)s-=60; var candidateId=String(pid)+':'+path.join('.');
    if(s>bestScore){
      if(best){runnerUp={elementId:best.elementId};runnerUpScore=bestScore}
@@ -334,7 +337,8 @@ function run(argv){
  } else if(op==='type') {
    try{best.element.value=text}catch(e){throw new Error('background accessibility value update failed: '+String(e))}
  } else throw new Error('unsupported semantic action');
- return JSON.stringify({operation:op,background:true,physicalInput:false,resolvedTarget:{elementId:best.elementId,role:best.role,name:best.name,description:best.description,value:best.value,bounds:best.bounds,score:bestScore}});
+ var resolved={elementId:best.elementId,role:best.role,name:best.name,description:best.description,bounds:best.bounds,score:bestScore}; if(op!=='type')resolved.value=best.value;
+ return JSON.stringify({operation:op,background:true,physicalInput:false,resolvedTarget:resolved});
 }`
 
 func macSemanticAction(ctx context.Context, operation, windowID, target, text string) (any, error) {

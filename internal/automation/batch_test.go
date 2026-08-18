@@ -73,6 +73,20 @@ func TestComputerSequenceCriticalTargetRequiresFreshApproval(t *testing.T) {
 	}
 }
 
+func TestComputerSequenceWithTypingRequiresFreshApproval(t *testing.T) {
+	action := sequenceApprovalAction("ax:100:0", []computerSequenceStep{
+		{Operation: "click", Target: "New Channel"},
+		{Operation: "type", Target: "Channel name", Text: "CodeLocal"},
+	})
+	if !action.SensitiveTarget {
+		t.Fatal("a dynamic semantic batch containing typing must fail closed to fresh approval")
+	}
+	decision := ClassifyAutomation(action)
+	if decision.RiskLevel != security.RiskCritical || decision.ApprovalPolicy != security.ApprovalAlways {
+		t.Fatalf("typing batch must require fresh approval: %+v", decision)
+	}
+}
+
 func TestAutomationApprovalFingerprintBindsTextWithoutExposingIt(t *testing.T) {
 	first := automationCommand(Action{Domain: "computer", Operation: "type", Origin: "ax:1:0", Target: "Field", Text: "super-secret-one"})
 	second := automationCommand(Action{Domain: "computer", Operation: "type", Origin: "ax:1:0", Target: "Field", Text: "super-secret-two"})
