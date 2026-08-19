@@ -91,6 +91,10 @@ func TestPurgeLocalStateStopsRunningRuntime(t *testing.T) {
 	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
 	server, err := runtimecontrol.Start(runtimeCtx, dir, lease.Record.InstanceID, func(_ context.Context, command runtimecontrol.Command) (any, error) {
 		if command.Type == "shutdown" {
+			// The fixture shares the test process PID, unlike a real runtime process.
+			// Release the lease as part of the shutdown transition so Windows does not
+			// keep treating the still-alive test PID as a running CodeLocal runtime.
+			_ = lease.Release()
 			cancelRuntime()
 		}
 		return map[string]any{"stopping": command.Type == "shutdown"}, nil

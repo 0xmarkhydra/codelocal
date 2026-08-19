@@ -172,7 +172,11 @@ func TestProcessSubprocessEnvironmentSanitization(t *testing.T) {
 
 	root := t.TempDir()
 	manager := NewManager(root, "test-workspace", nil, nil)
-	started, err := manager.Start("echo $OPENAI_API_KEY $AWS_SECRET_ACCESS_KEY $MY_APP_TOKEN $SAFE_TEST_VAR", StartOptions{CWD: root, Timeout: 10 * time.Second})
+	command := "echo $OPENAI_API_KEY $AWS_SECRET_ACCESS_KEY $MY_APP_TOKEN $SAFE_TEST_VAR"
+	if runtime.GOOS == "windows" {
+		command = "echo %OPENAI_API_KEY% %AWS_SECRET_ACCESS_KEY% %MY_APP_TOKEN% %SAFE_TEST_VAR%"
+	}
+	started, err := manager.Start(command, StartOptions{CWD: root, Timeout: 10 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
