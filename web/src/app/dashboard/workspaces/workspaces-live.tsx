@@ -1,7 +1,9 @@
 "use client";
 
+import { isAccountResource } from "@/lib/contracts/account";
 import { isWorkspacesResource } from "@/lib/contracts/resources";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
+import { ResourceMutationButton } from "../resource-mutation-button";
 import { formatDashboardTime } from "../dashboard-format";
 import styles from "../dashboard.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
@@ -19,6 +21,8 @@ function statusLabel(status: "active" | "sleeping" | "offline") {
 
 export function LiveWorkspaces() {
   const { state, retry } = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
+  const account = useDashboardResource("/api/v1/account", isAccountResource);
+  const csrf = account.state.kind === "ready" ? account.state.value.csrf : undefined;
 
   if (state.kind !== "ready") {
     return (
@@ -59,7 +63,17 @@ export function LiveWorkspaces() {
               <strong>{workspace.workspaceName}</strong>
               <span>{workspace.deviceName} · last seen {formatDashboardTime(workspace.lastSeenAt)}</span>
             </div>
-            <span className={styles.resourceStatus}>{statusLabel(workspace.status)}</span>
+            <div className={styles.resourceActions}>
+              <span className={styles.resourceStatus}>{statusLabel(workspace.status)}</span>
+              <ResourceMutationButton
+                endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
+                csrf={csrf}
+                label="Remove access"
+                confirmMessage={`Remove ${workspace.workspaceName} from CodeLocal? The project and files stay untouched.`}
+                disabled={!workspace.runtimeOnline}
+                onSuccess={retry}
+              />
+            </div>
           </article>
         ))}
       </div>

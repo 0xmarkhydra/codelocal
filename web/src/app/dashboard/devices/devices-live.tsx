@@ -1,7 +1,9 @@
 "use client";
 
+import { isAccountResource } from "@/lib/contracts/account";
 import { isDevicesResource } from "@/lib/contracts/resources";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
+import { ResourceMutationButton } from "../resource-mutation-button";
 import { formatDashboardTime } from "../dashboard-format";
 import styles from "../dashboard.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
@@ -19,6 +21,8 @@ function statusLabel(status: "online" | "offline" | "revoked") {
 
 export function LiveDevices() {
   const { state, retry } = useDashboardResource("/api/v1/devices", isDevicesResource);
+  const account = useDashboardResource("/api/v1/account", isAccountResource);
+  const csrf = account.state.kind === "ready" ? account.state.value.csrf : undefined;
 
   if (state.kind !== "ready") {
     return (
@@ -59,7 +63,17 @@ export function LiveDevices() {
               <strong>{device.deviceName}</strong>
               <span>Paired {formatDashboardTime(device.createdAt)} · last seen {formatDashboardTime(device.lastSeenAt)}</span>
             </div>
-            <span className={styles.resourceStatus}>{statusLabel(device.status)}</span>
+            <div className={styles.resourceActions}>
+              <span className={styles.resourceStatus}>{statusLabel(device.status)}</span>
+              <ResourceMutationButton
+                endpoint={`/api/v1/devices/${encodeURIComponent(device.deviceId)}/revoke`}
+                csrf={csrf}
+                label="Revoke"
+                confirmMessage={`Revoke ${device.deviceName}? This disconnects its CodeLocal credential but does not delete local files.`}
+                disabled={device.status === "revoked"}
+                onSuccess={retry}
+              />
+            </div>
           </article>
         ))}
       </div>

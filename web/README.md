@@ -59,6 +59,13 @@ The client-neutral read contracts currently include:
 
 The device/workspace DTOs are typed and runtime-validated in `src/lib/contracts/resources.ts`; usage is typed and validated in `src/lib/contracts/usage.ts`; the graph contract is validated in `src/lib/contracts/knowledge.ts`. Resource DTOs are intentionally narrower than internal Go structs and exclude credential identifiers, public keys, secret hashes, project roots, capabilities, routing keys and infrastructure diagnostics. The graph contract additionally excludes source-memory IDs, raw graph IDs and repository remotes. Usage does not infer USD cost or provider billing.
 
+Sensitive resource mutations now use public identifiers only:
+
+- `POST /api/v1/devices/{deviceId}/revoke` resolves the private credential ID server-side before calling the shared Go revoke/audit path;
+- `POST /api/v1/workspaces/{deviceId}/{workspaceId}/remove` uses the existing local-runtime revocation handshake and audit path.
+
+Both mutations require the current CSRF token and a fresh Go security context. Next.js does not decide whether the session is trustworthy.
+
 Browser-session-bound reads use same-origin `/api/v1/...` requests. `next.config.ts` rewrites those requests to the Go service and falls back unmatched routes to Go during incremental migration. This lets the browser send the existing HttpOnly session cookie and User-Agent naturally instead of having a Server Component replay session secrets.
 
 Deployment requirements:

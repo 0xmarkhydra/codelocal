@@ -265,6 +265,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/knowledge/health", s.knowledgeHealthResourceAPI)
 	mux.HandleFunc("GET /api/v1/code/graph", s.codeGraphResourceAPI)
 	mux.HandleFunc("GET /api/v1/account", s.accountResourceAPI)
+	mux.HandleFunc("POST /api/v1/devices/{deviceID}/revoke", s.revokeDeviceResourceAPI)
+	mux.HandleFunc("POST /api/v1/workspaces/{deviceID}/{workspaceID}/remove", s.removeWorkspaceResourceAPI)
 	mux.Handle("GET /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesGet)))
 	mux.Handle("POST /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesPost)))
 	mux.HandleFunc("GET /health", s.health)

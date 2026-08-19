@@ -11,7 +11,7 @@ const migration = [
   { label: "Account + Security", state: "Ready", note: "Account preview reuses the Go password handler; Security shows trust state without inventing audit telemetry." },
   { label: "Session bridge", state: "Implemented", note: "Same-origin browser API proxy is in place without replaying HttpOnly session secrets in Next." },
   { label: "Deployment parity", state: "Next", note: "Verify Set-Cookie, browser User-Agent and trusted client-IP forwarding on the real edge before cutover." },
-  { label: "Remaining mutations", state: "Queued", note: "Device revoke and workspace removal still need public-ID mutation parity before broader Next cutover." },
+  { label: "Mutation parity", state: "Ready", note: "Device revoke resolves credentials server-side; workspace removal reuses the existing local revocation handshake with CSRF + fresh-security enforcement." },
 ];
 
 export default function DashboardPage() {

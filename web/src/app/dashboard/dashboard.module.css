@@ -472,6 +472,49 @@
   background: rgba(255, 255, 255, 0.018);
 }
 
+.resourceActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.resourceMutation {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.resourceDanger {
+  min-height: 29px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 116, 137, 0.2);
+  border-radius: 8px;
+  color: #e7a6b0;
+  background: rgba(255, 116, 137, 0.055);
+  font-size: 8.5px;
+  cursor: pointer;
+}
+
+.resourceDanger:hover:not(:disabled) {
+  border-color: rgba(255, 116, 137, 0.36);
+  color: #ffd7dd;
+  background: rgba(255, 116, 137, 0.09);
+}
+
+.resourceDanger:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.resourceMutation small {
+  max-width: 220px;
+  color: #d69aa5;
+  font-size: 8px;
+  line-height: 1.4;
+  text-align: right;
+}
+
 .usageList {
   display: grid;
   margin-top: 18px;
@@ -923,6 +966,24 @@
   }
 
   .accountDetails dd {
+    text-align: left;
+  }
+
+  .resourceRow {
+    grid-template-columns: 10px minmax(0, 1fr);
+  }
+
+  .resourceActions {
+    grid-column: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .resourceMutation {
+    justify-items: start;
+  }
+
+  .resourceMutation small {
     text-align: left;
   }
 }

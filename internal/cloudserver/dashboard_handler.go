@@ -1,7 +1,6 @@
 package cloudserver
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -422,28 +421,24 @@ func (s *Server) mainRevokeDevice(w http.ResponseWriter, r *http.Request, identi
 		http.Redirect(w, r, "/dashboard/devices?error=Invalid%20device.", http.StatusSeeOther)
 		return
 	}
-	deviceID := ""
-	if devices, listErr := s.Store.ListDevices(r.Context(), identity.User.ID); listErr == nil {
-		for _, device := range devices {
-			if device.CredentialID == credentialID {
-				deviceID = device.DeviceID
-				break
-			}
-		}
+	devices, listErr := s.Store.ListDevices(r.Context(), identity.User.ID)
+	if listErr != nil {
+		http.Redirect(w, r, "/dashboard/devices?error="+url.QueryEscape("Unable to revoke device."), http.StatusSeeOther)
+		return
 	}
-	revoked, err := s.Store.RevokeDevice(r.Context(), identity.User.ID, credentialID)
+	device := deviceByCredentialID(devices, credentialID)
+	if device == nil {
+		http.Redirect(w, r, "/dashboard/devices?error="+url.QueryEscape("Invalid device."), http.StatusSeeOther)
+		return
+	}
+	revoked, err := s.revokeResolvedDevice(r.Context(), identity, *device)
 	if err != nil {
 		http.Redirect(w, r, "/dashboard/devices?error="+url.QueryEscape("Unable to revoke device."), http.StatusSeeOther)
 		return
 	}
-	if revoked {
-		s.disconnectCredentialEverywhere(identity.User.ID, credentialID)
-		if deviceID != "" {
-			presenceCtx, cancelPresence := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = s.Activation.ClearPresence(presenceCtx, identity.User.ID, deviceID)
-			cancelPresence()
-		}
-		s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "device.revoked", DeviceID: deviceID, Detail: map[string]any{"credentialId": credentialID}})
+	if !revoked {
+		http.Redirect(w, r, "/dashboard/devices?error="+url.QueryEscape("Device access was already revoked."), http.StatusSeeOther)
+		return
 	}
 	http.Redirect(w, r, "/dashboard/devices?ok="+url.QueryEscape("Device access revoked."), http.StatusSeeOther)
 }
@@ -470,16 +465,12 @@ func (s *Server) mainRemoveWorkspace(w http.ResponseWriter, r *http.Request, ide
 	}
 	catalog, _ := s.Workspaces.Catalog(r.Context(), identity.User.ID)
 	workspaceName := workspaceID
-	for _, workspace := range catalog {
-		if workspace.DeviceID == deviceID && workspace.WorkspaceID == workspaceID {
-			workspaceName = workspace.WorkspaceName
-			break
-		}
+	if workspace := workspaceByPublicID(catalog, deviceID, workspaceID); workspace != nil {
+		workspaceName = workspace.WorkspaceName
 	}
-	if err := s.Workspaces.Revoke(r.Context(), identity.User.ID, deviceID, workspaceID); err != nil {
+	if err := s.removeResolvedWorkspace(r.Context(), identity, deviceID, workspaceID, workspaceName); err != nil {
 		http.Redirect(w, r, "/dashboard/workspaces?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "workspace.revocation_requested", DeviceID: deviceID, WorkspaceID: workspaceID, Detail: map[string]any{"workspaceName": workspaceName}})
 	http.Redirect(w, r, "/dashboard/workspaces?ok="+url.QueryEscape(workspaceName+" access removed. The project files were not changed."), http.StatusSeeOther)
 }
