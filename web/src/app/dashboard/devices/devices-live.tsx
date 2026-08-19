@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { isAccountResource } from "@/lib/contracts/account";
 import { isDevicesResource } from "@/lib/contracts/resources";
+import { DashboardListControls, dashboardPageSize } from "../dashboard-list-controls";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
 import { ResourceMutationButton } from "../resource-mutation-button";
 import { formatDashboardTime } from "../dashboard-format";
@@ -23,6 +25,8 @@ export function LiveDevices() {
   const { state, retry } = useDashboardResource("/api/v1/devices", isDevicesResource);
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const csrf = account.state.kind === "ready" ? account.state.value.csrf : undefined;
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   if (state.kind !== "ready") {
     return (
@@ -36,6 +40,14 @@ export function LiveDevices() {
   }
 
   const resource = state.value;
+  const needle = query.trim().toLowerCase();
+  const filtered = needle
+    ? resource.items.filter((device) => `${device.deviceName} ${device.deviceId}`.toLowerCase().includes(needle))
+    : resource.items;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / dashboardPageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visible = filtered.slice((currentPage - 1) * dashboardPageSize, currentPage * dashboardPageSize);
+
   return (
     <section className={styles.livePanel} aria-live="polite">
       <div className={styles.liveHead}>
@@ -53,10 +65,20 @@ export function LiveDevices() {
         <article className={styles.metricCard}><span>Revoked</span><strong>{resource.summary.revoked}</strong><p>Credentials no longer allowed to reconnect.</p></article>
       </div>
 
+      <DashboardListControls
+        query={query}
+        onQueryChange={setQuery}
+        page={currentPage}
+        totalPages={totalPages}
+        totalResults={filtered.length}
+        onPageChange={setPage}
+        placeholder="Search device name or ID"
+      />
+
       <div className={styles.resourceList}>
-        {resource.items.length === 0 ? (
-          <p className={styles.emptyCopy}>No paired device is available yet.</p>
-        ) : resource.items.map((device) => (
+        {visible.length === 0 ? (
+          <p className={styles.emptyCopy}>{query ? "No devices match your search." : "No paired device is available yet."}</p>
+        ) : visible.map((device) => (
           <article className={styles.resourceRow} key={device.deviceId}>
             <span className={styles.stateDot} data-state={device.status} />
             <div className={styles.resourceIdentity}>

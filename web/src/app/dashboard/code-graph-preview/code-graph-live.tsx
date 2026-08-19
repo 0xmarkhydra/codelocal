@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { isCodeGraphResource } from "@/lib/contracts/code-graph";
 import { isWorkspacesResource } from "@/lib/contracts/resources";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
@@ -17,16 +18,26 @@ function stateCopy(state: string) {
   }
 }
 
+function workspaceKey(deviceId: string, workspaceId: string) {
+  return `${encodeURIComponent(deviceId)}|${encodeURIComponent(workspaceId)}`;
+}
+
 export function LiveCodeGraph() {
+  const searchParams = useSearchParams();
   const workspaces = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
-  const [workspaceIndex, setWorkspaceIndex] = useState(0);
+  const requestedDeviceId = searchParams.get("deviceId") || "";
+  const requestedWorkspaceId = searchParams.get("workspaceId") || "";
+  const requestedWorkspaceKey = requestedDeviceId && requestedWorkspaceId ? workspaceKey(requestedDeviceId, requestedWorkspaceId) : "";
+  const [manualWorkspaceKey, setManualWorkspaceKey] = useState<string | null>(null);
   const [repositoryPath, setRepositoryPath] = useState("");
   const [view, setView] = useState<"architecture" | "files">("architecture");
   const [depth, setDepth] = useState(1);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
 
-  const selectedWorkspace = workspaces.state.kind === "ready" ? workspaces.state.value.items[workspaceIndex] ?? workspaces.state.value.items[0] : undefined;
+  const workspaceItems = workspaces.state.kind === "ready" ? workspaces.state.value.items : [];
+  const selectedWorkspaceKey = manualWorkspaceKey ?? requestedWorkspaceKey;
+  const selectedWorkspace = workspaceItems.find((workspace) => workspaceKey(workspace.deviceId, workspace.workspaceId) === selectedWorkspaceKey) ?? workspaceItems[0];
   const graphURL = useMemo(() => {
     const params = new URLSearchParams({ view, depth: String(depth) });
     if (selectedWorkspace) {
@@ -76,19 +87,24 @@ export function LiveCodeGraph() {
         <label>
           <span>Checkout</span>
           <select
-            value={String(Math.min(workspaceIndex, Math.max(0, workspaces.state.value.items.length - 1)))}
+            value={selectedWorkspace ? workspaceKey(selectedWorkspace.deviceId, selectedWorkspace.workspaceId) : ""}
+            disabled={workspaceItems.length === 0}
             onChange={(event) => {
-              setWorkspaceIndex(Number(event.target.value));
+              setManualWorkspaceKey(event.target.value);
               setRepositoryPath("");
               setQuery("");
               setQueryInput("");
             }}
           >
-            {workspaces.state.value.items.map((workspace, index) => (
-              <option value={String(index)} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
-                {workspace.workspaceName} · {workspace.deviceName} · {workspace.runtimeOnline ? "online" : workspace.status}
-              </option>
-            ))}
+            {workspaceItems.length === 0 && <option value="">No authorized checkout</option>}
+            {workspaceItems.map((workspace) => {
+              const key = workspaceKey(workspace.deviceId, workspace.workspaceId);
+              return (
+                <option value={key} key={key}>
+                  {workspace.workspaceName} · {workspace.deviceName} · {workspace.runtimeOnline ? "online" : workspace.status}
+                </option>
+              );
+            })}
           </select>
         </label>
         <label>

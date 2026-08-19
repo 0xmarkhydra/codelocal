@@ -100,7 +100,7 @@ export function LiveSecurity() {
             <div><span className={styles.eyebrow}>Password</span><h3>Account security</h3></div>
           </div>
           <p>Changing the password verifies the current password, requires CSRF + fresh security context, rotates security version and revokes other signed-in browser sessions.</p>
-          <Link className={styles.liveAction} href="/dashboard/account-preview">Manage password</Link>
+          <Link className={styles.liveAction} href="/dashboard/account">Manage password</Link>
         </article>
 
         <article className={styles.panel}>

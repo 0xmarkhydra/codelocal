@@ -12,7 +12,7 @@ export default function AccountPreviewPage() {
           <h1>Account</h1>
           <p>Identity and password controls rendered by Next.js while security authority remains in Go.</p>
         </div>
-        <Link className={styles.productionLink} href="/dashboard/account">Current Go Account</Link>
+        <Link className={styles.productionLink} href="/dashboard/account">Canonical Account</Link>
       </header>
 
       <Suspense fallback={<section className={styles.livePanel}><span className={styles.eyebrow}>Account</span><h2>Loading account state…</h2></section>}>

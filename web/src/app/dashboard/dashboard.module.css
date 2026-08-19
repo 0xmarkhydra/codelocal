@@ -1616,6 +1616,7 @@
     width: 100%;
     height: auto;
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     border-right: 0;
@@ -1632,9 +1633,22 @@
   }
 
   .navLabel,
-  .nav,
   .sidebarNotice {
     display: none;
+  }
+
+  .nav {
+    order: 3;
+    width: 100%;
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    padding-top: 10px;
+    scrollbar-width: thin;
+  }
+
+  .nav a {
+    flex: 0 0 auto;
   }
 
   .content {

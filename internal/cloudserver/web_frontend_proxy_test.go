@@ -7,16 +7,75 @@ import (
 	"testing"
 )
 
-func TestNextDashboardRoutingExcludesAdmin(t *testing.T) {
-	for _, path := range []string{"/dashboard", "/dashboard/devices", "/dashboard/knowledge", "/dashboard/account"} {
+func TestNextDashboardRoutingUsesExplicitParityWhitelist(t *testing.T) {
+	for _, path := range []string{
+		"/dashboard",
+		"/dashboard/devices",
+		"/dashboard/workspaces",
+		"/dashboard/knowledge",
+		"/dashboard/code-graph",
+		"/dashboard/usage",
+		"/dashboard/security",
+		"/dashboard/account",
+	} {
 		if !isNextDashboardPath(path) {
 			t.Fatalf("expected %q to use Next dashboard", path)
 		}
 	}
-	for _, path := range []string{"/dashboard/admin", "/dashboard/admin/users", "/api/v1/account", "/client", "/mcp"} {
+	for _, path := range []string{
+		"/dashboard/connect",
+		"/dashboard/invite",
+		"/dashboard/leaderboard",
+		"/dashboard/admin",
+		"/dashboard/admin/users",
+		"/dashboard/unknown",
+		"/api/v1/account",
+		"/client",
+		"/mcp",
+	} {
 		if isNextDashboardPath(path) {
 			t.Fatalf("expected %q to stay on Go", path)
 		}
+	}
+}
+
+func TestNextPresentationProxyNeverOwnsMutations(t *testing.T) {
+	if !isNextPresentationMethod(http.MethodGet) || !isNextPresentationMethod(http.MethodHead) {
+		t.Fatal("GET and HEAD must be presentation methods")
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		if isNextPresentationMethod(method) {
+			t.Fatalf("mutation method %s must stay on Go", method)
+		}
+	}
+}
+
+func TestWebFrontendMiddlewareKeepsLegacyAndMutationRoutesOnGo(t *testing.T) {
+	server := &Server{WebFrontend: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("request unexpectedly reached Next presentation")
+	})}
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/dashboard/connect"},
+		{http.MethodGet, "/dashboard/invite"},
+		{http.MethodGet, "/dashboard/leaderboard"},
+		{http.MethodGet, "/dashboard/admin"},
+		{http.MethodGet, "/dashboard/not-migrated"},
+		{http.MethodPost, "/dashboard/devices/device/revoke"},
+		{http.MethodPost, "/dashboard/workspaces/device/workspace/remove"},
+		{http.MethodPost, "/logout"},
+	} {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			called := false
+			next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
+			request := httptest.NewRequest(test.method, test.path, nil)
+			server.webFrontendMiddleware(next).ServeHTTP(httptest.NewRecorder(), request)
+			if !called {
+				t.Fatal("expected Go handler to own request")
+			}
+		})
 	}
 }
 

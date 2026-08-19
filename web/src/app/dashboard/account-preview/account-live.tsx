@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { isAccountResource } from "@/lib/contracts/account";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
@@ -89,7 +88,7 @@ export function LiveAccount({ returnPath = "/dashboard/account-preview" }: { ret
             <button className={styles.liveAction} type="submit">Update password</button>
           </form>
           <p className={styles.accountHelp}>
-            Locked out? <Link href="/forgot-password">Use the verified-email reset flow</Link>. Reset emails remain limited by the existing Go rate limits.
+            Locked out? <a href="/forgot-password">Use the verified-email reset flow</a>. Reset emails remain limited by the existing Go rate limits.
           </p>
         </article>
       </section>

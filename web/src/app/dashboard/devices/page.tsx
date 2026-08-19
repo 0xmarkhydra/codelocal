@@ -6,19 +6,19 @@ export default function DevicesPage() {
     <section className={styles.content}>
       <header className={styles.header}>
         <div>
-          <span className={styles.eyebrow}>Read-only route parity</span>
+          <span className={styles.eyebrow}>Trusted machines</span>
           <h1>Devices</h1>
-          <p>Trusted machine runtimes from the Go device authority, without exposing credential material.</p>
+          <p>Review paired CodeLocal runtimes, search device history and revoke credentials you no longer trust.</p>
         </div>
-        <span className={styles.productionLink}>Revocation remains on Go</span>
+        <span className={styles.productionLink}>Credential secrets stay server-side</span>
       </header>
 
       <LiveDevices />
 
       <section className={styles.routeGuardrail}>
-        <span className={styles.eyebrow}>Mutation boundary</span>
-        <h2>Device revocation stays on the existing Go flow for now.</h2>
-        <p>The mutation requires the current CSRF and authorization path. Next.js only reads the minimal versioned DTO until that behavior has parity tests.</p>
+        <span className={styles.eyebrow}>Security boundary</span>
+        <h2>Revocation is still enforced entirely by Go.</h2>
+        <p>The browser sends only the public device ID plus the current CSRF token. Go resolves the private credential, requires a fresh security context, disconnects it and records the audit event.</p>
       </section>
     </section>
   );

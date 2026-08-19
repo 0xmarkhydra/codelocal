@@ -25,27 +25,45 @@ Do **not** move the production domain directly from Go to Next. The Go service o
 
 ## Route ownership after cutover
 
-Go proxies these presentation routes to Next when `CODELOCAL_WEB_CUTOVER=1`:
+Go proxies **GET/HEAD presentation requests only** to Next when `CODELOCAL_WEB_CUTOVER=1`.
+
+Public Next-owned presentation:
 
 - `/`
-- `/dashboard`
-- `/dashboard/*`, except `/dashboard/admin` and descendants
 - `/_next/*`
 - `/favicon.ico`
 - `/codelocal-icon.png`
 - `/healthz`
 
+Protected Next-owned dashboard routes are an explicit whitelist:
+
+- `/dashboard`
+- `/dashboard/workspaces`
+- `/dashboard/knowledge`
+- `/dashboard/knowledge-preview`
+- `/dashboard/code-graph`
+- `/dashboard/code-graph-preview`
+- `/dashboard/devices`
+- `/dashboard/usage`
+- `/dashboard/security`
+- `/dashboard/account`
+- `/dashboard/account-preview`
+
 Go continues to serve all other routes directly, including:
 
-- login/signup/password reset and reauthentication;
+- every non-GET/HEAD request, including dashboard mutations;
+- login/signup/logout/password reset and reauthentication;
 - OAuth and MCP authorization;
 - pairing and client-runtime endpoints;
 - `/api/*` and `/api/v1/*`;
 - `/client` and `/mcp`;
-- `/dashboard/admin`;
+- `/dashboard/connect`, `/dashboard/invite`, `/dashboard/leaderboard` and `/dashboard/admin`;
+- unknown/unmigrated `/dashboard/...` paths;
 - legal/support/security public documents.
 
-This also means browser API calls from Next pages go directly to the public Go service on the same origin. They do not need to pass through the Next server in production.
+Go-owned dashboard links intentionally use normal browser navigation rather than Next client routing. This prevents an unmigrated route from being fetched through the Next fallback rewrite after the Go presentation proxy has stripped the browser session cookie.
+
+Browser API calls from Next pages go directly to the public Go service on the same origin. They do not need to pass through the Next server in production.
 
 ## Security boundary
 
@@ -123,14 +141,18 @@ Remove `CODELOCAL_EDGE_PROBE_TOKEN` after canary verification unless another con
 
 Before production cutover, verify with a test account and disposable device/workspace:
 
-1. Login and logout through the canary domain.
-2. Overview, Workspaces, Devices and Usage show only backend-validated state.
-3. Knowledge Graph and Code Graph render bounded data and fail closed when the backend/local runtime is unavailable.
-4. Password change requires current password + CSRF + fresh security context and rotates other browser sessions.
-5. Device revoke uses only public `deviceId` in the browser request; private credential ID never appears in browser JSON/HTML.
-6. Workspace removal is disabled while the runtime is offline and succeeds through the existing local revocation handshake when online.
-7. Security page does not fabricate an audit/login/IP feed.
-8. Reduced-motion and mobile layouts remain usable.
+1. Login and logout through the canary domain; logout still requires the Go-issued CSRF token and deletes the current Go session.
+2. Overview restores the three real onboarding states: no paired machine, paired/runtime offline, and runtime connected.
+3. Workspaces and Devices show only backend-validated state, preserve 12-item paging/search behavior, and mutations refresh the list after success.
+4. A workspace `Code Graph` action opens `/dashboard/code-graph` with the matching public `deviceId` + `workspaceId`, and Code Graph selects that checkout instead of silently choosing the first one.
+5. Knowledge Graph and Code Graph render bounded data and fail closed when the backend/local runtime is unavailable.
+6. Password change requires current password + CSRF + fresh security context and rotates other browser sessions.
+7. Device revoke uses only public `deviceId` in the browser request; private credential ID never appears in browser JSON/HTML.
+8. Workspace removal is disabled while the runtime is offline and succeeds through the existing local revocation handshake when online.
+9. `/dashboard/connect`, `/dashboard/invite`, `/dashboard/leaderboard` and `/dashboard/admin` perform full browser navigations and remain authenticated Go-owned pages.
+10. POST/PUT/PATCH/DELETE requests under `/dashboard` never enter the Next presentation proxy.
+11. Security page does not fabricate an audit/login/IP feed.
+12. Reduced-motion and mobile layouts remain usable; mobile dashboard navigation remains reachable rather than being hidden.
 
 ## Enable production presentation proxy
 

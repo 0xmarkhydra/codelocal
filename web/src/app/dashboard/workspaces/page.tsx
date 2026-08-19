@@ -6,19 +6,19 @@ export default function WorkspacesPage() {
     <section className={styles.content}>
       <header className={styles.header}>
         <div>
-          <span className={styles.eyebrow}>Read-only route parity</span>
+          <span className={styles.eyebrow}>Local authorization</span>
           <h1>Workspaces</h1>
-          <p>Authorized project folders from the Go workspace authority, without exposing local filesystem paths.</p>
+          <p>Search authorized project folders, open their local Code Graph and remove access without touching project files.</p>
         </div>
-        <span className={styles.productionLink}>Mutations remain on Go</span>
+        <span className={styles.productionLink}>Local paths stay private</span>
       </header>
 
       <LiveWorkspaces />
 
       <section className={styles.routeGuardrail}>
-        <span className={styles.eyebrow}>Mutation boundary</span>
-        <h2>Removing workspace access is intentionally not ported yet.</h2>
-        <p>The current Go flow keeps CSRF and local-runtime checks authoritative. This Next route is read-only until mutation parity is explicitly verified.</p>
+        <span className={styles.eyebrow}>Authorization boundary</span>
+        <h2>Removing access keeps the existing local revocation handshake.</h2>
+        <p>The action is available only while that machine runtime is reachable, requires CSRF plus a fresh Go security context, and never deletes or modifies files in the project folder.</p>
       </section>
     </section>
   );

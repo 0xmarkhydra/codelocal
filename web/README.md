@@ -89,13 +89,17 @@ Current slice provides:
 - dashboard shell;
 - versioned Go overview/workspaces/devices/usage/account read contracts;
 - canonical Next routes for Overview, Workspaces, Devices, Usage, Knowledge Graph, Code Graph, Security and Account;
+- explicit Go-owned compatibility routes for MCP Connections, Invite, Leaderboard and Admin, reached with full browser navigation so their authenticated HTML flows never bounce through a cookie-stripped Next fallback;
 - privacy-minimized Knowledge Graph plus aggregate Project Brain health and CSRF-protected collective settings;
-- bounded local-runtime Code Graph with checkout/repository/view/depth/symbol controls and impact evidence;
-- Account password changes through the existing Go security handler, including CSRF, fresh-security checks, rate limiting, password verification, security-version rotation and session replacement;
+- bounded local-runtime Code Graph with checkout/repository/view/depth/symbol controls, impact evidence and workspace deep-link selection by public IDs;
+- Account password changes and Logout through the existing Go security handlers, preserving CSRF, fresh-security checks, rate limiting, security-version/session behavior and audit;
 - public-ID device revoke and workspace removal mutations that resolve sensitive credentials only server-side;
+- 12-item search/pagination parity for device and workspace lists, plus the per-workspace Code Graph shortcut;
+- state-driven Overview onboarding for setup-required, runtime-offline and runtime-connected accounts;
 - Security presentation without exposing or fabricating audit/IP/login history;
-- direct-canary rewrite support plus a production Go presentation proxy that keeps MCP/CLI/WebSocket transports off Next;
+- direct-canary rewrite support plus a production Go presentation proxy that uses an explicit GET/HEAD route whitelist and keeps all dashboard mutations, legacy pages and MCP/CLI/WebSocket transports off Next;
+- mobile dashboard navigation remains reachable instead of being hidden;
 - explicit cutover/rollback flags and deployable Next standalone image;
 - no fake live telemetry.
 
-Feature parity is implemented. The existing Go-rendered UI remains compiled as the instant rollback path until the Railway canary and authenticated cutover checklist in `NEXT_WEB_CUTOVER.md` pass.
+User-visible functional parity is preserved across the hybrid cutover boundary: migrated presentation stays on Next, while intentionally unmigrated Go pages keep their original implementation and security/session semantics. The existing Go-rendered UI remains compiled as the instant rollback path until the Railway canary and authenticated cutover checklist in `NEXT_WEB_CUTOVER.md` pass.

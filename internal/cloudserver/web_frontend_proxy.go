@@ -56,11 +56,27 @@ func isNextPublicAssetPath(path string) bool {
 	return strings.HasPrefix(path, "/_next/") || path == "/favicon.ico" || path == "/codelocal-icon.png"
 }
 
+var nextDashboardPaths = map[string]struct{}{
+	"/dashboard":                    {},
+	"/dashboard/workspaces":         {},
+	"/dashboard/knowledge":          {},
+	"/dashboard/knowledge-preview":  {},
+	"/dashboard/code-graph":         {},
+	"/dashboard/code-graph-preview": {},
+	"/dashboard/devices":            {},
+	"/dashboard/usage":              {},
+	"/dashboard/security":           {},
+	"/dashboard/account":            {},
+	"/dashboard/account-preview":    {},
+}
+
 func isNextDashboardPath(path string) bool {
-	if path == "/dashboard/admin" || strings.HasPrefix(path, "/dashboard/admin/") {
-		return false
-	}
-	return path == "/dashboard" || strings.HasPrefix(path, "/dashboard/")
+	_, ok := nextDashboardPaths[path]
+	return ok
+}
+
+func isNextPresentationMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }
 
 func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
@@ -69,6 +85,10 @@ func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
 	}
 	protected := s.WebAuth.Require(s.WebFrontend)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isNextPresentationMethod(r.Method) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		switch {
 		case isNextDashboardPath(r.URL.Path):
 			protected.ServeHTTP(w, r)

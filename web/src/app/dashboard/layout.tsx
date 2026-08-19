@@ -18,8 +18,8 @@ export default function DashboardLayout({ children }: Readonly<{ children: React
         <DashboardNav />
 
         <div className={styles.sidebarNotice}>
-          <span>Incremental migration</span>
-          <p>Next owns migrated read surfaces. Mutations and unported routes continue to fall back to the Go application.</p>
+          <span>Privacy boundary</span>
+          <p>Source code, credentials and local project roots stay outside the browser presentation contract.</p>
         </div>
       </aside>
       {children}
