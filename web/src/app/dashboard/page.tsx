@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LiveOverview } from "./overview-live";
 import styles from "./dashboard.module.css";
 
@@ -5,9 +6,10 @@ const migration = [
   { label: "Web foundation", state: "Ready", note: "Next.js App Router, TypeScript, design tokens and shared dashboard layout." },
   { label: "Overview", state: "Ready", note: "Validated read-only Go overview DTO with honest unavailable/unauthenticated states." },
   { label: "Workspaces + Devices + Usage", state: "Ready", note: "Read-only route families use minimal client-neutral DTOs, runtime validation and shared resource loading." },
+  { label: "Knowledge Graph preview", state: "Preview", note: "Bounded graph DTO + Next visualization are available without replacing Go health/controls." },
   { label: "Session bridge", state: "Implemented", note: "Same-origin browser API proxy is in place without replaying HttpOnly session secrets in Next." },
   { label: "Deployment parity", state: "Next", note: "Verify Set-Cookie, browser User-Agent and trusted client-IP forwarding on the real edge before cutover." },
-  { label: "Remaining routes", state: "Queued", note: "Knowledge, Code Graph, Security, Account and mutations remain on Go until individually migrated." },
+  { label: "Remaining routes", state: "Queued", note: "Knowledge health/controls, Code Graph, Security, Account and mutations remain on Go until individually migrated." },
 ];
 
 export default function DashboardPage() {
@@ -79,6 +81,7 @@ export default function DashboardPage() {
             <div><dt>Desktop + mobile</dt><dd>Flutter / Dart</dd></div>
             <div><dt>macOS deep integration</dt><dd>Swift native bridge</dd></div>
           </dl>
+          <Link className={styles.liveAction} href="/dashboard/knowledge-preview">Open Next Knowledge preview</Link>
         </article>
       </section>
     </section>

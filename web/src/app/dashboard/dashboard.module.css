@@ -552,6 +552,257 @@
   line-height: 1.65;
 }
 
+.knowledgeGraphLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.knowledgeGraphPanel,
+.graphInspector {
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: rgba(3, 7, 13, 0.46);
+}
+
+.knowledgeGraphPanel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.graphToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.graphToolbar label {
+  flex: 1;
+  max-width: 420px;
+}
+
+.graphSearch {
+  width: 100%;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  outline: 0;
+  color: #e8eff9;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 10px;
+}
+
+.graphSearch:focus {
+  border-color: rgba(117, 167, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(117, 167, 255, 0.08);
+}
+
+.graphLegend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 11px;
+  color: var(--muted-2);
+  font-size: 8.5px;
+}
+
+.graphLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.graphLegend i {
+  width: 7px;
+  height: 7px;
+  display: block;
+  border-radius: 999px;
+}
+
+.graphViewport {
+  position: relative;
+  min-height: 520px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(70, 113, 190, 0.08), transparent 34%),
+    linear-gradient(rgba(117, 167, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(117, 167, 255, 0.025) 1px, transparent 1px);
+  background-size: auto, 36px 36px, 36px 36px;
+}
+
+.graphViewport::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 34%, rgba(3, 7, 13, 0.26) 100%);
+}
+
+.graphViewport svg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  display: block;
+}
+
+.graphEdges line {
+  stroke: #6c8ec5;
+  stroke-width: 1.1;
+  vector-effect: non-scaling-stroke;
+  transition: opacity 140ms ease;
+}
+
+.graphNode {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 140ms ease;
+}
+
+.graphNode circle {
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+  transition: r 140ms ease, stroke-width 140ms ease, filter 140ms ease;
+}
+
+.graphNode:focus circle,
+.graphNode[data-active="true"] circle {
+  stroke: #fff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 7px rgba(117, 167, 255, 0.42));
+}
+
+.graphNode text {
+  fill: #dce7f7;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: rgba(3, 7, 13, 0.94);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.graphNodeCenter {
+  fill: #f1f5ff;
+}
+
+.graphNodeProject {
+  fill: #9b7cff;
+}
+
+.graphNodeStructure {
+  fill: #58a6ff;
+}
+
+.graphNodeKnowledge {
+  fill: #65d8c1;
+}
+
+.graphNodeSkill {
+  fill: #f4a45f;
+}
+
+.graphNodeExperience {
+  fill: #e68dff;
+}
+
+.graphNodeMemory {
+  fill: #50d9a6;
+}
+
+.graphEmpty {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graphFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted-2);
+  font-size: 8.5px;
+}
+
+.graphInspector {
+  align-self: stretch;
+  padding: 17px;
+}
+
+.graphInspector h3 {
+  margin: 11px 0 8px;
+  font-size: 19px;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
+}
+
+.graphInspector > p,
+.inspectorEmpty {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.inspectorMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inspectorMeta span {
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted-2);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7.5px;
+  text-transform: uppercase;
+}
+
+.graphInspector dl {
+  display: grid;
+  gap: 0;
+  margin: 18px 0 0;
+}
+
+.graphInspector dl > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+
+.graphInspector dt {
+  color: var(--muted-2);
+  font-size: 8.5px;
+}
+
+.graphInspector dd {
+  margin: 0;
+  color: #e4edf9;
+  font-size: 9px;
+  text-align: right;
+}
+
 .grid {
   width: min(100%, 1360px);
   display: grid;
@@ -692,8 +943,13 @@
   }
 
   .heroPanel,
-  .grid {
+  .grid,
+  .knowledgeGraphLayout {
     grid-template-columns: 1fr;
+  }
+
+  .graphInspector {
+    min-height: 180px;
   }
 }
 
@@ -771,5 +1027,24 @@
 
   .usageRow dl {
     grid-template-columns: 1fr;
+  }
+
+  .graphToolbar,
+  .graphFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .graphToolbar label {
+    max-width: none;
+  }
+
+  .graphLegend {
+    justify-content: flex-start;
+  }
+
+  .graphViewport,
+  .graphViewport svg {
+    min-height: 390px;
   }
 }
