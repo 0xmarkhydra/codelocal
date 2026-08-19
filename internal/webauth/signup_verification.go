@@ -139,6 +139,15 @@ func (m *Manager) referralAllowed(ctx context.Context, email, referralCode strin
 	return inviter != nil, err
 }
 
+func (m *Manager) signupFailure(w http.ResponseWriter, r *http.Request, csrf, next, referralCode, message string, status int) {
+	if nextUIForm(r) {
+		nextUIAuthRedirect(w, r, "/signup", url.Values{"next": {next}, "ref": {referralCode}, "error": {message}})
+		return
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(m.form("signup", csrf, next, message, referralCode)))
+}
+
 func signupErrorMessage(err error) string {
 	if err == nil {
 		return ""
@@ -160,23 +169,20 @@ func (m *Manager) signupStart(w http.ResponseWriter, r *http.Request) {
 	next := webutil.SafeNext(r.FormValue("next"))
 	referralCode := cloud.NormalizeReferralCode(r.FormValue("referralCode"))
 	if !m.VerifyCSRF(r) {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(m.form("signup", csrf, next, "Security token expired. Please try again.", referralCode)))
+		m.signupFailure(w, r, csrf, next, referralCode, "Security token expired. Please try again.", http.StatusForbidden)
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	password := r.FormValue("password")
 	if !validEmail(email) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.form("signup", csrf, next, "Enter a valid email address.", referralCode)))
+		m.signupFailure(w, r, csrf, next, referralCode, "Enter a valid email address.", http.StatusBadRequest)
 		return
 	}
 	if existing, err := m.Store.UserByEmail(r.Context(), email); err != nil {
 		http.Error(w, "Unable to check account", http.StatusInternalServerError)
 		return
 	} else if existing != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.form("signup", csrf, next, "An account with this email already exists.", referralCode)))
+		m.signupFailure(w, r, csrf, next, referralCode, "An account with this email already exists.", http.StatusBadRequest)
 		return
 	}
 	allowed, err := m.referralAllowed(r.Context(), email, referralCode)
@@ -185,14 +191,12 @@ func (m *Manager) signupStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowed {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.form("signup", csrf, next, "Referral code is invalid. Ask an existing CodeLocal member for a valid invite code.", referralCode)))
+		m.signupFailure(w, r, csrf, next, referralCode, "Referral code is invalid. Ask an existing CodeLocal member for a valid invite code.", http.StatusBadRequest)
 		return
 	}
 	hash, salt, err := HashPassword(password)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.form("signup", csrf, next, err.Error(), referralCode)))
+		m.signupFailure(w, r, csrf, next, referralCode, err.Error(), http.StatusBadRequest)
 		return
 	}
 	code, err := newSignupCode()
@@ -208,8 +212,7 @@ func (m *Manager) signupStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := m.sendSignupCode(r.Context(), email, token, code); err != nil {
 		_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(m.form("signup", csrf, next, "We could not send the verification email. Please try again.", referralCode)))
+		m.signupFailure(w, r, csrf, next, referralCode, "We could not send the verification email. Please try again.", http.StatusServiceUnavailable)
 		return
 	}
 	http.Redirect(w, r, "/signup/verify?token="+url.QueryEscape(token), http.StatusSeeOther)
@@ -265,6 +268,10 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if !ok {
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "expired": {"1"}})
+			return
+		}
 		w.WriteHeader(http.StatusGone)
 		_, _ = w.Write([]byte(m.verificationExpiredPage()))
 		return
@@ -279,6 +286,10 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 		pending.Attempts++
 		if pending.Attempts >= signupVerificationMaxAttempts {
 			_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
+			if nextUIForm(r) {
+				nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "expired": {"1"}})
+				return
+			}
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = w.Write([]byte(m.verificationExpiredPage()))
 			return
@@ -289,6 +300,10 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "error": {"The verification code is incorrect."}})
+			return
+		}
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(m.verificationForm(csrf, token, pending.Email, "The verification code is incorrect.")))
 		return
@@ -296,6 +311,10 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 	user, err := m.Store.CreateUser(r.Context(), pending.Email, pending.PasswordHash, pending.PasswordSalt, pending.ReferralCode)
 	if err != nil {
 		_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/signup", url.Values{"error": {signupErrorMessage(err)}})
+			return
+		}
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(ui.Page("Unable to create account", signupErrorMessage(err), `<div class="actions"><a class="btn primary" href="/signup">Back to sign up</a><a class="btn" href="/login">Sign in</a></div>`)))
 		return
@@ -311,12 +330,35 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, pending.Next, http.StatusSeeOther)
 }
 
+func (m *Manager) signupVerificationContext(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	pending, _, ok, err := m.loadPendingSignup(r.Context(), token)
+	w.Header().Set("Cache-Control", "no-store")
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"valid": false, "error": "verification_unavailable"})
+		return
+	}
+	if !ok {
+		webutil.JSON(w, http.StatusGone, map[string]any{"valid": false})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"valid": true, "emailMasked": maskEmail(pending.Email)})
+}
+
 func (m *Manager) registerSignupVerification(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/auth/signup-verification", m.signupVerificationContext)
 	mux.HandleFunc("GET /signup/verify", m.signupVerifyGet)
+	verifyLimit := func(w http.ResponseWriter, r *http.Request, _ int) {
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {strings.TrimSpace(r.FormValue("token"))}, "error": {"Too many verification attempts. Start again or try later."}})
+			return
+		}
+		webutil.JSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+	}
 	var verify http.Handler = http.HandlerFunc(m.signupVerifyPost)
 	verify = webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-verify-token", Limit: 12, Window: 10 * time.Minute, Subject: func(r *http.Request) string {
 		_ = r.ParseForm()
 		return strings.TrimSpace(r.Form.Get("token"))
-	}}, verify)
-	mux.Handle("POST /signup/verify", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-verify-ip", Limit: 60, Window: 10 * time.Minute}, verify))
+	}, OnLimit: verifyLimit}, verify)
+	mux.Handle("POST /signup/verify", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-verify-ip", Limit: 60, Window: 10 * time.Minute, OnLimit: verifyLimit}, verify))
 }

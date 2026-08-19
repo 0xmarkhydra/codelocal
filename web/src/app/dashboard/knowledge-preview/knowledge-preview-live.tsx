@@ -12,7 +12,7 @@ export function LiveKnowledgePreview() {
   if (state.kind !== "ready") {
     return (
       <DashboardResourceFeedback
-        label="Knowledge Graph preview"
+        label="Knowledge Graph"
         {...(state.kind === "error"
           ? { kind: "error" as const, message: state.message, onRetry: retry }
           : { kind: state.kind })}
@@ -25,7 +25,7 @@ export function LiveKnowledgePreview() {
     <section className={styles.livePanel} aria-live="polite">
       <div className={styles.liveHead}>
         <div>
-          <span className={styles.eyebrow}>Knowledge Graph preview</span>
+          <span className={styles.eyebrow}>Knowledge Graph</span>
           <h2>Durable Project Brain relationships, rendered from a bounded Go graph contract.</h2>
           <p>
             Browser IDs are response-local and repository remotes, device identifiers and source-memory IDs are excluded from this client contract.

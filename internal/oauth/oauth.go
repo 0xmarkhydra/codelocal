@@ -171,6 +171,72 @@ func contains(values []string, value string) bool {
 }
 func hidden(fields map[string]string) string { return ui.Hidden(fields) }
 
+type authorizeContext struct {
+	ClientID      string `json:"clientId"`
+	ClientName    string `json:"clientName"`
+	RedirectURI   string `json:"redirectUri"`
+	ResponseType  string `json:"responseType"`
+	CodeChallenge string `json:"codeChallenge"`
+	Resource      string `json:"resource"`
+	Scope         string `json:"scope"`
+	State         string `json:"state"`
+	Email         string `json:"email"`
+	CSRF          string `json:"csrf"`
+}
+
+func (s *Server) authorizeContextForRequest(r *http.Request) (*authorizeContext, *webauth.Identity, error) {
+	q := r.URL.Query()
+	clientID := q.Get("client_id")
+	redirectURI := q.Get("redirect_uri")
+	responseType := q.Get("response_type")
+	challenge := q.Get("code_challenge")
+	method := q.Get("code_challenge_method")
+	resource := q.Get("resource")
+	scope := parseScope(q.Get("scope"))
+	state := q.Get("state")
+	client, _ := s.Store.OAuthClient(r.Context(), clientID)
+	if client == nil || !contains(client.RedirectURIs, redirectURI) || responseType != "code" || challenge == "" || method != "S256" || resource != s.Resource {
+		return nil, nil, errors.New("invalid OAuth authorization request")
+	}
+	identity, err := s.WebAuth.Identity(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	if identity == nil {
+		return nil, nil, nil
+	}
+	name := client.ClientName
+	if name == "" {
+		name = "MCP client"
+	}
+	return &authorizeContext{
+		ClientID: clientID, ClientName: name, RedirectURI: redirectURI, ResponseType: responseType,
+		CodeChallenge: challenge, Resource: resource, Scope: scope, State: state,
+		Email: identity.User.Email, CSRF: identity.CSRF,
+	}, identity, nil
+}
+
+func authorizeRetryURL(r *http.Request, errorMessage string) string {
+	values := url.Values{
+		"client_id":             {r.FormValue("client_id")},
+		"redirect_uri":          {r.FormValue("redirect_uri")},
+		"response_type":         {"code"},
+		"code_challenge":        {r.FormValue("code_challenge")},
+		"code_challenge_method": {"S256"},
+		"resource":              {r.FormValue("resource")},
+		"scope":                 {r.FormValue("scope")},
+		"state":                 {r.FormValue("state")},
+	}
+	if errorMessage != "" {
+		values.Set("error", errorMessage)
+	}
+	return "/authorize?" + values.Encode()
+}
+
+func nextAuthorizeUI(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next")
+}
+
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, 200, map[string]any{"resource": s.Resource, "authorization_servers": []string{s.BaseURL}, "scopes_supported": []string{"mcp:tools", "offline_access"}, "bearer_methods_supported": []string{"header"}})
@@ -226,22 +292,29 @@ func (s *Server) Register(mux *http.ServeMux) {
 		}(), "redirect_uris": client.RedirectURIs, "grant_types": []string{"authorization_code", "refresh_token"}, "response_types": []string{"code"}, "token_endpoint_auth_method": "none"})
 	})
 	mux.Handle("POST /register", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "oauth-register-ip", Limit: 30, Window: time.Minute}, register))
-	mux.HandleFunc("GET /authorize", func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		clientID := q.Get("client_id")
-		redirectURI := q.Get("redirect_uri")
-		responseType := q.Get("response_type")
-		challenge := q.Get("code_challenge")
-		method := q.Get("code_challenge_method")
-		resource := q.Get("resource")
-		scope := parseScope(q.Get("scope"))
-		state := q.Get("state")
-		client, _ := s.Store.OAuthClient(r.Context(), clientID)
-		if client == nil || !contains(client.RedirectURIs, redirectURI) || responseType != "code" || challenge == "" || method != "S256" || resource != s.Resource {
-			http.Error(w, "Invalid OAuth authorization request.", 400)
+	mux.HandleFunc("GET /api/v1/oauth/authorize-context", func(w http.ResponseWriter, r *http.Request) {
+		ctx, identity, err := s.authorizeContextForRequest(r)
+		w.Header().Set("Cache-Control", "no-store")
+		if err != nil {
+			webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_authorization_request"})
 			return
 		}
-		identity, _ := s.WebAuth.Identity(r)
+		if identity == nil {
+			webutil.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if identity.RequiresReauthentication() {
+			webutil.JSON(w, http.StatusUnauthorized, map[string]string{"error": "reauthentication_required"})
+			return
+		}
+		webutil.JSON(w, http.StatusOK, ctx)
+	})
+	mux.HandleFunc("GET /authorize", func(w http.ResponseWriter, r *http.Request) {
+		ctx, identity, err := s.authorizeContextForRequest(r)
+		if err != nil {
+			http.Error(w, "Invalid OAuth authorization request.", http.StatusBadRequest)
+			return
+		}
 		if identity == nil {
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 			return
@@ -249,24 +322,33 @@ func (s *Server) Register(mux *http.ServeMux) {
 		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity) {
 			return
 		}
-		name := client.ClientName
-		if name == "" {
-			name = "MCP client"
-		}
-		body := `<div class="row"><div class="row-title">` + ui.Escape(name) + `</div><div class="row-meta mono">` + ui.Escape(s.Resource) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/authorize">` + hidden(map[string]string{"client_id": clientID, "redirect_uri": redirectURI, "code_challenge": challenge, "resource": resource, "scope": scope, "state": state, "csrf": identity.CSRF}) + `<button class="btn primary" type="submit">Authorize MCP client</button><a class="btn" href="/dashboard">Cancel</a></form>`
+		body := `<div class="row"><div class="row-title">` + ui.Escape(ctx.ClientName) + `</div><div class="row-meta mono">` + ui.Escape(ctx.Resource) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/authorize">` + hidden(map[string]string{"client_id": ctx.ClientID, "redirect_uri": ctx.RedirectURI, "code_challenge": ctx.CodeChallenge, "resource": ctx.Resource, "scope": ctx.Scope, "state": ctx.State, "csrf": ctx.CSRF}) + `<button class="btn primary" type="submit">Authorize MCP client</button><a class="btn" href="/dashboard">Cancel</a></form>`
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(ui.Page("Authorize MCP client", "Signed in as "+identity.User.Email+". This client will only see devices and workspaces belonging to this CodeLocal account.", body)))
+		_, _ = w.Write([]byte(ui.Page("Authorize MCP client", "Signed in as "+ctx.Email+". This client will only see devices and workspaces belonging to this CodeLocal account.", body)))
 	})
 	mux.HandleFunc("POST /authorize", func(w http.ResponseWriter, r *http.Request) {
+		retryURL := authorizeRetryURL(r, "")
 		identity, _ := s.WebAuth.Identity(r)
 		if identity == nil {
+			if nextAuthorizeUI(r) {
+				http.Redirect(w, r, "/login?next="+url.QueryEscape(retryURL), http.StatusSeeOther)
+				return
+			}
 			http.Error(w, "Sign in to CodeLocal and restart the MCP connection flow.", 401)
 			return
 		}
-		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, "/dashboard/connect") {
+		freshNext := "/dashboard/connect"
+		if nextAuthorizeUI(r) {
+			freshNext = retryURL
+		}
+		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, freshNext) {
 			return
 		}
 		if !s.WebAuth.VerifyCSRF(r) {
+			if nextAuthorizeUI(r) {
+				http.Redirect(w, r, authorizeRetryURL(r, "Invalid security token. Restart the authorization flow."), http.StatusSeeOther)
+				return
+			}
 			http.Error(w, "Invalid security token. Restart the authorization flow.", 403)
 			return
 		}

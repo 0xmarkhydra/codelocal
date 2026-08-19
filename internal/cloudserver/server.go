@@ -271,6 +271,11 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/knowledge/health", s.knowledgeHealthResourceAPI)
 	mux.HandleFunc("GET /api/v1/code/graph", s.codeGraphResourceAPI)
 	mux.HandleFunc("GET /api/v1/account", s.accountResourceAPI)
+	mux.HandleFunc("GET /api/v1/auth/csrf", s.authCSRFResourceAPI)
+	mux.HandleFunc("GET /api/v1/invite", s.inviteResourceAPI)
+	mux.HandleFunc("GET /api/v1/leaderboard", s.leaderboardResourceAPI)
+	mux.HandleFunc("GET /api/v1/admin", s.adminResourceAPI)
+	mux.HandleFunc("GET /api/v1/pair/approve", s.pairApproveResourceAPI)
 	mux.HandleFunc("POST /api/v1/devices/{deviceID}/revoke", s.revokeDeviceResourceAPI)
 	mux.HandleFunc("POST /api/v1/workspaces/{deviceID}/{workspaceID}/remove", s.removeWorkspaceResourceAPI)
 	mux.Handle("GET /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesGet)))
@@ -784,20 +789,33 @@ func (s *Server) pairApprovePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	next := "/pair/approve?pairingId=" + url.QueryEscape(r.FormValue("pairingId"))
+	pairingID := r.FormValue("pairingId")
+	next := "/pair/approve?pairingId=" + url.QueryEscape(pairingID)
 	if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, next) {
 		return
 	}
 	if !s.WebAuth.VerifyCSRF(r) {
+		if strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next") {
+			http.Redirect(w, r, next+"&error="+url.QueryEscape("Invalid security token. Please try again."), http.StatusSeeOther)
+			return
+		}
 		http.Error(w, "Invalid security token.", http.StatusForbidden)
 		return
 	}
-	pairing, err := s.Store.ApprovePairing(r.Context(), r.FormValue("pairingId"), r.FormValue("code"), identity.User.ID)
+	pairing, err := s.Store.ApprovePairing(r.Context(), pairingID, r.FormValue("code"), identity.User.ID)
 	if err != nil || pairing == nil {
+		if strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next") {
+			http.Redirect(w, r, next+"&error="+url.QueryEscape("Invalid or expired pairing request/code."), http.StatusSeeOther)
+			return
+		}
 		http.Error(w, "Invalid or expired pairing request/code.", http.StatusBadRequest)
 		return
 	}
 	s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "device.pairing_approved", DeviceID: pairing.DeviceID, Detail: map[string]any{"deviceName": pairing.DeviceName}})
+	if strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next") {
+		http.Redirect(w, r, next+"&approved=1", http.StatusSeeOther)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(ui.Page("Device approved", "Return to your terminal. CodeLocal will claim its credential automatically.", `<a class="btn primary" href="/dashboard/devices">View devices</a>`)))
 }

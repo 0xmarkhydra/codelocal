@@ -3,12 +3,10 @@ import Link from "next/link";
 import styles from "./page.module.css";
 
 const surfaces = [
-  { label: "Backend", value: "Go", detail: "Cloud API · MCP · Project Brain" },
-  { label: "Web", value: "Next.js", detail: "Dashboard · Admin · Public product" },
-  { label: "App", value: "Flutter", detail: "iOS · Android" },
-  { label: "Desktop", value: "Flutter", detail: "macOS · Windows · Linux" },
-  { label: "CLI", value: "Go", detail: "Local runtime · workspace execution" },
-  { label: "Native", value: "OS bridge", detail: "Swift and bounded platform APIs" },
+  { label: "AI clients", value: "MCP", detail: "ChatGPT · Claude · Codex · compatible clients" },
+  { label: "Cloud authority", value: "Go", detail: "Identity · OAuth · routing · Project Brain" },
+  { label: "Local runtime", value: "CodeLocal", detail: "Files · Git · terminal · browser · computer" },
+  { label: "Project access", value: "Explicit", detail: "Only workspaces you authorize" },
 ];
 
 export default function Home() {
@@ -22,32 +20,29 @@ export default function Home() {
           <span>CodeLocal</span>
         </Link>
         <nav className={styles.navActions} aria-label="Primary navigation">
-          <a href="https://codelocal.cloud">Current production</a>
-          <Link className={styles.navButton} href="/dashboard">Open new shell</Link>
+          <Link href="/security">Security</Link>
+          <Link href="/login">Sign in</Link>
+          <Link className={styles.navButton} href="/dashboard">Open dashboard</Link>
         </nav>
       </header>
 
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
           <div className={styles.eyebrow}>Universal MCP · Local execution · Durable Project Brain</div>
-          <h1>Your AI client reasons. CodeLocal gives it controlled hands and project memory.</h1>
+          <h1>Your AI can reason. CodeLocal gives it controlled hands and project memory.</h1>
           <p>
-            One product layer for cloud identity, local workspace execution, reusable project intelligence,
-            and a growing family of web, mobile and desktop clients.
+            Connect compatible AI clients to the projects on your own machine without turning your computer into an open remote filesystem. Authorize the folders you want, keep execution local, and carry durable project intelligence across sessions.
           </p>
           <div className={styles.actions}>
-            <Link className={styles.primaryButton} href="/dashboard">Explore the new dashboard shell</Link>
-            <a className={styles.secondaryButton} href="https://codelocal.cloud">Use current production</a>
+            <Link className={styles.primaryButton} href="/dashboard">Open CodeLocal</Link>
+            <a className={styles.secondaryButton} href="#setup">Connect an AI client</a>
           </div>
-          <p className={styles.migrationNote}>
-            This Next.js surface is being migrated incrementally. Existing Go-rendered production routes remain the fallback until parity is verified.
-          </p>
         </div>
 
-        <div className={styles.systemFrame} aria-label="CodeLocal architecture overview">
+        <div className={styles.systemFrame} aria-label="CodeLocal trust boundary">
           <div className={styles.frameTop}>
-            <span>PRODUCT STACK</span>
-            <span className={styles.frameState}>ARCHITECTURE · NOT LIVE TELEMETRY</span>
+            <span>LOCAL-FIRST CONTROL PLANE</span>
+            <span className={styles.frameState}>REAL AUTHORITY BOUNDARIES</span>
           </div>
           <div className={styles.stackGrid}>
             {surfaces.map((surface) => (
@@ -59,29 +54,37 @@ export default function Home() {
             ))}
           </div>
           <div className={styles.flow}>
-            <span>AI clients</span><b>→</b><span>Go backend</span><b>→</b><span>local runtime</span><b>→</b><span>authorized workspace</span>
+            <span>AI client</span><b>→</b><span>Go gateway</span><b>→</b><span>paired runtime</span><b>→</b><span>authorized workspace</span>
           </div>
         </div>
       </section>
 
       <section className={styles.principles}>
         <div>
-          <span className={styles.sectionLabel}>Architecture rule</span>
-          <h2>Different surfaces, one authority model.</h2>
+          <span className={styles.sectionLabel}>Trust model</span>
+          <h2>Cloud coordination. Local execution.</h2>
         </div>
         <div className={styles.principleGrid}>
-          <article>
-            <strong>Cloud authority stays in Go.</strong>
-            <p>Identity, authorization, billing, Project Brain and durable state remain backend responsibilities.</p>
-          </article>
-          <article>
-            <strong>Execution stays local.</strong>
-            <p>CLI/runtime controls filesystem, Git, terminal, MCP extensions and native computer capabilities on the authorized machine.</p>
-          </article>
-          <article>
-            <strong>Clients stay replaceable.</strong>
-            <p>Next.js and Flutter are presentation/product surfaces over stable contracts, not duplicate implementations of security truth.</p>
-          </article>
+          <article><strong>Your source stays local.</strong><p>Filesystem and execution run through the paired CodeLocal runtime on the machine you control.</p></article>
+          <article><strong>Access is workspace-scoped.</strong><p>A project becomes available only after you explicitly authorize that workspace.</p></article>
+          <article><strong>Security truth stays centralized.</strong><p>Identity, OAuth, session security and authorization remain enforced by the Go backend rather than duplicated in the UI.</p></article>
+        </div>
+      </section>
+
+      <section className={styles.setup} id="setup">
+        <div>
+          <span className={styles.sectionLabel}>Get connected</span>
+          <h2>One MCP endpoint. Your projects stay on your machine.</h2>
+          <p>Sign in, pair your machine, authorize a project with <code>codelocal .</code>, then copy your MCP endpoint into a compatible AI client.</p>
+          <div className={styles.actions}>
+            <Link className={styles.primaryButton} href="/dashboard/connect">Open MCP Connections</Link>
+            <Link className={styles.secondaryButton} href="/support">Support</Link>
+          </div>
+        </div>
+        <div className={styles.setupGrid}>
+          <article><span>01</span><strong>Pair a machine</strong><small>Approve a local CodeLocal runtime under your account.</small></article>
+          <article><span>02</span><strong>Authorize a workspace</strong><small>Run <code>codelocal .</code> only inside the project you want to expose.</small></article>
+          <article><span>03</span><strong>Connect over MCP</strong><small>OAuth binds the AI client to your account and permitted workspaces.</small></article>
         </div>
       </section>
     </main>

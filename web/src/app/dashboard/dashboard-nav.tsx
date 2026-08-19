@@ -7,24 +7,20 @@ import styles from "./dashboard.module.css";
 import controls from "./dashboard-controls.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
 
-type NavigationItem = {
-  label: string;
-  href: string;
-  owner: "next" | "go";
-};
+type NavigationItem = { label: string; href: string };
 
 const navigation: NavigationItem[] = [
-  { label: "Overview", href: "/dashboard", owner: "next" },
-  { label: "MCP Connections", href: "/dashboard/connect", owner: "go" },
-  { label: "Workspaces", href: "/dashboard/workspaces", owner: "next" },
-  { label: "Knowledge Graph", href: "/dashboard/knowledge", owner: "next" },
-  { label: "Code Graph", href: "/dashboard/code-graph", owner: "next" },
-  { label: "Devices", href: "/dashboard/devices", owner: "next" },
-  { label: "Usage", href: "/dashboard/usage", owner: "next" },
-  { label: "Invite", href: "/dashboard/invite", owner: "go" },
-  { label: "Leaderboard", href: "/dashboard/leaderboard", owner: "go" },
-  { label: "Security", href: "/dashboard/security", owner: "next" },
-  { label: "Account", href: "/dashboard/account", owner: "next" },
+  { label: "Overview", href: "/dashboard" },
+  { label: "MCP Connections", href: "/dashboard/connect" },
+  { label: "Workspaces", href: "/dashboard/workspaces" },
+  { label: "Knowledge Graph", href: "/dashboard/knowledge" },
+  { label: "Code Graph", href: "/dashboard/code-graph" },
+  { label: "Devices", href: "/dashboard/devices" },
+  { label: "Usage", href: "/dashboard/usage" },
+  { label: "Invite", href: "/dashboard/invite" },
+  { label: "Leaderboard", href: "/dashboard/leaderboard" },
+  { label: "Security", href: "/dashboard/security" },
+  { label: "Account", href: "/dashboard/account" },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -32,34 +28,26 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavigationLink({ item, active }: { item: NavigationItem; active: boolean }) {
-  const className = active ? styles.activeNav : undefined;
-  const content = (
-    <>
-      <i aria-hidden="true" />
-      {item.label}
-    </>
-  );
-  if (item.owner === "go") {
-    return <a className={className} href={item.href} aria-current={active ? "page" : undefined}>{content}</a>;
-  }
-  return <Link className={className} href={item.href} aria-current={active ? "page" : undefined}>{content}</Link>;
-}
-
 export function DashboardNav() {
   const pathname = usePathname();
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const readyAccount = account.state.kind === "ready" ? account.state.value : undefined;
   const items: NavigationItem[] = readyAccount?.isAdmin
-    ? [...navigation, { label: "Admin", href: "/dashboard/admin", owner: "go" }]
+    ? [...navigation, { label: "Admin", href: "/dashboard/admin" }]
     : navigation;
 
   return (
     <>
       <nav className={styles.nav} aria-label="Dashboard navigation">
-        {items.map((item) => (
-          <NavigationLink item={item} active={isActive(pathname, item.href)} key={item.href} />
-        ))}
+        {items.map((item) => {
+          const active = isActive(pathname, item.href);
+          return (
+            <Link className={active ? styles.activeNav : undefined} href={item.href} aria-current={active ? "page" : undefined} key={item.href}>
+              <i aria-hidden="true" />
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
 
       {readyAccount && (

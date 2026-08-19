@@ -1,43 +1,54 @@
 # Next.js Web Cutover Runbook
 
-Status: **feature parity implemented; production cutover is feature-flagged and must pass canary deployment gates.**
+Status: **complete browser-presentation parity implemented; cutover remains feature-flagged until the Railway DEV canary passes.**
 
-## Production topology
+## Final topology
 
-Keep the existing Go cloud service as the public gateway for `codelocal.cloud`.
+Keep the existing Go cloud service as the public gateway. Do not move the CodeLocal public domain directly to Next.
 
 ```text
-Internet / Railway public edge
+Internet / Railway edge
           |
           v
    Go cloud gateway
-   ├─ auth / OAuth / pairing
-   ├─ /api/* and /api/v1/*
-   ├─ /client transport
-   ├─ /mcp transport
-   ├─ /dashboard/admin
-   └─ selected web pages ──────> Next.js web service (Railway private network)
+   |-- browser GET/HEAD presentation ----> Next.js web service (private Railway network)
+   |-- auth/OAuth/pairing mutations ------> Go
+   |-- /api/* and /api/v1/* --------------> Go
+   |-- /client and /mcp -------------------> Go
+   `-- local-runtime transports -----------> Go
 ```
 
-The Next service is the canonical browser presentation layer. Go remains the network, identity, authorization, MCP and local-runtime authority.
+Next is the canonical browser UI. Go remains the identity, authorization, security, MCP and runtime authority.
 
-Do **not** move the production domain directly from Go to Next. The Go service owns long-lived/runtime routes such as `/client` and `/mcp`; making Next the catch-all public proxy would unnecessarily put those transports behind a framework proxy.
+## Next-owned browser presentation
 
-## Route ownership after cutover
+When `CODELOCAL_WEB_CUTOVER=1`, Go proxies GET/HEAD for the complete user-facing browser surface to Next:
 
-Go proxies **GET/HEAD presentation requests only** to Next when `CODELOCAL_WEB_CUTOVER=1`.
-
-Public Next-owned presentation:
+Public/account presentation:
 
 - `/`
-- `/_next/*`
-- `/favicon.ico`
-- `/codelocal-icon.png`
+- `/login`
+- `/register`
+- `/signup`
+- `/signup/verify`
+- `/forgot-password`
+- `/reset-password`
+- `/privacy`
+- `/terms`
+- `/support`
+- `/security`
 - `/healthz`
+- `/_next/*`, `/favicon.ico`, `/codelocal-icon.png`
 
-Protected Next-owned dashboard routes are an explicit whitelist:
+Fresh-security protected presentation:
+
+- `/authorize`
+- `/pair/approve`
+
+Authenticated dashboard presentation:
 
 - `/dashboard`
+- `/dashboard/connect`
 - `/dashboard/workspaces`
 - `/dashboard/knowledge`
 - `/dashboard/knowledge-preview`
@@ -45,31 +56,36 @@ Protected Next-owned dashboard routes are an explicit whitelist:
 - `/dashboard/code-graph-preview`
 - `/dashboard/devices`
 - `/dashboard/usage`
+- `/dashboard/invite`
+- `/dashboard/leaderboard`
 - `/dashboard/security`
 - `/dashboard/account`
 - `/dashboard/account-preview`
+- `/dashboard/admin` (admin identity required)
 
-Go continues to serve all other routes directly, including:
+Unknown browser paths, protocol endpoints and every mutation remain on Go.
 
-- every non-GET/HEAD request, including dashboard mutations;
-- login/signup/logout/password reset and reauthentication;
-- OAuth and MCP authorization;
-- pairing and client-runtime endpoints;
-- `/api/*` and `/api/v1/*`;
-- `/client` and `/mcp`;
-- `/dashboard/connect`, `/dashboard/invite`, `/dashboard/leaderboard` and `/dashboard/admin`;
-- unknown/unmigrated `/dashboard/...` paths;
-- legal/support/security public documents.
+## Go-owned trust surface
 
-Go-owned dashboard links intentionally use normal browser navigation rather than Next client routing. This prevents an unmigrated route from being fetched through the Next fallback rewrite after the Go presentation proxy has stripped the browser session cookie.
+The cutover must never proxy these through Next as application authority:
 
-Browser API calls from Next pages go directly to the public Go service on the same origin. They do not need to pass through the Next server in production.
+- POST/PUT/PATCH/DELETE requests;
+- login/signup/verification/password-reset form processing;
+- logout and password change;
+- OAuth client registration, authorization POST and token endpoint;
+- device pairing POST and workspace/device mutations;
+- `/api/*`, `/api/v1/*`;
+- `/.well-known/*` protocol metadata;
+- `/client`, `/mcp`, runtime WebSocket/API routes;
+- health/debug/internal protocol endpoints that are not browser presentation.
+
+Next forms submit to the existing Go handlers. Forms include `ui=next` only to make Go redirect validation/rate-limit/recovery outcomes back to Next; it does not change security policy.
 
 ## Security boundary
 
-For protected dashboard pages, Go runs the existing `WebAuth.Require` check **before** proxying presentation to Next.
+For authenticated Next pages, Go resolves the existing browser identity before the presentation hop. `/authorize` and `/pair/approve` also require a fresh security context. `/dashboard/admin` additionally requires the configured admin identity.
 
-The Go presentation proxy then strips:
+Before Go proxies a presentation request to Next it strips:
 
 - `Cookie`;
 - `Authorization`;
@@ -77,118 +93,114 @@ The Go presentation proxy then strips:
 - `X-Forwarded-For`;
 - Railway edge/request identifiers.
 
-Next therefore renders the page without receiving the browser session secret or client-IP security signal. Sensitive mutations continue to hit Go directly and retain CSRF, fresh-security, rate-limit and audit behavior.
+The presentation service therefore does not receive browser session secrets or the original client-IP security signal.
 
-The old Go-rendered dashboard remains compiled. Rollback is an environment change, not a code revert.
+Public Next auth forms obtain their CSRF form token from `GET /api/v1/auth/csrf`; the matching CSRF cookie remains HttpOnly. Signup/reset context APIs expose only validity and masked email addresses. OAuth context is validated by Go against the registered redirect URI, PKCE S256 challenge and MCP resource before consent is rendered.
 
-## Railway web service
+## Railway DEV web service
 
-The repository includes:
-
-- `Dockerfile.web` — production Next standalone image;
-- `railway.web.json` — service-specific build/health configuration;
-- `/healthz` — Next service health check;
-- `web/src/proxy.ts` — forwarding-header hardening for direct canary traffic.
-
-Create a second Railway service from the same GitHub repository. Configure its **Config as Code file** to:
+Create a second service in the existing `dev` environment from `0xmarkhydra/codex-mcp`, branch `dev`:
 
 ```text
-/railway.web.json
+Service: CodeLocal-Web-DEV
+Config as Code: /railway.web.json
+Dockerfile: Dockerfile.web
+Health: /healthz
+Port: 3000
 ```
 
-Keep the repository root as the build root because `Dockerfile.web` copies from `web/`.
+Keep the repository root as build root because `Dockerfile.web` copies `web/`.
 
-Set the web service variable:
+Set on the web service:
 
 ```text
-CODELOCAL_BACKEND_URL=http://${{<GO_SERVICE>.RAILWAY_PRIVATE_DOMAIN}}:${{<GO_SERVICE>.PORT}}
+CODELOCAL_BACKEND_URL=http://${{CodeLocal-MCP-DEV.RAILWAY_PRIVATE_DOMAIN}}:${{CodeLocal-MCP-DEV.PORT}}
 ```
 
-Replace `<GO_SERVICE>` with the actual Railway service reference. The variable is required during the Docker build because Next compiles external rewrite destinations into the production build; `Dockerfile.web` declares it as a build `ARG` and Railway also supplies service variables at runtime.
+Use Railway service-reference variables rather than copying a private hostname manually where possible.
 
-During canary testing, give the Next service its own temporary public Railway domain. Do not move `codelocal.cloud` yet.
+Give the web service a temporary Railway public domain for canary checks. Do not move `codelocal.cloud` or any production domain.
 
-## Edge canary probe
+## DEV canary checks
 
-The Go service contains a disabled-by-default probe at:
+Before enabling the Go presentation cutover:
+
+1. `GET <web-canary>/healthz` returns healthy.
+2. `/`, `/login`, `/signup`, `/forgot-password`, `/privacy`, `/terms`, `/support`, `/security` render the Next design.
+3. Unauthenticated `/api/v1/account` through the canary remains 401/no-store rather than fabricating an account.
+4. Invalid/expired signup/reset context fails closed.
+5. No Next page receives a raw project root, credential ID, password hash/salt, browser session ID or raw graph identity.
+
+Authenticated canary checks with a test account:
+
+1. login/logout remain Go session operations;
+2. signup → email OTP → verify creates the account only after OTP success;
+3. forgot/reset password preserves rate limits and revokes existing sessions after success;
+4. OAuth consent validates client/redirect/PKCE/resource and POSTs to Go;
+5. pair approval requires authenticated fresh security context and POSTs to Go;
+6. MCP Connections shows the current public origin plus `/mcp`;
+7. Workspaces/Devices preserve search, 12-item paging and mutation semantics;
+8. Workspace → Code Graph opens the matching public device/workspace context;
+9. Knowledge Graph, Code Graph and Project Brain controls fail closed when backend/runtime is unavailable;
+10. Invite, Leaderboard and Admin render the Go-backed client-neutral DTOs;
+11. `/dashboard/admin` is forbidden for non-admin users;
+12. mobile navigation and reduced-motion layouts remain usable.
+
+## Enable DEV cutover
+
+After the web service is healthy, set on **CodeLocal-MCP-DEV only**:
 
 ```text
-GET /internal/web-edge-probe
-```
-
-It returns `404` unless `CODELOCAL_EDGE_PROBE_TOKEN` is configured and the exact bearer token is supplied. The probe returns only HMAC digests of client IP and User-Agent, never the raw client IP.
-
-Set the same temporary token in the Go deployment and local shell, then run:
-
-```bash
-CODELOCAL_WEB_URL=https://<next-canary-domain> \
-CODELOCAL_BACKEND_PUBLIC_URL=https://<go-public-domain> \
-CODELOCAL_EDGE_PROBE_TOKEN='<temporary-secret>' \
-npm run verify:web-edge
-```
-
-The smoke check verifies:
-
-1. Next `/healthz` works;
-2. `/api/v1/account` reaches Go through the direct canary rewrite and remains unauthenticated/no-store without a session;
-3. direct-Go and Next-proxied client-IP HMACs match;
-4. direct-Go and Next-proxied User-Agent HMACs match;
-5. HTTPS/Railway edge markers survive the canary path.
-
-Remove `CODELOCAL_EDGE_PROBE_TOKEN` after canary verification unless another controlled deployment check is planned.
-
-## Authenticated canary checks
-
-Before production cutover, verify with a test account and disposable device/workspace:
-
-1. Login and logout through the canary domain; logout still requires the Go-issued CSRF token and deletes the current Go session.
-2. Overview restores the three real onboarding states: no paired machine, paired/runtime offline, and runtime connected.
-3. Workspaces and Devices show only backend-validated state, preserve 12-item paging/search behavior, and mutations refresh the list after success.
-4. A workspace `Code Graph` action opens `/dashboard/code-graph` with the matching public `deviceId` + `workspaceId`, and Code Graph selects that checkout instead of silently choosing the first one.
-5. Knowledge Graph and Code Graph render bounded data and fail closed when the backend/local runtime is unavailable.
-6. Password change requires current password + CSRF + fresh security context and rotates other browser sessions.
-7. Device revoke uses only public `deviceId` in the browser request; private credential ID never appears in browser JSON/HTML.
-8. Workspace removal is disabled while the runtime is offline and succeeds through the existing local revocation handshake when online.
-9. `/dashboard/connect`, `/dashboard/invite`, `/dashboard/leaderboard` and `/dashboard/admin` perform full browser navigations and remain authenticated Go-owned pages.
-10. POST/PUT/PATCH/DELETE requests under `/dashboard` never enter the Next presentation proxy.
-11. Security page does not fabricate an audit/login/IP feed.
-12. Reduced-motion and mobile layouts remain usable; mobile dashboard navigation remains reachable rather than being hidden.
-
-## Enable production presentation proxy
-
-After the web canary passes, configure the **Go service**:
-
-```text
-CODELOCAL_WEB_ORIGIN=http://${{<WEB_SERVICE>.RAILWAY_PRIVATE_DOMAIN}}:${{<WEB_SERVICE>.PORT}}
+CODELOCAL_WEB_ORIGIN=http://${{CodeLocal-Web-DEV.RAILWAY_PRIVATE_DOMAIN}}:${{CodeLocal-Web-DEV.PORT}}
 CODELOCAL_WEB_CUTOVER=1
 ```
 
-Do not change `PUBLIC_BASE_URL`, MCP/OAuth endpoints or client gateway URLs as part of this cutover.
+Redeploy/restart the Go DEV service if Railway does not automatically redeploy after variable changes.
 
-Verify after deployment:
+Then verify on the existing public DEV gateway:
 
-- `/health` still reports Go health;
-- `/healthz` reports Next health through Go;
-- `/mcp` and `/client` still terminate on Go;
-- `/dashboard/admin` is still Go;
-- `/dashboard`, Knowledge, Code Graph, Security and Account are Next pages;
-- API and mutation behavior remains Go-owned.
+```text
+https://codelocal-mcp.up.railway.app/
+```
+
+Expected:
+
+- entire browser UI is Next;
+- `/health` is still Go health;
+- `/healthz` reaches Next through Go;
+- `/api/*`, `/mcp`, `/client`, OAuth POST/token and mutations still terminate on Go;
+- protected pages redirect to the Next login presentation when unauthenticated;
+- no legacy Go HTML appears in normal browser flows.
 
 ## Rollback
 
-Set:
+If any DEV smoke check fails:
 
 ```text
 CODELOCAL_WEB_CUTOVER=0
 ```
 
-or remove it and redeploy the Go service. The gateway immediately returns to the existing Go-rendered web UI without changing auth, database, MCP, pairing or runtime state.
+or remove the variable, then redeploy/restart the Go service. The legacy Go-rendered presentation remains compiled specifically for this rollback window. Auth, database, MCP, pairing and runtime state do not need to be rolled back.
 
-If the Next service itself is unhealthy, keep cutover disabled until `/healthz` is stable. Do not make the Go transport surface depend on Next availability.
+Do not delete the legacy Go presentation until the Next UI has been proven in production and rollback confidence is high.
+
+## Production promotion
+
+Only after DEV passes:
+
+1. merge the verified dev line according to the normal release process;
+2. create `CodeLocal-Web-PROD` from `main` with the same web config;
+3. set its private Go backend reference to `CodeLocal-MCP-PROD`;
+4. canary the web service;
+5. set `CODELOCAL_WEB_ORIGIN` on Go PROD;
+6. enable `CODELOCAL_WEB_CUTOVER=1` only after smoke tests pass;
+7. keep public MCP/OAuth/client URLs unchanged.
+
+This runbook does not authorize a production cutover automatically.
 
 ## Repository gates
 
-Before every web cutover candidate:
+Every cutover candidate must pass:
 
 ```bash
 npm run ci
@@ -199,4 +211,4 @@ docker build -f Dockerfile.web \
   -t codelocal-web:cutover .
 ```
 
-CI builds both Docker images so an application build can be green while a production container build is not.
+GitHub CI builds both Docker images and the cross-platform npm staging package.

@@ -7,26 +7,26 @@ import (
 	"testing"
 )
 
-func TestNextDashboardRoutingUsesExplicitParityWhitelist(t *testing.T) {
+func TestNextDashboardRoutingUsesCompletePresentationWhitelist(t *testing.T) {
 	for _, path := range []string{
 		"/dashboard",
+		"/dashboard/connect",
 		"/dashboard/devices",
 		"/dashboard/workspaces",
 		"/dashboard/knowledge",
 		"/dashboard/code-graph",
 		"/dashboard/usage",
+		"/dashboard/invite",
+		"/dashboard/leaderboard",
 		"/dashboard/security",
 		"/dashboard/account",
+		"/dashboard/admin",
 	} {
 		if !isNextDashboardPath(path) {
 			t.Fatalf("expected %q to use Next dashboard", path)
 		}
 	}
 	for _, path := range []string{
-		"/dashboard/connect",
-		"/dashboard/invite",
-		"/dashboard/leaderboard",
-		"/dashboard/admin",
 		"/dashboard/admin/users",
 		"/dashboard/unknown",
 		"/api/v1/account",
@@ -35,6 +35,19 @@ func TestNextDashboardRoutingUsesExplicitParityWhitelist(t *testing.T) {
 	} {
 		if isNextDashboardPath(path) {
 			t.Fatalf("expected %q to stay on Go", path)
+		}
+	}
+}
+
+func TestNextPresentationOwnsPublicAndFreshSecurityPages(t *testing.T) {
+	for _, path := range []string{"/", "/login", "/register", "/signup", "/signup/verify", "/forgot-password", "/reset-password", "/privacy", "/terms", "/support", "/security", "/healthz"} {
+		if !isNextPublicPagePath(path) {
+			t.Fatalf("expected %q to be a Next public page", path)
+		}
+	}
+	for _, path := range []string{"/authorize", "/pair/approve"} {
+		if !isNextFreshSecurityPath(path) {
+			t.Fatalf("expected %q to require fresh-security Next presentation", path)
 		}
 	}
 }
@@ -50,7 +63,7 @@ func TestNextPresentationProxyNeverOwnsMutations(t *testing.T) {
 	}
 }
 
-func TestWebFrontendMiddlewareKeepsLegacyAndMutationRoutesOnGo(t *testing.T) {
+func TestWebFrontendMiddlewareKeepsProtocolsAPIsUnknownRoutesAndMutationsOnGo(t *testing.T) {
 	server := &Server{WebFrontend: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("request unexpectedly reached Next presentation")
 	})}
@@ -58,13 +71,17 @@ func TestWebFrontendMiddlewareKeepsLegacyAndMutationRoutesOnGo(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/dashboard/connect"},
-		{http.MethodGet, "/dashboard/invite"},
-		{http.MethodGet, "/dashboard/leaderboard"},
-		{http.MethodGet, "/dashboard/admin"},
 		{http.MethodGet, "/dashboard/not-migrated"},
+		{http.MethodGet, "/api/v1/account"},
+		{http.MethodGet, "/.well-known/oauth-authorization-server"},
+		{http.MethodGet, "/mcp"},
+		{http.MethodGet, "/client"},
 		{http.MethodPost, "/dashboard/devices/device/revoke"},
 		{http.MethodPost, "/dashboard/workspaces/device/workspace/remove"},
+		{http.MethodPost, "/login"},
+		{http.MethodPost, "/signup"},
+		{http.MethodPost, "/authorize"},
+		{http.MethodPost, "/pair/approve"},
 		{http.MethodPost, "/logout"},
 	} {
 		t.Run(test.method+" "+test.path, func(t *testing.T) {
@@ -74,6 +91,21 @@ func TestWebFrontendMiddlewareKeepsLegacyAndMutationRoutesOnGo(t *testing.T) {
 			server.webFrontendMiddleware(next).ServeHTTP(httptest.NewRecorder(), request)
 			if !called {
 				t.Fatal("expected Go handler to own request")
+			}
+		})
+	}
+}
+
+func TestWebFrontendMiddlewareProxiesPublicNextPages(t *testing.T) {
+	for _, path := range []string{"/", "/privacy", "/terms", "/support", "/security", "/forgot-password", "/reset-password", "/healthz", "/_next/static/app.js"} {
+		t.Run(path, func(t *testing.T) {
+			calledNext := false
+			calledGo := false
+			server := &Server{WebFrontend: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calledNext = true })}
+			next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calledGo = true })
+			server.webFrontendMiddleware(next).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+			if !calledNext || calledGo {
+				t.Fatalf("expected public route %q to use Next only", path)
 			}
 		})
 	}

@@ -8,6 +8,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
 func webFrontendCutoverEnabled() bool {
@@ -58,6 +61,7 @@ func isNextPublicAssetPath(path string) bool {
 
 var nextDashboardPaths = map[string]struct{}{
 	"/dashboard":                    {},
+	"/dashboard/connect":            {},
 	"/dashboard/workspaces":         {},
 	"/dashboard/knowledge":          {},
 	"/dashboard/knowledge-preview":  {},
@@ -65,13 +69,46 @@ var nextDashboardPaths = map[string]struct{}{
 	"/dashboard/code-graph-preview": {},
 	"/dashboard/devices":            {},
 	"/dashboard/usage":              {},
+	"/dashboard/invite":             {},
+	"/dashboard/leaderboard":        {},
 	"/dashboard/security":           {},
 	"/dashboard/account":            {},
 	"/dashboard/account-preview":    {},
+	"/dashboard/admin":              {},
+}
+
+var nextPublicPagePaths = map[string]struct{}{
+	"/":                {},
+	"/login":           {},
+	"/register":        {},
+	"/signup":          {},
+	"/signup/verify":   {},
+	"/forgot-password": {},
+	"/reset-password":  {},
+	"/privacy":         {},
+	"/terms":           {},
+	"/support":         {},
+	"/security":        {},
+	"/healthz":         {},
+}
+
+var nextFreshSecurityPaths = map[string]struct{}{
+	"/authorize":    {},
+	"/pair/approve": {},
 }
 
 func isNextDashboardPath(path string) bool {
 	_, ok := nextDashboardPaths[path]
+	return ok
+}
+
+func isNextPublicPagePath(path string) bool {
+	_, ok := nextPublicPagePaths[path]
+	return ok
+}
+
+func isNextFreshSecurityPath(path string) bool {
+	_, ok := nextFreshSecurityPaths[path]
 	return ok
 }
 
@@ -83,7 +120,39 @@ func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
 	if s.WebFrontend == nil {
 		return next
 	}
-	protected := s.WebAuth.Require(s.WebFrontend)
+	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		identity, err := s.WebAuth.Identity(r)
+		if err != nil {
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if identity == nil {
+			nextPath := webutil.SafeNext(r.URL.RequestURI())
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(nextPath), http.StatusFound)
+			return
+		}
+		if r.URL.Path == "/dashboard/admin" && !cloud.IsAdminEmail(identity.User.Email) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		s.WebFrontend.ServeHTTP(w, r)
+	})
+	protectedFresh := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		identity, err := s.WebAuth.Identity(r)
+		if err != nil {
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if identity == nil {
+			nextPath := webutil.SafeNext(r.URL.RequestURI())
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(nextPath), http.StatusFound)
+			return
+		}
+		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity) {
+			return
+		}
+		s.WebFrontend.ServeHTTP(w, r)
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isNextPresentationMethod(r.Method) {
 			next.ServeHTTP(w, r)
@@ -92,7 +161,20 @@ func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
 		switch {
 		case isNextDashboardPath(r.URL.Path):
 			protected.ServeHTTP(w, r)
-		case r.URL.Path == "/" || r.URL.Path == "/healthz" || isNextPublicAssetPath(r.URL.Path):
+		case isNextFreshSecurityPath(r.URL.Path):
+			protectedFresh.ServeHTTP(w, r)
+		case r.URL.Path == "/login" || r.URL.Path == "/signup":
+			identity, err := s.WebAuth.Identity(r)
+			if err != nil {
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			if identity != nil {
+				http.Redirect(w, r, webutil.SafeNext(r.URL.Query().Get("next")), http.StatusFound)
+				return
+			}
+			s.WebFrontend.ServeHTTP(w, r)
+		case isNextPublicPagePath(r.URL.Path) || isNextPublicAssetPath(r.URL.Path):
 			s.WebFrontend.ServeHTTP(w, r)
 		default:
 			next.ServeHTTP(w, r)

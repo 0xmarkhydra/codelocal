@@ -1,32 +1,12 @@
-import Link from "next/link";
-import { Suspense } from "react";
-import { LiveAccount } from "./account-live";
-import styles from "../dashboard.module.css";
+import { redirect } from "next/navigation";
 
-export default function AccountPreviewPage() {
-  return (
-    <section className={styles.content}>
-      <header className={styles.header}>
-        <div>
-          <span className={styles.eyebrow}>Preview route · account parity</span>
-          <h1>Account</h1>
-          <p>Identity and password controls rendered by Next.js while security authority remains in Go.</p>
-        </div>
-        <Link className={styles.productionLink} href="/dashboard/account">Canonical Account</Link>
-      </header>
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-      <Suspense fallback={<section className={styles.livePanel}><span className={styles.eyebrow}>Account</span><h2>Loading account state…</h2></section>}>
-        <LiveAccount />
-      </Suspense>
-
-      <section className={styles.routeGuardrail}>
-        <span className={styles.eyebrow}>Security boundary</span>
-        <h2>Next.js never verifies or stores the password.</h2>
-        <p>
-          Current-password verification, CSRF, fresh-security checks, rate limiting, password hashing, security-version rotation,
-          session replacement and audit remain inside the existing Go authentication handler.
-        </p>
-      </section>
-    </section>
-  );
+export default async function AccountPreviewPage({ searchParams }: Props) {
+  const params = await searchParams;
+  const query = new URLSearchParams();
+  for (const [key, raw] of Object.entries(params)) {
+    if (typeof raw === "string") query.set(key, raw);
+  }
+  redirect(`/dashboard/account${query.size ? `?${query.toString()}` : ""}`);
 }

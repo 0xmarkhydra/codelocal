@@ -221,6 +221,23 @@ func (m *Manager) Require(next http.Handler) http.Handler {
 }
 
 func validEmail(value string) bool { return len(value) <= 254 && emailRE.MatchString(value) }
+
+func nextUIForm(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next")
+}
+
+func nextUIAuthRedirect(w http.ResponseWriter, r *http.Request, path string, values url.Values) {
+	if values == nil {
+		values = url.Values{}
+	}
+	values.Set("ui", "next")
+	target := path
+	if encoded := values.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
 func (m *Manager) form(mode, csrf, next, errorMessage string, referralCodes ...string) string {
 	signup := mode == "signup"
 	referralCode := ""
@@ -271,6 +288,10 @@ func (m *Manager) loginPost(w http.ResponseWriter, r *http.Request) {
 	csrf := m.EnsureCSRF(w, r)
 	next := webutil.SafeNext(r.FormValue("next"))
 	if !m.VerifyCSRF(r) {
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/login", url.Values{"next": {next}, "error": {"Security token expired. Please try again."}})
+			return
+		}
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(m.form("login", csrf, next, "Security token expired. Please try again.")))
 		return
@@ -290,6 +311,10 @@ func (m *Manager) loginPost(w http.ResponseWriter, r *http.Request) {
 			userID = user.ID
 		}
 		m.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "auth.login_failed", Detail: map[string]any{"email": email}})
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/login", url.Values{"next": {next}, "error": {"Email or password is incorrect."}})
+			return
+		}
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(m.form("login", csrf, next, "Email or password is incorrect.")))
 		return
@@ -345,12 +370,26 @@ func (m *Manager) logoutPost(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", m.loginGet)
-	login := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-account", Limit: 12, Window: 10 * time.Minute, Subject: loginRateSubject}, http.HandlerFunc(m.loginPost))
-	mux.Handle("POST /login", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-ip", Limit: 40, Window: 10 * time.Minute}, login))
+	loginLimit := func(w http.ResponseWriter, r *http.Request, _ int) {
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/login", url.Values{"next": {webutil.SafeNext(r.FormValue("next"))}, "error": {"Too many sign-in attempts. Please try again later."}})
+			return
+		}
+		webutil.JSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+	}
+	login := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-account", Limit: 12, Window: 10 * time.Minute, Subject: loginRateSubject, OnLimit: loginLimit}, http.HandlerFunc(m.loginPost))
+	mux.Handle("POST /login", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-ip", Limit: 40, Window: 10 * time.Minute, OnLimit: loginLimit}, login))
 	mux.HandleFunc("GET /register", m.registerRedirect)
 	mux.HandleFunc("GET /signup", m.signupGet)
-	signup := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-account", Limit: 4, Window: time.Hour, Subject: loginRateSubject}, http.HandlerFunc(m.signupStart))
-	mux.Handle("POST /signup", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-ip", Limit: 20, Window: time.Hour}, signup))
+	signupLimit := func(w http.ResponseWriter, r *http.Request, _ int) {
+		if nextUIForm(r) {
+			nextUIAuthRedirect(w, r, "/signup", url.Values{"next": {webutil.SafeNext(r.FormValue("next"))}, "ref": {cloud.NormalizeReferralCode(r.FormValue("referralCode"))}, "error": {"Too many sign-up attempts. Please try again later."}})
+			return
+		}
+		webutil.JSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+	}
+	signup := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-account", Limit: 4, Window: time.Hour, Subject: loginRateSubject, OnLimit: signupLimit}, http.HandlerFunc(m.signupStart))
+	mux.Handle("POST /signup", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-ip", Limit: 20, Window: time.Hour, OnLimit: signupLimit}, signup))
 	m.registerSignupVerification(mux)
 	m.registerPasswordReset(mux)
 	m.registerAccountSecurity(mux)
