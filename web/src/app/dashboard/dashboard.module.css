@@ -1,10 +1,8 @@
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr);
-  background:
-    radial-gradient(circle at 62% -10%, rgba(116, 128, 255, 0.055), transparent 28%),
-    var(--bg);
+  grid-template-columns: 232px minmax(0, 1fr);
+  background: var(--bg);
 }
 
 .sidebar {
@@ -15,8 +13,7 @@
   flex-direction: column;
   padding: 20px 14px;
   border-right: 1px solid var(--line);
-  background: rgba(8, 9, 12, 0.94);
-  backdrop-filter: blur(20px);
+  background: #0a0b0e;
 }
 
 .brand {
@@ -58,31 +55,42 @@
 }
 
 .nav a {
+  position: relative;
   min-height: 38px;
   display: flex;
   align-items: center;
   padding: 0 12px;
   border: 1px solid transparent;
-  border-radius: 9px;
-  color: #858793;
+  border-radius: 8px;
+  color: #858893;
   font-size: 12px;
-  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+  transition: color 140ms ease, background 140ms ease;
 }
 
 .nav a:hover {
-  color: #dedee4;
+  color: #dedfe3;
   background: rgba(255, 255, 255, 0.025);
 }
 
 .nav .activeNav {
-  border-color: rgba(255, 255, 255, 0.075);
-  color: #f3f3f4;
-  background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025));
+  color: #f1f2f3;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.nav .activeNav::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .content {
   min-width: 0;
-  padding: 52px 56px 96px;
+  padding: 48px 52px 96px;
 }
 
 .header {
@@ -118,8 +126,8 @@
 .heroPanel,
 .panel {
   border: 1px solid rgba(255,255,255,.09);
-  background: linear-gradient(180deg, rgba(15,17,22,.88), rgba(10,11,15,.92));
-  box-shadow: 0 18px 60px rgba(0,0,0,.16);
+  background: #0d0f12;
+  box-shadow: 0 16px 48px rgba(0,0,0,.12);
 }
 
 .heroPanel {

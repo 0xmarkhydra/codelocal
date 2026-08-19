@@ -13,13 +13,7 @@ type AuthShellProps = {
   highlights?: string[];
 };
 
-export function AuthShell({ eyebrow, description, panelTitle, panelSubtitle, children, highlights }: AuthShellProps) {
-  const trustItems = highlights ?? [
-    "Go owns identity and authorization",
-    "Source stays on explicitly authorized machines",
-    "AI clients receive only the workspace access you grant",
-  ];
-
+export function AuthShell({ panelTitle, panelSubtitle, children }: AuthShellProps) {
   return (
     <main className={styles.page}>
       <header className={styles.nav}>
@@ -36,26 +30,17 @@ export function AuthShell({ eyebrow, description, panelTitle, panelSubtitle, chi
 
       <section className={styles.main}>
         <div className={styles.authStage}>
-          <div className={styles.authIntro}>
-            <span className={styles.eyebrow}>{eyebrow}</span>
-            <p>{description}</p>
-          </div>
-
           <section className={styles.panel} aria-label={panelTitle}>
             <span className={styles.accountLabel}>CodeLocal account</span>
             <h1>{panelTitle}</h1>
             <p className={styles.subtitle}>{panelSubtitle}</p>
             {children}
           </section>
-
-          <div className={styles.trustLine} aria-label="CodeLocal trust boundaries">
-            {trustItems.map((item) => <span key={item}>{item}</span>)}
-          </div>
         </div>
       </section>
 
       <footer className={styles.footer}>
-        <span>Private execution · durable project intelligence</span>
+        <span>CodeLocal</span>
         <div className={styles.footerLinks}>
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
