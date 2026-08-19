@@ -13,6 +13,7 @@ function backendOrigin() {
 }
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   turbopack: {
     // This repository intentionally has a separate root lockfile for the Go/npm
     // distribution. Keep Next.js module resolution and file watching scoped to

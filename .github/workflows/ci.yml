@@ -50,3 +50,16 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Build Cloud image
         run: docker build -t codelocal-cloud:ci .
+
+  web-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Next.js web image
+        run: >-
+          docker build
+          --file Dockerfile.web
+          --build-arg CODELOCAL_BACKEND_URL=http://codelocal-backend.railway.internal:3333
+          --tag codelocal-web:ci
+          .

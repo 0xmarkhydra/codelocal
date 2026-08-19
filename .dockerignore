@@ -1,6 +1,10 @@
 .git
 .gitignore
+.codelocal
 node_modules
+web/node_modules
+web/.next
+web/tsconfig.tsbuildinfo
 .release
 .go-check
 .codelocal-go-test.log
@@ -10,3 +14,4 @@ grap
 .env
 .env.*
 !/.env.example
+!web/.env.example

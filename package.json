@@ -15,6 +15,7 @@
     "web:install": "npm ci --prefix web",
     "web:dev": "npm run dev --prefix web",
     "web:check": "npm run check --prefix web",
+    "verify:web-edge": "node ./scripts/verify-web-edge.mjs",
     "ci:go": "go test ./cmd/... ./internal/... && go vet ./cmd/... ./internal/...",
     "ci:web": "npm ci --prefix web && npm run check --prefix web && npm audit --omit=dev --prefix web",
     "ci": "npm run check:repo && npm run ci:go && npm run ci:web",

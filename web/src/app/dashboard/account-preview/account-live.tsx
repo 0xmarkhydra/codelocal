@@ -8,7 +8,7 @@ import { formatDashboardTime } from "../dashboard-format";
 import styles from "../dashboard.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
 
-export function LiveAccount() {
+export function LiveAccount({ returnPath = "/dashboard/account-preview" }: { returnPath?: string }) {
   const searchParams = useSearchParams();
   const { state, retry } = useDashboardResource("/api/v1/account", isAccountResource);
   const ok = searchParams.get("ok");
@@ -73,7 +73,7 @@ export function LiveAccount() {
           </p>
           <form className={styles.accountForm} method="post" action="/account/password">
             <input type="hidden" name="csrf" value={account.csrf} />
-            <input type="hidden" name="next" value="/dashboard/account-preview" />
+            <input type="hidden" name="next" value={returnPath} />
             <label>
               <span>Current password</span>
               <input type="password" name="currentPassword" autoComplete="current-password" maxLength={256} required />

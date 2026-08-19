@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isAccountResource } from "@/lib/contracts/account";
 import styles from "./dashboard.module.css";
+import { useDashboardResource } from "./use-dashboard-resource";
 
 const navigation = [
   { label: "Overview", href: "/dashboard" },
@@ -22,9 +24,13 @@ function isActive(pathname: string, href: string) {
 
 export function DashboardNav() {
   const pathname = usePathname();
+  const account = useDashboardResource("/api/v1/account", isAccountResource);
+  const items = account.state.kind === "ready" && account.state.value.isAdmin
+    ? [...navigation, { label: "Admin", href: "/dashboard/admin" }]
+    : navigation;
   return (
     <nav className={styles.nav} aria-label="Dashboard navigation">
-      {navigation.map((item) => {
+      {items.map((item) => {
         const active = isActive(pathname, item.href);
         return (
           <Link className={active ? styles.activeNav : undefined} href={item.href} aria-current={active ? "page" : undefined} key={item.href}>

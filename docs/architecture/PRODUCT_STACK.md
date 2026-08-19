@@ -51,9 +51,9 @@ Primary stack: **Next.js App Router + TypeScript + React**.
 
 The web app consumes explicit backend HTTP/API contracts. It must not duplicate backend authorization or entitlement truth in browser/client code.
 
-For browser-session-bound reads, prefer same-origin versioned API requests that Next rewrites/proxies to Go. The browser should send CodeLocal HttpOnly cookies and User-Agent naturally; do not read and replay the session cookie from Next Server Components. The trusted deployment proxy must preserve a trustworthy client-IP chain and the browser User-Agent while overwriting/rejecting spoofed forwarding headers before Go evaluates session security signals.
+For browser-session-bound reads, use same-origin versioned API requests and keep Go as the security authority. A direct Next canary may rewrite those requests to Go for deployment verification, but the production topology keeps the Go gateway on the public domain: Go authenticates protected page requests, serves APIs/transports directly, and proxies presentation-only routes to the private Next service. Before that presentation hop, Go strips browser Cookie, Authorization and client-IP/Railway edge headers so Next does not receive session secrets or security signals it does not own.
 
-Migration rule: the existing Go-rendered web UI remains a compatibility fallback until the corresponding Next.js route family reaches behavior/security parity and has a rollback path.
+Migration rule: the existing Go-rendered web UI remains compiled as the rollback path until the corresponding Next.js route family reaches behavior/security parity and the Railway canary passes. MCP, `/client`, OAuth, pairing and backend APIs must never become dependent on Next availability merely to complete a UI migration.
 
 ### app/
 

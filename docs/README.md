@@ -13,6 +13,7 @@ Start here:
 - [Global Billing & International Payments Master Plan](./plans/platform/GLOBAL_BILLING_AND_INTERNATIONAL_PAYMENTS_MASTER_PLAN.md) — Vietnam-to-global SaaS billing, Lemon Squeezy launch path, provider-neutral architecture, webhooks, entitlements, payouts, compliance and production proof.
 - [Code Graph + Technical Debt Master Plan](./plans/intelligence/CODE_GRAPH_AND_TECH_DEBT_MASTER_PLAN.md) — BA flows, Code Graph accuracy/UX contracts, technical-debt backlog, rollout phases and acceptance criteria.
 - [Database Migration Rollout](./operations/MIGRATION_ROLLOUT.md) — staged Railway `startup -> only -> external` migration lifecycle, canary checks and rollback path.
+- [Next.js Web Cutover](./operations/NEXT_WEB_CUTOVER.md) — Railway canary, Go-fronted presentation proxy, edge probe, production flags and instant rollback for the Next web migration.
 - [OpenAI Plugin Submission Pack](./integrations/openai/submission/README.md) — listing, reviewer sandbox, test cases, policy mapping and submission gate.
 
 ## The shortest explanation

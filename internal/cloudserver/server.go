@@ -53,6 +53,7 @@ type Server struct {
 	Media       *s3MediaStore
 	Mux         *http.ServeMux
 	HTTP        *http.Server
+	WebFrontend http.Handler
 	InstanceID  string
 	startedAt   time.Time
 	requests    atomic.Uint64
@@ -98,6 +99,10 @@ func New(ctx context.Context) (*Server, error) {
 	secret := os.Getenv("MCP_AUTH_SECRET")
 	if secret == "" {
 		return nil, errors.New("MCP_AUTH_SECRET is required")
+	}
+	webFrontend, err := newWebFrontendProxyFromEnv()
+	if err != nil {
+		return nil, err
 	}
 
 	store, err := cloud.New(ctx)
@@ -189,13 +194,14 @@ func New(ctx context.Context) (*Server, error) {
 		Memory:      memoryStore,
 		Media:       mediaStore,
 		Mux:         http.NewServeMux(),
+		WebFrontend: webFrontend,
 		InstanceID:  instanceID,
 		startedAt:   time.Now(),
 	}
 	s.routes()
 	s.HTTP = &http.Server{
 		Addr:              host() + ":" + defaultPort(),
-		Handler:           s.middleware(s.Mux),
+		Handler:           s.middleware(s.webFrontendMiddleware(s.Mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       75 * time.Second,
 		MaxHeaderBytes:    1 << 20,
@@ -270,6 +276,7 @@ func (s *Server) routes() {
 	mux.Handle("GET /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesGet)))
 	mux.Handle("POST /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesPost)))
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /internal/web-edge-probe", s.webEdgeProbe)
 	mux.HandleFunc("GET /privacy", s.privacyPage)
 	mux.HandleFunc("GET /terms", s.termsPage)
 	mux.HandleFunc("GET /support", s.supportPage)

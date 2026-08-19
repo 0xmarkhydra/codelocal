@@ -66,13 +66,18 @@ Sensitive resource mutations now use public identifiers only:
 
 Both mutations require the current CSRF token and a fresh Go security context. Next.js does not decide whether the session is trustworthy.
 
-Browser-session-bound reads use same-origin `/api/v1/...` requests. `next.config.ts` rewrites those requests to the Go service and falls back unmatched routes to Go during incremental migration. This lets the browser send the existing HttpOnly session cookie and User-Agent naturally instead of having a Server Component replay session secrets.
+Browser-session-bound reads use same-origin `/api/v1/...` requests. For a **direct Next canary**, `next.config.ts` rewrites those requests to Go so the existing browser session can be tested without duplicating auth. `src/proxy.ts` normalizes Railway forwarding headers on that canary path.
 
-Deployment requirements:
+The production topology is stricter: the existing Go gateway keeps `codelocal.cloud`, authenticates protected dashboard requests, and proxies **presentation routes only** to the private Next service. Browser APIs, auth, OAuth, pairing, `/client`, `/mcp` and mutations continue to hit Go directly. Before Go sends a dashboard request to Next it strips Cookie, Authorization and client-IP/Railway edge headers, so the presentation service does not receive the browser session secret.
 
-- `CODELOCAL_BACKEND_URL` must point directly at the Go service, not the public Next.js origin;
-- the trusted edge/proxy must preserve the real browser User-Agent and trustworthy client-IP chain while overwriting or rejecting spoofed forwarding headers;
-- unported login/signup/account routes continue to resolve to the Go application through the fallback rewrite.
+Deployment artifacts:
+
+- `Dockerfile.web` builds a Next standalone image;
+- `railway.web.json` is the service-specific Railway config;
+- `/healthz` is the web-service health check;
+- [`../docs/operations/NEXT_WEB_CUTOVER.md`](../docs/operations/NEXT_WEB_CUTOVER.md) is the canary, cutover and rollback runbook.
+
+`CODELOCAL_BACKEND_URL` is still required for direct-canary rewrites. Production Go-to-Next cutover instead uses `CODELOCAL_WEB_ORIGIN` plus the explicit `CODELOCAL_WEB_CUTOVER` feature flag.
 
 ## Migration state
 
@@ -82,14 +87,15 @@ Current slice provides:
 - product design tokens/reset;
 - landing page;
 - dashboard shell;
-- versioned Go overview/workspaces/devices/usage read contracts;
-- same-origin browser session bridge through explicit Next rewrites (implemented, pending real-edge cookie/User-Agent/client-IP parity verification before cutover);
-- real Overview, Workspaces, Devices and Usage rendering only when authenticated backend data validates against runtime TypeScript contracts;
-- Knowledge Graph preview with privacy-minimized graph DTO, aggregate Project Brain health and CSRF-protected collective settings that still persist through the existing Go mutation endpoint;
-- Code Graph preview with checkout/repository/view/depth/symbol controls over a bounded local-runtime graph; project roots, routing keys, repository IDs and source hashes stay out of the browser contract;
-- Account preview with the existing Go password mutation, including CSRF, fresh-security checks, rate limiting, password verification, security-version rotation and session replacement; `/dashboard/security` presents trust state without exposing or fabricating audit history;
-- shared dashboard layout/navigation with legacy-route fallback to Go for unported route families;
-- no production route cutover yet; Knowledge and Code Graph remain on Go routes until real-edge auth/security-signal parity is verified;
+- versioned Go overview/workspaces/devices/usage/account read contracts;
+- canonical Next routes for Overview, Workspaces, Devices, Usage, Knowledge Graph, Code Graph, Security and Account;
+- privacy-minimized Knowledge Graph plus aggregate Project Brain health and CSRF-protected collective settings;
+- bounded local-runtime Code Graph with checkout/repository/view/depth/symbol controls and impact evidence;
+- Account password changes through the existing Go security handler, including CSRF, fresh-security checks, rate limiting, password verification, security-version rotation and session replacement;
+- public-ID device revoke and workspace removal mutations that resolve sensitive credentials only server-side;
+- Security presentation without exposing or fabricating audit/IP/login history;
+- direct-canary rewrite support plus a production Go presentation proxy that keeps MCP/CLI/WebSocket transports off Next;
+- explicit cutover/rollback flags and deployable Next standalone image;
 - no fake live telemetry.
 
-The existing Go-rendered web UI remains the production compatibility fallback until individual Next.js route families pass behavior/security parity and have a rollback path.
+Feature parity is implemented. The existing Go-rendered UI remains compiled as the instant rollback path until the Railway canary and authenticated cutover checklist in `NEXT_WEB_CUTOVER.md` pass.
