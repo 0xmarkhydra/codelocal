@@ -2,100 +2,115 @@ import Image from "next/image";
 import Link from "next/link";
 import styles from "./page.module.css";
 
-const aiClients = ["ChatGPT", "Claude", "Codex"] as const;
-const workspaceTools = ["Files", "Git", "Terminal", "Browser", "Computer"] as const;
+const aiClients = ["ChatGPT / Codex", "Claude", "Kimi", "DeepSeek"] as const;
+const machineTools = ["Files", "Git", "Terminal", "Browser / Computer"] as const;
 
-const capabilities = [
-  ["Remember", "Project Brain carries structure, decisions, skills and useful context across sessions."],
-  ["Control", "Identity, workspace scope and approvals stay explicit instead of giving an AI broad machine access."],
-  ["Execute", "Approved actions run through the paired local runtime where your project and tools already live."],
-] as const;
+const brainTags = ["Rules", "Decisions", "Memory", "Learned skills", "Knowledge graph", "Semantic index"] as const;
+const verificationTags = ["Diagnostics", "Tests", "Git diff", "Quality policy"] as const;
+const experienceTags = ["Provenance", "Revisions", "Safe promotion"] as const;
 
 const setupSteps = [
-  ["Pair your machine", "Connect the CodeLocal runtime on the computer where your work lives."],
-  ["Grant a workspace", "Choose the project an AI client is allowed to understand and operate on."],
+  ["Pair your machine", "Connect the CodeLocal runtime on the computer where your project lives."],
+  ["Grant a workspace", "Choose exactly which project an AI client may understand and operate on."],
   ["Connect your AI", "Use one MCP endpoint from ChatGPT, Claude, Codex or another compatible client."],
 ] as const;
 
-function FlowConnector() {
+function Signal({ label }: { label: string }) {
   return (
-    <div className={styles.flowConnector} aria-hidden="true">
-      <span className={styles.flowLine} />
-      <i className={styles.flowPulse} />
+    <div className={styles.signal} aria-hidden="true">
+      <span>{label}</span>
+      <i className={styles.signalLine}><b /></i>
+      <em>→</em>
     </div>
   );
 }
 
-function SystemMap() {
+function ClientMark({ index }: { index: number }) {
+  return <span className={styles.clientMark}>{String(index + 1).padStart(2, "0")}</span>;
+}
+
+function ArchitectureMap() {
   return (
-    <section className={styles.systemFrame} aria-label="How CodeLocal works">
-      <header className={styles.systemHeader}>
+    <section className={styles.architecture} id="system" aria-label="CodeLocal architecture map">
+      <div className={styles.architectureAura} aria-hidden="true" />
+
+      <header className={styles.architectureHead}>
         <div>
-          <span className={styles.sectionKicker}>System map</span>
-          <strong>How a request moves through CodeLocal</strong>
+          <span className={styles.kicker}>Architecture map</span>
+          <h2>AI client → CodeLocal → your machine</h2>
+          <p>MCP carries the request. CodeLocal resolves context, enforces policy and executes locally.</p>
         </div>
-        <span className={styles.localBadge}><i /> Source stays on your machine</span>
+        <span className={styles.runtimeReady}><i /> Local runtime ready</span>
       </header>
 
-      <div className={styles.systemMainFlow}>
-        <article className={styles.systemNode}>
-          <div className={styles.nodeHead}><span>01</span><b>AI clients</b></div>
-          <p>Use the AI you already prefer.</p>
-          <div className={styles.clientList}>
-            {aiClients.map((client) => <span key={client}>{client}</span>)}
+      <div className={styles.flowLegend} aria-label="Request lifecycle">
+        <span><b>01</b> Connect</span><i>→</i><span><b>02</b> Govern</span><i>→</i><span><b>03</b> Execute locally</span>
+      </div>
+
+      <div className={styles.requestPlane}>
+        <article className={`${styles.archCard} ${styles.clientsCard}`}>
+          <span className={styles.cardLabel}>AI clients</span>
+          <div className={styles.clientRows}>
+            {aiClients.map((client, index) => (
+              <div key={client}>
+                <ClientMark index={index} />
+                <strong>{client}</strong>
+              </div>
+            ))}
           </div>
         </article>
 
-        <FlowConnector />
+        <Signal label="MCP · OAuth" />
 
-        <article className={`${styles.systemNode} ${styles.gatewayNode}`}>
-          <div className={styles.nodeHead}><span>02</span><b>CodeLocal gateway</b></div>
-          <p>One controlled entry point for identity, MCP, workspace scope and approvals.</p>
-          <div className={styles.nodeMeta}>
-            <span>Identity</span><span>OAuth</span><span>Approvals</span>
+        <article className={`${styles.archCard} ${styles.coreCard}`}>
+          <div className={styles.coreHalo} aria-hidden="true" />
+          <div className={styles.coreLogo}>
+            <Image src="/codelocal-icon.png" alt="" width={44} height={44} priority />
           </div>
+          <strong className={styles.coreTitle}>CodeLocal</strong>
+          <p>Universal MCP control layer<br />project resolution · bounded context · routing</p>
+          <div className={styles.policyStrip}>Approval + security policy<br />outrank automation</div>
         </article>
 
-        <FlowConnector />
+        <Signal label="Secure RPC · authenticated" />
 
-        <article className={styles.systemNode}>
-          <div className={styles.nodeHead}><span>03</span><b>Local runtime</b></div>
-          <p>Approved work is routed to the paired runtime running on your machine.</p>
-          <div className={styles.nodeMeta}>
-            <span>Scoped</span><span>Local</span><span>Observable</span>
+        <article className={`${styles.archCard} ${styles.machineCard}`}>
+          <span className={styles.cardLabel}>Your machine · local runtime</span>
+          <div className={styles.machineGrid}>
+            {machineTools.map((tool, index) => <span key={tool} data-accent={index < 3 ? "true" : "false"}>{tool}</span>)}
           </div>
-        </article>
-
-        <FlowConnector />
-
-        <article className={styles.systemNode}>
-          <div className={styles.nodeHead}><span>04</span><b>Workspace</b></div>
-          <p>Only the project you granted is exposed to the runtime.</p>
-          <div className={styles.toolList}>
-            {workspaceTools.map((tool) => <span key={tool}>{tool}</span>)}
+          <div className={styles.machineMeta}>
+            <span>LSP + code index</span>
+            <span>Local approvals</span>
           </div>
         </article>
       </div>
 
-      <div className={styles.brainLayer}>
-        <div className={styles.brainConnection} aria-hidden="true"><i /></div>
-        <div className={styles.brainIdentity}>
-          <div className={styles.brainMark} aria-hidden="true"><span /><span /><span /><span /></div>
-          <div>
-            <span className={styles.sectionKicker}>Project Brain</span>
-            <strong>The context layer shared across AI clients</strong>
-          </div>
-        </div>
-        <p>Code structure, project memory, learned skills and relationships are reusable instead of being rediscovered every session.</p>
-        <div className={styles.brainFacts}>
-          <span>Structure</span><span>Memory</span><span>Skills</span><span>Relationships</span>
-        </div>
+      <div className={styles.intelligencePlane}>
+        <article>
+          <header><span>01 · Context</span><em>Durable intelligence</em></header>
+          <strong>Project Brain</strong>
+          <div className={styles.tagCloud}>{brainTags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+        </article>
+        <article>
+          <header><span>02 · Prove</span><em>Evidence</em></header>
+          <strong>Verification</strong>
+          <div className={`${styles.tagCloud} ${styles.verifyTags}`}>{verificationTags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+        </article>
+        <article>
+          <header><span>03 · Reuse</span><em>Reuse</em></header>
+          <strong>Verified experience</strong>
+          <div className={`${styles.tagCloud} ${styles.experienceTags}`}>{experienceTags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+        </article>
       </div>
 
-      <footer className={styles.systemFooter}>
-        <span><i className={styles.requestKey} /> Request &amp; tool path</span>
-        <span><i className={styles.contextKey} /> Reusable project context</span>
-        <strong>AI changes. Project understanding stays.</strong>
+      <div className={styles.durableFlow}>
+        <span>Local result</span><i>→</i><strong>verify</strong><i>→</i><strong>keep durable knowledge</strong><i>→</i><span>next AI session</span>
+      </div>
+
+      <footer className={styles.cloudBoundary}>
+        <span className={styles.cloudBadge}>CodeLocal cloud</span>
+        <p><strong>Cloud stores:</strong> identity, routing, logical project identity and sanitized durable Project Brain knowledge. <strong>Local stays local:</strong> raw source, secrets, terminal execution, device credentials and machine-specific indexes.</p>
       </footer>
     </section>
   );
@@ -109,45 +124,54 @@ export default function Home() {
           <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
           <span>CodeLocal</span>
         </Link>
-        <nav className={styles.navActions} aria-label="Primary navigation">
+
+        <nav className={styles.navCapsule} aria-label="Primary navigation">
+          <a href="#system">Product</a>
           <Link href="/security">Security</Link>
           <Link href="/support">Support</Link>
+        </nav>
+
+        <div className={styles.navActions}>
           <Link href="/login">Sign in</Link>
           <Link className={styles.navButton} href="/dashboard">Open app</Link>
-        </nav>
+        </div>
       </header>
 
       <section className={styles.hero}>
+        <div className={styles.heroAtmosphere} aria-hidden="true"><i /><i /><i /></div>
         <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>A project brain and local control plane for AI</span>
-          <h1>One project brain. Any AI. Your machine.</h1>
-          <p>Connect ChatGPT, Claude, Codex and other MCP clients to the same project understanding. CodeLocal remembers how your system works, then routes approved actions to the local runtime you control.</p>
+          <span className={styles.heroPill}>Local-first AI infrastructure</span>
+          <h1>Your AI changes.<br /><span>Your project understanding stays.</span></h1>
+          <p>CodeLocal gives every compatible AI the same durable project brain, then routes approved actions to the machine and workspace you control.</p>
           <div className={styles.actions}>
             <Link className={styles.primaryButton} href="/dashboard">Open CodeLocal</Link>
-            <a className={styles.secondaryButton} href="#system">Explore the system</a>
+            <a className={styles.secondaryButton} href="#system">See the architecture</a>
           </div>
-          <div className={styles.heroTrust} aria-label="CodeLocal trust model">
-            <span>No broad filesystem access</span>
-            <span>Workspace scoped</span>
+          <div className={styles.heroMeta}>
+            <span>MCP-native</span><i />
+            <span>Workspace scoped</span><i />
             <span>Local execution</span>
           </div>
         </div>
       </section>
 
-      <div id="system"><SystemMap /></div>
+      <ArchitectureMap />
 
-      <section className={styles.capabilities} aria-label="What CodeLocal adds">
-        {capabilities.map(([title, description], index) => (
-          <article key={title}>
-            <span>{String(index + 1).padStart(2, "0")}</span>
-            <div><strong>{title}</strong><p>{description}</p></div>
-          </article>
-        ))}
+      <section className={styles.valueSection}>
+        <div>
+          <span className={styles.kicker}>Why it matters</span>
+          <h2>AI should not rediscover your project every session.</h2>
+        </div>
+        <div className={styles.valueGrid}>
+          <article><span>01</span><strong>Remember</strong><p>Structure, decisions, skills and useful context remain available across compatible AI clients.</p></article>
+          <article><span>02</span><strong>Prove</strong><p>Diagnostics, tests and diffs separate verified project knowledge from guesses.</p></article>
+          <article><span>03</span><strong>Reuse</strong><p>Verified experience can guide the next task without granting broad access to your machine.</p></article>
+        </div>
       </section>
 
       <section className={styles.setup} id="how-it-works">
         <div className={styles.setupIntro}>
-          <span className={styles.sectionKicker}>Start with one project</span>
+          <span className={styles.kicker}>Start with one project</span>
           <h2>Connect in three explicit steps.</h2>
           <p>No mystery permissions and no need to teach every AI the project again from scratch.</p>
           <Link className={styles.textLink} href="/security">Read the security model <span aria-hidden="true">↗</span></Link>
