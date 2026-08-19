@@ -262,6 +262,12 @@
   letter-spacing: 0.08em;
 }
 
+.previewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .liveAction {
   width: fit-content;
   min-height: 36px;
@@ -527,6 +533,204 @@
   font-family: var(--font-geist-mono), monospace;
   font-size: 10px;
   text-overflow: ellipsis;
+}
+
+.codeGraphControls {
+  width: min(100%, 1360px);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 0.7fr)) minmax(260px, 1.6fr);
+  gap: 8px;
+  margin: 0 auto 12px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(7, 12, 20, 0.88);
+}
+
+.codeGraphControls label,
+.codeGraphSearchForm label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.codeGraphControls label > span,
+.codeGraphSearchForm label > span {
+  color: var(--muted-2);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7.5px;
+  font-weight: 680;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.codeGraphControls select,
+.codeGraphSearchForm input {
+  width: 100%;
+  height: 36px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  outline: 0;
+  color: #dfe8f6;
+  background: #08111d;
+  font-size: 9.5px;
+}
+
+.codeGraphControls select:focus,
+.codeGraphSearchForm input:focus {
+  border-color: rgba(117, 167, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(117, 167, 255, 0.07);
+}
+
+.codeGraphSearchForm {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px;
+}
+
+.codeGraphSearchForm button {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(117, 167, 255, 0.25);
+  border-radius: 9px;
+  color: #dfe9f8;
+  background: rgba(83, 135, 255, 0.1);
+  font-size: 9.5px;
+  cursor: pointer;
+}
+
+.codeGraphState,
+.codeImpact {
+  width: min(100%, 1360px);
+  margin: 0 auto 12px;
+  padding: 15px 17px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: rgba(8, 14, 23, 0.88);
+}
+
+.codeGraphState[data-state="current"] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-color: rgba(85, 214, 158, 0.16);
+}
+
+.codeGraphState h2 {
+  margin: 6px 0 4px;
+  font-size: 15px;
+  letter-spacing: -0.025em;
+}
+
+.codeGraphState p,
+.codeImpact p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.55;
+}
+
+.codeImpact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.codeImpact[data-risk="high"] {
+  border-color: rgba(255, 116, 137, 0.25);
+  background: rgba(38, 12, 19, 0.34);
+}
+
+.codeImpact[data-risk="medium"] {
+  border-color: rgba(239, 188, 104, 0.24);
+  background: rgba(38, 29, 11, 0.28);
+}
+
+.codeImpact > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.codeImpact strong {
+  color: #dce6f4;
+  font-size: 10.5px;
+}
+
+.codeImpact dl {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  margin: 0;
+}
+
+.codeImpact dl > div {
+  min-width: 76px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.codeImpact dt {
+  color: var(--muted-2);
+  font-size: 7px;
+}
+
+.codeImpact dd {
+  margin: 4px 0 0;
+  color: #e6eef9;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+}
+
+.graphToolbarTitle {
+  display: block;
+  margin-top: 5px;
+  color: #dce6f4;
+  font-size: 10.5px;
+}
+
+@media (max-width: 1180px) {
+  .codeGraphControls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .codeGraphSearchForm {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .codeGraphControls {
+    grid-template-columns: 1fr;
+  }
+
+  .codeGraphSearchForm {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .codeImpact,
+  .codeGraphState[data-state="current"] {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .codeImpact dl {
+    width: 100%;
+  }
+
+  .codeImpact dl > div {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .routeGuardrail {

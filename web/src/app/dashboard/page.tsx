@@ -7,9 +7,10 @@ const migration = [
   { label: "Overview", state: "Ready", note: "Validated read-only Go overview DTO with honest unavailable/unauthenticated states." },
   { label: "Workspaces + Devices + Usage", state: "Ready", note: "Read-only route families use minimal client-neutral DTOs, runtime validation and shared resource loading." },
   { label: "Knowledge Graph parity", state: "Ready", note: "Privacy-minimized graph, aggregate health and CSRF-protected collective settings are implemented in the preview route." },
+  { label: "Code Graph parity", state: "Ready", note: "Bounded local-runtime graph, impact evidence and checkout/repository/query controls are implemented in the preview route." },
   { label: "Session bridge", state: "Implemented", note: "Same-origin browser API proxy is in place without replaying HttpOnly session secrets in Next." },
   { label: "Deployment parity", state: "Next", note: "Verify Set-Cookie, browser User-Agent and trusted client-IP forwarding on the real edge before cutover." },
-  { label: "Remaining routes", state: "Queued", note: "Code Graph, Security, Account and remaining mutations stay on Go until individually migrated." },
+  { label: "Remaining routes", state: "Queued", note: "Security, Account and remaining mutations stay on Go until individually migrated." },
 ];
 
 export default function DashboardPage() {
@@ -81,7 +82,10 @@ export default function DashboardPage() {
             <div><dt>Desktop + mobile</dt><dd>Flutter / Dart</dd></div>
             <div><dt>macOS deep integration</dt><dd>Swift native bridge</dd></div>
           </dl>
-          <Link className={styles.liveAction} href="/dashboard/knowledge-preview">Open Next Knowledge preview</Link>
+          <div className={styles.previewActions}>
+            <Link className={styles.liveAction} href="/dashboard/knowledge-preview">Open Next Knowledge preview</Link>
+            <Link className={styles.liveAction} href="/dashboard/code-graph-preview">Open Next Code Graph preview</Link>
+          </div>
         </article>
       </section>
     </section>
