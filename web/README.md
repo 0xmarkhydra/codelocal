@@ -52,7 +52,8 @@ The client-neutral read contracts currently include:
 - `GET /api/v1/workspaces` — authorized workspace display/status DTO;
 - `GET /api/v1/devices` — paired device display/status DTO;
 - `GET /api/v1/usage` — 24h/30d/all-time MCP tool payload estimates, explicitly separated from provider billing;
-- `GET /api/v1/knowledge/graph` — bounded Project Brain graph with response-local node/edge IDs and privacy-minimized display fields.
+- `GET /api/v1/knowledge/graph` — bounded Project Brain graph with response-local node/edge IDs and privacy-minimized display fields;
+- `GET /api/v1/knowledge/health` — aggregate Project Brain pipeline/index/canary health, collective rollout/preferences and the CSRF token used by the existing Go preference mutation.
 
 The device/workspace DTOs are typed and runtime-validated in `src/lib/contracts/resources.ts`; usage is typed and validated in `src/lib/contracts/usage.ts`; the graph contract is validated in `src/lib/contracts/knowledge.ts`. Resource DTOs are intentionally narrower than internal Go structs and exclude credential identifiers, public keys, secret hashes, project roots, capabilities, routing keys and infrastructure diagnostics. The graph contract additionally excludes source-memory IDs, raw graph IDs and repository remotes. Usage does not infer USD cost or provider billing.
 
@@ -75,8 +76,9 @@ Current slice provides:
 - versioned Go overview/workspaces/devices/usage read contracts;
 - same-origin browser session bridge through explicit Next rewrites (implemented, pending real-edge cookie/User-Agent/client-IP parity verification before cutover);
 - real Overview, Workspaces, Devices and Usage rendering only when authenticated backend data validates against runtime TypeScript contracts;
+- Knowledge Graph preview with privacy-minimized graph DTO, aggregate Project Brain health and CSRF-protected collective settings that still persist through the existing Go mutation endpoint;
 - shared dashboard layout/navigation with legacy-route fallback to Go for unported route families;
-- no production route cutover yet;
+- no production route cutover yet; Knowledge remains on its Go route until real-edge auth/security-signal parity is verified;
 - no fake live telemetry.
 
 The existing Go-rendered web UI remains the production compatibility fallback until individual Next.js route families pass behavior/security parity and have a rollback path.
