@@ -10,15 +10,15 @@ export default function WorkspacesPage() {
           <h1>Workspaces</h1>
           <p>Search authorized project folders, open their local Code Graph and remove access without touching project files.</p>
         </div>
-        <span className={styles.productionLink}>Local paths stay private</span>
+        <span className={styles.productionLink}>Local access</span>
       </header>
 
       <LiveWorkspaces />
 
       <section className={styles.routeGuardrail}>
-        <span className={styles.eyebrow}>Authorization boundary</span>
-        <h2>Removing access keeps the existing local revocation handshake.</h2>
-        <p>The action is available only while that machine runtime is reachable, requires CSRF plus a fresh Go security context, and never deletes or modifies files in the project folder.</p>
+        <span className={styles.eyebrow}>Access control</span>
+        <h2>Removing access does not touch your files.</h2>
+        <p>CodeLocal removes authorization for that workspace only. The project folder and its contents remain unchanged on your machine.</p>
       </section>
     </section>
   );

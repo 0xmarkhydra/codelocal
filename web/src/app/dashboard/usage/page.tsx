@@ -6,19 +6,19 @@ export default function UsagePage() {
     <section className={styles.content}>
       <header className={styles.header}>
         <div>
-          <span className={styles.eyebrow}>Read-only route parity</span>
+          <span className={styles.eyebrow}>Activity</span>
           <h1>Usage</h1>
-          <p>Estimated MCP tool payload from the Go usage store, separated from provider billing.</p>
+          <p>Estimated MCP tool activity and token volume, separate from provider billing.</p>
         </div>
-        <span className={styles.productionLink}>No inferred USD cost</span>
+        <span className={styles.productionLink}>Usage telemetry</span>
       </header>
 
       <LiveUsage />
 
       <section className={styles.routeGuardrail}>
-        <span className={styles.eyebrow}>Billing boundary</span>
-        <h2>Usage telemetry is not an entitlement or invoice source.</h2>
-        <p>Billing access remains driven only by verified server-side billing state. This page reports estimated MCP payload and tool calls; it does not estimate provider charges or grant paid access.</p>
+        <span className={styles.eyebrow}>Usage boundary</span>
+        <h2>Usage is activity data, not an invoice.</h2>
+        <p>These estimates summarize MCP tool calls and payload. They do not calculate provider charges or change billing access.</p>
       </section>
     </section>
   );

@@ -71,9 +71,9 @@ function CollectiveControls({ csrf, value }: { csrf: string; value: KnowledgeCol
         setMessage(response.status === 403 ? "Security token expired. Reload this page before saving again." : `Save failed with ${response.status}.`);
         return;
       }
-      setMessage("Collective settings saved by the Go backend.");
+      setMessage("Collective settings saved.");
     } catch {
-      setMessage("Collective settings could not reach the Go backend.");
+      setMessage("Collective settings could not be saved right now.");
     } finally {
       setSaving(false);
     }
@@ -84,7 +84,7 @@ function CollectiveControls({ csrf, value }: { csrf: string; value: KnowledgeCol
       <div className={styles.healthCardHead}>
         <div>
           <span>Collective intelligence</span>
-          <p>Private opt-in. Go remains the only authority that persists these settings and withdraws contribution aggregates when disabled.</p>
+          <p>Private opt-in. You can disable contribution at any time; CodeLocal removes your contribution aggregates when you opt out.</p>
         </div>
         <b>{value.available ? "Available" : "Unavailable"}</b>
       </div>
@@ -139,7 +139,7 @@ function HealthContent({ value }: { value: KnowledgeHealthResource }) {
         <div>
           <span className={styles.eyebrow}>Project Brain health & controls</span>
           <h2>Derived indexes stay observable without exposing project content.</h2>
-          <p>These are aggregate pipeline/index/canary signals. Canonical knowledge remains the authority when a derived index is stale or unavailable.</p>
+          <p>These signals summarize Project Brain health. If a derived index is stale or unavailable, CodeLocal continues using the durable project knowledge it already trusts.</p>
         </div>
         <span className={styles.liveBadge}>GO AUTHORITY</span>
       </div>

@@ -36,7 +36,7 @@ export function InviteLive() {
       .catch((reason) => { if (reason instanceof Error && reason.message !== "unauthorized") setError(true); });
   }, [router]);
 
-  if (error) return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Invite</span><h2>Invite data is temporarily unavailable.</h2><p>Refresh after the Go backend is reachable again.</p></section>;
+  if (error) return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Invite</span><h2>Invite data is temporarily unavailable.</h2><p>Refresh after CodeLocal is reachable again.</p></section>;
   if (!data) return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Invite</span><h2>Loading your invite network…</h2></section>;
 
   return <div className={surface.grid}>

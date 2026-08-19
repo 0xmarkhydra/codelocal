@@ -110,7 +110,7 @@ function ReferralTree({ users }: { users: User[] }) {
   return <section className={surface.card}>
     <span className={dashboard.eyebrow}>Referral network</span>
     <h2 className={surface.title}>Who invited whom</h2>
-    <p className={surface.copy}>Relationship tree derived from referral codes. Cycles are guarded client-side and never change backend data.</p>
+    <p className={surface.copy}>Relationship tree derived from referral codes. Invalid cycles are ignored without changing stored relationships.</p>
     <div className={surface.tree}>{rows.map(({ user, depth }) => <div className={surface.treeNode} key={user.id} style={{ marginLeft: Math.min(depth, 8) * 18 }}><strong>{user.email} · {user.referralCode}</strong><span>{user.referredByCode ? `Invited by ${user.referredByCode}` : "Root / direct account"} · {user.inviteCount} direct · {status(user)}</span></div>)}</div>
   </section>;
 }

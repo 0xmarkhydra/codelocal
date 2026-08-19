@@ -12,7 +12,7 @@ export function DashboardResourceFeedback(props: FeedbackProps) {
     return (
       <section className={styles.livePanel} aria-live="polite">
         <span className={styles.eyebrow}>{props.label}</span>
-        <h2>Checking the Go backend…</h2>
+        <h2>Checking CodeLocal…</h2>
         <p>No local placeholder values are shown while real state is loading.</p>
       </section>
     );
@@ -23,7 +23,7 @@ export function DashboardResourceFeedback(props: FeedbackProps) {
       <section className={styles.livePanel} aria-live="polite">
         <span className={styles.eyebrow}>{props.label}</span>
         <h2>Sign in to load real CodeLocal state.</h2>
-        <p>The browser session remains owned and verified by the Go backend.</p>
+        <p>Your signed-in session is being verified before private data is shown.</p>
         <a className={styles.liveAction} href="/login?next=%2Fdashboard">Sign in through CodeLocal</a>
       </section>
     );

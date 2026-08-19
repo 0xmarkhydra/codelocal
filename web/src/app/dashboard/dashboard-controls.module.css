@@ -2,49 +2,27 @@
   display: grid;
   gap: 10px;
   margin-top: auto;
-  padding: 16px 8px 4px;
+  padding: 16px 9px 4px;
   border-top: 1px solid var(--line);
 }
-
-.sidebarAccountCopy {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.sidebarAccountCopy span {
-  color: var(--muted-2);
-  font-size: 9px;
-}
-
-.sidebarAccountCopy strong {
-  overflow: hidden;
-  color: #cfcfd5;
-  font-size: 10px;
-  font-weight: 540;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.sidebarAccountCopy { min-width: 0; display: grid; gap: 3px; }
+.sidebarAccountCopy span { color: var(--text-tertiary); font-size: 8.5px; }
+.sidebarAccountCopy strong { overflow: hidden; color: #d3d9e2; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 
 .signOutButton,
 .listButton {
   min-height: 32px;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  color: #b8b8c0;
-  background: transparent;
+  border-radius: 8px;
+  color: #bbc3ce;
+  background: rgba(255,255,255,.015);
   font-size: 9.5px;
   cursor: pointer;
   transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
 }
-
 .signOutButton:hover,
-.listButton:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #f2f2f3;
-  background: rgba(255, 255, 255, 0.04);
-}
+.listButton:hover:not(:disabled) { border-color: rgba(255,255,255,.2); color: #f5f6f7; background: rgba(255,255,255,.04); }
 
 .listToolbar {
   display: flex;
@@ -52,143 +30,62 @@
   justify-content: space-between;
   gap: 14px;
   margin-top: 20px;
-  padding: 14px 0;
+  padding: 13px 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
-
-.listSearch {
-  flex: 1;
-  max-width: 520px;
-  display: flex;
-  gap: 8px;
-}
-
+.listSearch { flex: 1; max-width: 520px; display: flex; gap: 8px; }
 .listSearch input {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  padding: 0 11px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  outline: 0;
-  color: #e5e5e7;
-  background: #0a0a0b;
-  font-size: 10px;
+  width: 100%; min-width: 0; height: 38px; padding: 0 11px;
+  border: 1px solid var(--line-strong); border-radius: 9px; outline: 0;
+  color: #e7ebf1; background: rgba(5,9,14,.78); font-size: 10px;
 }
-
-.listSearch input:focus {
-  border-color: rgba(154, 167, 255, 0.68);
-  box-shadow: none;
-}
-
-.listMeta {
-  flex: 0 0 auto;
-  color: var(--muted-2);
-  font-size: 9px;
-  white-space: nowrap;
-}
-
-.listPager {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 9px;
-  margin-top: 14px;
-}
-
-.listPager span {
-  color: var(--muted-2);
-  font-size: 9px;
-}
-
-.listButton:disabled {
-  opacity: 0.38;
-  cursor: default;
-}
+.listSearch input:focus { border-color: rgba(120,160,255,.58); box-shadow: 0 0 0 3px rgba(83,128,239,.07); }
+.listMeta { flex: 0 0 auto; color: var(--text-tertiary); font-size: 8.5px; white-space: nowrap; }
+.listPager { display: flex; align-items: center; justify-content: flex-end; gap: 9px; margin-top: 14px; }
+.listPager span { color: var(--text-tertiary); font-size: 8.5px; }
+.listButton:disabled { opacity: .38; cursor: default; }
 
 .overviewState {
-  width: min(100%, 1360px);
+  width: min(100%,1360px);
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 32px;
-  margin: 0 auto 16px;
-  padding: 22px 0 26px;
-  border-top: 1px solid var(--line-strong);
-  border-bottom: 1px solid var(--line);
-}
-
-.overviewState h2 {
-  margin: 9px 0 8px;
-  font-size: clamp(23px, 2.7vw, 34px);
-  font-weight: 580;
-  letter-spacing: -0.042em;
-}
-
-.overviewState p {
-  max-width: 760px;
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.65;
-}
-
-.overviewStateActions {
-  flex: 0 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.overviewStateActions a {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 11px;
+  margin: 0 auto 18px;
+  padding: 26px 28px;
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  color: #c9c9d0;
-  background: transparent;
-  font-size: 9.5px;
-  font-weight: 560;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(77,105,174,.11), transparent 22rem),
+    linear-gradient(180deg, rgba(255,255,255,.015), transparent 45%),
+    var(--surface-sunken);
 }
-
-.overviewStateActions a:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  background: rgba(255, 255, 255, 0.035);
+.overviewState::before {
+  content: "";
+  position: absolute;
+  inset: auto 28px 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(120,160,255,.45), rgba(120,160,255,.07), transparent);
 }
-
-.overviewStateActions a:first-child {
-  border-color: #efefee;
-  color: #121212;
-  background: #efefee;
+.overviewState h2 { margin: 10px 0 8px; font-size: clamp(25px,2.9vw,37px); font-weight: 570; letter-spacing: -.045em; }
+.overviewState p { max-width: 760px; margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.68; }
+.overviewStateActions { flex: 0 0 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.overviewStateActions a {
+  min-height: 36px; display: inline-flex; align-items: center; padding: 0 12px;
+  border: 1px solid var(--line-strong); border-radius: 9px; color: #cbd4e1;
+  background: rgba(255,255,255,.018); font-size: 9.5px; font-weight: 590;
 }
+.overviewStateActions a:hover { border-color: rgba(255,255,255,.2); color: #fff; background: rgba(255,255,255,.04); }
+.overviewStateActions a:first-child { border-color: rgba(255,255,255,.92); color: #0a0b0d; background: #f1f2ef; }
+.overviewStateActions a:first-child:hover { background: #fff; }
 
-.overviewStateActions a:first-child:hover {
-  border-color: #fff;
-  color: #0b0b0b;
-  background: #fff;
-}
-
-@media (max-width: 720px) {
-  .listToolbar,
-  .overviewState {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .listSearch {
-    max-width: none;
-  }
-
-  .listMeta {
-    white-space: normal;
-  }
-
-  .overviewStateActions {
-    justify-content: flex-start;
-  }
+@media (max-width:720px) {
+  .listToolbar,.overviewState { align-items: stretch; flex-direction: column; }
+  .listSearch { max-width: none; }
+  .listMeta { white-space: normal; }
+  .overviewState { padding: 20px; border-radius: 15px; }
+  .overviewStateActions { justify-content: flex-start; }
 }

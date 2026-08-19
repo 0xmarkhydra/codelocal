@@ -9,9 +9,9 @@ export default function CodeGraphPage() {
         <div>
           <span className={styles.eyebrow}>Local-runtime evidence</span>
           <h1>Code Graph</h1>
-          <p>Bounded, revision-aware architecture and impact evidence returned by the selected authorized local checkout.</p>
+          <p>Explore symbols, relationships and impact inside an authorized local workspace.</p>
         </div>
-        <span className={styles.productionLink}>Source graph stays local</span>
+        <span className={styles.productionLink}>Computed locally</span>
       </header>
 
       <Suspense fallback={<section className={styles.livePanel}><span className={styles.eyebrow}>Code Graph</span><h2>Loading checkout context…</h2></section>}>
@@ -20,9 +20,9 @@ export default function CodeGraphPage() {
 
       <section className={styles.routeGuardrail}>
         <span className={styles.eyebrow}>Privacy boundary</span>
-        <h2>The browser receives a bounded projection, not the source graph.</h2>
+        <h2>The source graph stays on your machine.</h2>
         <p>
-          Project roots, routing keys, repository IDs and source hashes stay outside the browser contract. Go resolves workspace authorization before querying the local runtime.
+          CodeLocal sends only the bounded relationships needed for this view. Project roots, routing keys, repository IDs and source hashes remain local.
         </p>
       </section>
     </section>

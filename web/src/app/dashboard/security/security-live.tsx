@@ -99,7 +99,7 @@ export function LiveSecurity() {
           <div className={styles.panelHead}>
             <div><span className={styles.eyebrow}>Password</span><h3>Account security</h3></div>
           </div>
-          <p>Changing the password verifies the current password, requires CSRF + fresh security context, rotates security version and revokes other signed-in browser sessions.</p>
+          <p>Changing your password verifies the current password, refreshes account security and signs out other browser sessions.</p>
           <Link className={styles.liveAction} href="/dashboard/account">Manage password</Link>
         </article>
 
@@ -108,9 +108,9 @@ export function LiveSecurity() {
             <div><span className={styles.eyebrow}>Privacy boundary</span><h3>No cloud audit feed</h3></div>
           </div>
           <p>
-            CodeLocal intentionally does not expose cloud security/audit history through this dashboard. This surface therefore does not fabricate login events, IP history or fingerprint telemetry.
+            Only security information that CodeLocal can verify is shown here. Login events, IP history and fingerprint telemetry are not invented or inferred.
           </p>
-          <span className={styles.securityStatement}>Audit remains server-side operational evidence.</span>
+          <span className={styles.securityStatement}>Security events are recorded for account protection and troubleshooting.</span>
         </article>
       </section>
     </>

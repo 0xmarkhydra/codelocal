@@ -35,10 +35,10 @@ async function responseMessage(response: Response) {
       case "device_not_found": return "This device is no longer available to revoke.";
       case "workspace_not_found": return "This workspace is no longer authorized.";
       case "device_already_revoked": return "This device has already been revoked.";
-      default: return `The Go backend rejected this change (${response.status}).`;
+      default: return `CodeLocal rejected this change (${response.status}).`;
     }
   } catch {
-    return `The Go backend rejected this change (${response.status}).`;
+    return `CodeLocal rejected this change (${response.status}).`;
   }
 }
 
@@ -71,7 +71,7 @@ export function ResourceMutationButton({ endpoint, csrf, label, confirmMessage, 
       setState({ kind: "success", message: "Updated" });
       onSuccess();
     } catch {
-      setState({ kind: "error", message: "The Go backend could not be reached." });
+      setState({ kind: "error", message: "CodeLocal could not be reached." });
     }
   }
 

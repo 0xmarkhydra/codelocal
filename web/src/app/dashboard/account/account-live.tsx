@@ -37,7 +37,7 @@ export function LiveAccount() {
         <section className={styles.accountRisk} role="alert">
           <span className={styles.eyebrow}>Fresh security context required</span>
           <h2>This browser session observed a security-signal change.</h2>
-          <p>Sensitive changes will require you to sign in again. This is enforced by the Go backend, not by the Next.js page.</p>
+          <p>Sensitive changes may ask you to sign in again to protect your account.</p>
         </section>
       )}
 
@@ -68,7 +68,7 @@ export function LiveAccount() {
             </div>
           </div>
           <p className={styles.accountSecurityCopy}>
-            The form posts directly to the existing Go security handler. A successful change rotates this browser session and revokes other signed-in web sessions.
+            A successful password change refreshes this browser session and signs out other web sessions.
           </p>
           <form className={styles.accountForm} method="post" action="/account/password">
             <input type="hidden" name="csrf" value={account.csrf} />

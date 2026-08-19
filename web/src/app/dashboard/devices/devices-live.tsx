@@ -54,9 +54,9 @@ export function LiveDevices() {
         <div>
           <span className={styles.eyebrow}>Paired devices</span>
           <h2>Machine runtimes connected to your account.</h2>
-          <p>The API exposes display identity and reachability only; credential identifiers, public keys and secret hashes stay server-side.</p>
+          <p>This view shows device identity and reachability. Private credentials and keys are never exposed here.</p>
         </div>
-        <span className={styles.liveBadge}>LIVE BACKEND DATA</span>
+        <span className={styles.liveBadge}>Live</span>
       </div>
 
       <div className={styles.metricGrid}>

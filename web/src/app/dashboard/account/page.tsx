@@ -9,9 +9,9 @@ export default function AccountPage() {
         <div>
           <span className={styles.eyebrow}>Account</span>
           <h1>Account</h1>
-          <p>Identity and password controls rendered by Next.js while security authority remains in Go.</p>
+          <p>Manage your identity, password and account security.</p>
         </div>
-        <span className={styles.productionLink}>Password security · Go</span>
+        <span className={styles.productionLink}>Protected account</span>
       </header>
 
       <Suspense fallback={<section className={styles.livePanel}><span className={styles.eyebrow}>Account</span><h2>Loading account state…</h2></section>}>
@@ -19,11 +19,10 @@ export default function AccountPage() {
       </Suspense>
 
       <section className={styles.routeGuardrail}>
-        <span className={styles.eyebrow}>Security boundary</span>
-        <h2>Next.js never verifies or stores the password.</h2>
+        <span className={styles.eyebrow}>Protected changes</span>
+        <h2>Password changes stay inside the secure account flow.</h2>
         <p>
-          Current-password verification, CSRF, fresh-security checks, rate limiting, password hashing, security-version rotation,
-          session replacement and audit remain inside the existing Go authentication handler.
+          Current-password checks, rate limits, session rotation and audit happen behind the interface. The page never stores your password.
         </p>
       </section>
     </section>

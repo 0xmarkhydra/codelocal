@@ -9,19 +9,19 @@ export default function KnowledgePage() {
         <div>
           <span className={styles.eyebrow}>Project Brain</span>
           <h1>Knowledge Graph</h1>
-          <p>Durable project knowledge, health and collective controls rendered by Next.js with Go as the data and security authority.</p>
+          <p>Durable project context your AI can reuse across sessions, tools and teammates.</p>
         </div>
-        <span className={styles.productionLink}>Bounded graph · Go authority</span>
+        <span className={styles.productionLink}>Private by design</span>
       </header>
 
       <LiveKnowledgeGraph />
       <LiveKnowledgeHealth />
 
       <section className={styles.routeGuardrail}>
-        <span className={styles.eyebrow}>Authority boundary</span>
-        <h2>Canonical knowledge and collective mutations remain server-side.</h2>
+        <span className={styles.eyebrow}>Privacy boundary</span>
+        <h2>Your raw project stays out of the browser.</h2>
         <p>
-          The browser receives privacy-minimized graph data and aggregate health only. Collective preference changes continue to use the existing CSRF-protected Go mutation path.
+          The graph receives only minimized project knowledge and aggregate health. Preference changes are protected and applied through CodeLocal’s secure account flow.
         </p>
       </section>
     </section>

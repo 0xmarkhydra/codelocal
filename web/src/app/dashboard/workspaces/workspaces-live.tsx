@@ -59,7 +59,7 @@ export function LiveWorkspaces() {
           <h2>Project folders visible to CodeLocal.</h2>
           <p>This list comes from the Go workspace catalog and omits local paths, capabilities and routing internals.</p>
         </div>
-        <span className={styles.liveBadge}>LIVE BACKEND DATA</span>
+        <span className={styles.liveBadge}>Live</span>
       </div>
 
       <div className={styles.metricGrid}>

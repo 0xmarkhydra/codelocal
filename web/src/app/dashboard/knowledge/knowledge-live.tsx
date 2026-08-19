@@ -31,7 +31,7 @@ export function LiveKnowledgeGraph() {
             Browser IDs are response-local and repository remotes, device identifiers and source-memory IDs are excluded from this client contract.
           </p>
         </div>
-        <span className={styles.liveBadge}>LIVE BACKEND DATA</span>
+        <span className={styles.liveBadge}>Live</span>
       </div>
 
       <div className={styles.metricGrid}>

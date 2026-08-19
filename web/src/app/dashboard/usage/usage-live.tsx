@@ -54,10 +54,10 @@ export function LiveUsage() {
       <div className={styles.liveHead}>
         <div>
           <span className={styles.eyebrow}>MCP usage</span>
-          <h2>Tool-call payload estimates from the Go usage authority.</h2>
+          <h2>Recent MCP tool activity and estimated token volume.</h2>
           <p>{resource.scope}. These values are not a provider invoice and no USD cost is inferred here.</p>
         </div>
-        <span className={styles.liveBadge}>ESTIMATED · LIVE BACKEND DATA</span>
+        <span className={styles.liveBadge}>Estimated · Live</span>
       </div>
 
       <div className={styles.metricGrid}>
