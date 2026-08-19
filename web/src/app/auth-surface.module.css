@@ -315,6 +315,10 @@
 }
 
 @media (max-width: 560px) {
+  .input {
+    font-size: 16px;
+  }
+
   .nav {
     width: min(calc(100% - 24px), 1180px);
     min-height: 62px;
