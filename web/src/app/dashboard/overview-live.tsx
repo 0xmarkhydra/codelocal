@@ -79,11 +79,11 @@ export function LiveOverview() {
       <section className={styles.livePanel} aria-live="polite">
         <div className={styles.liveHead}>
           <div>
-            <span className={styles.eyebrow}>Control plane</span>
-            <h2>Real state from the Go authority.</h2>
-            <p>Signed in as {overview.user.email}. Counts below are backend-validated and never synthesized by the browser.</p>
+            <span className={styles.eyebrow}>Current state</span>
+            <h2>Your workspace at a glance.</h2>
+            <p>Signed in as {overview.user.email}. Device, workspace and usage totals reflect your current CodeLocal account.</p>
           </div>
-          <span className={styles.liveBadge}>LIVE BACKEND DATA</span>
+          <span className={styles.liveBadge}>Live</span>
         </div>
 
         <div className={styles.metricGrid}>

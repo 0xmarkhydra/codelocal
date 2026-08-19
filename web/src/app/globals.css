@@ -1,21 +1,21 @@
 :root {
-  --bg: #05070b;
-  --bg-elevated: #0a0e16;
-  --surface: rgba(13, 19, 31, 0.78);
-  --surface-strong: #0f1623;
-  --line: rgba(151, 170, 205, 0.14);
-  --line-strong: rgba(151, 170, 205, 0.24);
-  --text: #f4f7fb;
-  --muted: #99a6bb;
-  --muted-2: #6f7c91;
-  --accent: #75a7ff;
-  --accent-strong: #4d8dff;
-  --cyan: #68e0ff;
-  --green: #55d69e;
-  --danger: #ff6c7f;
-  --radius-sm: 12px;
-  --radius-md: 18px;
-  --radius-lg: 28px;
+  --bg: #090909;
+  --bg-elevated: #0d0d0e;
+  --surface: #101012;
+  --surface-strong: #151518;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --text: #f5f5f4;
+  --muted: #a1a1aa;
+  --muted-2: #71717a;
+  --accent: #9aa7ff;
+  --accent-strong: #7f8cff;
+  --cyan: #7dd3fc;
+  --green: #6ee7b7;
+  --danger: #fb7185;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
   --content: 1180px;
 }
 
@@ -33,10 +33,7 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--text);
-  background:
-    radial-gradient(circle at 20% -10%, rgba(71, 119, 255, 0.2), transparent 34rem),
-    radial-gradient(circle at 95% 8%, rgba(46, 197, 255, 0.1), transparent 26rem),
-    var(--bg);
+  background: var(--bg);
   font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -54,9 +51,22 @@ select {
   font: inherit;
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(154, 167, 255, 0.9);
+  outline-offset: 3px;
+}
+
 ::selection {
   color: #fff;
-  background: rgba(77, 141, 255, 0.46);
+  background: rgba(127, 140, 255, 0.42);
 }
 
 .sr-only {

@@ -1,8 +1,8 @@
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  background: linear-gradient(180deg, rgba(6, 9, 15, 0.96), rgba(4, 6, 10, 1));
+  grid-template-columns: 228px minmax(0, 1fr);
+  background: var(--bg);
 }
 
 .sidebar {
@@ -11,43 +11,38 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 22px 16px;
+  padding: 18px 12px;
   border-right: 1px solid var(--line);
-  background: rgba(7, 11, 18, 0.92);
-  backdrop-filter: blur(18px);
+  background: #0a0a0b;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 0 7px 24px;
-  font-weight: 680;
-  letter-spacing: -0.02em;
+  padding: 2px 8px 26px;
+  font-size: 14px;
+  font-weight: 640;
+  letter-spacing: -0.018em;
 }
 
 .brandMark {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(117, 167, 255, 0.28);
-  border-radius: 11px;
-  color: #e3edff;
-  background: rgba(83, 135, 255, 0.12);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
-  letter-spacing: 0.08em;
+  overflow: hidden;
+  border-radius: 8px;
 }
 
 .navLabel,
 .eyebrow {
-  color: var(--muted-2);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: #85858e;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 11px;
+  font-weight: 520;
+  letter-spacing: -0.005em;
+  text-transform: none;
 }
 
 .navLabel {
@@ -56,63 +51,35 @@
 
 .nav {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .nav a {
-  min-height: 38px;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px;
+  padding: 0 11px;
   border: 1px solid transparent;
-  border-radius: 10px;
-  color: #8c99ad;
-  font-size: 11.5px;
+  border-radius: 7px;
+  color: #8d8d96;
+  font-size: 12px;
+  transition: color 140ms ease, background 140ms ease;
 }
 
-.nav i {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #42506a;
+.nav a:hover {
+  color: #d7d7dc;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .nav .activeNav {
-  border-color: rgba(117, 167, 255, 0.18);
-  color: #edf4ff;
-  background: rgba(74, 130, 235, 0.1);
-}
-
-.nav .activeNav i {
-  background: var(--accent);
-  box-shadow: 0 0 12px rgba(117, 167, 255, 0.5);
-}
-
-.sidebarNotice {
-  margin-top: auto;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.018);
-}
-
-.sidebarNotice span {
-  color: #dce6f5;
-  font-size: 10.5px;
-  font-weight: 650;
-}
-
-.sidebarNotice p {
-  margin: 7px 0 0;
-  color: var(--muted-2);
-  font-size: 9.5px;
-  line-height: 1.55;
+  border-color: transparent;
+  color: #f0f0f1;
+  background: rgba(255, 255, 255, 0.055);
 }
 
 .content {
   min-width: 0;
-  padding: 42px 46px 80px;
+  padding: 44px 48px 88px;
 }
 
 .header {
@@ -121,14 +88,15 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  margin: 0 auto 28px;
+  margin: 0 auto 34px;
 }
 
 .header h1 {
-  margin: 8px 0 4px;
-  font-size: 38px;
+  margin: 9px 0 6px;
+  font-size: 40px;
   line-height: 1;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.048em;
+  font-weight: 590;
 }
 
 .header p {
@@ -138,14 +106,8 @@
 }
 
 .productionLink {
-  min-height: 38px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 11px;
-  color: #cbd6e6;
-  background: rgba(255, 255, 255, 0.02);
+  padding-top: 4px;
+  color: var(--muted-2);
   font-size: 10.5px;
   white-space: nowrap;
 }
@@ -153,8 +115,8 @@
 .heroPanel,
 .panel {
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(15, 23, 37, 0.78), rgba(8, 13, 22, 0.9));
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.18);
+  background: #0d0d0f;
+  box-shadow: none;
 }
 
 .heroPanel {
@@ -163,8 +125,8 @@
   grid-template-columns: minmax(0, 1fr) minmax(330px, 0.72fr);
   gap: 40px;
   margin: 0 auto 16px;
-  padding: 28px;
-  border-radius: 22px;
+  padding: 26px;
+  border-radius: 14px;
 }
 
 .heroPanel h2 {
@@ -183,48 +145,14 @@
   line-height: 1.7;
 }
 
-.boundaryDiagram {
-  display: grid;
-  grid-template-columns: 1fr;
-  align-content: center;
-  gap: 7px;
-}
-
-.boundaryDiagram span,
-.boundaryDiagram b {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 11px;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.boundaryDiagram span {
-  border: 1px solid var(--line-strong);
-  color: #dce8fa;
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.boundaryDiagram b {
-  min-height: 22px;
-  color: #6687b8;
-  font-weight: 550;
-}
-
 .livePanel {
   width: min(100%, 1360px);
   margin: 0 auto 16px;
   padding: 26px;
-  border: 1px solid rgba(117, 167, 255, 0.2);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at 84% 0%, rgba(80, 148, 255, 0.12), transparent 34%),
-    linear-gradient(180deg, rgba(15, 23, 37, 0.88), rgba(8, 13, 22, 0.94));
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0d0d0f;
+  box-shadow: none;
 }
 
 .livePanel > h2,
@@ -252,14 +180,10 @@
 
 .liveBadge {
   flex: 0 0 auto;
-  padding: 6px 8px;
-  border: 1px solid rgba(85, 214, 158, 0.22);
-  border-radius: 999px;
-  color: #7ee4b6;
-  background: rgba(85, 214, 158, 0.06);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
-  letter-spacing: 0.08em;
+  padding-top: 4px;
+  color: #91d4b6;
+  font-size: 10px;
+  letter-spacing: 0;
 }
 
 .previewActions {
@@ -288,27 +212,28 @@
 .metricGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 22px;
+  gap: 26px;
+  margin-top: 24px;
 }
 
 .metricCard {
-  min-height: 132px;
+  min-height: 122px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 17px;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  background: rgba(255, 255, 255, 0.018);
+  padding: 18px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
 }
 
 .metricCard > span {
   color: var(--muted-2);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 8.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .metricCard strong {

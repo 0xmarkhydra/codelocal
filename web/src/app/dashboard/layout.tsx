@@ -7,20 +7,14 @@ export default function DashboardLayout({ children }: Readonly<{ children: React
   return (
     <main className={styles.shell}>
       <aside className={styles.sidebar}>
-        <Link className={styles.brand} href="/">
+        <Link className={styles.brand} href="/" aria-label="CodeLocal home">
           <span className={styles.brandMark} aria-hidden="true">
-            <Image src="/codelocal-icon.png" alt="" width={34} height={34} priority />
+            <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
           </span>
           <span>CodeLocal</span>
         </Link>
 
-        <div className={styles.navLabel}>Control plane</div>
         <DashboardNav />
-
-        <div className={styles.sidebarNotice}>
-          <span>Privacy boundary</span>
-          <p>Source code, credentials and local project roots stay outside the browser presentation contract.</p>
-        </div>
       </aside>
       {children}
     </main>

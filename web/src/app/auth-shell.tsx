@@ -18,7 +18,7 @@ export function AuthShell({ eyebrow, title, description, panelTitle, panelSubtit
     <main className={styles.page}>
       <header className={styles.nav}>
         <Link className={styles.brand} href="/">
-          <Image src="/codelocal-icon.png" alt="" width={34} height={34} priority />
+          <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
           <span>CodeLocal</span>
         </Link>
         <nav className={styles.navLinks} aria-label="Public navigation">

@@ -43,7 +43,6 @@ export function DashboardNav() {
           const active = isActive(pathname, item.href);
           return (
             <Link className={active ? styles.activeNav : undefined} href={item.href} aria-current={active ? "page" : undefined} key={item.href}>
-              <i aria-hidden="true" />
               {item.label}
             </Link>
           );
