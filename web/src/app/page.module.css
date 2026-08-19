@@ -1,11 +1,11 @@
 .page {
   width: min(calc(100% - 40px), var(--content));
   margin: 0 auto;
-  padding-bottom: 112px;
+  padding-bottom: 120px;
 }
 
 .nav {
-  min-height: 68px;
+  min-height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -18,8 +18,8 @@
   align-items: center;
   gap: 10px;
   font-size: 14px;
-  font-weight: 640;
-  letter-spacing: -0.018em;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .brand img {
@@ -27,9 +27,7 @@
 }
 
 .navActions,
-.actions,
-.clientLine,
-.brainFoot {
+.actions {
   display: flex;
   align-items: center;
 }
@@ -51,224 +49,275 @@
 .navButton,
 .primaryButton,
 .secondaryButton {
-  min-height: 38px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 9px;
-  padding: 0 15px;
+  border-radius: 10px;
+  padding: 0 16px;
   font-size: 12px;
-  font-weight: 620;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  font-weight: 630;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
 }
 
 .navButton,
 .primaryButton {
-  border: 1px solid #f1f1f0;
-  color: #101010;
-  background: #f1f1f0;
+  border: 1px solid rgba(255,255,255,.92);
+  color: #0b0c0f;
+  background: #f5f5f3;
 }
 
 .navButton:hover,
 .primaryButton:hover {
+  transform: translateY(-1px);
   background: #fff;
-  border-color: #fff;
 }
 
 .secondaryButton {
   border: 1px solid var(--line-strong);
-  color: #d7d7dc;
-  background: transparent;
+  color: #d8d8df;
+  background: rgba(255,255,255,.015);
 }
 
 .secondaryButton:hover {
-  border-color: rgba(255, 255, 255, 0.24);
-  color: #fff;
+  border-color: rgba(255,255,255,.24);
+  background: rgba(255,255,255,.03);
 }
 
 .hero {
-  min-height: 650px;
-  display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(430px, 1.05fr);
-  align-items: center;
-  gap: 72px;
-  padding: 92px 0 88px;
+  padding: 108px 0 88px;
+}
+
+.heroCopy {
+  max-width: 880px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.eyebrow,
+.surfaceLabel,
+.setupIntro > span {
+  color: #858692;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: .01em;
 }
 
 .heroCopy h1 {
-  max-width: 690px;
-  margin: 18px 0 22px;
-  font-size: clamp(48px, 5.55vw, 72px);
-  line-height: 0.99;
-  letter-spacing: -0.058em;
+  max-width: 840px;
+  margin: 20px auto 20px;
+  font-size: clamp(50px, 6vw, 78px);
+  line-height: .98;
+  letter-spacing: -.061em;
   font-weight: 610;
 }
 
 .heroCopy > p {
-  max-width: 650px;
-  margin: 0;
+  max-width: 690px;
+  margin: 0 auto;
   color: var(--muted);
   font-size: 16px;
-  line-height: 1.7;
-  letter-spacing: -0.012em;
-}
-
-.eyebrow,
-.sectionIntro > span,
-.setupIntro > span {
-  color: #888892;
-  font-size: 12px;
-  font-weight: 520;
-  letter-spacing: -0.005em;
+  line-height: 1.65;
+  letter-spacing: -.01em;
 }
 
 .actions {
-  flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   margin-top: 30px;
 }
 
-.clientLine {
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  margin-top: 34px;
-  color: var(--muted-2);
-  font-size: 10.5px;
-}
-
-.clientLine span {
-  margin-right: 2px;
-}
-
-.clientLine b {
-  color: #a8a8b1;
-  font-weight: 520;
-}
-
-.brainStage {
+.surface {
   position: relative;
-  min-height: 500px;
+  margin-top: 76px;
   overflow: hidden;
-  border-top: 1px solid var(--line-strong);
-  border-bottom: 1px solid var(--line-strong);
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 28px;
   background:
-    linear-gradient(90deg, transparent 49.9%, rgba(255, 255, 255, 0.035) 50%, transparent 50.1%),
-    linear-gradient(transparent 49.9%, rgba(255, 255, 255, 0.035) 50%, transparent 50.1%);
+    radial-gradient(circle at 50% 44%, rgba(114,128,255,.08), transparent 32%),
+    linear-gradient(180deg, #0d0f14 0%, #090a0d 100%);
+  box-shadow: 0 40px 120px rgba(0,0,0,.42);
 }
 
-.brainHead {
+.surface::before {
+  content: "";
   position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(255,255,255,.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.024) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,.7), transparent 86%);
+}
+
+.surfaceTopbar {
+  position: relative;
   z-index: 2;
-  inset: 24px 0 auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.brainHead > div {
+  min-height: 48px;
   display: grid;
-  gap: 4px;
-}
-
-.brainHead span,
-.brainHead small {
-  color: var(--muted-2);
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  color: #8c8d98;
   font-size: 10px;
 }
 
-.brainHead strong {
-  font-size: 13px;
-  font-weight: 560;
-  letter-spacing: -0.012em;
+.windowDots {
+  display: flex;
+  gap: 6px;
 }
 
-.brainHead small {
-  max-width: 180px;
-  text-align: right;
+.windowDots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.17);
 }
 
-.brainMap {
-  position: absolute;
-  inset: 58px 0 48px;
-  width: 100%;
-  height: calc(100% - 106px);
+.surfaceStatus {
+  justify-self: end;
+  color: #7f8797;
 }
 
-.brainEdges path {
+.surfaceBody {
+  position: relative;
+  z-index: 1;
+  min-height: 540px;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 200px;
+  align-items: stretch;
+}
+
+.surfaceColumn {
+  padding: 30px 22px;
+  border-right: 1px solid var(--line);
+}
+
+.surfaceColumn:last-child {
+  border-right: 0;
+  border-left: 1px solid var(--line);
+}
+
+.clientStack,
+.runtimeStack {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.clientStack > div,
+.runtimeStack > div {
+  min-height: 70px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,.018);
+}
+
+.clientStack b,
+.runtimeStack b {
+  color: #ececf0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.clientStack span,
+.runtimeStack span {
+  color: #72737d;
+  font-size: 9px;
+}
+
+.brainCanvas {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.brainCanvas svg {
+  width: min(100%, 650px);
+  height: auto;
+}
+
+.surfaceEdges path {
   fill: none;
-  stroke: rgba(198, 203, 255, 0.28);
+  stroke: rgba(161,171,255,.34);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
-.brainNodes circle {
-  fill: #16171a;
-  stroke: rgba(229, 231, 255, 0.65);
+.surfaceEdges path:nth-child(2),
+.surfaceEdges path:nth-child(4) {
+  stroke: rgba(110,166,255,.28);
+}
+
+.surfaceNodes circle {
+  fill: #151821;
+  stroke: rgba(221,225,255,.58);
   stroke-width: 1.2;
   vector-effect: non-scaling-stroke;
 }
 
-.brainNodes .brainCore {
+.surfaceNodes .coreNode {
   fill: #dfe2ff;
   stroke: #fff;
+  filter: drop-shadow(0 0 18px rgba(154,167,255,.32));
 }
 
-.brainLabels text {
-  fill: #8e8e98;
+.surfaceLabels text {
+  fill: #898b97;
   font-family: var(--font-geist-sans), sans-serif;
-  font-size: 12px;
-  letter-spacing: -0.01em;
+  font-size: 11px;
 }
 
-.brainFoot {
+.brainCaption {
   position: absolute;
-  inset: auto 0 20px;
-  gap: 9px;
-  color: var(--muted-2);
-  font-size: 10px;
-}
-
-.brainFoot i {
-  color: #a7adff;
-  font-style: normal;
-}
-
-.principles,
-.setup {
-  display: grid;
-  grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
-  gap: 72px;
-  padding-top: 78px;
+  left: 28px;
+  right: 28px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 16px;
   border-top: 1px solid var(--line);
 }
 
-.sectionIntro h2,
-.setupIntro h2 {
-  margin: 12px 0 0;
-  font-size: clamp(32px, 3.7vw, 48px);
-  line-height: 1.04;
-  letter-spacing: -0.048em;
-  font-weight: 590;
+.brainCaption span {
+  color: #70717b;
+  font-size: 10px;
 }
 
-.principleGrid {
+.brainCaption strong {
+  font-size: 12px;
+  font-weight: 580;
+}
+
+.principles {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 28px;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 36px;
+  padding: 30px 0 96px;
 }
 
-.principleGrid article {
-  padding-top: 16px;
+.principles article {
+  padding-top: 18px;
   border-top: 1px solid var(--line-strong);
 }
 
-.principleGrid strong {
+.principles strong {
   font-size: 13px;
-  font-weight: 590;
+  font-weight: 610;
 }
 
-.principleGrid p {
+.principles p {
   margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
@@ -276,12 +325,25 @@
 }
 
 .setup {
-  margin-top: 92px;
+  display: grid;
+  grid-template-columns: minmax(0,.85fr) minmax(0,1.15fr);
+  gap: 84px;
+  padding-top: 90px;
+  border-top: 1px solid var(--line);
+}
+
+.setupIntro h2 {
+  max-width: 560px;
+  margin: 14px 0 16px;
+  font-size: clamp(34px, 4vw, 52px);
+  line-height: 1.02;
+  letter-spacing: -.05em;
+  font-weight: 600;
 }
 
 .setupIntro > p {
   max-width: 520px;
-  margin: 16px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.7;
@@ -289,14 +351,10 @@
 
 .textLink {
   display: inline-flex;
-  align-items: center;
   gap: 5px;
-  color: #c2c2c9;
+  margin-top: 22px;
+  color: #d0d0d6;
   font-size: 12px;
-}
-
-.textLink:hover {
-  color: #fff;
 }
 
 .setupList {
@@ -307,34 +365,25 @@
 }
 
 .setupList li {
-  min-height: 116px;
+  min-height: 122px;
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 50px minmax(0,1fr);
   align-items: center;
   border-bottom: 1px solid var(--line);
 }
 
 .setupList li > span {
-  align-self: start;
-  padding-top: 29px;
-  color: #6f6f78;
+  color: #666872;
   font-family: var(--font-geist-mono), monospace;
   font-size: 10px;
 }
 
-.setupList div {
-  padding: 26px 0;
-}
-
 .setupList strong {
   font-size: 15px;
-  font-weight: 570;
-  letter-spacing: -0.012em;
+  font-weight: 590;
 }
 
 .setupList p {
-  max-width: 530px;
   margin: 7px 0 0;
   color: var(--muted);
   font-size: 12px;
@@ -342,41 +391,28 @@
 }
 
 @media (max-width: 960px) {
-  .hero {
-    grid-template-columns: 1fr;
-    gap: 64px;
+  .surfaceBody {
+    grid-template-columns: 160px minmax(0,1fr) 160px;
   }
 
-  .brainStage {
-    min-height: 470px;
-  }
-
-  .principles,
   .setup {
     grid-template-columns: 1fr;
     gap: 42px;
   }
 }
 
-@media (max-width: 720px) {
-  .principleGrid {
-    grid-template-columns: 1fr;
-    gap: 24px;
-  }
-}
-
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .page {
     width: min(calc(100% - 28px), var(--content));
-    padding-bottom: 80px;
+    padding-bottom: 86px;
   }
 
   .nav {
-    min-height: 62px;
+    min-height: 64px;
   }
 
   .navActions {
-    gap: 14px;
+    gap: 12px;
   }
 
   .navActions > a:not(.navButton) {
@@ -384,52 +420,78 @@
   }
 
   .hero {
-    min-height: auto;
-    padding: 64px 0 72px;
+    padding: 70px 0 62px;
+  }
+
+  .heroCopy {
+    text-align: left;
   }
 
   .heroCopy h1 {
-    font-size: clamp(44px, 12.5vw, 60px);
+    margin: 16px 0 18px;
+    font-size: clamp(39px, 11vw, 52px);
+    line-height: 1;
   }
 
   .heroCopy > p {
+    margin: 0;
     font-size: 15px;
   }
 
-  .clientLine {
-    align-items: flex-start;
+  .actions {
+    justify-content: flex-start;
+    align-items: stretch;
     flex-direction: column;
-    gap: 7px;
+    margin-top: 24px;
   }
 
-  .brainStage {
-    min-height: 400px;
+  .surface {
+    margin-top: 48px;
+    border-radius: 20px;
   }
 
-  .brainHead small {
+  .surfaceTopbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .surfaceTopbar > span:nth-child(2) {
     display: none;
   }
 
-  .brainMap {
-    inset: 48px -44px 44px;
-    width: calc(100% + 88px);
+  .surfaceBody {
+    min-height: 430px;
+    grid-template-columns: 1fr;
   }
 
-  .brainFoot {
-    flex-wrap: wrap;
+  .surfaceColumn {
+    display: none;
   }
 
-  .actions {
-    align-items: stretch;
+  .brainCanvas svg {
+    width: 120%;
+    max-width: none;
+  }
+
+  .brainCaption {
+    left: 18px;
+    right: 18px;
+    bottom: 18px;
+    align-items: flex-start;
     flex-direction: column;
+    gap: 5px;
   }
 
-  .principles,
-  .setup {
-    padding-top: 58px;
+  .principles {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    padding-bottom: 68px;
   }
 
   .setup {
-    margin-top: 72px;
+    padding-top: 64px;
+  }
+
+  .setupList li {
+    min-height: 104px;
   }
 }

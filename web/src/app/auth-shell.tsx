@@ -13,49 +13,49 @@ type AuthShellProps = {
   highlights?: string[];
 };
 
-export function AuthShell({ eyebrow, title, description, panelTitle, panelSubtitle, children, highlights }: AuthShellProps) {
+export function AuthShell({ eyebrow, description, panelTitle, panelSubtitle, children, highlights }: AuthShellProps) {
+  const trustItems = highlights ?? [
+    "Go owns identity and authorization",
+    "Source stays on explicitly authorized machines",
+    "AI clients receive only the workspace access you grant",
+  ];
+
   return (
     <main className={styles.page}>
       <header className={styles.nav}>
-        <Link className={styles.brand} href="/">
+        <Link className={styles.brand} href="/" aria-label="CodeLocal home">
           <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
           <span>CodeLocal</span>
         </Link>
         <nav className={styles.navLinks} aria-label="Public navigation">
           <Link href="/security">Security</Link>
           <Link href="/support">Support</Link>
-          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/dashboard">Open app</Link>
         </nav>
       </header>
 
       <section className={styles.main}>
-        <div className={styles.frame}>
-          <section className={styles.context}>
-            <div>
-              <span className={styles.eyebrow}>{eyebrow}</span>
-              <h1>{title}</h1>
-              <p>{description}</p>
-            </div>
-            <div className={styles.contextList}>
-              {(highlights ?? [
-                "Go remains the identity and authorization authority",
-                "Local source stays on explicitly authorized machines",
-                "MCP clients receive only the workspace access you grant",
-              ]).map((item) => <div className={styles.contextItem} key={item}>{item}</div>)}
-            </div>
-          </section>
+        <div className={styles.authStage}>
+          <div className={styles.authIntro}>
+            <span className={styles.eyebrow}>{eyebrow}</span>
+            <p>{description}</p>
+          </div>
 
-          <section className={styles.panel}>
-            <span className={styles.eyebrow}>CodeLocal account</span>
-            <h2>{panelTitle}</h2>
+          <section className={styles.panel} aria-label={panelTitle}>
+            <span className={styles.accountLabel}>CodeLocal account</span>
+            <h1>{panelTitle}</h1>
             <p className={styles.subtitle}>{panelSubtitle}</p>
             {children}
           </section>
+
+          <div className={styles.trustLine} aria-label="CodeLocal trust boundaries">
+            {trustItems.map((item) => <span key={item}>{item}</span>)}
+          </div>
         </div>
       </section>
 
       <footer className={styles.footer}>
-        <span>CodeLocal · controlled local execution + durable project intelligence</span>
+        <span>Private execution · durable project intelligence</span>
         <div className={styles.footerLinks}>
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
