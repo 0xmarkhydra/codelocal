@@ -216,9 +216,8 @@ internal/approval/          approval broker/memory
 internal/security/          local execution/security policy
 
 internal/cloud/             cloud domain/persistence
-internal/cloudserver/       HTTP transport + dashboard composition
-internal/ui/                shared server-rendered UI primitives
-internal/webauth/           web sessions/forms/security flows
+internal/cloudserver/       HTTP transport + browser API/presentation edge
+internal/webauth/           web sessions/security flows
 internal/oauth/             OAuth protocol
 internal/deviceauth/        device request signing
 internal/webutil/           web request/security helpers
@@ -481,7 +480,7 @@ npm pack --dry-run ./.release/npm
 
 ### RA3 — Next.js web migration
 
-The destination browser architecture is `web/` using Next.js App Router + TypeScript. Align implementation with `PRODUCT_UI_MASTER_PLAN` while keeping the existing Go-rendered UI as a compatibility fallback until route-family parity is proven.
+The canonical browser architecture is `web/` using Next.js App Router + TypeScript. The legacy Go-rendered product UI has been removed; Go remains the trust/API/runtime authority and presentation edge.
 
 Target direction:
 

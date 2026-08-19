@@ -53,7 +53,7 @@ The web app consumes explicit backend HTTP/API contracts. It must not duplicate 
 
 For browser-session-bound reads, use same-origin versioned API requests and keep Go as the security authority. A direct Next canary may rewrite those requests to Go for deployment verification, but the production topology keeps the Go gateway on the public domain: Go authenticates protected page requests, serves APIs/transports directly, and proxies presentation-only routes to the private Next service. Before that presentation hop, Go strips browser Cookie, Authorization and client-IP/Railway edge headers so Next does not receive session secrets or security signals it does not own.
 
-Migration rule: the existing Go-rendered web UI remains compiled as the rollback path until the corresponding Next.js route family reaches behavior/security parity and the Railway canary passes. MCP, `/client`, OAuth, pairing and backend APIs must never become dependent on Next availability merely to complete a UI migration.
+Presentation rule: Next.js is the only browser UI implementation. Go remains the public trust/API/runtime authority and proxies only presentation GET/HEAD routes when `CODELOCAL_WEB_ORIGIN` is configured. MCP, `/client`, OAuth POST/token, pairing mutations and backend APIs remain Go-owned and must not move into the Next presentation service.
 
 ### app/
 

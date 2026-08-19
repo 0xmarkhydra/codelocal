@@ -1,6 +1,6 @@
 # Next.js Web Cutover Runbook
 
-Status: **complete browser-presentation parity implemented; cutover remains feature-flagged until the Railway DEV canary passes.**
+Status: **Next.js is the only browser presentation implementation. Railway web deployment/canary is still required before production promotion.**
 
 ## Final topology
 
@@ -22,7 +22,7 @@ Next is the canonical browser UI. Go remains the identity, authorization, securi
 
 ## Next-owned browser presentation
 
-When `CODELOCAL_WEB_CUTOVER=1`, Go proxies GET/HEAD for the complete user-facing browser surface to Next:
+When `CODELOCAL_WEB_ORIGIN` is configured, Go proxies GET/HEAD for the complete user-facing browser surface to Next:
 
 Public/account presentation:
 
@@ -51,16 +51,13 @@ Authenticated dashboard presentation:
 - `/dashboard/connect`
 - `/dashboard/workspaces`
 - `/dashboard/knowledge`
-- `/dashboard/knowledge-preview`
 - `/dashboard/code-graph`
-- `/dashboard/code-graph-preview`
 - `/dashboard/devices`
 - `/dashboard/usage`
 - `/dashboard/invite`
 - `/dashboard/leaderboard`
 - `/dashboard/security`
 - `/dashboard/account`
-- `/dashboard/account-preview`
 - `/dashboard/admin` (admin identity required)
 
 Unknown browser paths, protocol endpoints and every mutation remain on Go.
@@ -79,7 +76,7 @@ The cutover must never proxy these through Next as application authority:
 - `/client`, `/mcp`, runtime WebSocket/API routes;
 - health/debug/internal protocol endpoints that are not browser presentation.
 
-Next forms submit to the existing Go handlers. Forms include `ui=next` only to make Go redirect validation/rate-limit/recovery outcomes back to Next; it does not change security policy.
+Next forms submit to the existing Go handlers. Go redirects validation, rate-limit and recovery outcomes back to the canonical Next routes; no alternate Go-rendered form surface remains.
 
 ## Security boundary
 
@@ -123,7 +120,7 @@ Give the web service a temporary Railway public domain for canary checks. Do not
 
 ## DEV canary checks
 
-Before enabling the Go presentation cutover:
+Before routing browser presentation through Go:
 
 1. `GET <web-canary>/healthz` returns healthy.
 2. `/`, `/login`, `/signup`, `/forgot-password`, `/privacy`, `/terms`, `/support`, `/security` render the Next design.
@@ -131,7 +128,9 @@ Before enabling the Go presentation cutover:
 4. Invalid/expired signup/reset context fails closed.
 5. No Next page receives a raw project root, credential ID, password hash/salt, browser session ID or raw graph identity.
 
-Authenticated canary checks with a test account:
+The temporary Next public domain is a presentation/API-read canary. Full login, signup, OAuth, pairing and mutation checks must run through the public Go gateway because those POST routes are intentionally Go-owned.
+
+Authenticated checks with a test account:
 
 1. login/logout remain Go session operations;
 2. signup → email OTP → verify creates the account only after OTP success;
@@ -146,13 +145,12 @@ Authenticated canary checks with a test account:
 11. `/dashboard/admin` is forbidden for non-admin users;
 12. mobile navigation and reduced-motion layouts remain usable.
 
-## Enable DEV cutover
+## Enable DEV presentation
 
 After the web service is healthy, set on **CodeLocal-MCP-DEV only**:
 
 ```text
 CODELOCAL_WEB_ORIGIN=http://${{CodeLocal-Web-DEV.RAILWAY_PRIVATE_DOMAIN}}:${{CodeLocal-Web-DEV.PORT}}
-CODELOCAL_WEB_CUTOVER=1
 ```
 
 Redeploy/restart the Go DEV service if Railway does not automatically redeploy after variable changes.
@@ -170,19 +168,13 @@ Expected:
 - `/healthz` reaches Next through Go;
 - `/api/*`, `/mcp`, `/client`, OAuth POST/token and mutations still terminate on Go;
 - protected pages redirect to the Next login presentation when unauthenticated;
-- no legacy Go HTML appears in normal browser flows.
+- no Go-rendered product HTML exists.
 
 ## Rollback
 
-If any DEV smoke check fails:
+The legacy Go-rendered UI has been deleted. If a presentation regression is found, roll back the affected Go/web deployment revision together, or restore the previous known-good deployment pair. Do not disable `CODELOCAL_WEB_ORIGIN` expecting a second UI implementation to appear.
 
-```text
-CODELOCAL_WEB_CUTOVER=0
-```
-
-or remove the variable, then redeploy/restart the Go service. The legacy Go-rendered presentation remains compiled specifically for this rollback window. Auth, database, MCP, pairing and runtime state do not need to be rolled back.
-
-Do not delete the legacy Go presentation until the Next UI has been proven in production and rollback confidence is high.
+Auth, database, MCP, pairing and runtime data do not need schema rollback merely because the browser presentation revision is rolled back.
 
 ## Production promotion
 
@@ -192,11 +184,10 @@ Only after DEV passes:
 2. create `CodeLocal-Web-PROD` from `main` with the same web config;
 3. set its private Go backend reference to `CodeLocal-MCP-PROD`;
 4. canary the web service;
-5. set `CODELOCAL_WEB_ORIGIN` on Go PROD;
-6. enable `CODELOCAL_WEB_CUTOVER=1` only after smoke tests pass;
-7. keep public MCP/OAuth/client URLs unchanged.
+5. set `CODELOCAL_WEB_ORIGIN` on Go PROD only after smoke tests pass;
+6. keep public MCP/OAuth/client URLs unchanged.
 
-This runbook does not authorize a production cutover automatically.
+This runbook does not authorize a production promotion automatically.
 
 ## Repository gates
 

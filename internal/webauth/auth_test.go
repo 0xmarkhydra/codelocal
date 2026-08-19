@@ -1,7 +1,6 @@
 package webauth
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -48,38 +47,6 @@ func TestValidEmail(t *testing.T) {
 		if validEmail(value) {
 			t.Fatalf("invalid email accepted: %q", value)
 		}
-	}
-}
-
-func TestSignupFormRequiresReferralCode(t *testing.T) {
-	manager := &Manager{}
-	signup := manager.form("signup", "csrf-token", "/dashboard", "")
-	if !strings.Contains(signup, `name="referralCode"`) || !strings.Contains(signup, `maxlength="6"`) || !strings.Contains(signup, "required") {
-		t.Fatal("signup form must require a 6-character referral code")
-	}
-	login := manager.form("login", "csrf-token", "/dashboard", "")
-	if strings.Contains(login, `name="referralCode"`) {
-		t.Fatal("login form must not request referral code")
-	}
-	prefilled := manager.form("signup", "csrf-token", "/dashboard", "", "mmon6a")
-	if !strings.Contains(prefilled, `name="referralCode" value="MMON6A"`) {
-		t.Fatal("signup form must prefill a referral code supplied by an invite link")
-	}
-}
-
-func TestAuthFormAvoidsImmediateIOSKeyboardAndUsesEmailInputHints(t *testing.T) {
-	manager := &Manager{}
-	login := manager.form("login", "csrf-token", "/dashboard", "")
-	if strings.Contains(login, "autofocus") {
-		t.Fatal("auth form must not autofocus an input because iOS would open the keyboard before the browser sheet settles")
-	}
-	for _, want := range []string{`inputmode="email"`, `autocapitalize="none"`, `spellcheck="false"`} {
-		if !strings.Contains(login, want) {
-			t.Fatalf("auth email input must include mobile hint %s", want)
-		}
-	}
-	if !strings.Contains(login, `href="/forgot-password"`) {
-		t.Fatal("login form must expose the forgot-password flow")
 	}
 }
 
@@ -132,19 +99,13 @@ func TestPasswordResetDailySendPolicy(t *testing.T) {
 	if got := passwordResetAttemptKey(token); got != passwordResetKey(token)+":attempts" {
 		t.Fatalf("unexpected attempt counter key %q", got)
 	}
-}
-
-func TestPasswordResetDailyLimitPageExplainsLimitAndRetry(t *testing.T) {
-	html := passwordResetDailyLimitPage(int(3 * time.Hour / time.Second))
-	for _, want := range []string{"Reset email limit reached", "at most 2 password reset emails in 24 hours", "in about 3 hours", "Back to sign in"} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("password reset limit page missing %q", want)
-		}
+	if got := passwordResetRetryLabel(int(3 * time.Hour / time.Second)); got != "in about 3 hours" {
+		t.Fatalf("unexpected retry label %q", got)
 	}
 }
 
 func TestIdentityReauthenticationWindow(t *testing.T) {
-	if (&Identity{RiskUntil: time.Now().Add(time.Minute).UnixMilli()}).RequiresReauthentication() != true {
+	if !(&Identity{RiskUntil: time.Now().Add(time.Minute).UnixMilli()}).RequiresReauthentication() {
 		t.Fatal("active security risk must require reauthentication")
 	}
 	if (&Identity{RiskUntil: time.Now().Add(-time.Minute).UnixMilli()}).RequiresReauthentication() {

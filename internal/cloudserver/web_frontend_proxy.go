@@ -13,22 +13,10 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
-func webFrontendCutoverEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_WEB_CUTOVER"))) {
-	case "1", "true", "on", "enabled":
-		return true
-	default:
-		return false
-	}
-}
-
 func newWebFrontendProxyFromEnv() (http.Handler, error) {
-	if !webFrontendCutoverEnabled() {
-		return nil, nil
-	}
 	raw := strings.TrimSpace(os.Getenv("CODELOCAL_WEB_ORIGIN"))
 	if raw == "" {
-		return nil, errors.New("CODELOCAL_WEB_ORIGIN is required when CODELOCAL_WEB_CUTOVER is enabled")
+		return nil, nil
 	}
 	target, err := url.Parse(raw)
 	if err != nil || (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" || target.User != nil || (target.Path != "" && target.Path != "/") || target.RawQuery != "" || target.Fragment != "" {
@@ -60,21 +48,18 @@ func isNextPublicAssetPath(path string) bool {
 }
 
 var nextDashboardPaths = map[string]struct{}{
-	"/dashboard":                    {},
-	"/dashboard/connect":            {},
-	"/dashboard/workspaces":         {},
-	"/dashboard/knowledge":          {},
-	"/dashboard/knowledge-preview":  {},
-	"/dashboard/code-graph":         {},
-	"/dashboard/code-graph-preview": {},
-	"/dashboard/devices":            {},
-	"/dashboard/usage":              {},
-	"/dashboard/invite":             {},
-	"/dashboard/leaderboard":        {},
-	"/dashboard/security":           {},
-	"/dashboard/account":            {},
-	"/dashboard/account-preview":    {},
-	"/dashboard/admin":              {},
+	"/dashboard":             {},
+	"/dashboard/connect":     {},
+	"/dashboard/workspaces":  {},
+	"/dashboard/knowledge":   {},
+	"/dashboard/code-graph":  {},
+	"/dashboard/devices":     {},
+	"/dashboard/usage":       {},
+	"/dashboard/invite":      {},
+	"/dashboard/leaderboard": {},
+	"/dashboard/security":    {},
+	"/dashboard/account":     {},
+	"/dashboard/admin":       {},
 }
 
 var nextPublicPagePaths = map[string]struct{}{

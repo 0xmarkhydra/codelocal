@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
-	"github.com/0xmarkhydra/codelocal/internal/ui"
 	"github.com/0xmarkhydra/codelocal/internal/webauth"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
@@ -169,7 +168,6 @@ func contains(values []string, value string) bool {
 	}
 	return false
 }
-func hidden(fields map[string]string) string { return ui.Hidden(fields) }
 
 type authorizeContext struct {
 	ClientID      string `json:"clientId"`
@@ -231,10 +229,6 @@ func authorizeRetryURL(r *http.Request, errorMessage string) string {
 		values.Set("error", errorMessage)
 	}
 	return "/authorize?" + values.Encode()
-}
-
-func nextAuthorizeUI(r *http.Request) bool {
-	return strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next")
 }
 
 func (s *Server) Register(mux *http.ServeMux) {
@@ -309,47 +303,18 @@ func (s *Server) Register(mux *http.ServeMux) {
 		}
 		webutil.JSON(w, http.StatusOK, ctx)
 	})
-	mux.HandleFunc("GET /authorize", func(w http.ResponseWriter, r *http.Request) {
-		ctx, identity, err := s.authorizeContextForRequest(r)
-		if err != nil {
-			http.Error(w, "Invalid OAuth authorization request.", http.StatusBadRequest)
-			return
-		}
-		if identity == nil {
-			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
-			return
-		}
-		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity) {
-			return
-		}
-		body := `<div class="row"><div class="row-title">` + ui.Escape(ctx.ClientName) + `</div><div class="row-meta mono">` + ui.Escape(ctx.Resource) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/authorize">` + hidden(map[string]string{"client_id": ctx.ClientID, "redirect_uri": ctx.RedirectURI, "code_challenge": ctx.CodeChallenge, "resource": ctx.Resource, "scope": ctx.Scope, "state": ctx.State, "csrf": ctx.CSRF}) + `<button class="btn primary" type="submit">Authorize MCP client</button><a class="btn" href="/dashboard">Cancel</a></form>`
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(ui.Page("Authorize MCP client", "Signed in as "+ctx.Email+". This client will only see devices and workspaces belonging to this CodeLocal account.", body)))
-	})
 	mux.HandleFunc("POST /authorize", func(w http.ResponseWriter, r *http.Request) {
 		retryURL := authorizeRetryURL(r, "")
 		identity, _ := s.WebAuth.Identity(r)
 		if identity == nil {
-			if nextAuthorizeUI(r) {
-				http.Redirect(w, r, "/login?next="+url.QueryEscape(retryURL), http.StatusSeeOther)
-				return
-			}
-			http.Error(w, "Sign in to CodeLocal and restart the MCP connection flow.", 401)
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(retryURL), http.StatusSeeOther)
 			return
 		}
-		freshNext := "/dashboard/connect"
-		if nextAuthorizeUI(r) {
-			freshNext = retryURL
-		}
-		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, freshNext) {
+		if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, retryURL) {
 			return
 		}
 		if !s.WebAuth.VerifyCSRF(r) {
-			if nextAuthorizeUI(r) {
-				http.Redirect(w, r, authorizeRetryURL(r, "Invalid security token. Restart the authorization flow."), http.StatusSeeOther)
-				return
-			}
-			http.Error(w, "Invalid security token. Restart the authorization flow.", 403)
+			http.Redirect(w, r, authorizeRetryURL(r, "Invalid security token. Restart the authorization flow."), http.StatusSeeOther)
 			return
 		}
 		clientID := r.FormValue("client_id")

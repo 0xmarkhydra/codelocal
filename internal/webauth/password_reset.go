@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/mailer"
-	"github.com/0xmarkhydra/codelocal/internal/ui"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 	"github.com/redis/go-redis/v9"
 )
@@ -33,11 +33,9 @@ var (
 )
 
 type pendingPasswordReset struct {
-	UserID    string `json:"userId"`
-	Email     string `json:"email"`
-	CodeHash  string `json:"codeHash"`
-	Attempts  int    `json:"attempts"`
-	CreatedAt int64  `json:"createdAt"`
+	UserID   string `json:"userId"`
+	Email    string `json:"email"`
+	CodeHash string `json:"codeHash"`
 }
 
 func passwordResetKey(token string) string             { return "codelocal:password-reset:" + token }
@@ -64,8 +62,7 @@ func (m *Manager) releasePasswordResetFinalizeLock(ctx context.Context, token st
 }
 
 func passwordResetCodeHash(token, code string) string {
-	secret := os.Getenv("MCP_AUTH_SECRET")
-	return cloud.HashSecret(secret + "\x00password-reset-otp-v1\x00" + token + "\x00" + code)
+	return cloud.HashSecret(os.Getenv("MCP_AUTH_SECRET") + "\x00password-reset-otp-v1\x00" + token + "\x00" + code)
 }
 
 func (m *Manager) savePasswordReset(ctx context.Context, token string, pending pendingPasswordReset, ttl time.Duration) error {
@@ -109,18 +106,14 @@ func (m *Manager) sendPasswordResetCode(ctx context.Context, pending pendingPass
 	resetURL := m.PublicBaseURL + "/reset-password?token=" + url.QueryEscape(token)
 	subject := "Reset your CodeLocal password"
 	text := "Use code " + code + " to reset your CodeLocal password. It expires in 10 minutes. Open " + resetURL + " to continue. If you did not request this, ignore this email."
-	html := `<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:520px;margin:auto;padding:32px">` +
+	htmlBody := `<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:520px;margin:auto;padding:32px">` +
 		`<h2 style="margin:0 0 12px">Reset your CodeLocal password</h2>` +
 		`<p style="color:#555;line-height:1.6">Enter this 6-digit code to choose a new password.</p>` +
 		`<div style="font-size:34px;font-weight:700;letter-spacing:8px;margin:28px 0">` + code + `</div>` +
-		`<p style="margin:0 0 22px"><a href="` + ui.Escape(resetURL) + `" style="display:inline-block;padding:11px 16px;border-radius:10px;background:#246bfd;color:#fff;text-decoration:none;font-weight:650">Reset password</a></p>` +
+		`<p style="margin:0 0 22px"><a href="` + html.EscapeString(resetURL) + `" style="display:inline-block;padding:11px 16px;border-radius:10px;background:#246bfd;color:#fff;text-decoration:none;font-weight:650">Reset password</a></p>` +
 		`<p style="color:#777;font-size:14px;line-height:1.6">This code expires in 10 minutes. If you did not request a password reset, you can ignore this email.</p></div>`
 	key := "password-reset-" + token + "-" + passwordResetCodeHash(token, code)[:16]
-	return client.Send(ctx, mailer.Message{To: pending.Email, Subject: subject, HTML: html, Text: text}, key)
-}
-
-func passwordResetNotice() string {
-	return ui.Page("Check your email", "If a CodeLocal account exists for that email, we sent password reset instructions.", `<div class="stack"><div class="row"><div class="row-title">Open the email from CodeLocal</div><div class="row-meta">The reset code expires after 10 minutes.</div></div><div class="actions"><a class="btn" href="/login">Back to sign in</a></div></div>`)
+	return client.Send(ctx, mailer.Message{To: pending.Email, Subject: subject, HTML: htmlBody, Text: text}, key)
 }
 
 func passwordResetRetryLabel(retry int) string {
@@ -144,56 +137,15 @@ func passwordResetRetryLabel(retry int) string {
 	return fmt.Sprintf("in about %d %s", n, unit)
 }
 
-func passwordResetDailyLimitPage(retry int) string {
-	copy := "You can request at most 2 password reset emails in 24 hours. Try again " + passwordResetRetryLabel(retry) + "."
-	return ui.Page("Reset email limit reached", copy, `<div class="actions"><a class="btn" href="/login">Back to sign in</a></div>`)
-}
-
-func passwordResetNetworkLimitPage(retry int) string {
-	copy := "Too many password reset requests came from this network. Try again " + passwordResetRetryLabel(retry) + "."
-	return ui.Page("Please wait before trying again", copy, `<div class="actions"><a class="btn" href="/login">Back to sign in</a></div>`)
-}
-
-func writePasswordResetRateLimit(w http.ResponseWriter, html string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusTooManyRequests)
-	_, _ = w.Write([]byte(html))
-}
-
-func (m *Manager) forgotPasswordForm(csrf, errorMessage string) string {
-	alert := ""
-	if errorMessage != "" {
-		alert = `<div class="alert">` + ui.Escape(errorMessage) + `</div>`
-	}
-	body := alert + `<form class="form" method="post" action="/forgot-password"><input type="hidden" name="csrf" value="` + ui.Escape(csrf) + `"><div class="field"><label>Email</label><input class="input" type="email" name="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required></div><button class="btn primary" type="submit">Send reset instructions</button></form><div class="auth-switch"><a href="/login">Back to sign in</a></div>`
-	return ui.Page("Forgot your password?", "Enter the email used for your CodeLocal account.", body)
-}
-
-func (m *Manager) forgotPasswordGet(w http.ResponseWriter, r *http.Request) {
-	csrf := m.EnsureCSRF(w, r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(m.forgotPasswordForm(csrf, "")))
-}
-
 func (m *Manager) forgotPasswordPost(w http.ResponseWriter, r *http.Request) {
-	csrf := m.EnsureCSRF(w, r)
+	m.EnsureCSRF(w, r)
 	if !m.VerifyCSRF(r) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/forgot-password", url.Values{"error": {"Security token expired. Please try again."}})
-			return
-		}
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(m.forgotPasswordForm(csrf, "Security token expired. Please try again.")))
+		authUIRedirect(w, r, "/forgot-password", url.Values{"error": {"Security token expired. Please try again."}})
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	if !validEmail(email) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/forgot-password", url.Values{"error": {"Enter a valid email address."}})
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.forgotPasswordForm(csrf, "Enter a valid email address.")))
+		authUIRedirect(w, r, "/forgot-password", url.Values{"error": {"Enter a valid email address."}})
 		return
 	}
 	user, err := m.Store.UserByEmail(r.Context(), email)
@@ -204,12 +156,7 @@ func (m *Manager) forgotPasswordPost(w http.ResponseWriter, r *http.Request) {
 	if user != nil {
 		m.startPasswordReset(r.Context(), *user)
 	}
-	if nextUIForm(r) {
-		nextUIAuthRedirect(w, r, "/forgot-password", url.Values{"sent": {"1"}})
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(passwordResetNotice()))
+	authUIRedirect(w, r, "/forgot-password", url.Values{"sent": {"1"}})
 }
 
 func (m *Manager) startPasswordReset(ctx context.Context, user cloud.User) {
@@ -218,7 +165,7 @@ func (m *Manager) startPasswordReset(ctx context.Context, user cloud.User) {
 		return
 	}
 	token := randomURL(32)
-	pending := pendingPasswordReset{UserID: user.ID, Email: user.Email, CodeHash: passwordResetCodeHash(token, code), CreatedAt: time.Now().UnixMilli()}
+	pending := pendingPasswordReset{UserID: user.ID, Email: user.Email, CodeHash: passwordResetCodeHash(token, code)}
 	if m.savePasswordReset(ctx, token, pending, passwordResetTTL) != nil {
 		return
 	}
@@ -230,36 +177,6 @@ func (m *Manager) startPasswordReset(ctx context.Context, user cloud.User) {
 	m.Store.Audit(cloud.AuditEvent{UserID: user.ID, Event: "auth.password_reset_requested"})
 }
 
-func (m *Manager) resetPasswordForm(csrf, token, email, errorMessage string) string {
-	alert := ""
-	if errorMessage != "" {
-		alert = `<div class="alert">` + ui.Escape(errorMessage) + `</div>`
-	}
-	body := alert + `<form class="form" method="post" action="/reset-password"><input type="hidden" name="csrf" value="` + ui.Escape(csrf) + `"><input type="hidden" name="token" value="` + ui.Escape(token) + `"><div class="field"><label>Reset code</label><input class="input mono" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div><div class="hint">We sent a 6-digit code to ` + ui.Escape(maskEmail(email)) + `.</div><div class="field"><label>New password</label><input class="input" type="password" name="password" autocomplete="new-password" minlength="10" maxlength="256" required></div><div class="field"><label>Confirm new password</label><input class="input" type="password" name="confirmPassword" autocomplete="new-password" minlength="10" maxlength="256" required></div><button class="btn primary" type="submit">Reset password</button></form>`
-	return ui.Page("Choose a new password", "The reset code expires after 10 minutes.", body)
-}
-
-func resetExpiredPage() string {
-	return ui.Page("Reset link expired", "That password reset request is no longer valid.", `<div class="actions"><a class="btn primary" href="/forgot-password">Request a new reset</a><a class="btn" href="/login">Back to sign in</a></div>`)
-}
-
-func (m *Manager) resetPasswordGet(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSpace(r.URL.Query().Get("token"))
-	pending, _, ok, err := m.loadPasswordReset(r.Context(), token)
-	if err != nil {
-		http.Error(w, "Unable to load password reset", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if !ok {
-		w.WriteHeader(http.StatusGone)
-		_, _ = w.Write([]byte(resetExpiredPage()))
-		return
-	}
-	csrf := m.EnsureCSRF(w, r)
-	_, _ = w.Write([]byte(m.resetPasswordForm(csrf, token, pending.Email, "")))
-}
-
 func validResetCode(token, code, expected string) bool {
 	if !passwordResetCodeRE.MatchString(code) {
 		return false
@@ -268,7 +185,7 @@ func validResetCode(token, code, expected string) bool {
 	return len(a) == len(b) && subtle.ConstantTimeCompare(a, b) == 1
 }
 
-func (m *Manager) rejectResetAttempt(w http.ResponseWriter, r *http.Request, csrf, token string, pending pendingPasswordReset, ttl time.Duration) {
+func (m *Manager) rejectResetAttempt(w http.ResponseWriter, r *http.Request, token string, ttl time.Duration) {
 	attempts, err := m.incrementPasswordResetAttempts(r.Context(), token, ttl)
 	if err != nil {
 		http.Error(w, "Unable to verify reset code", http.StatusServiceUnavailable)
@@ -276,31 +193,17 @@ func (m *Manager) rejectResetAttempt(w http.ResponseWriter, r *http.Request, csr
 	}
 	if attempts >= passwordResetMaxAttempts {
 		_ = m.Store.Redis.Del(r.Context(), passwordResetKey(token), passwordResetAttemptKey(token), passwordResetFinalizeLockKey(token)).Err()
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "expired": {"1"}})
-			return
-		}
-		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(resetExpiredPage()))
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "expired": {"1"}})
 		return
 	}
-	if nextUIForm(r) {
-		nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"The reset code is incorrect."}})
-		return
-	}
-	w.WriteHeader(http.StatusBadRequest)
-	_, _ = w.Write([]byte(m.resetPasswordForm(csrf, token, pending.Email, "The reset code is incorrect.")))
+	authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"The reset code is incorrect."}})
 }
 
 func (m *Manager) resetPasswordPost(w http.ResponseWriter, r *http.Request) {
-	csrf := m.EnsureCSRF(w, r)
+	m.EnsureCSRF(w, r)
 	token := strings.TrimSpace(r.FormValue("token"))
 	if !m.VerifyCSRF(r) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"Invalid security token. Please try again."}})
-			return
-		}
-		http.Error(w, "Invalid security token.", http.StatusForbidden)
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"Invalid security token. Please try again."}})
 		return
 	}
 	pending, ttl, ok, err := m.loadPasswordReset(r.Context(), token)
@@ -308,39 +211,23 @@ func (m *Manager) resetPasswordPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unable to load password reset", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if !ok {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "expired": {"1"}})
-			return
-		}
-		w.WriteHeader(http.StatusGone)
-		_, _ = w.Write([]byte(resetExpiredPage()))
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "expired": {"1"}})
 		return
 	}
 	code := strings.TrimSpace(r.FormValue("code"))
 	if !validResetCode(token, code, pending.CodeHash) {
-		m.rejectResetAttempt(w, r, csrf, token, pending, ttl)
+		m.rejectResetAttempt(w, r, token, ttl)
 		return
 	}
 	password := r.FormValue("password")
 	if password != r.FormValue("confirmPassword") {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"Passwords do not match."}})
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.resetPasswordForm(csrf, token, pending.Email, "Passwords do not match.")))
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"Passwords do not match."}})
 		return
 	}
 	hash, salt, err := HashPassword(password)
 	if err != nil {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {err.Error()}})
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.resetPasswordForm(csrf, token, pending.Email, err.Error())))
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {err.Error()}})
 		return
 	}
 	user, err := m.Store.UserByID(r.Context(), pending.UserID)
@@ -349,12 +236,7 @@ func (m *Manager) resetPasswordPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if VerifyPassword(password, user.PasswordSalt, user.PasswordHash) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"Choose a password you have not already been using."}})
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.resetPasswordForm(csrf, token, pending.Email, "Choose a password you have not already been using.")))
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"Choose a password you have not already been using."}})
 		return
 	}
 	locked, err := m.acquirePasswordResetFinalizeLock(r.Context(), token, ttl)
@@ -363,12 +245,7 @@ func (m *Manager) resetPasswordPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !locked {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"This password reset is already being finalized. If it does not complete, request a new reset code."}})
-			return
-		}
-		w.WriteHeader(http.StatusConflict)
-		_, _ = w.Write([]byte(ui.Page("Reset already in progress", "This password reset is already being finalized. If it does not complete, request a new reset code.", `<div class="actions"><a class="btn" href="/forgot-password">Request a new reset</a><a class="btn" href="/login">Back to sign in</a></div>`)))
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {token}, "error": {"This password reset is already being finalized. If it does not complete, request a new reset code."}})
 		return
 	}
 	changedAt := time.Now().UnixMilli()
@@ -380,22 +257,10 @@ func (m *Manager) resetPasswordPost(w http.ResponseWriter, r *http.Request) {
 	_ = m.Store.Redis.Del(r.Context(), passwordResetKey(token), passwordResetAttemptKey(token), passwordResetFinalizeLockKey(token)).Err()
 	m.setCookie(w, SessionCookie, "", -1, true)
 	m.Store.Audit(cloud.AuditEvent{UserID: user.ID, Event: "auth.password_reset_completed"})
-	if nextUIForm(r) {
-		nextUIAuthRedirect(w, r, "/reset-password", url.Values{"done": {"1"}})
-		return
-	}
-	_, _ = w.Write([]byte(ui.Page("Password reset", "Your CodeLocal password has been updated. Existing signed-in sessions were revoked.", `<div class="actions"><a class="btn primary" href="/login">Sign in</a></div>`)))
+	authUIRedirect(w, r, "/reset-password", url.Values{"done": {"1"}})
 }
 
-func passwordChangeReturnPath(r *http.Request) string {
-	next := strings.TrimSpace(r.FormValue("next"))
-	switch next {
-	case "/dashboard/account-preview":
-		return next
-	default:
-		return "/dashboard/account"
-	}
-}
+func passwordChangeReturnPath(_ *http.Request) string { return "/dashboard/account" }
 
 func passwordChangeRedirect(path, key, message string) string {
 	return path + "?" + key + "=" + url.QueryEscape(message)
@@ -468,36 +333,32 @@ func (m *Manager) passwordResetContext(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) registerPasswordReset(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/password-reset", m.passwordResetContext)
-	mux.HandleFunc("GET /forgot-password", m.forgotPasswordGet)
-	forgot := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-account", Limit: passwordResetDailySendLimit, Window: passwordResetDailyWindow, Subject: func(r *http.Request) string {
-		_ = r.ParseForm()
-		return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
-	}, OnLimit: func(w http.ResponseWriter, r *http.Request, retry int) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/forgot-password", url.Values{"error": {"Reset email limit reached. Try again " + passwordResetRetryLabel(retry) + "."}})
-			return
-		}
-		writePasswordResetRateLimit(w, passwordResetDailyLimitPage(retry))
-	}}, http.HandlerFunc(m.forgotPasswordPost))
-	mux.Handle("POST /forgot-password", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-ip", Limit: 20, Window: time.Hour, OnLimit: func(w http.ResponseWriter, r *http.Request, retry int) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/forgot-password", url.Values{"error": {"Too many reset requests from this network. Try again " + passwordResetRetryLabel(retry) + "."}})
-			return
-		}
-		writePasswordResetRateLimit(w, passwordResetNetworkLimitPage(retry))
-	}}, forgot))
-	mux.HandleFunc("GET /reset-password", m.resetPasswordGet)
+	forgot := webutil.RateLimit(m.Store, webutil.RateLimitOptions{
+		Scope: "auth-password-reset-account", Limit: passwordResetDailySendLimit, Window: passwordResetDailyWindow,
+		Subject: func(r *http.Request) string {
+			_ = r.ParseForm()
+			return strings.ToLower(strings.TrimSpace(r.Form.Get("email")))
+		},
+		OnLimit: func(w http.ResponseWriter, r *http.Request, retry int) {
+			authUIRedirect(w, r, "/forgot-password", url.Values{"error": {"Reset email limit reached. Try again " + passwordResetRetryLabel(retry) + "."}})
+		},
+	}, http.HandlerFunc(m.forgotPasswordPost))
+	mux.Handle("POST /forgot-password", webutil.RateLimit(m.Store, webutil.RateLimitOptions{
+		Scope: "auth-password-reset-ip", Limit: 20, Window: time.Hour,
+		OnLimit: func(w http.ResponseWriter, r *http.Request, retry int) {
+			authUIRedirect(w, r, "/forgot-password", url.Values{"error": {"Too many reset requests from this network. Try again " + passwordResetRetryLabel(retry) + "."}})
+		},
+	}, forgot))
 	resetLimit := func(w http.ResponseWriter, r *http.Request, _ int) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/reset-password", url.Values{"token": {strings.TrimSpace(r.FormValue("token"))}, "error": {"Too many reset attempts. Request a new code or try again later."}})
-			return
-		}
-		webutil.JSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+		authUIRedirect(w, r, "/reset-password", url.Values{"token": {strings.TrimSpace(r.FormValue("token"))}, "error": {"Too many reset attempts. Request a new code or try again later."}})
 	}
-	reset := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-token", Limit: 12, Window: 10 * time.Minute, Subject: func(r *http.Request) string {
-		_ = r.ParseForm()
-		return strings.TrimSpace(r.Form.Get("token"))
-	}, OnLimit: resetLimit}, http.HandlerFunc(m.resetPasswordPost))
+	reset := webutil.RateLimit(m.Store, webutil.RateLimitOptions{
+		Scope: "auth-password-reset-token", Limit: 12, Window: 10 * time.Minute,
+		Subject: func(r *http.Request) string {
+			_ = r.ParseForm()
+			return strings.TrimSpace(r.Form.Get("token"))
+		}, OnLimit: resetLimit,
+	}, http.HandlerFunc(m.resetPasswordPost))
 	mux.Handle("POST /reset-password", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-password-reset-verify-ip", Limit: 60, Window: 10 * time.Minute, OnLimit: resetLimit}, reset))
 }
 

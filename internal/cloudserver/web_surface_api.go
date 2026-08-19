@@ -106,7 +106,7 @@ func (s *Server) inviteResourceAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		members = append(members, webInviteMemberDTO{
 			EmailMasked: maskLeaderboardEmail(user.Email),
-			Initial:     mainLeaderboardInitial(user.Email),
+			Initial:     leaderboardInitial(user.Email),
 			JoinedAt:    user.CreatedAt,
 			Status:      status,
 		})
@@ -138,16 +138,16 @@ func (s *Server) leaderboardResourceAPI(w http.ResponseWriter, r *http.Request) 
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "leaderboard_unavailable"})
 		return
 	}
-	start := mainUsageDayStart(since)
+	start := usageDayStart(since)
 	step := int64(24 * time.Hour / time.Millisecond)
-	entries := make([]mainUsageLeaderboardEntry, 0, len(users))
-	commands := make([]mainUsageLeaderboardCommand, 0, len(users)*31)
+	entries := make([]leaderboardEntry, 0, len(users))
+	commands := make([]leaderboardCommand, 0, len(users)*31)
 	pipe := s.Store.Redis.Pipeline()
 	for _, user := range users {
-		entries = append(entries, mainUsageLeaderboardEntry{Email: user.Email})
+		entries = append(entries, leaderboardEntry{Email: user.Email})
 		entry := &entries[len(entries)-1]
 		for at := start; at <= now; at += step {
-			commands = append(commands, mainUsageLeaderboardCommand{entry: entry, cmd: pipe.HGetAll(r.Context(), mainUsageDayKey(user.ID, at))})
+			commands = append(commands, leaderboardCommand{entry: entry, cmd: pipe.HGetAll(r.Context(), usageDayKey(user.ID, at))})
 		}
 	}
 	if len(commands) > 0 {
@@ -158,8 +158,8 @@ func (s *Server) leaderboardResourceAPI(w http.ResponseWriter, r *http.Request) 
 	}
 	for _, pending := range commands {
 		values := pending.cmd.Val()
-		pending.entry.Calls += mainUsageValue(values, "calls")
-		pending.entry.Tokens += mainUsageValue(values, "input_tokens") + mainUsageValue(values, "output_tokens")
+		pending.entry.Calls += usageValue(values, "calls")
+		pending.entry.Tokens += usageValue(values, "input_tokens") + usageValue(values, "output_tokens")
 	}
 	active := entries[:0]
 	for _, entry := range entries {
@@ -188,7 +188,7 @@ func (s *Server) leaderboardResourceAPI(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		response.Entries = append(response.Entries, webLeaderboardEntryDTO{
-			Rank: i + 1, EmailMasked: maskLeaderboardEmail(entry.Email), Initial: mainLeaderboardInitial(entry.Email),
+			Rank: i + 1, EmailMasked: maskLeaderboardEmail(entry.Email), Initial: leaderboardInitial(entry.Email),
 			Calls: entry.Calls, Tokens: entry.Tokens, IsCurrent: isCurrent,
 		})
 	}

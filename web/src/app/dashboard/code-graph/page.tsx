@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { LiveCodeGraph } from "../code-graph-preview/code-graph-live";
+import { LiveCodeGraph } from "./code-graph-live";
 import styles from "../dashboard.module.css";
 
 export default function CodeGraphPage() {

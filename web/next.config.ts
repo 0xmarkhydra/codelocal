@@ -26,17 +26,15 @@ const nextConfig: NextConfig = {
       beforeFiles: [
         {
           // Browser requests keep their same-origin URL/cookies while Next
-          // proxies this explicit versioned API family to the Go authority.
+          // proxies the explicit versioned API family to the Go authority.
           source: "/api/v1/:path*",
           destination: `${backend}/api/v1/:path*`,
         },
-      ],
-      fallback: [
         {
-          // Incremental migration: any route not yet owned by Next.js remains
-          // served by the existing Go application (login/signup/account/etc.).
-          source: "/:path*",
-          destination: `${backend}/:path*`,
+          // Collective preferences are an existing Go-owned mutation/read
+          // contract used by the Knowledge page during direct web canaries.
+          source: "/api/collective/:path*",
+          destination: `${backend}/api/collective/:path*`,
         },
       ],
     };

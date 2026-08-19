@@ -6,7 +6,7 @@ This package owns CodeLocal Cloud domain state and persistence. It must not own 
 
 Rules:
 
-- Keep HTTP handlers, route parsing and HTML in `internal/cloudserver` / `internal/ui`.
+- Keep HTTP handlers and route parsing in `internal/cloudserver`; keep browser presentation in `web/`.
 - Group new files by stable subdomain responsibility: auth/session/security store; device/workspace/runtime state; Project Brain/knowledge/canonical graph; semantic retrieval/embeddings; learning/outbox/promotion/experience/skills; organization/usage/admin.
 - Do not create generic store/helper files that mix unrelated domains.
 - Extract a subpackage only when callers, dependency direction and tests demonstrate a stable boundary; avoid cosmetic moves that introduce Go import cycles.

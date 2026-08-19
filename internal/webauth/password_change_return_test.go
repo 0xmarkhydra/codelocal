@@ -15,27 +15,24 @@ func passwordChangeRequest(next string) *http.Request {
 	return r
 }
 
-func TestPasswordChangeReturnPathAllowsOnlyKnownAccountSurfaces(t *testing.T) {
-	for _, test := range []struct {
-		next string
-		want string
-	}{
-		{"", "/dashboard/account"},
-		{"/dashboard/account", "/dashboard/account"},
-		{"/dashboard/account-preview", "/dashboard/account-preview"},
-		{"/dashboard/devices", "/dashboard/account"},
-		{"https://evil.example", "/dashboard/account"},
-		{"//evil.example", "/dashboard/account"},
+func TestPasswordChangeReturnPathUsesCanonicalAccountSurface(t *testing.T) {
+	for _, next := range []string{
+		"",
+		"/dashboard/account",
+		"/dashboard/legacy-account",
+		"/dashboard/devices",
+		"https://evil.example",
+		"//evil.example",
 	} {
-		if got := passwordChangeReturnPath(passwordChangeRequest(test.next)); got != test.want {
-			t.Fatalf("passwordChangeReturnPath(%q) = %q, want %q", test.next, got, test.want)
+		if got := passwordChangeReturnPath(passwordChangeRequest(next)); got != "/dashboard/account" {
+			t.Fatalf("passwordChangeReturnPath(%q) = %q", next, got)
 		}
 	}
 }
 
 func TestPasswordChangeRedirectEscapesMessage(t *testing.T) {
-	got := passwordChangeRedirect("/dashboard/account-preview", "error", "bad & expired")
-	want := "/dashboard/account-preview?error=bad+%26+expired"
+	got := passwordChangeRedirect("/dashboard/account", "error", "bad & expired")
+	want := "/dashboard/account?error=bad+%26+expired"
 	if got != want {
 		t.Fatalf("passwordChangeRedirect() = %q, want %q", got, want)
 	}

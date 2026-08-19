@@ -1,5 +1,5 @@
-import { LiveKnowledgeHealth } from "../knowledge-preview/knowledge-health-live";
-import { LiveKnowledgePreview } from "../knowledge-preview/knowledge-preview-live";
+import { LiveKnowledgeHealth } from "./knowledge-health-live";
+import { LiveKnowledgeGraph } from "./knowledge-live";
 import styles from "../dashboard.module.css";
 
 export default function KnowledgePage() {
@@ -14,7 +14,7 @@ export default function KnowledgePage() {
         <span className={styles.productionLink}>Bounded graph · Go authority</span>
       </header>
 
-      <LiveKnowledgePreview />
+      <LiveKnowledgeGraph />
       <LiveKnowledgeHealth />
 
       <section className={styles.routeGuardrail}>

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
-	"github.com/0xmarkhydra/codelocal/internal/ui"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 	"golang.org/x/crypto/scrypt"
 )
@@ -222,61 +221,15 @@ func (m *Manager) Require(next http.Handler) http.Handler {
 
 func validEmail(value string) bool { return len(value) <= 254 && emailRE.MatchString(value) }
 
-func nextUIForm(r *http.Request) bool {
-	return strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next")
-}
-
-func nextUIAuthRedirect(w http.ResponseWriter, r *http.Request, path string, values url.Values) {
+func authUIRedirect(w http.ResponseWriter, r *http.Request, path string, values url.Values) {
 	if values == nil {
 		values = url.Values{}
 	}
-	values.Set("ui", "next")
 	target := path
 	if encoded := values.Encode(); encoded != "" {
 		target += "?" + encoded
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
-}
-
-func (m *Manager) form(mode, csrf, next, errorMessage string, referralCodes ...string) string {
-	signup := mode == "signup"
-	referralCode := ""
-	if len(referralCodes) > 0 {
-		referralCode = cloud.NormalizeReferralCode(referralCodes[0])
-	}
-	title := "Welcome back"
-	subtitle := "Sign in to manage your devices, workspaces and MCP extensions."
-	button := "Sign in"
-	autocomplete := "current-password"
-	switcher := `New to CodeLocal? <a href="/signup?next=` + url.QueryEscape(next) + `">Create an account</a> · <a href="/forgot-password">Forgot password?</a>`
-	if signup {
-		title = "Create your CodeLocal account"
-		subtitle = "One account connects MCP-compatible AI clients to your development machines."
-		button = "Create account"
-		autocomplete = "new-password"
-		switcher = `Already have an account? <a href="/login?next=` + url.QueryEscape(next) + `">Sign in</a>`
-	}
-	alert := ""
-	if errorMessage != "" {
-		alert = `<div class="alert">` + ui.Escape(errorMessage) + `</div>`
-	}
-	referralField := ""
-	if signup {
-		referralField = `<div class="field"><label>Referral code</label><input class="input mono" type="text" name="referralCode" value="` + ui.Escape(referralCode) + `" autocomplete="off" minlength="4" maxlength="6" pattern="[A-Za-z0-9]+" required></div><div class="hint">Enter the 6-character invite code from an existing CodeLocal member.</div>`
-	}
-	body := alert + `<form class="form" method="post" action="/` + mode + `"><input type="hidden" name="csrf" value="` + ui.Escape(csrf) + `"><input type="hidden" name="next" value="` + ui.Escape(next) + `"><div class="field"><label>Email</label><input class="input" type="email" name="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required></div><div class="field"><label>Password</label><input class="input" type="password" name="password" autocomplete="` + autocomplete + `" minlength="10" maxlength="256" required></div>` + referralField + `<button class="btn primary" type="submit">` + button + `</button></form><div class="auth-switch">` + switcher + `</div>`
-	return ui.Page(title, subtitle, body)
-}
-
-func (m *Manager) loginGet(w http.ResponseWriter, r *http.Request) {
-	identity, _ := m.Identity(r)
-	if identity != nil {
-		http.Redirect(w, r, webutil.SafeNext(r.URL.Query().Get("next")), http.StatusFound)
-		return
-	}
-	csrf := m.EnsureCSRF(w, r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(m.form("login", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "")))
 }
 
 func loginRateSubject(r *http.Request) string {
@@ -288,12 +241,7 @@ func (m *Manager) loginPost(w http.ResponseWriter, r *http.Request) {
 	csrf := m.EnsureCSRF(w, r)
 	next := webutil.SafeNext(r.FormValue("next"))
 	if !m.VerifyCSRF(r) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/login", url.Values{"next": {next}, "error": {"Security token expired. Please try again."}})
-			return
-		}
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(m.form("login", csrf, next, "Security token expired. Please try again.")))
+		authUIRedirect(w, r, "/login", url.Values{"next": {next}, "error": {"Security token expired. Please try again."}})
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
@@ -311,12 +259,7 @@ func (m *Manager) loginPost(w http.ResponseWriter, r *http.Request) {
 			userID = user.ID
 		}
 		m.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "auth.login_failed", Detail: map[string]any{"email": email}})
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/login", url.Values{"next": {next}, "error": {"Email or password is incorrect."}})
-			return
-		}
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(m.form("login", csrf, next, "Email or password is incorrect.")))
+		authUIRedirect(w, r, "/login", url.Values{"next": {next}, "error": {"Email or password is incorrect."}})
 		return
 	}
 	sessionID, err := m.createBrowserSession(w, r, user.ID, csrf, user.SecurityVersion)
@@ -327,26 +270,6 @@ func (m *Manager) loginPost(w http.ResponseWriter, r *http.Request) {
 	m.setCookie(w, SessionCookie, sessionID, int(m.SessionTTL.Seconds()), true)
 	m.Store.Audit(cloud.AuditEvent{UserID: user.ID, Event: "auth.login", Detail: map[string]any{"method": "password"}})
 	http.Redirect(w, r, next, http.StatusSeeOther)
-}
-
-func (m *Manager) registerRedirect(w http.ResponseWriter, r *http.Request) {
-	params := url.Values{}
-	params.Set("next", webutil.SafeNext(r.URL.Query().Get("next")))
-	if ref := cloud.NormalizeReferralCode(r.URL.Query().Get("ref")); cloud.ValidReferralCode(ref) {
-		params.Set("ref", ref)
-	}
-	http.Redirect(w, r, "/signup?"+params.Encode(), http.StatusFound)
-}
-
-func (m *Manager) signupGet(w http.ResponseWriter, r *http.Request) {
-	identity, _ := m.Identity(r)
-	if identity != nil {
-		http.Redirect(w, r, webutil.SafeNext(r.URL.Query().Get("next")), http.StatusFound)
-		return
-	}
-	csrf := m.EnsureCSRF(w, r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(m.form("signup", csrf, webutil.SafeNext(r.URL.Query().Get("next")), "", r.URL.Query().Get("ref"))))
 }
 
 func (m *Manager) logoutPost(w http.ResponseWriter, r *http.Request) {
@@ -369,24 +292,13 @@ func (m *Manager) logoutPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /login", m.loginGet)
 	loginLimit := func(w http.ResponseWriter, r *http.Request, _ int) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/login", url.Values{"next": {webutil.SafeNext(r.FormValue("next"))}, "error": {"Too many sign-in attempts. Please try again later."}})
-			return
-		}
-		webutil.JSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+		authUIRedirect(w, r, "/login", url.Values{"next": {webutil.SafeNext(r.FormValue("next"))}, "error": {"Too many sign-in attempts. Please try again later."}})
 	}
 	login := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-account", Limit: 12, Window: 10 * time.Minute, Subject: loginRateSubject, OnLimit: loginLimit}, http.HandlerFunc(m.loginPost))
 	mux.Handle("POST /login", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-login-ip", Limit: 40, Window: 10 * time.Minute, OnLimit: loginLimit}, login))
-	mux.HandleFunc("GET /register", m.registerRedirect)
-	mux.HandleFunc("GET /signup", m.signupGet)
 	signupLimit := func(w http.ResponseWriter, r *http.Request, _ int) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/signup", url.Values{"next": {webutil.SafeNext(r.FormValue("next"))}, "ref": {cloud.NormalizeReferralCode(r.FormValue("referralCode"))}, "error": {"Too many sign-up attempts. Please try again later."}})
-			return
-		}
-		webutil.JSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+		authUIRedirect(w, r, "/signup", url.Values{"next": {webutil.SafeNext(r.FormValue("next"))}, "ref": {cloud.NormalizeReferralCode(r.FormValue("referralCode"))}, "error": {"Too many sign-up attempts. Please try again later."}})
 	}
 	signup := webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-account", Limit: 4, Window: time.Hour, Subject: loginRateSubject, OnLimit: signupLimit}, http.HandlerFunc(m.signupStart))
 	mux.Handle("POST /signup", webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-ip", Limit: 20, Window: time.Hour, OnLimit: signupLimit}, signup))

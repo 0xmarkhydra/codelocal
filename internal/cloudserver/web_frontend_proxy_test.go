@@ -111,16 +111,14 @@ func TestWebFrontendMiddlewareProxiesPublicNextPages(t *testing.T) {
 	}
 }
 
-func TestWebFrontendProxyRequiresExplicitCutoverAndValidOrigin(t *testing.T) {
-	t.Setenv("CODELOCAL_WEB_CUTOVER", "0")
-	t.Setenv("CODELOCAL_WEB_ORIGIN", "https://example.com")
+func TestWebFrontendProxyIsOptionalAndValidatesConfiguredOrigin(t *testing.T) {
+	t.Setenv("CODELOCAL_WEB_ORIGIN", "")
 	proxy, err := newWebFrontendProxyFromEnv()
 	if err != nil || proxy != nil {
-		t.Fatalf("disabled cutover returned proxy=%v err=%v", proxy != nil, err)
+		t.Fatalf("unconfigured presentation returned proxy=%v err=%v", proxy != nil, err)
 	}
 
-	t.Setenv("CODELOCAL_WEB_CUTOVER", "1")
-	for _, origin := range []string{"", "ftp://example.com", "https://user:pass@example.com", "https://example.com/path", "https://example.com?query=1"} {
+	for _, origin := range []string{"ftp://example.com", "https://user:pass@example.com", "https://example.com/path", "https://example.com?query=1"} {
 		t.Setenv("CODELOCAL_WEB_ORIGIN", origin)
 		if proxy, err := newWebFrontendProxyFromEnv(); err == nil || proxy != nil {
 			t.Fatalf("invalid origin %q unexpectedly accepted", origin)
@@ -142,7 +140,6 @@ func TestWebFrontendProxyStripsBrowserSecretsAndClientIPSignals(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	t.Setenv("CODELOCAL_WEB_CUTOVER", "1")
 	t.Setenv("CODELOCAL_WEB_ORIGIN", upstream.URL)
 	proxy, err := newWebFrontendProxyFromEnv()
 	if err != nil {

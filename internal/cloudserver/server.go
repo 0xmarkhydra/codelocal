@@ -34,7 +34,6 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
-	"github.com/0xmarkhydra/codelocal/internal/ui"
 	"github.com/0xmarkhydra/codelocal/internal/version"
 	"github.com/0xmarkhydra/codelocal/internal/webauth"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
@@ -254,14 +253,6 @@ func (s *Server) routes() {
 	mux := s.Mux
 	s.WebAuth.Register(mux)
 	s.OAuth.Register(mux)
-	mux.HandleFunc("/", s.landing)
-	mux.Handle("GET /dashboard", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
-	mux.Handle("GET /dashboard/devices", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
-	mux.Handle("GET /dashboard/workspaces", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
-	mux.Handle("GET /dashboard/knowledge", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
-	mux.Handle("GET /dashboard/code-graph", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
-	mux.Handle("GET /dashboard/usage", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
-	mux.Handle("GET /dashboard/admin", s.WebAuth.Require(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /api/status", s.WebAuth.Require(http.HandlerFunc(s.apiStatus)))
 	mux.HandleFunc("GET /api/v1/dashboard/overview", s.dashboardOverviewAPI)
 	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)
@@ -282,13 +273,8 @@ func (s *Server) routes() {
 	mux.Handle("POST /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesPost)))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /internal/web-edge-probe", s.webEdgeProbe)
-	mux.HandleFunc("GET /privacy", s.privacyPage)
-	mux.HandleFunc("GET /terms", s.termsPage)
-	mux.HandleFunc("GET /support", s.supportPage)
-	mux.HandleFunc("GET /security", s.securityPage)
 	mux.HandleFunc("GET /.well-known/openai-apps-challenge", s.openAIAppsChallenge)
 	mux.HandleFunc("GET /assets/{name}", s.asset)
-	mux.HandleFunc("GET /pair/approve", s.pairApproveGet)
 	mux.Handle("POST /pair/approve", s.WebAuth.Require(http.HandlerFunc(s.pairApprovePost)))
 
 	var pairStart http.Handler = http.HandlerFunc(s.pairStart)
@@ -345,29 +331,6 @@ func readBodyReplay(r *http.Request, limit int64) ([]byte, error) {
 	return raw, nil
 }
 
-func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		return
-	}
-	identity, _ := s.WebAuth.Identity(r)
-	href := "/register"
-	label := "Create free account"
-	if identity != nil {
-		href = "/dashboard"
-		label = "Open dashboard"
-	}
-	action := `<div class="actions"><a class="btn primary" href="` + href + `">` + label + `</a></div>`
-	body := `<div class="stack"><div class="row"><div class="row-title">One MCP layer for the AI tools you use.</div><div class="row-meta">CodeLocal connects compatible AI clients to the same Project Brain, authorized folders and controlled local tools.</div></div><div class="row"><div class="row-title">1 · Connect an MCP client</div><div class="row-meta mono">` + ui.Escape(strings.TrimRight(s.WebAuth.PublicBaseURL, "/")+"/mcp") + `</div></div><div class="row"><div class="row-title">2 · Install</div><div class="row-meta mono">npm install -g codelocal</div></div><div class="row"><div class="row-title">3 · Authorize a project</div><div class="row-meta mono">cd /path/to/project<br>codelocal .</div></div><div class="row"><div class="row-title">4 · Start one machine runtime</div><div class="row-meta mono">codelocal</div></div>` + action + `</div>`
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("CodeLocal", "Universal MCP + Project Brain + controlled local execution.", body)))
-}
-
 func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	name := filepath.Base(r.PathValue("name"))
 	allowed := map[string]string{
@@ -397,223 +360,6 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 func (s *Server) identity(r *http.Request) (*webauth.Identity, bool) {
 	identity, _ := s.WebAuth.Identity(r)
 	return identity, identity != nil
-}
-
-func dashboardNav(identity *webauth.Identity) string {
-	var out strings.Builder
-	out.WriteString(`<div class="actions"><a class="btn" href="/dashboard">Overview</a><a class="btn" href="/dashboard/devices">Devices</a><a class="btn" href="/dashboard/workspaces">Workspaces</a><a class="btn" href="/dashboard/usage">Token usage</a>`)
-	if cloud.IsAdminEmail(identity.User.Email) {
-		out.WriteString(`<a class="btn" href="/dashboard/admin">Admin</a>`)
-	}
-	out.WriteString(`<form method="post" action="/logout">` + ui.Hidden(map[string]string{"csrf": identity.CSRF}) + `<button class="btn" type="submit">Sign out</button></form></div>`)
-	return out.String()
-}
-
-func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
-	identity, ok := s.identity(r)
-	if !ok {
-		http.Redirect(w, r, "/login", http.StatusFound)
-		return
-	}
-	if r.URL.Path == "/dashboard/admin" {
-		s.adminDashboard(w, r, identity)
-		return
-	}
-	if r.URL.Path == "/dashboard/knowledge" {
-		s.knowledgeDashboard(w, r, identity)
-		return
-	}
-	if r.URL.Path == "/dashboard/code-graph" {
-		s.codeGraphDashboard(w, r, identity)
-		return
-	}
-	devices, _ := s.Store.ListDevices(r.Context(), identity.User.ID)
-	workspaces, _ := s.Workspaces.Catalog(r.Context(), identity.User.ID)
-	usage24h, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-24*time.Hour).UnixMilli())
-	usage30d, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, time.Now().Add(-30*24*time.Hour).UnixMilli())
-	usageAll, _ := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, 0)
-	var body strings.Builder
-	body.WriteString(dashboardNav(identity) + `<div style="height:18px"></div><div class="stack">`)
-	inviteSource := identity.User.ReferredByCode
-	if inviteSource == "" {
-		inviteSource = "Root account"
-	}
-	body.WriteString(`<div class="row"><div class="row-title">Your referral code · <span class="mono">` + ui.Escape(identity.User.ReferralCode) + `</span></div><div class="row-meta">Share this code with people you want to invite. Invited by: ` + ui.Escape(inviteSource) + `.</div></div>`)
-	body.WriteString(`<div class="row"><div class="row-title">Estimated MCP token usage</div><div class="row-meta">Counts only payload sent through CodeLocal MCP tool calls. MCP clients do not expose the model/provider's full conversation or billing token accounting to CodeLocal, so these numbers are transport estimates rather than provider billing tokens.</div></div>`)
-	body.WriteString(usageRow("Last 24 hours", usage24h))
-	body.WriteString(usageRow("Last 30 days", usage30d))
-	body.WriteString(usageRow("All time", usageAll))
-	if r.URL.Path != "/dashboard/usage" {
-		body.WriteString(`<div class="row"><div class="row-title">Gateway</div><div class="row-meta mono">` + ui.Escape(s.InstanceID) + ` · Go ` + ui.Escape(runtime.Version()) + ` · ` + ui.Escape(version.Version) + `</div></div>`)
-		for _, device := range devices {
-			body.WriteString(`<div class="row"><div class="row-title">` + ui.Escape(device.DeviceName) + `</div><div class="row-meta mono">` + ui.Escape(device.DeviceID) + ` · last seen ` + time.UnixMilli(device.LastSeenAt).Format(time.RFC3339) + `</div></div>`)
-		}
-		for _, workspace := range workspaces {
-			body.WriteString(`<div class="row"><div class="row-title">` + ui.Escape(workspace.WorkspaceName) + ` · ` + ui.Escape(workspace.Status) + `</div><div class="row-meta mono">` + ui.Escape(workspace.Key) + `</div></div>`)
-		}
-	}
-	body.WriteString(`</div>`)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("CodeLocal Cloud", "Signed in as "+identity.User.Email, body.String())))
-}
-
-type adminUserState struct {
-	cloud.AdminUser
-	RuntimeActive bool
-	MCPActive     bool
-}
-
-func adminStatus(user adminUserState) string {
-	if user.MCPActive {
-		return `<span class="badge green">Using MCP now</span>`
-	}
-	if user.RuntimeActive {
-		return `<span class="badge blue">Runtime online</span>`
-	}
-	return `<span class="badge muted">Offline</span>`
-}
-
-func referralInitial(email string) string {
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return "?"
-	}
-	return strings.ToUpper(email[:1])
-}
-
-func referralNode(user adminUserState, depth int, hasChildren bool) string {
-	rootClass := ""
-	if depth == 0 {
-		rootClass = " referral-node-root"
-	}
-	searchText := strings.ToLower(user.Email + " " + user.ReferralCode + " " + user.ReferredByCode)
-	toggle := ""
-	if hasChildren {
-		toggle = `<button class="referral-toggle" type="button" data-referral-toggle aria-label="Collapse branch" aria-expanded="true">` + ui.Icon("chevronRight") + `</button>`
-	}
-	return `<div class="referral-node` + rootClass + `" data-referral-node data-search="` + ui.Escape(searchText) + `"><div class="referral-node-head"><span class="referral-avatar">` + ui.Escape(referralInitial(user.Email)) + `</span><div class="referral-identity"><strong title="` + ui.Escape(user.Email) + `">` + ui.Escape(user.Email) + `</strong><span class="mono">` + ui.Escape(user.ReferralCode) + `</span></div></div><div class="referral-node-foot"><span>` + fmt.Sprintf("%d direct", user.InviteCount) + `</span>` + adminStatus(user) + toggle + `</div></div>`
-}
-
-func renderReferralTree(users []adminUserState) string {
-	byCode := map[string]adminUserState{}
-	children := map[string][]adminUserState{}
-	for _, user := range users {
-		code := cloud.NormalizeReferralCode(user.ReferralCode)
-		byCode[code] = user
-		children[cloud.NormalizeReferralCode(user.ReferredByCode)] = append(children[cloud.NormalizeReferralCode(user.ReferredByCode)], user)
-	}
-	visited := map[string]bool{}
-	var walk func(adminUserState, int) string
-	walk = func(user adminUserState, depth int) string {
-		if visited[user.ID] {
-			return ""
-		}
-		visited[user.ID] = true
-		childUsers := children[cloud.NormalizeReferralCode(user.ReferralCode)]
-		var nested strings.Builder
-		for _, child := range childUsers {
-			nested.WriteString(walk(child, depth+1))
-		}
-		childrenHTML := ""
-		if nested.Len() > 0 {
-			childrenHTML = `<div class="referral-children">` + nested.String() + `</div>`
-		}
-		return `<div class="referral-branch" data-referral-branch>` + referralNode(user, depth, nested.Len() > 0) + childrenHTML + `</div>`
-	}
-
-	var out strings.Builder
-	if root, ok := byCode["MMON"]; ok {
-		out.WriteString(walk(root, 0))
-	} else if len(children["MMON"]) > 0 {
-		var nested strings.Builder
-		for _, child := range children["MMON"] {
-			nested.WriteString(walk(child, 1))
-		}
-		out.WriteString(`<div class="referral-branch" data-referral-branch><div class="referral-node referral-node-root referral-node-legacy" data-referral-node data-search="mmon legacy root"><div class="referral-node-head"><span class="referral-avatar">M</span><div class="referral-identity"><strong>MMON</strong><span>Legacy root</span></div></div><div class="referral-node-foot"><span>Bootstrap marker</span><button class="referral-toggle" type="button" data-referral-toggle aria-label="Collapse branch" aria-expanded="true">` + ui.Icon("chevronRight") + `</button></div></div><div class="referral-children">` + nested.String() + `</div></div>`)
-	}
-	for _, user := range users {
-		if !visited[user.ID] {
-			out.WriteString(walk(user, 0))
-		}
-	}
-	return out.String()
-}
-
-func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request, identity *webauth.Identity) {
-	if !cloud.IsAdminEmail(identity.User.Email) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-	users, err := s.Store.ListAdminUsers(r.Context())
-	if err != nil {
-		http.Error(w, "Unable to load admin dashboard", http.StatusInternalServerError)
-		return
-	}
-	userIDs := make([]string, 0, len(users))
-	for _, user := range users {
-		userIDs = append(userIDs, user.ID)
-	}
-	runtimeActiveMap, _ := s.Activation.UserOnlineMap(r.Context(), userIDs)
-	mcpActiveMap, _ := s.Store.UserMCPActiveMap(r.Context(), userIDs)
-	states := make([]adminUserState, 0, len(users))
-	runtimeCount := 0
-	usingCount := 0
-	activeCount := 0
-	for _, user := range users {
-		runtimeActive := runtimeActiveMap[user.ID]
-		mcpActive := mcpActiveMap[user.ID]
-		state := adminUserState{AdminUser: user, RuntimeActive: runtimeActive, MCPActive: mcpActive}
-		states = append(states, state)
-		if runtimeActive {
-			runtimeCount++
-		}
-		if mcpActive {
-			usingCount++
-		}
-		if runtimeActive || mcpActive {
-			activeCount++
-		}
-	}
-
-	queryText := mainQuery(r)
-	query := strings.ToLower(queryText)
-	filtered := make([]adminUserState, 0, len(states))
-	for _, user := range states {
-		haystack := strings.ToLower(user.Email + " " + user.ReferralCode + " " + user.ReferredByCode)
-		if query == "" || strings.Contains(haystack, query) {
-			filtered = append(filtered, user)
-		}
-	}
-	page, start, end, totalPages := mainPageBounds(r, len(filtered))
-	var userRows strings.Builder
-	for _, user := range filtered[start:end] {
-		parent := user.ReferredByCode
-		if parent == "" {
-			parent = "—"
-		}
-		lastMCP := ui.FormatTime(user.LastMCPUsedAt)
-		lastDevice := ui.FormatTime(user.LastDeviceSeenAt)
-		userRows.WriteString(`<div class="admin-row"><div class="admin-user"><div class="admin-user-email">` + ui.Escape(user.Email) + `</div><div class="admin-cell-sub">Joined ` + ui.Escape(ui.FormatTime(user.CreatedAt)) + `</div></div><div class="admin-status">` + adminStatus(user) + `</div><div><div class="admin-code mono">` + ui.Escape(user.ReferralCode) + `</div><div class="admin-cell-sub">Invited by ` + ui.Escape(parent) + ` · ` + fmt.Sprintf("%d", user.InviteCount) + ` direct</div></div><div><div class="admin-activity">MCP ` + ui.Escape(lastMCP) + `</div><div class="admin-cell-sub">Device ` + ui.Escape(lastDevice) + `</div></div></div>`)
-	}
-	if userRows.Len() == 0 {
-		userRows.WriteString(`<div class="empty">No users match your search.</div>`)
-	}
-
-	body := `<div class="grid admin-grid">` +
-		`<div class="card span12 admin-hero"><div><div class="section-kicker">Administration</div><div class="title">User network at a glance</div><div class="label">Live runtime status, MCP activity and referral growth in one place.</div></div><span class="badge blue">Admin only</span></div>` +
-		`<div class="admin-stat-grid"><div class="admin-stat"><div class="admin-stat-label">Total users</div><div class="admin-stat-value">` + fmt.Sprintf("%d", len(states)) + `</div><div class="admin-stat-sub">Registered accounts</div></div><div class="admin-stat"><div class="admin-stat-label">Active users</div><div class="admin-stat-value">` + fmt.Sprintf("%d", activeCount) + `</div><div class="admin-stat-sub">Runtime or MCP active</div></div><div class="admin-stat"><div class="admin-stat-label">Runtime online</div><div class="admin-stat-value">` + fmt.Sprintf("%d", runtimeCount) + `</div><div class="admin-stat-sub">Live machine heartbeat</div></div><div class="admin-stat"><div class="admin-stat-label">Using MCP now</div><div class="admin-stat-value">` + fmt.Sprintf("%d", usingCount) + `</div><div class="admin-stat-sub">Tool call in last 5 min</div></div></div>` +
-		`<div class="card span12"><div class="section-head"><div><div class="title">Users</div><div class="label">Search by email, referral code or inviter code. Status is computed from live runtime and MCP activity.</div></div></div>` + mainListToolbar("/dashboard/admin", queryText, len(filtered)) + `<div class="admin-table"><div class="admin-row admin-head"><div>User</div><div>Status</div><div>Referral</div><div>Last activity</div></div>` + userRows.String() + `</div>` + mainPager("/dashboard/admin", queryText, page, totalPages) + `</div>` +
-		`<div class="card span12 referral-tree-card"><div class="section-head"><div><div class="title">Referral network</div><div class="label">Explore who invited whom as a relationship tree. Search a user to highlight the path back to the root.</div></div><span class="badge blue">` + fmt.Sprintf("%d", len(states)) + ` users</span></div><div class="referral-toolbar"><div class="referral-search"><span class="referral-search-icon">` + ui.Icon("search") + `</span><input class="search-input" type="search" placeholder="Find email or referral code" data-referral-query autocomplete="off"></div><div class="referral-toolbar-actions"><button class="btn small" type="button" data-referral-expand>Expand all</button><button class="btn small" type="button" data-referral-collapse>Collapse all</button></div></div><div class="referral-tree-viewport"><div class="referral-tree" data-referral-tree>` + renderReferralTree(states) + `</div></div></div></div>`
-
-	writeHTML(w, ui.DashboardPage(ui.DashboardOptions{
-		Title: "Administration", Active: "admin", Email: identity.User.Email, CSRF: identity.CSRF,
-		Subtitle: "Monitor account activity and referral relationships without exposing local source code.",
-		Body:     body, IsAdmin: true,
-	}))
-}
-
-func usageRow(label string, value cloud.MCPUsageSummary) string {
-	return `<div class="row"><div class="row-title">` + ui.Escape(label) + ` · ~` + fmt.Sprintf("%d", value.TotalTokensEst) + ` tokens</div><div class="row-meta mono">` + fmt.Sprintf("%d", value.Calls) + ` tool calls · MCP client → CodeLocal ~` + fmt.Sprintf("%d", value.InputTokensEst) + ` · CodeLocal → MCP client ~` + fmt.Sprintf("%d", value.OutputTokensEst) + `</div></div>`
 }
 
 func schemaMigrationPayload(status cloud.SchemaMigrationStatus, err error) map[string]any {
@@ -763,26 +509,6 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) pairApproveGet(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("pairingId")
-	pairing, _ := s.Store.GetPairing(r.Context(), id)
-	if pairing == nil || pairing.ExpiresAt <= time.Now().UnixMilli() || pairing.ClaimedAt != 0 {
-		http.NotFound(w, r)
-		return
-	}
-	identity, _ := s.WebAuth.Identity(r)
-	if identity == nil {
-		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
-		return
-	}
-	if !s.WebAuth.RequireFreshSecurityContext(w, r, identity) {
-		return
-	}
-	body := `<div class="row"><div class="row-title">` + ui.Escape(pairing.DeviceName) + `</div><div class="row-meta mono">Device ID: ` + ui.Escape(pairing.DeviceID) + `</div></div><div style="height:14px"></div><form class="form" method="post" action="/pair/approve">` + ui.Hidden(map[string]string{"csrf": identity.CSRF, "pairingId": pairing.PairingID, "code": pairing.Code}) + `<button class="btn primary" type="submit">Approve device</button></form><div style="height:10px"></div><form method="post" action="/logout">` + ui.Hidden(map[string]string{"csrf": identity.CSRF, "next": r.URL.RequestURI()}) + `<button class="btn" type="submit">Use another account</button></form>`
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("Approve device", "Pair this machine with "+identity.User.Email+".", body)))
-}
-
 func (s *Server) pairApprovePost(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.identity(r)
 	if !ok {
@@ -795,29 +521,16 @@ func (s *Server) pairApprovePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.WebAuth.VerifyCSRF(r) {
-		if strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next") {
-			http.Redirect(w, r, next+"&error="+url.QueryEscape("Invalid security token. Please try again."), http.StatusSeeOther)
-			return
-		}
-		http.Error(w, "Invalid security token.", http.StatusForbidden)
+		http.Redirect(w, r, next+"&error="+url.QueryEscape("Invalid security token. Please try again."), http.StatusSeeOther)
 		return
 	}
 	pairing, err := s.Store.ApprovePairing(r.Context(), pairingID, r.FormValue("code"), identity.User.ID)
 	if err != nil || pairing == nil {
-		if strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next") {
-			http.Redirect(w, r, next+"&error="+url.QueryEscape("Invalid or expired pairing request/code."), http.StatusSeeOther)
-			return
-		}
-		http.Error(w, "Invalid or expired pairing request/code.", http.StatusBadRequest)
+		http.Redirect(w, r, next+"&error="+url.QueryEscape("Invalid or expired pairing request/code."), http.StatusSeeOther)
 		return
 	}
 	s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "device.pairing_approved", DeviceID: pairing.DeviceID, Detail: map[string]any{"deviceName": pairing.DeviceName}})
-	if strings.EqualFold(strings.TrimSpace(r.FormValue("ui")), "next") {
-		http.Redirect(w, r, next+"&approved=1", http.StatusSeeOther)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(ui.Page("Device approved", "Return to your terminal. CodeLocal will claim its credential automatically.", `<a class="btn primary" href="/dashboard/devices">View devices</a>`)))
+	http.Redirect(w, r, next+"&approved=1", http.StatusSeeOther)
 }
 
 func (s *Server) disconnectCredentialEverywhere(userID, credentialID string) {

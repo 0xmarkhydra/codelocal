@@ -17,7 +17,6 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/mailer"
-	"github.com/0xmarkhydra/codelocal/internal/ui"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 	"github.com/redis/go-redis/v9"
 )
@@ -139,13 +138,8 @@ func (m *Manager) referralAllowed(ctx context.Context, email, referralCode strin
 	return inviter != nil, err
 }
 
-func (m *Manager) signupFailure(w http.ResponseWriter, r *http.Request, csrf, next, referralCode, message string, status int) {
-	if nextUIForm(r) {
-		nextUIAuthRedirect(w, r, "/signup", url.Values{"next": {next}, "ref": {referralCode}, "error": {message}})
-		return
-	}
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(m.form("signup", csrf, next, message, referralCode)))
+func (m *Manager) signupFailure(w http.ResponseWriter, r *http.Request, next, referralCode, message string) {
+	authUIRedirect(w, r, "/signup", url.Values{"next": {next}, "ref": {referralCode}, "error": {message}})
 }
 
 func signupErrorMessage(err error) string {
@@ -165,24 +159,24 @@ func signupErrorMessage(err error) string {
 }
 
 func (m *Manager) signupStart(w http.ResponseWriter, r *http.Request) {
-	csrf := m.EnsureCSRF(w, r)
+	m.EnsureCSRF(w, r)
 	next := webutil.SafeNext(r.FormValue("next"))
 	referralCode := cloud.NormalizeReferralCode(r.FormValue("referralCode"))
 	if !m.VerifyCSRF(r) {
-		m.signupFailure(w, r, csrf, next, referralCode, "Security token expired. Please try again.", http.StatusForbidden)
+		m.signupFailure(w, r, next, referralCode, "Security token expired. Please try again.")
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	password := r.FormValue("password")
 	if !validEmail(email) {
-		m.signupFailure(w, r, csrf, next, referralCode, "Enter a valid email address.", http.StatusBadRequest)
+		m.signupFailure(w, r, next, referralCode, "Enter a valid email address.")
 		return
 	}
 	if existing, err := m.Store.UserByEmail(r.Context(), email); err != nil {
 		http.Error(w, "Unable to check account", http.StatusInternalServerError)
 		return
 	} else if existing != nil {
-		m.signupFailure(w, r, csrf, next, referralCode, "An account with this email already exists.", http.StatusBadRequest)
+		m.signupFailure(w, r, next, referralCode, "An account with this email already exists.")
 		return
 	}
 	allowed, err := m.referralAllowed(r.Context(), email, referralCode)
@@ -191,12 +185,12 @@ func (m *Manager) signupStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowed {
-		m.signupFailure(w, r, csrf, next, referralCode, "Referral code is invalid. Ask an existing CodeLocal member for a valid invite code.", http.StatusBadRequest)
+		m.signupFailure(w, r, next, referralCode, "Referral code is invalid. Ask an existing CodeLocal member for a valid invite code.")
 		return
 	}
 	hash, salt, err := HashPassword(password)
 	if err != nil {
-		m.signupFailure(w, r, csrf, next, referralCode, err.Error(), http.StatusBadRequest)
+		m.signupFailure(w, r, next, referralCode, err.Error())
 		return
 	}
 	code, err := newSignupCode()
@@ -212,68 +206,26 @@ func (m *Manager) signupStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := m.sendSignupCode(r.Context(), email, token, code); err != nil {
 		_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
-		m.signupFailure(w, r, csrf, next, referralCode, "We could not send the verification email. Please try again.", http.StatusServiceUnavailable)
+		m.signupFailure(w, r, next, referralCode, "We could not send the verification email. Please try again.")
 		return
 	}
 	http.Redirect(w, r, "/signup/verify?token="+url.QueryEscape(token), http.StatusSeeOther)
 }
 
-func (m *Manager) verificationForm(csrf, token, email, errorMessage string) string {
-	alert := ""
-	if errorMessage != "" {
-		alert = `<div class="alert">` + ui.Escape(errorMessage) + `</div>`
-	}
-	body := alert + `<form class="form" method="post" action="/signup/verify">` +
-		`<input type="hidden" name="csrf" value="` + ui.Escape(csrf) + `">` +
-		`<input type="hidden" name="token" value="` + ui.Escape(token) + `">` +
-		`<div class="field"><label>Verification code</label><input class="input mono" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div>` +
-		`<div class="hint">We sent a 6-digit code to ` + ui.Escape(maskEmail(email)) + `. The code expires in 10 minutes.</div>` +
-		`<button class="btn primary" type="submit">Verify email</button></form>` +
-		`<div class="auth-switch"><a href="/signup">Use a different email</a></div>`
-	return ui.Page("Check your email", "Verify your email before your CodeLocal account is created.", body)
-}
-
-func (m *Manager) verificationExpiredPage() string {
-	return ui.Page("Verification expired", "That verification request is no longer valid.", `<div class="stack"><div class="row"><div class="row-title">Start again</div><div class="row-meta">Verification codes expire after 10 minutes for security.</div></div><div class="actions"><a class="btn primary" href="/signup">Back to sign up</a></div></div>`)
-}
-
-func (m *Manager) signupVerifyGet(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSpace(r.URL.Query().Get("token"))
-	pending, _, ok, err := m.loadPendingSignup(r.Context(), token)
-	if err != nil {
-		http.Error(w, "Unable to load verification", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if !ok {
-		w.WriteHeader(http.StatusGone)
-		_, _ = w.Write([]byte(m.verificationExpiredPage()))
-		return
-	}
-	csrf := m.EnsureCSRF(w, r)
-	_, _ = w.Write([]byte(m.verificationForm(csrf, token, pending.Email, "")))
-}
-
 func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 	csrf := m.EnsureCSRF(w, r)
+	token := strings.TrimSpace(r.FormValue("token"))
 	if !m.VerifyCSRF(r) {
-		http.Error(w, "Invalid security token.", http.StatusForbidden)
+		authUIRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "error": {"Security token expired. Please reload and try again."}})
 		return
 	}
-	token := strings.TrimSpace(r.FormValue("token"))
 	pending, ttl, ok, err := m.loadPendingSignup(r.Context(), token)
 	if err != nil {
 		http.Error(w, "Unable to load verification", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if !ok {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "expired": {"1"}})
-			return
-		}
-		w.WriteHeader(http.StatusGone)
-		_, _ = w.Write([]byte(m.verificationExpiredPage()))
+		authUIRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "expired": {"1"}})
 		return
 	}
 	code := strings.TrimSpace(r.FormValue("code"))
@@ -286,12 +238,7 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 		pending.Attempts++
 		if pending.Attempts >= signupVerificationMaxAttempts {
 			_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
-			if nextUIForm(r) {
-				nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "expired": {"1"}})
-				return
-			}
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = w.Write([]byte(m.verificationExpiredPage()))
+			authUIRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "expired": {"1"}})
 			return
 		}
 		if ttl > 0 {
@@ -300,23 +247,13 @@ func (m *Manager) signupVerifyPost(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "error": {"The verification code is incorrect."}})
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(m.verificationForm(csrf, token, pending.Email, "The verification code is incorrect.")))
+		authUIRedirect(w, r, "/signup/verify", url.Values{"token": {token}, "error": {"The verification code is incorrect."}})
 		return
 	}
 	user, err := m.Store.CreateUser(r.Context(), pending.Email, pending.PasswordHash, pending.PasswordSalt, pending.ReferralCode)
 	if err != nil {
 		_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/signup", url.Values{"error": {signupErrorMessage(err)}})
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(ui.Page("Unable to create account", signupErrorMessage(err), `<div class="actions"><a class="btn primary" href="/signup">Back to sign up</a><a class="btn" href="/login">Sign in</a></div>`)))
+		authUIRedirect(w, r, "/signup", url.Values{"error": {signupErrorMessage(err)}})
 		return
 	}
 	_ = m.Store.Redis.Del(r.Context(), signupPendingKey(token)).Err()
@@ -347,13 +284,8 @@ func (m *Manager) signupVerificationContext(w http.ResponseWriter, r *http.Reque
 
 func (m *Manager) registerSignupVerification(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/signup-verification", m.signupVerificationContext)
-	mux.HandleFunc("GET /signup/verify", m.signupVerifyGet)
 	verifyLimit := func(w http.ResponseWriter, r *http.Request, _ int) {
-		if nextUIForm(r) {
-			nextUIAuthRedirect(w, r, "/signup/verify", url.Values{"token": {strings.TrimSpace(r.FormValue("token"))}, "error": {"Too many verification attempts. Start again or try later."}})
-			return
-		}
-		webutil.JSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate_limited"})
+		authUIRedirect(w, r, "/signup/verify", url.Values{"token": {strings.TrimSpace(r.FormValue("token"))}, "error": {"Too many verification attempts. Start again or try later."}})
 	}
 	var verify http.Handler = http.HandlerFunc(m.signupVerifyPost)
 	verify = webutil.RateLimit(m.Store, webutil.RateLimitOptions{Scope: "auth-signup-verify-token", Limit: 12, Window: 10 * time.Minute, Subject: func(r *http.Request) string {

@@ -6,7 +6,7 @@ import styles from "../dashboard.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
 import { KnowledgeGraphView } from "./knowledge-graph-view";
 
-export function LiveKnowledgePreview() {
+export function LiveKnowledgeGraph() {
   const { state, retry } = useDashboardResource("/api/v1/knowledge/graph", isKnowledgeGraphResource);
 
   if (state.kind !== "ready") {

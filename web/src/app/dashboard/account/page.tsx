@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { LiveAccount } from "../account-preview/account-live";
+import { LiveAccount } from "./account-live";
 import styles from "../dashboard.module.css";
 
 export default function AccountPage() {
@@ -15,7 +15,7 @@ export default function AccountPage() {
       </header>
 
       <Suspense fallback={<section className={styles.livePanel}><span className={styles.eyebrow}>Account</span><h2>Loading account state…</h2></section>}>
-        <LiveAccount returnPath="/dashboard/account" />
+        <LiveAccount />
       </Suspense>
 
       <section className={styles.routeGuardrail}>

@@ -64,7 +64,7 @@ function CollectiveControls({ csrf, value }: { csrf: string; value: KnowledgeCol
         body,
       });
       if (response.status === 401) {
-        router.push("/login?next=/dashboard/knowledge-preview");
+        router.push("/login?next=/dashboard/knowledge");
         return;
       }
       if (!response.ok) {

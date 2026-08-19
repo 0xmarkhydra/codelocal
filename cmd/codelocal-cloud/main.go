@@ -39,15 +39,11 @@ func main() {
 		slog.Error("CodeLocal Cloud initialization failed", "error", err)
 		os.Exit(1)
 	}
-	server.RegisterDashboardExtras()
 	server.RegisterRuntimeRealtime()
 	server.RegisterReleaseEmail()
 	// Keep old per-thread ChatGPT MCP schemas functional after the compact tool
 	// migration without re-exposing the legacy granular tools in tools/list.
 	server.HTTP.Handler = mcpgateway.LegacyToolCallCompatibility(server.HTTP.Handler)
-	// Keep the Go backend/runtime while rendering the public landing page and
-	// dashboard surfaces from the completed UI language on main.
-	server.HTTP.Handler = server.MainUIHandler(server.HTTP.Handler)
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
 	select {

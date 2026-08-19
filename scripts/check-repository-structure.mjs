@@ -35,7 +35,6 @@ for (const required of [
   "docs/integrations",
   "src/LEGACY_RUNTIME.md",
   "src/AGENTS.md",
-  "internal/ui/AGENTS.md",
   "internal/cloud/AGENTS.md",
   "internal/cloudserver/AGENTS.md",
   "internal/automation/AGENTS.md",
@@ -47,6 +46,7 @@ for (const required of [
 
 for (const forbidden of [
   "1.5.0",
+  "internal/ui",
   "docs/plugin-submission",
   "docs/USER_GUIDE.md",
   "docs/HOW_CODELOCAL_WORKS.md",

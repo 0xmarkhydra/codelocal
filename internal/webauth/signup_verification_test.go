@@ -2,7 +2,6 @@ package webauth
 
 import (
 	"regexp"
-	"strings"
 	"testing"
 )
 
@@ -29,15 +28,8 @@ func TestSignupCodeHashBindsTokenAndCode(t *testing.T) {
 	}
 }
 
-func TestVerificationFormUsesOneTimeCodeHints(t *testing.T) {
-	manager := &Manager{}
-	page := manager.verificationForm("csrf", "token", "someone@example.com", "")
-	for _, want := range []string{`name="code"`, `inputmode="numeric"`, `autocomplete="one-time-code"`, `pattern="[0-9]{6}"`, `maxlength="6"`} {
-		if !strings.Contains(page, want) {
-			t.Fatalf("verification form missing %s", want)
-		}
-	}
-	if !strings.Contains(page, "s******@example.com") {
-		t.Fatal("verification page should mask the destination email")
+func TestMaskEmail(t *testing.T) {
+	if got := maskEmail("someone@example.com"); got != "s******@example.com" {
+		t.Fatalf("maskEmail()=%q", got)
 	}
 }

@@ -42,7 +42,7 @@ Go owns all trust-bearing behavior:
 - `/api/*`, `/api/v1/*`, `/client`, `/mcp` and runtime transports;
 - every POST/PUT/PATCH/DELETE mutation.
 
-Next forms therefore POST back to the existing Go handlers. A hidden `ui=next` marker lets Go redirect validation, rate-limit and recovery outcomes back to the Next presentation instead of rendering legacy HTML. The marker never changes authorization or validation behavior.
+Next forms therefore POST back to the existing Go handlers. Go redirects validation, rate-limit and recovery outcomes to the canonical Next routes; there is no server-rendered Go UI fallback.
 
 ## Browser contracts
 
@@ -98,9 +98,9 @@ Go gateway
 
 The public domain stays on Go. Go authenticates protected presentation routes before proxying them to Next and strips Cookie, Authorization and client-IP/Railway edge headers from the Go-to-Next presentation hop. The Next service therefore does not become a second session authority.
 
-For direct canary testing, `CODELOCAL_BACKEND_URL` lets Next rewrite API/form fallback traffic to Go. Production cutover uses `CODELOCAL_WEB_ORIGIN` and `CODELOCAL_WEB_CUTOVER=1` on the Go service.
+For direct canary testing, `CODELOCAL_BACKEND_URL` lets Next rewrite the explicit `/api/v1/*` read contracts to Go. Full auth/mutation smoke tests run through the public Go gateway, which owns those POST routes. Configure `CODELOCAL_WEB_ORIGIN` on the Go service to enable the canonical Next presentation.
 
-The legacy Go-rendered presentation remains compiled only as an instant rollback path while DEV/production cutover is being proven. It is not the intended browser UI after cutover. Remove it in a later deletion phase only after production telemetry and rollback confidence are established.
+The legacy Go-rendered presentation has been removed. If the web presentation must be rolled back, roll back the deployed revision rather than switching to a second UI implementation.
 
 ## Product behavior
 
