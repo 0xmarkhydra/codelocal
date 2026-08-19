@@ -54,7 +54,8 @@ The client-neutral read contracts currently include:
 - `GET /api/v1/usage` — 24h/30d/all-time MCP tool payload estimates, explicitly separated from provider billing;
 - `GET /api/v1/knowledge/graph` — bounded Project Brain graph with response-local node/edge IDs and privacy-minimized display fields;
 - `GET /api/v1/knowledge/health` — aggregate Project Brain pipeline/index/canary health, collective rollout/preferences and the CSRF token used by the existing Go preference mutation;
-- `GET /api/v1/code/graph` — bounded local-runtime Code Graph using public workspace identifiers, repository-relative paths and response-local graph IDs.
+- `GET /api/v1/code/graph` — bounded local-runtime Code Graph using public workspace identifiers, repository-relative paths and response-local graph IDs;
+- `GET /api/v1/account` — account display state plus CSRF/fresh-security status, excluding password hashes, salts, security version and session ID.
 
 The device/workspace DTOs are typed and runtime-validated in `src/lib/contracts/resources.ts`; usage is typed and validated in `src/lib/contracts/usage.ts`; the graph contract is validated in `src/lib/contracts/knowledge.ts`. Resource DTOs are intentionally narrower than internal Go structs and exclude credential identifiers, public keys, secret hashes, project roots, capabilities, routing keys and infrastructure diagnostics. The graph contract additionally excludes source-memory IDs, raw graph IDs and repository remotes. Usage does not infer USD cost or provider billing.
 
@@ -79,6 +80,7 @@ Current slice provides:
 - real Overview, Workspaces, Devices and Usage rendering only when authenticated backend data validates against runtime TypeScript contracts;
 - Knowledge Graph preview with privacy-minimized graph DTO, aggregate Project Brain health and CSRF-protected collective settings that still persist through the existing Go mutation endpoint;
 - Code Graph preview with checkout/repository/view/depth/symbol controls over a bounded local-runtime graph; project roots, routing keys, repository IDs and source hashes stay out of the browser contract;
+- Account preview with the existing Go password mutation, including CSRF, fresh-security checks, rate limiting, password verification, security-version rotation and session replacement; `/dashboard/security` presents trust state without exposing or fabricating audit history;
 - shared dashboard layout/navigation with legacy-route fallback to Go for unported route families;
 - no production route cutover yet; Knowledge and Code Graph remain on Go routes until real-edge auth/security-signal parity is verified;
 - no fake live telemetry.

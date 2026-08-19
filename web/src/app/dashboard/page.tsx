@@ -8,9 +8,10 @@ const migration = [
   { label: "Workspaces + Devices + Usage", state: "Ready", note: "Read-only route families use minimal client-neutral DTOs, runtime validation and shared resource loading." },
   { label: "Knowledge Graph parity", state: "Ready", note: "Privacy-minimized graph, aggregate health and CSRF-protected collective settings are implemented in the preview route." },
   { label: "Code Graph parity", state: "Ready", note: "Bounded local-runtime graph, impact evidence and checkout/repository/query controls are implemented in the preview route." },
+  { label: "Account + Security", state: "Ready", note: "Account preview reuses the Go password handler; Security shows trust state without inventing audit telemetry." },
   { label: "Session bridge", state: "Implemented", note: "Same-origin browser API proxy is in place without replaying HttpOnly session secrets in Next." },
   { label: "Deployment parity", state: "Next", note: "Verify Set-Cookie, browser User-Agent and trusted client-IP forwarding on the real edge before cutover." },
-  { label: "Remaining routes", state: "Queued", note: "Security, Account and remaining mutations stay on Go until individually migrated." },
+  { label: "Remaining mutations", state: "Queued", note: "Device revoke and workspace removal still need public-ID mutation parity before broader Next cutover." },
 ];
 
 export default function DashboardPage() {
@@ -85,6 +86,8 @@ export default function DashboardPage() {
           <div className={styles.previewActions}>
             <Link className={styles.liveAction} href="/dashboard/knowledge-preview">Open Next Knowledge preview</Link>
             <Link className={styles.liveAction} href="/dashboard/code-graph-preview">Open Next Code Graph preview</Link>
+            <Link className={styles.liveAction} href="/dashboard/account-preview">Open Next Account preview</Link>
+            <Link className={styles.liveAction} href="/dashboard/security">Open Security control center</Link>
           </div>
         </article>
       </section>

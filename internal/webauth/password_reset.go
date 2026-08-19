@@ -339,36 +339,51 @@ func (m *Manager) resetPasswordPost(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(ui.Page("Password reset", "Your CodeLocal password has been updated. Existing signed-in sessions were revoked.", `<div class="actions"><a class="btn primary" href="/login">Sign in</a></div>`)))
 }
 
+func passwordChangeReturnPath(r *http.Request) string {
+	next := strings.TrimSpace(r.FormValue("next"))
+	switch next {
+	case "/dashboard/account-preview":
+		return next
+	default:
+		return "/dashboard/account"
+	}
+}
+
+func passwordChangeRedirect(path, key, message string) string {
+	return path + "?" + key + "=" + url.QueryEscape(message)
+}
+
 func (m *Manager) changePasswordPost(w http.ResponseWriter, r *http.Request) {
+	returnPath := passwordChangeReturnPath(r)
 	identity, err := m.Identity(r)
 	if err != nil || identity == nil {
-		http.Redirect(w, r, "/login?next=%2Fdashboard%2Faccount", http.StatusFound)
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(returnPath), http.StatusFound)
 		return
 	}
-	if !m.RequireFreshSecurityContext(w, r, identity, "/dashboard/account") {
+	if !m.RequireFreshSecurityContext(w, r, identity, returnPath) {
 		return
 	}
 	if !m.VerifyCSRF(r) {
-		http.Redirect(w, r, "/dashboard/account?error="+url.QueryEscape("Security token expired. Please try again."), http.StatusSeeOther)
+		http.Redirect(w, r, passwordChangeRedirect(returnPath, "error", "Security token expired. Please try again."), http.StatusSeeOther)
 		return
 	}
 	current := r.FormValue("currentPassword")
 	password := r.FormValue("password")
 	if !VerifyPassword(current, identity.User.PasswordSalt, identity.User.PasswordHash) {
-		http.Redirect(w, r, "/dashboard/account?error="+url.QueryEscape("Current password is incorrect."), http.StatusSeeOther)
+		http.Redirect(w, r, passwordChangeRedirect(returnPath, "error", "Current password is incorrect."), http.StatusSeeOther)
 		return
 	}
 	if password != r.FormValue("confirmPassword") {
-		http.Redirect(w, r, "/dashboard/account?error="+url.QueryEscape("New passwords do not match."), http.StatusSeeOther)
+		http.Redirect(w, r, passwordChangeRedirect(returnPath, "error", "New passwords do not match."), http.StatusSeeOther)
 		return
 	}
 	if VerifyPassword(password, identity.User.PasswordSalt, identity.User.PasswordHash) {
-		http.Redirect(w, r, "/dashboard/account?error="+url.QueryEscape("Choose a different password."), http.StatusSeeOther)
+		http.Redirect(w, r, passwordChangeRedirect(returnPath, "error", "Choose a different password."), http.StatusSeeOther)
 		return
 	}
 	hash, salt, err := HashPassword(password)
 	if err != nil {
-		http.Redirect(w, r, "/dashboard/account?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, passwordChangeRedirect(returnPath, "error", err.Error()), http.StatusSeeOther)
 		return
 	}
 	changedAt := time.Now().UnixMilli()
@@ -385,7 +400,7 @@ func (m *Manager) changePasswordPost(w http.ResponseWriter, r *http.Request) {
 	_ = m.Store.DeleteSession(r.Context(), identity.SessionID)
 	m.setCookie(w, SessionCookie, newSessionID, int(m.SessionTTL.Seconds()), true)
 	m.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "auth.password_changed"})
-	http.Redirect(w, r, "/dashboard/account?ok="+url.QueryEscape("Password updated. Other signed-in sessions were revoked."), http.StatusSeeOther)
+	http.Redirect(w, r, passwordChangeRedirect(returnPath, "ok", "Password updated. Other signed-in sessions were revoked."), http.StatusSeeOther)
 }
 
 func (m *Manager) registerPasswordReset(mux *http.ServeMux) {
