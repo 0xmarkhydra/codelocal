@@ -100,9 +100,9 @@ export default function Home() {
 
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>Private execution. Durable project intelligence.</span>
-          <h1>AI can reason anywhere. Your work should stay where it belongs.</h1>
-          <p>CodeLocal gives compatible AI clients controlled access to the projects you choose, while execution and raw source stay on your machine.</p>
+          <span className={styles.eyebrow}>One project brain for every AI you use.</span>
+          <h1>Your AI should understand the project, not start from zero.</h1>
+          <p>CodeLocal gives ChatGPT, Claude, Codex and other AI tools a shared project brain — context, skills and workflows they can reuse — while your machine and permissions stay under your control.</p>
           <div className={styles.actions}>
             <Link className={styles.primaryButton} href="/dashboard">Open CodeLocal</Link>
             <a className={styles.secondaryButton} href="#how-it-works">See how it works</a>
