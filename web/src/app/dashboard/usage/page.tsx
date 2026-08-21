@@ -1,6 +1,25 @@
 import { LiveUsage } from "./usage-live";
-import visual from "../visual-dashboard.module.css";
+import styles from "../dashboard.module.css";
 
 export default function UsagePage() {
-  return <section className={visual.page}><header className={visual.head}><div className={visual.headMeta}><h1>Usage</h1><span className={visual.online}>Live</span></div></header><LiveUsage /></section>;
+  return (
+    <section className={styles.content}>
+      <header className={styles.header}>
+        <div>
+          <span className={styles.eyebrow}>Activity</span>
+          <h1>Usage</h1>
+          <p>Estimated MCP tool activity and token volume, separate from provider billing.</p>
+        </div>
+        <span className={styles.productionLink}>Usage telemetry</span>
+      </header>
+
+      <LiveUsage />
+
+      <section className={styles.routeGuardrail}>
+        <span className={styles.eyebrow}>Usage boundary</span>
+        <h2>Usage is activity data, not an invoice.</h2>
+        <p>These estimates summarize MCP tool calls and payload. They do not calculate provider charges or change billing access.</p>
+      </section>
+    </section>
+  );
 }

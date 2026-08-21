@@ -1,27 +1,88 @@
 "use client";
 
-import { isUsageResource } from "@/lib/contracts/usage";
+import { isUsageResource, type UsageWindow } from "@/lib/contracts/usage";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
-import { DashboardIcon } from "../dashboard-icon";
-import visual from "../visual-dashboard.module.css";
+import styles from "../dashboard.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
 
-const compactNumber = new Intl.NumberFormat("en-US", { notation:"compact", maximumFractionDigits:1 });
+const compactNumber = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
 const exactNumber = new Intl.NumberFormat("en-US");
+
+const windows: Array<{ key: "last24h" | "last30d" | "allTime"; label: string }> = [
+  { key: "last24h", label: "Last 24 hours" },
+  { key: "last30d", label: "Last 30 days" },
+  { key: "allTime", label: "All time" },
+];
+
+function UsageBreakdown({ label, value }: { label: string; value: UsageWindow }) {
+  return (
+    <article className={styles.usageRow}>
+      <div>
+        <strong>{label}</strong>
+        <span>{exactNumber.format(value.calls)} tool calls</span>
+      </div>
+      <dl>
+        <div><dt>Input est.</dt><dd>{exactNumber.format(value.inputTokensEstimated)}</dd></div>
+        <div><dt>Output est.</dt><dd>{exactNumber.format(value.outputTokensEstimated)}</dd></div>
+        <div><dt>Total est.</dt><dd>{exactNumber.format(value.totalTokensEstimated)}</dd></div>
+      </dl>
+    </article>
+  );
+}
 
 export function LiveUsage() {
   const { state, retry } = useDashboardResource("/api/v1/usage", isUsageResource);
-  if (state.kind !== "ready") return <DashboardResourceFeedback label="Usage" {...(state.kind === "error" ? {kind:"error" as const,message:state.message,onRetry:retry}:{kind:state.kind})}/>;
+
+  if (state.kind !== "ready") {
+    return (
+      <DashboardResourceFeedback
+        label="MCP usage"
+        {...(state.kind === "error"
+          ? { kind: "error" as const, message: state.message, onRetry: retry }
+          : { kind: state.kind })}
+      />
+    );
+  }
+
   const resource = state.value;
-  const max = Math.max(resource.last24h.totalTokensEstimated,resource.last30d.totalTokensEstimated,resource.allTime.totalTokensEstimated,1);
-  const bars = [resource.last24h,resource.last30d,resource.allTime];
-  return <div className={visual.shell} aria-live="polite">
-    <div className={visual.usageTop}>
-      <article className={visual.usageCard}><span className={visual.statIcon}><DashboardIcon name="tokens"/></span><div><span>24h</span><strong>{compactNumber.format(resource.last24h.totalTokensEstimated)}</strong></div></article>
-      <article className={visual.usageCard}><span className={visual.statIcon}><DashboardIcon name="calls"/></span><div><span>30d</span><strong>{compactNumber.format(resource.last30d.totalTokensEstimated)}</strong></div></article>
-      <article className={visual.usageCard}><span className={visual.statIcon}><DashboardIcon name="activity"/></span><div><span>All time</span><strong>{compactNumber.format(resource.allTime.totalTokensEstimated)}</strong></div></article>
-    </div>
-    <section className={`${visual.panel} ${visual.chart}`} aria-hidden="true"><div className={visual.chartGrid}/><svg viewBox="0 0 1000 260" preserveAspectRatio="none"><path className={visual.chartPathA} d="M0 190 C120 80 210 180 320 120 S520 40 620 130 S820 190 1000 85"/><path className={visual.chartPathB} d="M0 215 C130 155 220 205 340 170 S560 105 670 155 S850 100 1000 145"/></svg></section>
-    <section className={visual.panel}><div className={visual.breakdown}>{bars.map((value,index)=><div className={visual.breakRow} key={index}><span className={visual.rowIcon}><DashboardIcon name={index===0?"bolt":index===1?"activity":"layers"} size={14}/></span><span>{index===0?"24h":index===1?"30d":"All"}</span><div className={visual.progress}><i style={{width:`${Math.max(7,Math.round((value.totalTokensEstimated/max)*100))}%`}}/></div><strong>{exactNumber.format(value.calls)}</strong></div>)}</div></section>
-  </div>;
+  return (
+    <section className={styles.livePanel} aria-live="polite">
+      <div className={styles.liveHead}>
+        <div>
+          <span className={styles.eyebrow}>MCP usage</span>
+          <h2>Recent MCP tool activity and estimated token volume.</h2>
+          <p>{resource.scope}. These values are not a provider invoice and no USD cost is inferred here.</p>
+        </div>
+        <span className={styles.liveBadge}>Estimated · Live</span>
+      </div>
+
+      <div className={styles.metricGrid}>
+        <article className={styles.metricCard}>
+          <span>Last 24 hours</span>
+          <strong>{compactNumber.format(resource.last24h.totalTokensEstimated)}</strong>
+          <p>{exactNumber.format(resource.last24h.calls)} tool calls · estimated MCP tokens</p>
+        </article>
+        <article className={styles.metricCard}>
+          <span>Last 30 days</span>
+          <strong>{compactNumber.format(resource.last30d.totalTokensEstimated)}</strong>
+          <p>{exactNumber.format(resource.last30d.calls)} tool calls · estimated MCP tokens</p>
+        </article>
+        <article className={styles.metricCard}>
+          <span>All time</span>
+          <strong>{compactNumber.format(resource.allTime.totalTokensEstimated)}</strong>
+          <p>{exactNumber.format(resource.allTime.calls)} tool calls · estimated MCP tokens</p>
+        </article>
+      </div>
+
+      <div className={styles.usageList}>
+        {windows.map((window) => (
+          <UsageBreakdown label={window.label} value={resource[window.key]} key={window.key} />
+        ))}
+      </div>
+    </section>
+  );
 }
