@@ -824,6 +824,19 @@
 .setupList strong { font-size: 15px; font-weight: 600; }
 .setupList p { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 
+.setupCommand {
+  width: fit-content;
+  display: block;
+  margin-top: 9px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #c9d7f4;
+  background: rgba(83,128,239,.055);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+}
+
 @media (max-width: 1080px) {
   .requestPlane {
     grid-template-columns: minmax(180px, .85fr) 50px minmax(230px, 1fr) 50px minmax(210px, .9fr);

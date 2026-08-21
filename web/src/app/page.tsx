@@ -10,9 +10,10 @@ const verificationTags = ["Diagnostics", "Tests", "Git diff", "Quality policy"] 
 const experienceTags = ["Provenance", "Revisions", "Safe promotion"] as const;
 
 const setupSteps = [
-  ["Pair your machine", "Connect the CodeLocal runtime on the computer where your project lives."],
-  ["Grant a workspace", "Choose exactly which project an AI client may understand and operate on."],
-  ["Connect your AI", "Use one MCP endpoint from ChatGPT, Claude, Codex or another compatible client."],
+  { title: "Install CodeLocal", description: "Install the local runtime on the computer where your project lives.", command: "npm install -g codelocal@latest" },
+  { title: "Pair your machine", description: "Sign in once to establish the trusted connection to this computer." },
+  { title: "Grant a workspace", description: "Choose exactly which project an AI client may understand and operate on." },
+  { title: "Connect your AI", description: "Use one MCP endpoint from ChatGPT, Claude, Codex or another compatible client." },
 ] as const;
 
 function Signal({ label }: { label: string }) {
@@ -172,15 +173,19 @@ export default function Home() {
       <section className={styles.setup} id="how-it-works">
         <div className={styles.setupIntro}>
           <span className={styles.kicker}>Start with one project</span>
-          <h2>Connect in three explicit steps.</h2>
+          <h2>Connect in four clear steps.</h2>
           <p>No mystery permissions and no need to teach every AI the project again from scratch.</p>
           <Link className={styles.textLink} href="/security">Read the security model <span aria-hidden="true">↗</span></Link>
         </div>
         <ol className={styles.setupList}>
-          {setupSteps.map(([title, description], index) => (
-            <li key={title}>
+          {setupSteps.map((step, index) => (
+            <li key={step.title}>
               <span>{String(index + 1).padStart(2, "0")}</span>
-              <div><strong>{title}</strong><p>{description}</p></div>
+              <div>
+                <strong>{step.title}</strong>
+                <p>{step.description}</p>
+                {"command" in step && <code className={styles.setupCommand}>{step.command}</code>}
+              </div>
             </li>
           ))}
         </ol>
