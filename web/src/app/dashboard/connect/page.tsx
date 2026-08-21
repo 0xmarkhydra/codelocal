@@ -1,65 +1,37 @@
 import Link from "next/link";
-import dashboard from "../dashboard.module.css";
-import surface from "../dashboard-surfaces.module.css";
+import { DashboardIcon } from "../dashboard-icon";
+import visual from "../visual-dashboard.module.css";
 import { MCPEndpoint } from "./mcp-endpoint";
-
-function InfoTip({ label, children }: Readonly<{ label: string; children: React.ReactNode }>) {
-  return (
-    <details className={surface.infoTip}>
-      <summary aria-label={label} title={label}>i</summary>
-      <div>{children}</div>
-    </details>
-  );
-}
-
-const connectionSteps = ["Add server", "Choose OAuth", "Sign in", "Approve"] as const;
 
 export default function ConnectPage() {
   return (
-    <section className={dashboard.content}>
-      <header className={dashboard.header}>
-        <div>
-          <h1>MCP Connections</h1>
-          <p>Connect an AI client to this CodeLocal account.</p>
-        </div>
-        <div className={dashboard.headerActions}>
-          <Link className={dashboard.headerAction} href="/#how-it-works">Guide</Link>
-          <InfoTip label="About MCP connections">
-            OAuth keeps access scoped to your signed-in CodeLocal account and authorized local runtime.
-          </InfoTip>
-        </div>
+    <section className={visual.page}>
+      <header className={visual.head}>
+        <div className={visual.headMeta}><h1>Connections</h1><span className={visual.online}>Online</span></div>
+        <Link className={visual.iconButton} href="/#how-it-works" aria-label="Connection guide" title="Guide"><DashboardIcon name="book" /></Link>
       </header>
-
-      <div className={surface.grid}>
-        <section className={`${surface.card} ${surface.span8}`}>
-          <div className={surface.cardHeader}>
-            <div className={surface.titleRow}>
-              <h2 className={surface.title}>MCP server URL</h2>
-              <InfoTip label="About the MCP server URL">
-                Paste this endpoint into a compatible MCP client. OAuth metadata is discovered automatically.
-              </InfoTip>
-            </div>
-            <span className={surface.statusBadge}><i /> OAuth ready</span>
-          </div>
-          <p className={surface.copy}>Use this endpoint in your MCP client.</p>
+      <div className={visual.shell}>
+        <section className={visual.panel}>
+          <div className={visual.compactTop}><span className={visual.miniLabel}>MCP endpoint</span><DashboardIcon name="info" size={15} /></div>
           <MCPEndpoint />
         </section>
-
-        <section className={`${surface.card} ${surface.span4}`}>
-          <div className={surface.titleRow}>
-            <h2 className={surface.title}>Connect</h2>
-            <InfoTip label="Connection flow">
-              Follow these steps in the MCP client. CodeLocal asks for approval before the connection is authorized.
-            </InfoTip>
-          </div>
-          <ol className={surface.steps}>
-            {connectionSteps.map((label, index) => (
-              <li className={surface.step} key={label}>
-                <b>{index + 1}</b>
-                <span>{label}</span>
-              </li>
-            ))}
-          </ol>
+        <section className={`${visual.panel} ${visual.network}`} aria-label="AI clients connected to CodeLocal">
+          {[0,1,2,3].map((i)=><span className={visual.beam} data-i={i} key={`b${i}`} />)}
+          <div className={visual.hub}><DashboardIcon name="graph" size={34} /></div>
+          <div className={visual.orbit} data-i="0" title="AI client"><DashboardIcon name="activity" /></div>
+          <div className={visual.orbit} data-i="1" title="Desktop"><DashboardIcon name="monitor" /></div>
+          <div className={visual.orbit} data-i="2" title="API"><DashboardIcon name="code" /></div>
+          <div className={visual.orbit} data-i="3" title="CLI"><DashboardIcon name="bolt" /></div>
+        </section>
+        <section className={visual.panel}>
+          <div className={visual.compactTop}><span className={visual.miniLabel}>Clients</span><span className={visual.online}>OAuth</span></div>
+          <div className={visual.clientStrip}>{["AI","Claude","Cursor","VS Code","API","CLI"].map((label)=><div className={visual.clientTile} data-state="neutral" key={label}><span>{label}</span><i /></div>)}</div>
+        </section>
+        <section className={`${visual.panel} ${visual.quickFlow}`} aria-label="Quick connect flow">
+          <span className={visual.flowStep}><DashboardIcon name="link" /></span><DashboardIcon name="arrow" size={14} />
+          <span className={visual.flowStep}><DashboardIcon name="copy" /></span><DashboardIcon name="arrow" size={14} />
+          <span className={visual.flowStep}><DashboardIcon name="plug" /></span><DashboardIcon name="arrow" size={14} />
+          <span className={visual.flowStep}><DashboardIcon name="check" /></span>
         </section>
       </div>
     </section>
