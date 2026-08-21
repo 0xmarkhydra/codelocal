@@ -303,8 +303,8 @@
 
 .livePanel {
   width: min(100%,1360px);
-  margin: 0 auto 12px;
-  padding: 20px;
+  margin: 0 auto 10px;
+  padding: 16px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(255,255,255,.012), transparent 38%), var(--surface-sunken);
@@ -384,16 +384,16 @@
 .metricGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 16px;
+  gap: 14px;
+  margin-top: 10px;
 }
 
 .metricCard {
-  min-height: 92px;
+  min-height: 62px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 18px 0 0;
+  padding: 10px 0 0;
   border: 0;
   border-top: 1px solid var(--line-strong);
   border-radius: 0;
@@ -409,8 +409,8 @@
 }
 
 .metricCard strong {
-  margin-top: 15px;
-  font-size: 28px;
+  margin-top: 7px;
+  font-size: 26px;
   line-height: 1;
   letter-spacing: -0.045em;
 }
@@ -1449,6 +1449,26 @@
   font-size: 9px;
   text-align: right;
 }
+
+.knowledgeHealthDetails {
+  width: min(100%, 1360px);
+  margin: 10px auto 0;
+}
+
+.knowledgeHealthDetails > summary {
+  width: fit-content;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted-2);
+  background: rgba(255,255,255,.012);
+  font-size: 9px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.knowledgeHealthDetails > summary::-webkit-details-marker { display: none; }
+.knowledgeHealthDetails[open] > summary { color: #dce7f5; }
 
 .knowledgeHealthSection {
   width: min(100%, 1360px);

@@ -26,9 +26,7 @@ function UsageBreakdown({ label, value }: { label: string; value: UsageWindow })
         <span>{exactNumber.format(value.calls)} tool calls</span>
       </div>
       <dl>
-        <div><dt>Input est.</dt><dd>{exactNumber.format(value.inputTokensEstimated)}</dd></div>
-        <div><dt>Output est.</dt><dd>{exactNumber.format(value.outputTokensEstimated)}</dd></div>
-        <div><dt>Total est.</dt><dd>{exactNumber.format(value.totalTokensEstimated)}</dd></div>
+        <div><dt>Tokens</dt><dd>{exactNumber.format(value.totalTokensEstimated)}</dd></div>
       </dl>
     </article>
   );
@@ -52,30 +50,14 @@ export function LiveUsage() {
   return (
     <section className={styles.livePanel} aria-live="polite">
       <div className={styles.liveHead}>
-        <div>
-          <span className={styles.eyebrow}>MCP usage</span>
-          <h2>Recent MCP tool activity and estimated token volume.</h2>
-          <p>{resource.scope}. These values are not a provider invoice and no USD cost is inferred here.</p>
-        </div>
-        <span className={styles.liveBadge}>Estimated · Live</span>
+        <div><span className={styles.eyebrow}>MCP</span></div>
+        <span className={styles.liveBadge}>Live</span>
       </div>
 
       <div className={styles.metricGrid}>
-        <article className={styles.metricCard}>
-          <span>Last 24 hours</span>
-          <strong>{compactNumber.format(resource.last24h.totalTokensEstimated)}</strong>
-          <p>{exactNumber.format(resource.last24h.calls)} tool calls · estimated MCP tokens</p>
-        </article>
-        <article className={styles.metricCard}>
-          <span>Last 30 days</span>
-          <strong>{compactNumber.format(resource.last30d.totalTokensEstimated)}</strong>
-          <p>{exactNumber.format(resource.last30d.calls)} tool calls · estimated MCP tokens</p>
-        </article>
-        <article className={styles.metricCard}>
-          <span>All time</span>
-          <strong>{compactNumber.format(resource.allTime.totalTokensEstimated)}</strong>
-          <p>{exactNumber.format(resource.allTime.calls)} tool calls · estimated MCP tokens</p>
-        </article>
+        <article className={styles.metricCard}><span>24h</span><strong>{compactNumber.format(resource.last24h.totalTokensEstimated)}</strong></article>
+        <article className={styles.metricCard}><span>30d</span><strong>{compactNumber.format(resource.last30d.totalTokensEstimated)}</strong></article>
+        <article className={styles.metricCard}><span>All time</span><strong>{compactNumber.format(resource.allTime.totalTokensEstimated)}</strong></article>
       </div>
 
       <div className={styles.usageList}>

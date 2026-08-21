@@ -56,14 +56,8 @@ export function LiveSecurity() {
   return (
     <>
       <section className={account.state.value.requiresReauthentication ? styles.securityRisk : styles.securityHealthy}>
-        <div>
-          <span className={styles.eyebrow}>Browser session</span>
-          <h2>{account.state.value.requiresReauthentication ? "Sensitive actions require fresh authentication." : "Current session has no pending reauthentication requirement."}</h2>
-          <p>
-            Go evaluates the security-device cookie, browser User-Agent and trusted network signal. High-risk changes invalidate the session; softer changes require reauthentication before sensitive mutations.
-          </p>
-        </div>
-        <span className={styles.liveBadge}>{account.state.value.requiresReauthentication ? "REAUTH REQUIRED" : "GO VERIFIED"}</span>
+        <div><h2>{account.state.value.requiresReauthentication ? "Sign in again" : "Session verified"}</h2></div>
+        <span className={styles.liveBadge}>{account.state.value.requiresReauthentication ? "Reauth" : "Verified"}</span>
       </section>
 
       <section className={styles.securityGrid}>
@@ -77,8 +71,7 @@ export function LiveSecurity() {
             <div><dt>Revoked</dt><dd>{deviceAvailable ? deviceStates.revoked : "—"}</dd></div>
             <div><dt>Other paired</dt><dd>{deviceAvailable ? Math.max(0, deviceItems.length - deviceStates.online - deviceStates.revoked) : "—"}</dd></div>
           </dl>
-          <p>Revoke a machine you no longer trust. Revocation disconnects its cloud credential without deleting local project files.</p>
-          <Link className={styles.liveAction} href="/dashboard/devices">Review devices</Link>
+          <Link className={styles.liveAction} href="/dashboard/devices">Devices</Link>
         </article>
 
         <article className={styles.panel}>
@@ -91,27 +84,16 @@ export function LiveSecurity() {
             <div><dt>Sleeping</dt><dd>{workspaceAvailable ? workspaceStates.sleeping : "—"}</dd></div>
             <div><dt>Offline</dt><dd>{workspaceAvailable ? workspaceStates.offline : "—"}</dd></div>
           </dl>
-          <p>Workspace access is explicit and folder-scoped. Removing authorization does not delete or modify the project itself.</p>
-          <Link className={styles.liveAction} href="/dashboard/workspaces">Review workspaces</Link>
+          <Link className={styles.liveAction} href="/dashboard/workspaces">Workspaces</Link>
         </article>
 
         <article className={styles.panel}>
           <div className={styles.panelHead}>
             <div><span className={styles.eyebrow}>Password</span><h3>Account security</h3></div>
           </div>
-          <p>Changing your password verifies the current password, refreshes account security and signs out other browser sessions.</p>
-          <Link className={styles.liveAction} href="/dashboard/account">Manage password</Link>
+          <Link className={styles.liveAction} href="/dashboard/account">Password</Link>
         </article>
 
-        <article className={styles.panel}>
-          <div className={styles.panelHead}>
-            <div><span className={styles.eyebrow}>Privacy boundary</span><h3>No cloud audit feed</h3></div>
-          </div>
-          <p>
-            Only security information that CodeLocal can verify is shown here. Login events, IP history and fingerprint telemetry are not invented or inferred.
-          </p>
-          <span className={styles.securityStatement}>Security events are recorded for account protection and troubleshooting.</span>
-        </article>
       </section>
     </>
   );

@@ -11,10 +11,10 @@ import { CodeGraphView } from "./code-graph-view";
 
 function stateCopy(state: string) {
   switch (state) {
-    case "no_workspace": return ["No authorized checkout yet", "Run codelocal . inside a project first. Code Graph only queries explicitly authorized workspaces."] as const;
-    case "offline": return ["Local runtime offline", "Start CodeLocal on the selected device. The cloud service does not keep a full source graph as a fallback."] as const;
-    case "unsupported": return ["Runtime update required", "This checkout is connected through an older runtime that does not expose bounded Code Graph queries."] as const;
-    default: return ["Code Graph unavailable", "The selected local runtime could not provide a bounded graph right now. Project Brain remains independent."] as const;
+    case "no_workspace": return "No workspace";
+    case "offline": return "Runtime offline";
+    case "unsupported": return "Update runtime";
+    default: return "Unavailable";
   }
 }
 
@@ -78,7 +78,7 @@ export function LiveCodeGraph() {
   }
 
   const value = graph.state.value;
-  const [stateTitle, stateDescription] = stateCopy(value.state);
+  const stateTitle = stateCopy(value.state);
   const repositoryValue = repositoryPath || value.repositories[0]?.path || "";
 
   return (
@@ -144,32 +144,20 @@ export function LiveCodeGraph() {
 
       {value.state !== "current" ? (
         <section className={styles.codeGraphState} data-state={value.state}>
-          <span className={styles.eyebrow}>{value.state.replaceAll("_", " ")}</span>
           <h2>{stateTitle}</h2>
-          <p>{stateDescription}</p>
         </section>
       ) : (
         <>
           <section className={styles.codeGraphState} data-state="current">
             <div>
-              <span className={styles.eyebrow}>{value.status === "ambiguous" ? "Ambiguous query" : "Current local snapshot"}</span>
-              <h2>{value.status === "ambiguous" ? "Multiple symbols match. CodeLocal did not guess." : `${value.context?.workspaceName ?? "Checkout"} · bounded live graph`}</h2>
-              <p>
-                {value.repositories[0]
-                  ? `${repositoryValue || "."} · ${value.repositories.find((item) => item.path === repositoryValue)?.branch || "detached"} · ${value.nodes.length} visible nodes`
-                  : `${value.nodes.length} visible nodes · ${value.edges.length} relationships`}
-              </p>
+              <h2>{value.status === "ambiguous" ? "Multiple matches" : `${value.context?.workspaceName ?? "Workspace"} · ${value.nodes.length} nodes`}</h2>
             </div>
-            <span className={styles.liveBadge}>{value.truncated ? "BOUNDED · TRUNCATED" : "BOUNDED · CURRENT"}</span>
+            <span className={styles.liveBadge}>{value.truncated ? "Truncated" : "Live"}</span>
           </section>
 
           {value.impact && (
             <section className={styles.codeImpact} data-risk={value.impact.risk}>
-              <div>
-                <span className={styles.eyebrow}>Impact analysis · {value.impact.risk}</span>
-                <strong>{value.impact.directCallers} direct callers · {value.impact.potentialCallers} potential upstream callers · {value.impact.affectedFiles} files</strong>
-                <p>{value.impact.truncated ? "The safety bound was reached, so impact remains conservative." : "Impact is computed only from this visible call neighborhood."}</p>
-              </div>
+              <div><strong>{value.impact.directCallers} callers · {value.impact.affectedFiles} files · {value.impact.risk}</strong></div>
               <dl>
                 <div><dt>Callees</dt><dd>{value.impact.directCallees}</dd></div>
                 <div><dt>Semantic</dt><dd>{value.impact.semanticEdges}/{value.impact.evidenceEdges}</dd></div>

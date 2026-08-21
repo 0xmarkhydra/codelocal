@@ -36,14 +36,13 @@ export function InviteLive() {
       .catch((reason) => { if (reason instanceof Error && reason.message !== "unauthorized") setError(true); });
   }, [router]);
 
-  if (error) return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Invite</span><h2>Invite data is temporarily unavailable.</h2><p>Refresh after CodeLocal is reachable again.</p></section>;
-  if (!data) return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Invite</span><h2>Loading your invite network…</h2></section>;
+  if (error) return <section className={dashboard.livePanel}><h2>Unavailable</h2></section>;
+  if (!data) return <section className={dashboard.livePanel}><h2>Loading…</h2></section>;
 
   return <div className={surface.grid}>
     <section className={surface.card}>
       <span className={dashboard.eyebrow}>Your invite</span>
       <h2 className={surface.title}>Invite code</h2>
-      <p className={surface.copy}>Share this code with people you trust. Invited by: {data.invitedBy}.</p>
       <div className={surface.codeRow}><div className={surface.code}>{data.referralCode}</div><CopyButton value={data.referralCode} label="Copy code" /></div>
     </section>
     <div className={surface.metrics}>

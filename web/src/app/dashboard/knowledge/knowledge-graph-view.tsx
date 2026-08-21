@@ -203,7 +203,7 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource })
             </dl>
           </>
         ) : (
-          <p className={styles.inspectorEmpty}>Select a node to inspect its evidence summary and real graph relationships.</p>
+          <p className={styles.inspectorEmpty}>Select a node</p>
         )}
       </aside>
     </div>

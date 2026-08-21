@@ -5,11 +5,7 @@ export default function DashboardPage() {
   return (
     <section className={styles.content}>
       <header className={`${styles.header} ${styles.compactHeader}`}>
-        <div>
-          <span className={styles.eyebrow}>Workspace</span>
-          <h1>Home</h1>
-          <p>Project brain, runtime and MCP activity in one view.</p>
-        </div>
+        <div><h1>Home</h1></div>
       </header>
 
       <LiveOverview />

@@ -35,19 +35,14 @@ export function LiveAccount() {
 
       {account.requiresReauthentication && (
         <section className={styles.accountRisk} role="alert">
-          <span className={styles.eyebrow}>Fresh security context required</span>
-          <h2>This browser session observed a security-signal change.</h2>
-          <p>Sensitive changes may ask you to sign in again to protect your account.</p>
+          <h2>Sign in again</h2>
         </section>
       )}
 
       <section className={styles.accountGrid}>
         <article className={styles.panel}>
           <div className={styles.panelHead}>
-            <div>
-              <span className={styles.eyebrow}>Identity</span>
-              <h3>Account information</h3>
-            </div>
+            <div><h3>Identity</h3></div>
             {account.isAdmin && <span className={styles.badge}>ADMIN</span>}
           </div>
           <dl className={styles.accountDetails}>
@@ -61,15 +56,7 @@ export function LiveAccount() {
         </article>
 
         <article className={styles.panel}>
-          <div className={styles.panelHead}>
-            <div>
-              <span className={styles.eyebrow}>Password security</span>
-              <h3>Change password</h3>
-            </div>
-          </div>
-          <p className={styles.accountSecurityCopy}>
-            A successful password change refreshes this browser session and signs out other web sessions.
-          </p>
+          <div className={styles.panelHead}><div><h3>Password</h3></div></div>
           <form className={styles.accountForm} method="post" action="/account/password">
             <input type="hidden" name="csrf" value={account.csrf} />
             <input type="hidden" name="next" value="/dashboard/account" />
@@ -87,9 +74,7 @@ export function LiveAccount() {
             </label>
             <button className={styles.liveAction} type="submit">Update password</button>
           </form>
-          <p className={styles.accountHelp}>
-            Locked out? <a href="/forgot-password">Use the verified-email reset flow</a>. Reset emails remain limited by the existing Go rate limits.
-          </p>
+          <p className={styles.accountHelp}>Locked out? <a href="/forgot-password">Reset password</a></p>
         </article>
       </section>
     </>

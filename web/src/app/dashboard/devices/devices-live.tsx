@@ -51,18 +51,14 @@ export function LiveDevices() {
   return (
     <section className={styles.livePanel} aria-live="polite">
       <div className={styles.liveHead}>
-        <div>
-          <span className={styles.eyebrow}>Paired devices</span>
-          <h2>Machine runtimes connected to your account.</h2>
-          <p>This view shows device identity and reachability. Private credentials and keys are never exposed here.</p>
-        </div>
+        <div><span className={styles.eyebrow}>Machines</span></div>
         <span className={styles.liveBadge}>Live</span>
       </div>
 
       <div className={styles.metricGrid}>
-        <article className={styles.metricCard}><span>Paired</span><strong>{resource.summary.paired}</strong><p>Non-revoked machine credentials.</p></article>
-        <article className={styles.metricCard}><span>Online</span><strong>{resource.summary.online}</strong><p>Runtime currently reachable.</p></article>
-        <article className={styles.metricCard}><span>Revoked</span><strong>{resource.summary.revoked}</strong><p>Credentials no longer allowed to reconnect.</p></article>
+        <article className={styles.metricCard}><span>Paired</span><strong>{resource.summary.paired}</strong></article>
+        <article className={styles.metricCard}><span>Online</span><strong>{resource.summary.online}</strong></article>
+        <article className={styles.metricCard}><span>Revoked</span><strong>{resource.summary.revoked}</strong></article>
       </div>
 
       <DashboardListControls
@@ -72,18 +68,18 @@ export function LiveDevices() {
         totalPages={totalPages}
         totalResults={filtered.length}
         onPageChange={setPage}
-        placeholder="Search device name or ID"
+        placeholder="Search"
       />
 
       <div className={styles.resourceList}>
         {visible.length === 0 ? (
-          <p className={styles.emptyCopy}>{query ? "No devices match your search." : "No paired device is available yet."}</p>
+          <p className={styles.emptyCopy}>{query ? "No matches" : "No devices"}</p>
         ) : visible.map((device) => (
           <article className={styles.resourceRow} key={device.deviceId}>
             <span className={styles.stateDot} data-state={device.status} />
             <div className={styles.resourceIdentity}>
               <strong>{device.deviceName}</strong>
-              <span>Paired {formatDashboardTime(device.createdAt)} · last seen {formatDashboardTime(device.lastSeenAt)}</span>
+              <span>{formatDashboardTime(device.lastSeenAt)}</span>
             </div>
             <div className={styles.resourceActions}>
               <span className={styles.resourceStatus}>{statusLabel(device.status)}</span>

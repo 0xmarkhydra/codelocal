@@ -279,19 +279,28 @@
 }
 
 .workspaceRow {
-  min-height: 37px;
+  min-height: 40px;
   display: grid;
-  grid-template-columns: 8px minmax(0,1fr) auto;
+  grid-template-columns: 24px minmax(0,1fr) auto;
   align-items: center;
   gap: 9px;
   border-bottom: 1px solid var(--line);
 }
 
 .workspaceRow:last-child { border-bottom: 0; }
-.workspaceDot { width: 5px; height: 5px; border-radius: 50%; }
-.workspaceDot[data-state="active"] { background: var(--green); box-shadow: 0 0 8px rgba(105,221,176,.35); }
-.workspaceDot[data-state="sleeping"] { background: #c981ff; box-shadow: 0 0 8px rgba(201,129,255,.28); }
-.workspaceDot[data-state="offline"] { background: #59677d; }
+.workspaceFolder {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: #819bc8;
+}
+.workspaceFolder svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.workspaceFolder i { position: absolute; right: 0; bottom: 1px; width: 6px; height: 6px; border: 1.5px solid #080d14; border-radius: 50%; background: #59677d; }
+.workspaceFolder[data-state="active"] i { background: var(--green); box-shadow: 0 0 7px rgba(105,221,176,.35); }
+.workspaceFolder[data-state="sleeping"] i { background: #c981ff; box-shadow: 0 0 7px rgba(201,129,255,.28); }
+.workspaceFolder[data-state="offline"] i { background: #59677d; }
 .workspaceRow div { min-width: 0; display: grid; gap: 1px; }
 .workspaceRow strong,.workspaceRow small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspaceRow strong { font-size: 9.3px; }

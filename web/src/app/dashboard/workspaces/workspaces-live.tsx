@@ -54,18 +54,14 @@ export function LiveWorkspaces() {
   return (
     <section className={styles.livePanel} aria-live="polite">
       <div className={styles.liveHead}>
-        <div>
-          <span className={styles.eyebrow}>Authorized workspaces</span>
-          <h2>Project folders visible to CodeLocal.</h2>
-          <p>This list comes from the Go workspace catalog and omits local paths, capabilities and routing internals.</p>
-        </div>
+        <div><span className={styles.eyebrow}>Folders</span></div>
         <span className={styles.liveBadge}>Live</span>
       </div>
 
       <div className={styles.metricGrid}>
-        <article className={styles.metricCard}><span>Authorized</span><strong>{resource.summary.total}</strong><p>Folders explicitly granted to CodeLocal.</p></article>
-        <article className={styles.metricCard}><span>Active</span><strong>{resource.summary.active}</strong><p>Loaded for an active MCP session.</p></article>
-        <article className={styles.metricCard}><span>Sleeping / offline</span><strong>{resource.summary.sleeping}<small> / {resource.summary.offline}</small></strong><p>Authorized without an active heavy runtime.</p></article>
+        <article className={styles.metricCard}><span>All</span><strong>{resource.summary.total}</strong></article>
+        <article className={styles.metricCard}><span>Active</span><strong>{resource.summary.active}</strong></article>
+        <article className={styles.metricCard}><span>Sleep / off</span><strong>{resource.summary.sleeping}<small> / {resource.summary.offline}</small></strong></article>
       </div>
 
       <DashboardListControls
@@ -75,12 +71,12 @@ export function LiveWorkspaces() {
         totalPages={totalPages}
         totalResults={filtered.length}
         onPageChange={setPage}
-        placeholder="Search workspace, device or ID"
+        placeholder="Search"
       />
 
       <div className={styles.resourceList}>
         {visible.length === 0 ? (
-          <p className={styles.emptyCopy}>{query ? "No workspaces match your search." : <>No authorized workspace has synced yet. Run <code>codelocal .</code> inside a project to authorize it.</>}</p>
+          <p className={styles.emptyCopy}>{query ? "No matches" : <>No workspaces · run <code>codelocal .</code></>}</p>
         ) : visible.map((workspace) => (
           <article className={`${styles.resourceRow} ${styles.workspaceResourceRow}`} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
             <span className={styles.workspaceFolderIcon} data-state={workspace.status} aria-hidden="true">
@@ -91,20 +87,20 @@ export function LiveWorkspaces() {
             </span>
             <div className={styles.resourceIdentity}>
               <strong>{workspace.workspaceName}</strong>
-              <span>{workspace.deviceName} · last seen {formatDashboardTime(workspace.lastSeenAt)}</span>
+              <span>{workspace.deviceName} · {formatDashboardTime(workspace.lastSeenAt)}</span>
             </div>
             <div className={styles.resourceActions}>
               <Link
                 className={styles.liveAction}
                 href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}
               >
-                Code Graph
+                Graph
               </Link>
               <span className={styles.resourceStatus}>{statusLabel(workspace.status)}</span>
               <ResourceMutationButton
                 endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
                 csrf={csrf}
-                label="Remove access"
+                label="Remove"
                 confirmMessage={`Remove ${workspace.workspaceName} from CodeLocal? The project and files stay untouched.`}
                 disabled={!workspace.runtimeOnline}
                 onSuccess={retry}

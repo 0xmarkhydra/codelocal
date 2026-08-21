@@ -18,10 +18,7 @@ export default function ConnectPage() {
   return (
     <section className={dashboard.content}>
       <header className={dashboard.header}>
-        <div>
-          <h1>MCP Connections</h1>
-          <p>Connect an AI client to this CodeLocal account.</p>
-        </div>
+        <div><h1>Connections</h1></div>
         <div className={dashboard.headerActions}>
           <Link className={dashboard.headerAction} href="/#how-it-works">Guide</Link>
           <InfoTip label="About MCP connections">
@@ -41,7 +38,6 @@ export default function ConnectPage() {
             </div>
             <span className={surface.statusBadge}><i /> OAuth ready</span>
           </div>
-          <p className={surface.copy}>Use this endpoint in your MCP client.</p>
           <MCPEndpoint />
         </section>
 

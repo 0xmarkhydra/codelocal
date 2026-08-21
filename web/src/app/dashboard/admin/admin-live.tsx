@@ -47,9 +47,9 @@ export function AdminLive() {
   const safePage = Math.min(page, totalPages);
   const visible = filtered.slice((safePage - 1) * 12, safePage * 12);
 
-  if (error === "forbidden") return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Administration</span><h2>Admin access required.</h2><p>This surface is available only to configured CodeLocal administrators.</p></section>;
-  if (error) return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Administration</span><h2>Admin data is temporarily unavailable.</h2></section>;
-  if (!data) return <section className={dashboard.livePanel}><span className={dashboard.eyebrow}>Administration</span><h2>Loading user network…</h2></section>;
+  if (error === "forbidden") return <section className={dashboard.livePanel}><h2>Admin only</h2></section>;
+  if (error) return <section className={dashboard.livePanel}><h2>Unavailable</h2></section>;
+  if (!data) return <section className={dashboard.livePanel}><h2>Loading…</h2></section>;
 
   return <div className={surface.grid}>
     <div className={surface.metrics}>
@@ -58,8 +58,7 @@ export function AdminLive() {
       <div className={surface.metric}><span>Runtime online / MCP now</span><strong>{data.runtimeOnline} / {data.usingMcpNow}</strong></div>
     </div>
     <section className={surface.card}>
-      <span className={dashboard.eyebrow}>Users</span>
-      <h2 className={surface.title}>Account activity</h2>
+      <h2 className={surface.title}>Users</h2>
       <input className={surface.search} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search email or referral code" />
       <div className={surface.adminTable}>
         {visible.map((user) => <div className={surface.adminRow} key={user.id}>
@@ -110,7 +109,6 @@ function ReferralTree({ users }: { users: User[] }) {
   return <section className={surface.card}>
     <span className={dashboard.eyebrow}>Referral network</span>
     <h2 className={surface.title}>Who invited whom</h2>
-    <p className={surface.copy}>Relationship tree derived from referral codes. Invalid cycles are ignored without changing stored relationships.</p>
     <div className={surface.tree}>{rows.map(({ user, depth }) => <div className={surface.treeNode} key={user.id} style={{ marginLeft: Math.min(depth, 8) * 18 }}><strong>{user.email} · {user.referralCode}</strong><span>{user.referredByCode ? `Invited by ${user.referredByCode}` : "Root / direct account"} · {user.inviteCount} direct · {status(user)}</span></div>)}</div>
   </section>;
 }

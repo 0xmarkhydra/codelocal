@@ -9,31 +9,21 @@ type FeedbackProps =
 
 export function DashboardResourceFeedback(props: FeedbackProps) {
   if (props.kind === "loading") {
-    return (
-      <section className={styles.livePanel} aria-live="polite">
-        <span className={styles.eyebrow}>{props.label}</span>
-        <h2>Checking CodeLocal…</h2>
-        <p>No local placeholder values are shown while real state is loading.</p>
-      </section>
-    );
+    return <section className={styles.livePanel} aria-live="polite"><h2>Loading…</h2></section>;
   }
 
   if (props.kind === "unauthenticated") {
     return (
       <section className={styles.livePanel} aria-live="polite">
-        <span className={styles.eyebrow}>{props.label}</span>
-        <h2>Sign in to load real CodeLocal state.</h2>
-        <p>Your signed-in session is being verified before private data is shown.</p>
-        <a className={styles.liveAction} href="/login?next=%2Fdashboard">Sign in through CodeLocal</a>
+        <h2>Sign in</h2>
+        <a className={styles.liveAction} href="/login?next=%2Fdashboard">Continue</a>
       </section>
     );
   }
 
   return (
     <section className={styles.livePanel} aria-live="polite">
-      <span className={styles.eyebrow}>{props.label}</span>
-      <h2>Live backend state is unavailable.</h2>
-      <p>{props.message} The UI will not substitute mocked activity.</p>
+      <h2>Unavailable</h2>
       <button className={styles.liveAction} type="button" onClick={props.onRetry}>Retry</button>
     </section>
   );

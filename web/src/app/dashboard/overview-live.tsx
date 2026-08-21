@@ -32,25 +32,9 @@ function workspaceStateLabel(status: DashboardOverview["workspaces"]["recent"][n
 }
 
 function onboardingCopy(overview: DashboardOverview) {
-  if (overview.devices.paired === 0) {
-    return {
-      eyebrow: "Setup required",
-      title: "Pair your first machine.",
-      copy: "Install CodeLocal, pair this computer, then authorize the projects you want AI clients to use.",
-    };
-  }
-  if (overview.devices.online === 0) {
-    return {
-      eyebrow: "Runtime offline",
-      title: "Your project brain is waiting for a runtime.",
-      copy: `${overview.devices.paired} paired machine${overview.devices.paired === 1 ? "" : "s"} · ${overview.workspaces.total} authorized workspace${overview.workspaces.total === 1 ? "" : "s"}.`,
-    };
-  }
-  return {
-    eyebrow: "Runtime connected",
-    title: "Your project brain is live.",
-    copy: `${overview.devices.online}/${overview.devices.paired} machine runtime online · ${overview.workspaces.active} active workspace${overview.workspaces.active === 1 ? "" : "s"}.`,
-  };
+  if (overview.devices.paired === 0) return { eyebrow: "Setup", title: "Pair a machine" };
+  if (overview.devices.online === 0) return { eyebrow: "Offline", title: `${overview.devices.paired} paired · ${overview.workspaces.total} workspaces` };
+  return { eyebrow: "Live", title: `${overview.devices.online}/${overview.devices.paired} machines · ${overview.workspaces.active} active` };
 }
 
 function usageHeight(value: number, max: number) {
@@ -115,7 +99,6 @@ function OverviewBrain({ overview }: { overview: DashboardOverview }) {
           {workspace.workspaceName}
         </span>
       ))}
-      <span className={overviewStyles.brainMeta}>Live account state · recent workspace map</span>
     </div>
   );
 }
@@ -149,28 +132,15 @@ export function LiveOverview() {
         <div className={overviewStyles.statusPane}>
           <span className={styles.eyebrow}>{onboarding.eyebrow}</span>
           <h2>{onboarding.title}</h2>
-          <p>{onboarding.copy}</p>
           <div className={overviewStyles.statusActions}>
             <Link href="/dashboard/connect">Connect AI</Link>
             <Link href="/dashboard/workspaces">Workspaces</Link>
             <Link href="/dashboard/code-graph">Code Graph</Link>
           </div>
           <div className={overviewStyles.metricStrip}>
-            <article>
-              <span>Machines</span>
-              <strong>{overview.devices.online}/{overview.devices.paired}</strong>
-              <small>online / paired</small>
-            </article>
-            <article>
-              <span>Workspaces</span>
-              <strong>{overview.workspaces.total}</strong>
-              <small>{overview.workspaces.active} active · {overview.workspaces.sleeping} sleeping</small>
-            </article>
-            <article>
-              <span>MCP · 24h</span>
-              <strong>{overview.usage.available ? compactNumber.format(overview.usage.last24h.totalTokensEstimated) : "—"}</strong>
-              <small>{overview.usage.available ? `${compactNumber.format(overview.usage.last24h.calls)} calls` : "unavailable"}</small>
-            </article>
+            <article><span>Machines</span><strong>{overview.devices.online}/{overview.devices.paired}</strong></article>
+            <article><span>Workspaces</span><strong>{overview.workspaces.total}</strong></article>
+            <article><span>MCP · 24h</span><strong>{overview.usage.available ? compactNumber.format(overview.usage.last24h.totalTokensEstimated) : "—"}</strong></article>
           </div>
         </div>
         <OverviewBrain overview={overview} />
@@ -178,10 +148,7 @@ export function LiveOverview() {
 
       <div className={overviewStyles.lowerGrid}>
         <section className={overviewStyles.compactPanel}>
-          <div className={overviewStyles.panelHead}>
-            <strong>MCP activity</strong>
-            <span>Estimated payload tokens · cumulative windows</span>
-          </div>
+          <div className={overviewStyles.panelHead}><strong>MCP activity</strong></div>
           <div className={overviewStyles.usageBars} aria-label="Estimated MCP payload token totals by cumulative window">
             {usage.map((value, index) => (
               <div
@@ -197,17 +164,17 @@ export function LiveOverview() {
         </section>
 
         <section className={overviewStyles.compactPanel}>
-          <div className={overviewStyles.panelHead}>
-            <strong>Recent workspaces</strong>
-            <span>{overview.usage.scope}</span>
-          </div>
+          <div className={overviewStyles.panelHead}><strong>Recent</strong></div>
           {overview.workspaces.recent.length === 0 ? (
-            <p className={overviewStyles.empty}>No workspace state is currently available.</p>
+            <p className={overviewStyles.empty}>No workspaces</p>
           ) : (
             <div className={overviewStyles.workspaceList}>
               {overview.workspaces.recent.slice(0, 5).map((workspace) => (
                 <div className={overviewStyles.workspaceRow} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
-                  <span className={overviewStyles.workspaceDot} data-state={workspace.status} />
+                  <span className={overviewStyles.workspaceFolder} data-state={workspace.status} aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2.5h6.5A2.5 2.5 0 0 1 21 9v7.5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" /></svg>
+                    <i />
+                  </span>
                   <div>
                     <strong>{workspace.workspaceName}</strong>
                     <small>{workspace.deviceName}</small>

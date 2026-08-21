@@ -187,7 +187,7 @@ export function CodeGraphView({ graph }: { graph: CodeGraphResource }) {
             </dl>
           </>
         ) : (
-          <p className={styles.inspectorEmpty}>Select a node to inspect workspace-relative evidence and direct relationships.</p>
+          <p className={styles.inspectorEmpty}>Select a node</p>
         )}
       </aside>
     </div>

@@ -200,5 +200,10 @@ export function LiveKnowledgeHealth() {
       />
     );
   }
-  return <HealthContent value={state.value} />;
+  return (
+    <details className={styles.knowledgeHealthDetails}>
+      <summary>Health & controls</summary>
+      <HealthContent value={state.value} />
+    </details>
+  );
 }
