@@ -8,19 +8,35 @@ import controls from "./dashboard-controls.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
 
 type NavigationItem = { label: string; href: string };
+type NavigationGroup = { label: string; items: NavigationItem[] };
 
-const navigation: NavigationItem[] = [
-  { label: "Overview", href: "/dashboard" },
-  { label: "MCP Connections", href: "/dashboard/connect" },
-  { label: "Workspaces", href: "/dashboard/workspaces" },
-  { label: "Knowledge Graph", href: "/dashboard/knowledge" },
-  { label: "Code Graph", href: "/dashboard/code-graph" },
-  { label: "Devices", href: "/dashboard/devices" },
-  { label: "Usage", href: "/dashboard/usage" },
-  { label: "Invite", href: "/dashboard/invite" },
-  { label: "Leaderboard", href: "/dashboard/leaderboard" },
-  { label: "Security", href: "/dashboard/security" },
-  { label: "Account", href: "/dashboard/account" },
+const navigationGroups: NavigationGroup[] = [
+  {
+    label: "Runtime",
+    items: [
+      { label: "Overview", href: "/dashboard" },
+      { label: "MCP Connections", href: "/dashboard/connect" },
+      { label: "Workspaces", href: "/dashboard/workspaces" },
+      { label: "Devices", href: "/dashboard/devices" },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { label: "Knowledge Graph", href: "/dashboard/knowledge" },
+      { label: "Code Graph", href: "/dashboard/code-graph" },
+    ],
+  },
+  {
+    label: "Account",
+    items: [
+      { label: "Usage", href: "/dashboard/usage" },
+      { label: "Invite", href: "/dashboard/invite" },
+      { label: "Leaderboard", href: "/dashboard/leaderboard" },
+      { label: "Security", href: "/dashboard/security" },
+      { label: "Account", href: "/dashboard/account" },
+    ],
+  },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -32,21 +48,28 @@ export function DashboardNav() {
   const pathname = usePathname();
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const readyAccount = account.state.kind === "ready" ? account.state.value : undefined;
-  const items: NavigationItem[] = readyAccount?.isAdmin
-    ? [...navigation, { label: "Admin", href: "/dashboard/admin" }]
-    : navigation;
+  const groups: NavigationGroup[] = readyAccount?.isAdmin
+    ? [...navigationGroups, { label: "Admin", items: [{ label: "User network", href: "/dashboard/admin" }] }]
+    : navigationGroups;
 
   return (
     <>
       <nav className={styles.nav} aria-label="Dashboard navigation">
-        {items.map((item) => {
-          const active = isActive(pathname, item.href);
-          return (
-            <Link className={active ? styles.activeNav : undefined} href={item.href} aria-current={active ? "page" : undefined} key={item.href}>
-              {item.label}
-            </Link>
-          );
-        })}
+        {groups.map((group) => (
+          <div className={styles.navGroup} key={group.label}>
+            <span className={styles.navGroupLabel}>{group.label}</span>
+            <div className={styles.navGroupLinks}>
+              {group.items.map((item) => {
+                const active = isActive(pathname, item.href);
+                return (
+                  <Link className={active ? styles.activeNav : undefined} href={item.href} aria-current={active ? "page" : undefined} key={item.href}>
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {readyAccount && (

@@ -55,6 +55,26 @@
 
 .nav {
   display: grid;
+  gap: 18px;
+}
+
+.navGroup {
+  display: grid;
+  gap: 6px;
+}
+
+.navGroupLabel {
+  padding: 0 10px;
+  color: #5f6d84;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.navGroupLinks {
+  display: grid;
   gap: 2px;
 }
 
@@ -213,10 +233,26 @@
 
 .liveBadge {
   flex: 0 0 auto;
-  padding-top: 4px;
-  color: #91d4b6;
-  font-size: 10px;
-  letter-spacing: 0;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid rgba(105,221,176,.18);
+  border-radius: var(--radius-pill);
+  color: #8ed7b8;
+  background: rgba(105,221,176,.045);
+  font-size: 9px;
+  font-weight: 620;
+}
+
+.liveBadge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 10px rgba(105,221,176,.42);
 }
 
 .previewActions {
@@ -608,10 +644,12 @@
 .codeImpact {
   width: min(100%, 1360px);
   margin: 0 auto 12px;
-  padding: 15px 17px;
+  padding: 16px 18px;
   border: 1px solid var(--line);
   border-radius: 15px;
-  background: rgba(8, 14, 23, 0.88);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.012), transparent 48%),
+    var(--surface-sunken);
 }
 
 .codeGraphState[data-state="current"] {
@@ -948,25 +986,38 @@
 
 .routeGuardrail {
   width: min(100%, 1360px);
+  position: relative;
   margin: 18px auto 0;
-  padding: 20px 22px;
+  padding: 18px 20px 18px 22px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(255,255,255,.01);
+  background: rgba(255,255,255,.008);
+}
+
+.routeGuardrail::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 16px;
+  bottom: 16px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(var(--accent), rgba(120,160,255,.12));
 }
 
 .routeGuardrail h2 {
   margin: 9px 0 7px;
-  font-size: 18px;
-  letter-spacing: -0.025em;
+  font-size: 17px;
+  font-weight: 580;
+  letter-spacing: -.028em;
 }
 
 .routeGuardrail p {
   max-width: 820px;
   margin: 0;
-  color: var(--muted);
+  color: var(--text-secondary);
   font-size: 10.5px;
-  line-height: 1.65;
+  line-height: 1.68;
 }
 
 .knowledgeGraphLayout {
@@ -1115,27 +1166,27 @@
 }
 
 .graphNodeProject {
-  fill: #9b7cff;
+  fill: var(--project);
 }
 
 .graphNodeStructure {
-  fill: #58a6ff;
+  fill: var(--accent);
 }
 
 .graphNodeKnowledge {
-  fill: #65d8c1;
+  fill: var(--cyan);
 }
 
 .graphNodeSkill {
-  fill: #f4a45f;
+  fill: var(--skill);
 }
 
 .graphNodeExperience {
-  fill: #e68dff;
+  fill: var(--experience);
 }
 
 .graphNodeMemory {
-  fill: #50d9a6;
+  fill: var(--memory);
 }
 
 .graphEmpty {
@@ -1524,6 +1575,18 @@
     overflow-x: auto;
     padding-top: 10px;
     scrollbar-width: thin;
+  }
+
+  .navGroup {
+    display: contents;
+  }
+
+  .navGroupLabel {
+    display: none;
+  }
+
+  .navGroupLinks {
+    display: contents;
   }
 
   .nav a {
