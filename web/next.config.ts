@@ -25,6 +25,14 @@ const nextConfig: NextConfig = {
     return {
       beforeFiles: [
         {
+          // proxy.ts marks only the explicit non-GET browser mutations owned by
+          // Go. The browser keeps the Next canary origin and host-only cookies,
+          // while the trust-bearing request is transported to Go privately.
+          source: "/:path*",
+          has: [{ type: "header", key: "x-codelocal-go-mutation", value: "1" }],
+          destination: `${backend}/:path*`,
+        },
+        {
           // Browser requests keep their same-origin URL/cookies while Next
           // proxies the explicit versioned API family to the Go authority.
           source: "/api/v1/:path*",
