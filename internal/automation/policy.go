@@ -293,8 +293,11 @@ func (a *Authorizer) AuthorizeScoped(action Action, providedToken, sessionID str
 		return true, nil, nil
 	}
 	mode := approval.ResolveMode(a.WorkspaceID)
+	if approval.FullAllows(mode, decision) {
+		return true, map[string]any{"fullAccessApproved": true, "approvalMode": approval.UserMode(mode), "approvalKey": decision.ApprovalKey}, nil
+	}
 	if approval.AgentAllows(mode, decision) {
-		return true, map[string]any{"agentApproved": true, "approvalMode": string(mode), "approvalKey": decision.ApprovalKey}, nil
+		return true, map[string]any{"agentApproved": true, "approvalMode": approval.UserMode(mode), "approvalKey": decision.ApprovalKey}, nil
 	}
 	if approval.DeniesApproval(mode, decision) {
 		return false, map[string]any{"status": "blocked", "riskLevel": decision.RiskLevel, "reason": "local approval mode " + string(mode) + " does not permit this action", "matchedRules": decision.MatchedRules, "approvalPolicy": decision.ApprovalPolicy, "approvalMode": string(mode)}, nil
@@ -326,15 +329,16 @@ func (a *Authorizer) AuthorizeScoped(action Action, providedToken, sessionID str
 	}
 	preflight := a.Broker.PreflightScoped(sessionID, command, a.WorkspaceKey, decision)
 	return false, map[string]any{
-		"status":         preflight.Status,
-		"riskLevel":      preflight.RiskLevel,
-		"reason":         preflight.Reason,
-		"matchedRules":   preflight.MatchedRules,
-		"approvalPolicy": preflight.ApprovalPolicy,
-		"approvalKey":    preflight.ApprovalKey,
-		"approvalLabel":  preflight.ApprovalLabel,
-		"approvalToken":  preflight.ApprovalToken,
-		"expiresAt":      preflight.ExpiresAt,
+		"status":          preflight.Status,
+		"riskLevel":       preflight.RiskLevel,
+		"reason":          preflight.Reason,
+		"matchedRules":    preflight.MatchedRules,
+		"approvalPolicy":  preflight.ApprovalPolicy,
+		"approvalKey":     preflight.ApprovalKey,
+		"approvalLabel":   preflight.ApprovalLabel,
+		"approvalToken":   preflight.ApprovalToken,
+		"expiresAt":       preflight.ExpiresAt,
+		"workspaceAccess": approval.UserModePrompt(mode),
 	}, nil
 }
 

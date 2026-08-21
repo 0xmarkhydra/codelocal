@@ -16,6 +16,7 @@ const (
 	ModeDeny     Mode = "deny"
 	ModeAutoSafe Mode = "auto-safe"
 	ModeAgent    Mode = "agent"
+	ModeFull     Mode = "full"
 )
 
 type modeFile struct {
@@ -29,10 +30,69 @@ func NormalizeMode(value string) Mode {
 		return ModeDeny
 	case string(ModeAutoSafe):
 		return ModeAutoSafe
-	case string(ModeAgent):
+	case string(ModeAgent), "smart":
 		return ModeAgent
+	case string(ModeFull):
+		return ModeFull
 	default:
 		return ModePrompt
+	}
+}
+
+func UserMode(mode Mode) string {
+	switch NormalizeMode(string(mode)) {
+	case ModeAgent:
+		return "smart"
+	case ModeFull:
+		return "full"
+	default:
+		return "prompt"
+	}
+}
+
+func UserModeLabel(mode Mode) string {
+	switch UserMode(mode) {
+	case "smart":
+		return "Phê duyệt giúp tôi"
+	case "full":
+		return "Toàn quyền truy cập"
+	default:
+		return "Yêu cầu phê duyệt"
+	}
+}
+
+func ParseUserMode(value string) (Mode, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "prompt":
+		return ModePrompt, true
+	case "smart":
+		return ModeAgent, true
+	case "full":
+		return ModeFull, true
+	default:
+		return ModePrompt, false
+	}
+}
+
+type UserModeChoice struct {
+	Mode        string `json:"mode"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+func UserModeChoices() []UserModeChoice {
+	return []UserModeChoice{
+		{Mode: "prompt", Label: "Yêu cầu phê duyệt", Description: "Hỏi trước các thao tác cần phê duyệt."},
+		{Mode: "smart", Label: "Phê duyệt giúp tôi", Description: "Tự phê duyệt thao tác thông thường; vẫn hỏi khi rủi ro cao."},
+		{Mode: "full", Label: "Toàn quyền truy cập", Description: "Tự phê duyệt mọi thao tác không bị hard-block trong workspace."},
+	}
+}
+
+func UserModePrompt(mode Mode) map[string]any {
+	return map[string]any{
+		"message":     "Bạn muốn CodeLocal xử lý phê duyệt thế nào?",
+		"currentMode": UserMode(mode),
+		"choices":     UserModeChoices(),
 	}
 }
 
@@ -55,23 +115,38 @@ func readModes() (modeFile, error) {
 	return data, nil
 }
 
-func WorkspaceMode(workspaceID string) (Mode, error) {
+func workspaceMode(workspaceID string) (Mode, bool, error) {
 	data, err := readModes()
 	if err != nil {
-		return ModePrompt, err
+		return ModePrompt, false, err
 	}
-	return NormalizeMode(string(data.Workspaces[strings.TrimSpace(workspaceID)])), nil
+	value, configured := data.Workspaces[strings.TrimSpace(workspaceID)]
+	if !configured {
+		return ModePrompt, false, nil
+	}
+	return NormalizeMode(string(value)), true, nil
+}
+
+func WorkspaceMode(workspaceID string) (Mode, error) {
+	mode, _, err := workspaceMode(workspaceID)
+	return mode, err
 }
 
 func ResolveMode(workspaceID string) Mode {
-	if raw := strings.TrimSpace(os.Getenv("CODELOCAL_APPROVAL_MODE")); raw != "" {
+	raw := strings.TrimSpace(os.Getenv("CODELOCAL_APPROVAL_MODE"))
+	if raw != "" {
+		envMode := NormalizeMode(raw)
+		if envMode == ModeDeny || envMode == ModeAutoSafe {
+			return envMode
+		}
+	}
+	if mode, configured, err := workspaceMode(workspaceID); err == nil && configured {
+		return mode
+	}
+	if raw != "" {
 		return NormalizeMode(raw)
 	}
-	mode, err := WorkspaceMode(workspaceID)
-	if err != nil {
-		return ModePrompt
-	}
-	return mode
+	return ModePrompt
 }
 
 func SetWorkspaceMode(workspaceID string, mode Mode) error {
@@ -99,6 +174,14 @@ func AgentAllows(mode Mode, decision security.Decision) bool {
 		return false
 	}
 	return decision.RiskLevel == security.RiskReview || decision.RiskLevel == security.RiskHigh
+}
+
+// FullAllows grants every approval-requiring action that the deterministic
+// policy has not hard blocked. Full access is workspace-scoped and durable;
+// credential access, workspace escapes, privilege escalation, disk/system
+// administration and other blocked policy decisions remain non-bypassable.
+func FullAllows(mode Mode, decision security.Decision) bool {
+	return mode == ModeFull && !decision.Blocked && decision.RequiresApproval
 }
 
 func DeniesApproval(mode Mode, decision security.Decision) bool {

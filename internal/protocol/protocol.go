@@ -119,7 +119,7 @@ func SideEffecting(tool string) bool {
 		"run_command", "exec_start", "pty_start",
 		"exec_write", "pty_write", "process_write", "pty_resize",
 		"exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill", "exec_cancel",
-		"git_stage", "git_unstage", "git_commit", "git_push", "approval_revoke", "approval_reset", "mcp_call",
+		"git_stage", "git_unstage", "git_commit", "git_push", "approval_mode", "approval_revoke", "approval_reset", "mcp_call",
 		"browser_open", "browser_click", "browser_fill", "browser_press", "browser_close",
 		"computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run",
 		"learned_skill_record", "learned_skill_feedback":

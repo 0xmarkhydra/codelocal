@@ -250,6 +250,7 @@ func TestRepresentativeCompactCallsMatchRuntimeOperations(t *testing.T) {
 		args        map[string]any
 	}{
 		{tool: "workspace", action: "select", runtimeTool: "select_workspace", args: map[string]any{"key": "workspace"}},
+		{tool: "workspace", action: "access", runtimeTool: "approval_mode", args: map[string]any{"mode": "full"}},
 		{tool: "lsp", action: "definition", runtimeTool: "find_definition", args: map[string]any{"path": "main.go", "line": 10, "column": 3}},
 		{tool: "edit", action: "apply", runtimeTool: "apply_edits", args: map[string]any{"files": []any{map[string]any{"path": "main.go", "edits": []any{}}}}},
 		{tool: "terminal", action: "start_pty", runtimeTool: "pty_start", args: map[string]any{"command": "go test ./..."}},

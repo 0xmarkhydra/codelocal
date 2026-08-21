@@ -118,7 +118,7 @@ func compactToolDefinitions() []compactToolDef {
 	}
 
 	deviceActions := map[string]string{"active": "list_devices", "paired": "list_device_identities", "rename": "rename_device", "revoke": "revoke_device"}
-	workspaceActions := map[string]string{"list": "list_workspaces", "select": "select_workspace", "info": "workspace_info", "remember": "memory_remember", "recall": "memory_recall", "skills": "learned_skill_list"}
+	workspaceActions := map[string]string{"list": "list_workspaces", "select": "select_workspace", "info": "workspace_info", "access": "approval_mode", "remember": "memory_remember", "recall": "memory_recall", "skills": "learned_skill_list"}
 	projectActions := map[string]string{"info": "project_info", "map": "project_map", "instructions": "read_instructions"}
 	readActions := map[string]string{"info": "file_info", "file": "read_file", "range": "read_file_range", "many": "read_files"}
 	searchActions := map[string]string{"files": "list_files", "text": "search_code"}
@@ -150,14 +150,15 @@ func compactToolDefinitions() []compactToolDef {
 			},
 		},
 		{
-			Name: "workspace", Title: "Manage workspaces, memory and learned skills", Description: "List, select, inspect an authorized CodeLocal workspace, remember/recall durable memory, or inspect workspace-scoped learned skills. Project memory follows the logical project across its authorized checkouts/devices; global recall works without a selected workspace; learned skill recipes remain local.",
-			Schema: actionSchema([]string{"list", "select", "info", "remember", "recall", "skills"}, map[string]any{
+			Name: "workspace", Title: "Manage workspaces, access, memory and learned skills", Description: "List/select/inspect a CodeLocal workspace, manage its chat-first access mode, remember/recall durable memory, or inspect learned skills. For action=access, omit mode to read the current choice or set mode to prompt, smart, or full only after the user chooses: Yêu cầu phê duyệt, Phê duyệt giúp tôi, or Toàn quyền truy cập. Access mode is stored locally by workspace and survives MCP/session reconnects.",
+			Schema: actionSchema([]string{"list", "select", "info", "access", "remember", "recall", "skills"}, map[string]any{
 				"key":      str("Workspace key returned by action=list."),
+				"mode":     map[string]any{"type": "string", "enum": []string{"prompt", "smart", "full"}, "description": "Access mode for action=access: prompt = Yêu cầu phê duyệt; smart = Phê duyệt giúp tôi; full = Toàn quyền truy cập. Omit to inspect current mode."},
 				"query":    str("Focused natural-language memory query for action=recall."),
 				"limit":    integer("Maximum recalled memories or learned skills.", 1, 20),
 				"memories": map[string]any{"type": "array", "minItems": 1, "maxItems": 12, "items": memoryItem, "description": "Durable sanitized facts to persist. Project facts follow the logical project across machines; global facts do not require a workspace; workspace facts stay checkout-local. Use a stable key for mutable facts so later updates replace older values."},
 			}),
-			Annotations: compactAnnotations("Manage workspaces and memory", false, false, false),
+			Annotations: compactAnnotations("Manage workspaces, access and memory", false, false, false),
 			Resolve: func(args map[string]any) (operationInvocation, map[string]any, error) {
 				return resolveAction(args, workspaceActions, map[string][]string{"select": {"key"}, "remember": {"memories"}, "recall": {"query"}})
 			},

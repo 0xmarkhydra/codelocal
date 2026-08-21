@@ -7,23 +7,33 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/security"
 )
 
-func TestWorkspaceAgentModePersistsLocallyAndEnvCanOverride(t *testing.T) {
+func TestWorkspaceAccessModePersistsLocallyAndOverridesDefaultEnv(t *testing.T) {
 	t.Setenv("CODELOCAL_STATE_DIR", filepath.Join(t.TempDir(), "state"))
-	t.Setenv("CODELOCAL_APPROVAL_MODE", "")
+	t.Setenv("CODELOCAL_APPROVAL_MODE", "smart")
 
-	if got := ResolveMode("workspace-a"); got != ModePrompt {
-		t.Fatalf("default mode = %q, want prompt", got)
+	if got := ResolveMode("workspace-a"); got != ModeAgent {
+		t.Fatalf("env default mode = %q, want agent", got)
 	}
-	if err := SetWorkspaceMode("workspace-a", ModeAgent); err != nil {
+	if err := SetWorkspaceMode("workspace-a", ModeFull); err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveMode("workspace-a"); got != ModeAgent {
-		t.Fatalf("persisted mode = %q, want agent", got)
+	if got := ResolveMode("workspace-a"); got != ModeFull {
+		t.Fatalf("persisted workspace mode = %q, want full", got)
+	}
+	if got := UserMode(ResolveMode("workspace-a")); got != "full" {
+		t.Fatalf("user mode = %q, want full", got)
 	}
 
 	t.Setenv("CODELOCAL_APPROVAL_MODE", "deny")
 	if got := ResolveMode("workspace-a"); got != ModeDeny {
-		t.Fatalf("env override mode = %q, want deny", got)
+		t.Fatalf("restrictive env kill-switch = %q, want deny", got)
+	}
+
+	if mode, ok := ParseUserMode("smart"); !ok || mode != ModeAgent {
+		t.Fatalf("smart alias = %q ok=%v, want agent", mode, ok)
+	}
+	if UserModeLabel(ModePrompt) != "Yêu cầu phê duyệt" || UserModeLabel(ModeAgent) != "Phê duyệt giúp tôi" || UserModeLabel(ModeFull) != "Toàn quyền truy cập" {
+		t.Fatal("chat-facing access labels changed")
 	}
 }
 
@@ -51,12 +61,31 @@ func TestAgentAllowsOnlyRememberableReviewOrHigh(t *testing.T) {
 	}
 }
 
+func TestFullAllowsEveryNonBlockedApprovalDecision(t *testing.T) {
+	for _, decision := range []security.Decision{
+		{RiskLevel: security.RiskReview, RequiresApproval: true, ApprovalPolicy: security.ApprovalRememberable},
+		{RiskLevel: security.RiskHigh, RequiresApproval: true, ApprovalPolicy: security.ApprovalAlways},
+		{RiskLevel: security.RiskCritical, RequiresApproval: true, ApprovalPolicy: security.ApprovalAlways},
+	} {
+		if !FullAllows(ModeFull, decision) {
+			t.Fatalf("full mode should approve non-blocked decision: %+v", decision)
+		}
+	}
+	blocked := security.Decision{RiskLevel: security.RiskBlocked, RequiresApproval: false, Blocked: true, ApprovalPolicy: security.ApprovalBlocked}
+	if FullAllows(ModeFull, blocked) {
+		t.Fatal("full mode must never bypass deterministic hard blocks")
+	}
+	if FullAllows(ModeAgent, security.Decision{RiskLevel: security.RiskCritical, RequiresApproval: true, ApprovalPolicy: security.ApprovalAlways}) {
+		t.Fatal("agent/smart mode must not inherit full-access semantics")
+	}
+}
+
 func TestDenyModesFailClosedForApprovalRequiredActions(t *testing.T) {
 	decision := security.Decision{RiskLevel: security.RiskReview, RequiresApproval: true, ApprovalPolicy: security.ApprovalRememberable}
 	if !DeniesApproval(ModeDeny, decision) || !DeniesApproval(ModeAutoSafe, decision) {
 		t.Fatal("deny and auto-safe must fail closed for approval-requiring actions")
 	}
-	if DeniesApproval(ModePrompt, decision) || DeniesApproval(ModeAgent, decision) {
-		t.Fatal("prompt and agent modes should not be treated as blanket deny")
+	if DeniesApproval(ModePrompt, decision) || DeniesApproval(ModeAgent, decision) || DeniesApproval(ModeFull, decision) {
+		t.Fatal("prompt, smart and full modes should not be treated as blanket deny")
 	}
 }

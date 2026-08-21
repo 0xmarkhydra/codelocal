@@ -37,6 +37,7 @@ var runtimeOperationIDs = map[string]string{
 	"list_workspaces":        "workspace.list",
 	"select_workspace":       "workspace.select",
 	"workspace_info":         "workspace.info",
+	"approval_mode":          "workspace.access",
 	"memory_remember":        "memory.remember",
 	"memory_recall":          "memory.recall",
 	"learned_skill_list":     "skills.list",
@@ -174,7 +175,7 @@ func runtimeToolMutatesState(name string) bool {
 		return true
 	}
 	switch name {
-	case "select_workspace", "memory_remember", "revoke_device", "rename_device", "exec_write", "pty_write", "process_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
+	case "select_workspace", "approval_mode", "memory_remember", "revoke_device", "rename_device", "exec_write", "pty_write", "process_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
 		return true
 	default:
 		return false
@@ -202,7 +203,7 @@ func runtimeToolOpenWorld(name string) bool {
 
 func runtimeToolIdempotent(name string) bool {
 	switch name {
-	case "select_workspace", "memory_remember", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
+	case "select_workspace", "approval_mode", "memory_remember", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
 		return true
 	default:
 		return false
@@ -228,6 +229,8 @@ func runtimeToolCapability(name string) string {
 		return "pty"
 	case "mcp_list", "mcp_search_tools", "mcp_tool_info", "mcp_call":
 		return "mcpHub"
+	case "approval_mode":
+		return "approvals"
 	case "approval_list", "approval_revoke", "approval_reset":
 		return "approvalMemory"
 	case "learned_skill_list":

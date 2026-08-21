@@ -227,8 +227,11 @@ func (e *Engine) authorizeDecisionWithDisplay(command, executionCWD, displayCWD,
 	}
 	mode := approval.ResolveMode(e.WorkspaceID)
 	e.ApprovalMode = string(mode)
+	if approval.FullAllows(mode, decision) {
+		return true, map[string]any{"fullAccessApproved": true, "approvalMode": approval.UserMode(mode), "approvalKey": decision.ApprovalKey}, decision, nil
+	}
 	if approval.AgentAllows(mode, decision) {
-		return true, map[string]any{"agentApproved": true, "approvalMode": string(mode), "approvalKey": decision.ApprovalKey}, decision, nil
+		return true, map[string]any{"agentApproved": true, "approvalMode": approval.UserMode(mode), "approvalKey": decision.ApprovalKey}, decision, nil
 	}
 	if approval.DeniesApproval(mode, decision) {
 		reason := "local approval mode " + string(mode) + " does not permit this action"
@@ -260,15 +263,18 @@ func (e *Engine) authorizeDecisionWithDisplay(command, executionCWD, displayCWD,
 		return true, map[string]any{"approved": true}, decision, nil
 	}
 	preflight := e.Broker.PreflightScoped(sessionID, command, displayCWD, decision)
-	return false, map[string]any{"status": preflight.Status, "riskLevel": preflight.RiskLevel, "reason": preflight.Reason, "matchedRules": preflight.MatchedRules, "command": preflight.Command, "approvalPolicy": preflight.ApprovalPolicy, "approvalKey": preflight.ApprovalKey, "approvalLabel": preflight.ApprovalLabel, "approvalToken": preflight.ApprovalToken, "expiresAt": preflight.ExpiresAt}, decision, nil
+	return false, map[string]any{"status": preflight.Status, "riskLevel": preflight.RiskLevel, "reason": preflight.Reason, "matchedRules": preflight.MatchedRules, "command": preflight.Command, "approvalPolicy": preflight.ApprovalPolicy, "approvalKey": preflight.ApprovalKey, "approvalLabel": preflight.ApprovalLabel, "approvalToken": preflight.ApprovalToken, "expiresAt": preflight.ExpiresAt, "workspaceAccess": approval.UserModePrompt(mode)}, decision, nil
 }
 
 func (e *Engine) preflightAt(command, securityRoot, executionCWD, displayCWD, sessionID string) (map[string]any, error) {
 	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: securityRoot, CWD: executionCWD})
 	mode := approval.ResolveMode(e.WorkspaceID)
 	e.ApprovalMode = string(mode)
+	if approval.FullAllows(mode, decision) {
+		return map[string]any{"status": "safe", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalKey": decision.ApprovalKey, "approvalLabel": decision.ApprovalLabel, "fullAccessApproved": true, "approvalMode": approval.UserMode(mode)}, nil
+	}
 	if approval.AgentAllows(mode, decision) {
-		return map[string]any{"status": "safe", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalKey": decision.ApprovalKey, "approvalLabel": decision.ApprovalLabel, "agentApproved": true, "approvalMode": string(mode)}, nil
+		return map[string]any{"status": "safe", "riskLevel": decision.RiskLevel, "reason": decision.Reason, "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalKey": decision.ApprovalKey, "approvalLabel": decision.ApprovalLabel, "agentApproved": true, "approvalMode": approval.UserMode(mode)}, nil
 	}
 	if approval.DeniesApproval(mode, decision) {
 		return map[string]any{"status": "blocked", "riskLevel": decision.RiskLevel, "reason": "local approval mode " + string(mode) + " does not permit this action", "matchedRules": decision.MatchedRules, "command": decision.RedactedCommand, "approvalPolicy": decision.ApprovalPolicy, "approvalMode": string(mode)}, nil
@@ -280,7 +286,7 @@ func (e *Engine) preflightAt(command, securityRoot, executionCWD, displayCWD, se
 		}
 	}
 	pre := e.Broker.PreflightScoped(sessionID, command, displayCWD, decision)
-	return map[string]any{"status": pre.Status, "riskLevel": pre.RiskLevel, "reason": pre.Reason, "matchedRules": pre.MatchedRules, "command": pre.Command, "approvalPolicy": pre.ApprovalPolicy, "approvalKey": pre.ApprovalKey, "approvalLabel": pre.ApprovalLabel, "approvalToken": pre.ApprovalToken, "expiresAt": pre.ExpiresAt}, nil
+	return map[string]any{"status": pre.Status, "riskLevel": pre.RiskLevel, "reason": pre.Reason, "matchedRules": pre.MatchedRules, "command": pre.Command, "approvalPolicy": pre.ApprovalPolicy, "approvalKey": pre.ApprovalKey, "approvalLabel": pre.ApprovalLabel, "approvalToken": pre.ApprovalToken, "expiresAt": pre.ExpiresAt, "workspaceAccess": approval.UserModePrompt(mode)}, nil
 }
 
 func (e *Engine) PreflightScoped(command, cwd, sessionID string) (map[string]any, error) {
@@ -332,7 +338,9 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 	}
 	approvalKind := "automatic"
 	if approvalState != nil {
-		if agentApproved, _ := approvalState["agentApproved"].(bool); agentApproved {
+		if fullApproved, _ := approvalState["fullAccessApproved"].(bool); fullApproved {
+			approvalKind = "full-access"
+		} else if agentApproved, _ := approvalState["agentApproved"].(bool); agentApproved {
 			approvalKind = "agent-mode"
 		} else if remembered, _ := approvalState["remembered"].(bool); remembered {
 			approvalKind = "remembered"
@@ -1073,7 +1081,25 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		projectMap, _ := e.Project.Map(false)
 		instructions, _ := e.readInstructions(".")
 		branch, _, branches := e.repositoryBranchState()
-		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": compactProjectContext(projectMap), "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "Agent Mode can auto-approve only deterministic rememberable actions for this locally enabled workspace", "rememberable prompt approvals are stored only on this machine and scoped to the workspace, MCP session, risk ceiling, and local TTL", "critical actions always require fresh user confirmation in the current MCP client", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": string(approval.ResolveMode(e.WorkspaceID)), "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": branch, "gitBranches": branches, "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
+		return map[string]any{"protocolVersion": protocol.Version, "projectRoot": e.Root, "projectName": e.WorkspaceName, "deviceId": e.DeviceID, "workspaceId": e.WorkspaceID, "workspaceKey": e.WorkspaceKey, "project": compactProjectContext(projectMap), "instructions": instructions["instructionFiles"], "semantic": e.Project.SemanticInfo(), "executionSecurity": map[string]any{"platform": security.Platform(), "backend": "host-policy", "mode": "policy-only", "available": true, "networkMode": networkPolicy(), "notes": []string{"commands execute on the host after deterministic local policy checks", "Smart mode auto-approves only deterministic rememberable actions for this locally enabled workspace", "Full access auto-approves all non-blocked workspace actions while deterministic hard blocks remain enforced", "workspace access mode is stored locally by workspace and survives MCP/session reconnects; remembered prompt approvals remain MCP-session and TTL scoped", "prompt and smart modes still require fresh confirmation for critical actions", "explicit paths outside the authorized workspace and credential retrieval are blocked"}}, "shellEnabled": e.ShellEnabled, "approvalMode": approval.UserMode(approval.ResolveMode(e.WorkspaceID)), "terminalApproval": "chat-mediated", "approvalMemory": "local-workspace-session-ttl-scoped", "networkPolicy": networkPolicy(), "gitBranch": branch, "gitBranches": branches, "version": version.Version, "recommendedWorkflow": map[string]any{"codingTask": []string{"Call context_for_task with the user's concrete task before broad repository scans.", "Use ranked files, semantic/LSP symbols, graph neighbors and symbol-centered snippets as the initial context packet.", "Follow with exact definitions/references/callers/callees or targeted line reads only when the packet is insufficient.", "Use search_code primarily for literal strings, config keys, logs and unknown text.", "After edits, run verify_changes and the smallest relevant checks."}, "rationale": "Semantic-first retrieval reduces irrelevant context and preserves code relationships before ChatGPT reads larger source ranges."}, "capabilities": []string{fmt.Sprintf("protocol-v%d", protocol.Version), "gitignore-aware-retrieval", "sensitive-path-policy", "polyglot-semantic-router", "lsp", "context-engine", "transactional-edits", "process-manager-v2", "cancellation", "idempotency", "host-policy-execution", "structured-command-policy", "approval-memory", "git-write-approval", "terminal-chat-approval", "terminal-history", "mcp-hub", "learned-skills", "audit"}}, nil
+	case "approval_mode":
+		requested := strings.TrimSpace(asString(args["mode"]))
+		if requested != "" {
+			mode, ok := approval.ParseUserMode(requested)
+			if !ok {
+				return nil, errors.New("mode must be one of: prompt, smart, full")
+			}
+			if err := approval.SetWorkspaceMode(e.WorkspaceID, mode); err != nil {
+				return nil, err
+			}
+		}
+		mode := approval.ResolveMode(e.WorkspaceID)
+		e.ApprovalMode = string(mode)
+		return map[string]any{
+			"mode": approval.UserMode(mode), "label": approval.UserModeLabel(mode), "scope": "workspace",
+			"persistsAcrossSessions": true,
+			"choices":                approval.UserModeChoices(),
+		}, nil
 	case "project_map":
 		return e.Project.Map(asBool(args["force"], false))
 	case "context_for_task":

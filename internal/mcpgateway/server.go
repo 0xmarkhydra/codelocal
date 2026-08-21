@@ -111,6 +111,9 @@ func ensureOperationSupported(operation operationInvocation, workspace *gateway.
 	if automationRuntimeTool(operation.RuntimeTool) {
 		return ensureAutomationOperationSupported(operation.RuntimeTool, workspace)
 	}
+	if operation.RuntimeTool == "approval_mode" && workspace.ProtocolVersion < 3 {
+		return fmt.Errorf("%s requires CodeLocal protocol v3 or newer; update the client before changing chat access mode", operation.OperationID)
+	}
 	if workspace.ProtocolVersion <= 1 {
 		if !protocolOneRuntimeTool(operation.RuntimeTool) {
 			return fmt.Errorf("%s requires a newer CodeLocal client; update the client before using this operation", operation.OperationID)

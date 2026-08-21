@@ -75,6 +75,45 @@ func TestAgentModeAutoApprovesRememberableButNotCriticalRuntimeActions(t *testin
 	if err != nil || approved || state["status"] != "approval_required" || state["approvalPolicy"] != security.ApprovalAlways {
 		t.Fatalf("critical action must still require fresh approval: approved=%v state=%#v err=%v", approved, state, err)
 	}
+	access, ok := state["workspaceAccess"].(map[string]any)
+	choices, choicesOK := access["choices"].([]approval.UserModeChoice)
+	if !ok || !choicesOK || access["currentMode"] != "smart" || len(choices) != 3 {
+		t.Fatalf("approval-required response must offer the three chat access choices: %#v", state["workspaceAccess"])
+	}
+}
+
+func TestWorkspaceAccessModeCanBeSetInChatAndSurvivesSessionChanges(t *testing.T) {
+	t.Setenv("CODELOCAL_ALLOW_SHELL", "1")
+	t.Setenv("CODELOCAL_APPROVAL_MODE", "")
+	engine := newTestEngine(t)
+
+	result, err := engine.Handle(context.Background(), "approval_mode", map[string]any{"mode": "full"}, HandleOptions{RequestID: "access-full", SessionID: "session-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, ok := result.(map[string]any)
+	if !ok || state["mode"] != "full" || state["label"] != "Toàn quyền truy cập" || state["persistsAcrossSessions"] != true {
+		t.Fatalf("unexpected access mode state: %#v", result)
+	}
+
+	critical := security.Decision{
+		RiskLevel: security.RiskCritical, RequiresApproval: true, ApprovalPolicy: security.ApprovalAlways,
+		MatchedRules: []string{"critical test"}, RedactedCommand: "critical test", Reason: "critical test",
+	}
+	approved, approvalState, _, err := engine.authorizeDecision("critical test", engine.Root, "", "session-b", critical)
+	if err != nil || !approved || approvalState["fullAccessApproved"] != true || approvalState["approvalMode"] != "full" {
+		t.Fatalf("full access should survive MCP session changes: approved=%v state=%#v err=%v", approved, approvalState, err)
+	}
+
+	blocked := critical
+	blocked.RiskLevel = security.RiskBlocked
+	blocked.Blocked = true
+	blocked.RequiresApproval = false
+	blocked.ApprovalPolicy = security.ApprovalBlocked
+	approved, blockedState, _, err := engine.authorizeDecision("blocked test", engine.Root, "", "session-c", blocked)
+	if err == nil || approved || blockedState["status"] != "blocked" {
+		t.Fatalf("full access must preserve hard security blocks: approved=%v state=%#v err=%v", approved, blockedState, err)
+	}
 }
 
 func TestMCPCallAlwaysRequiresFreshChatApproval(t *testing.T) {
