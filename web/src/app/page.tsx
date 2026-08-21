@@ -30,6 +30,79 @@ function ClientMark({ index }: { index: number }) {
   return <span className={styles.clientMark}>{String(index + 1).padStart(2, "0")}</span>;
 }
 
+function NeuralGraph() {
+  return (
+    <div className={styles.neuralGraph} aria-hidden="true">
+      <div className={styles.neuralGlow} />
+      <svg className={styles.neuralSvg} viewBox="0 0 760 620" focusable="false">
+        <defs>
+          <linearGradient id="home-edge-a" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#32d6ff" />
+            <stop offset="0.5" stopColor="#8b5cf6" />
+            <stop offset="1" stopColor="#ff4fd8" />
+          </linearGradient>
+          <linearGradient id="home-edge-b" x1="1" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#7cffb2" />
+            <stop offset="0.55" stopColor="#37b6ff" />
+            <stop offset="1" stopColor="#8b5cf6" />
+          </linearGradient>
+          <radialGradient id="home-core" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stopColor="#ffffff" />
+            <stop offset="0.18" stopColor="#9be7ff" />
+            <stop offset="0.55" stopColor="#6c70ff" />
+            <stop offset="1" stopColor="#9b38ff" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+
+        <g className={`${styles.neuralLayer} ${styles.neuralLayerA}`}>
+          <path d="M89 356 C178 274 214 204 319 182 S505 193 648 102" />
+          <path d="M94 356 C176 380 241 443 348 421 S514 347 670 381" />
+          <path d="M184 119 C255 205 262 310 361 326 S540 300 626 240" />
+          <path d="M153 507 C242 439 269 356 361 326 S519 196 650 177" />
+          <path d="M319 182 C357 244 377 263 361 326 S397 430 474 494" />
+          <path d="M361 326 C445 329 503 337 574 291" />
+        </g>
+
+        <g className={`${styles.neuralLayer} ${styles.neuralLayerB}`}>
+          <path d="M184 119 C238 98 294 88 353 102 S470 155 523 123" />
+          <path d="M89 356 C145 313 191 303 239 321 S294 344 361 326" />
+          <path d="M153 507 C215 484 270 497 326 529 S429 537 474 494" />
+          <path d="M523 123 C557 181 578 218 574 291 S609 347 670 381" />
+          <path d="M239 321 C246 259 270 216 319 182" />
+          <path d="M348 421 C393 456 430 469 474 494" />
+        </g>
+
+        <g className={styles.neuralPulses}>
+          <circle cx="89" cy="356" r="7" />
+          <circle cx="184" cy="119" r="6" />
+          <circle cx="153" cy="507" r="6" />
+          <circle cx="239" cy="321" r="7" />
+          <circle cx="319" cy="182" r="9" />
+          <circle cx="348" cy="421" r="7" />
+          <circle className={styles.neuralCore} cx="361" cy="326" r="17" />
+          <circle cx="474" cy="494" r="8" />
+          <circle cx="523" cy="123" r="7" />
+          <circle cx="574" cy="291" r="9" />
+          <circle cx="626" cy="240" r="6" />
+          <circle cx="648" cy="102" r="5" />
+          <circle cx="650" cy="177" r="6" />
+          <circle cx="670" cy="381" r="7" />
+        </g>
+      </svg>
+
+      <span className={styles.neuralTag}>Knowledge</span>
+      <span className={styles.neuralTag}>Code graph</span>
+      <span className={styles.neuralTag}>Skills</span>
+      <span className={styles.neuralTag}>Memory</span>
+      <span className={styles.neuralTag}>Workflows</span>
+      <span className={styles.neuralTag}>Git</span>
+      <span className={styles.neuralTag}>LSP</span>
+      <span className={styles.neuralTag}>Decisions</span>
+      <span className={styles.neuralCaption}>Illustrative project intelligence map</span>
+    </div>
+  );
+}
+
 function ArchitectureMap() {
   return (
     <section className={styles.architecture} id="system" aria-label="CodeLocal architecture map">
@@ -140,10 +213,11 @@ export default function Home() {
 
       <section className={styles.hero}>
         <div className={styles.heroAtmosphere} aria-hidden="true"><i /><i /><i /></div>
+        <NeuralGraph />
         <div className={styles.heroCopy}>
           <span className={styles.heroPill}>Local-first AI infrastructure</span>
-          <h1>Your AI changes.<br /><span>Your project understanding stays.</span></h1>
-          <p>CodeLocal gives every compatible AI the same durable project brain, then routes approved actions to the machine and workspace you control.</p>
+          <h1>Your project has a brain.<br /><span>Every AI can plug into it.</span></h1>
+          <p>Knowledge, code relationships, skills and verified experience stay connected while approved actions run on your machine.</p>
           <div className={styles.actions}>
             <Link className={styles.primaryButton} href="/dashboard">Open CodeLocal</Link>
             <a className={styles.secondaryButton} href="#system">See the architecture</a>
