@@ -111,10 +111,10 @@ Keep the repository root as build root because `Dockerfile.web` copies `web/`.
 Set on the web service:
 
 ```text
-CODELOCAL_BACKEND_URL=http://${{CodeLocal-MCP-DEV.RAILWAY_PRIVATE_DOMAIN}}:${{CodeLocal-MCP-DEV.PORT}}
+CODELOCAL_BACKEND_URL=http://${{CodeLocal-MCP-DEV.RAILWAY_PRIVATE_DOMAIN}}:8080
 ```
 
-Use Railway service-reference variables rather than copying a private hostname manually where possible.
+Use the Railway private-domain service reference, but keep the Go service port explicit. Railway injects the runtime `PORT` used by the container, but that platform value is not available as a cross-service reference variable; referencing `${{CodeLocal-MCP-DEV.PORT}}` can therefore resolve to an empty port and make every Next-proxied `/api/v1/*` request fail. The current Go Railway service listens on `8080`.
 
 Give the web service a temporary Railway public domain for canary checks. Do not move `codelocal.cloud` or any production domain.
 
