@@ -91,7 +91,7 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource })
   })), [graph.edges]);
 
   return (
-    <div className={viewStyles.shell} data-inspector={selected ? "true" : undefined}>
+    <div className={`${viewStyles.shell} ${viewStyles.viewportShell}`} data-inspector={selected ? "true" : undefined}>
       <div className={viewStyles.main}>
         <div className={viewStyles.toolbar}>
           <svg className={viewStyles.searchIcon} viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></svg>

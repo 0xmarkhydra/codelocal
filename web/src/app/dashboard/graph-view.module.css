@@ -5,6 +5,10 @@
   margin-top: 10px;
 }
 
+.viewportShell {
+  height: max(540px, calc(100dvh - 108px));
+}
+
 .shell[data-inspector="true"] {
   grid-template-columns: minmax(0, 1fr) 292px;
 }
@@ -12,6 +16,11 @@
 .main {
   min-width: 0;
   position: relative;
+}
+
+.viewportShell .main {
+  min-height: 0;
+  height: 100%;
 }
 
 .toolbar {
@@ -83,6 +92,11 @@
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(20,31,51,.72), rgba(6,11,19,.9));
   box-shadow: 0 20px 58px rgba(0,0,0,.17);
+}
+
+.viewportShell .inspector {
+  max-height: none;
+  height: 100%;
 }
 
 .inspectorHead {
@@ -211,6 +225,7 @@
 }
 
 @media (max-width: 720px) {
+  .viewportShell { height: auto; }
   .toolbar { left: 51px; right: 9px; max-width: none; }
   .search { width: 100%; }
   .meta { display: none; }
