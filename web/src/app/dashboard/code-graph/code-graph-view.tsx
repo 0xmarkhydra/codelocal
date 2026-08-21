@@ -1,13 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CodeGraphNode, CodeGraphResource } from "@/lib/contracts/code-graph";
-import styles from "../dashboard.module.css";
+import type { CSSProperties } from "react";
+import type { CodeGraphResource } from "@/lib/contracts/code-graph";
+import { NeuralGraphStage, NeuralStageNode } from "../neural-graph-stage";
+import viewStyles from "../graph-view.module.css";
 
 type CodeGroup = "module" | "file" | "symbol" | "external";
-type PositionedCodeNode = CodeGraphNode & { x: number; y: number; group: CodeGroup };
 
-const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+const colors: Record<CodeGroup, string> = {
+  module: "#59c9df",
+  file: "#50d9a6",
+  symbol: "#6d9cff",
+  external: "#a98bff",
+};
 
 function codeGroup(kind: string): CodeGroup {
   switch (kind) {
@@ -19,177 +25,92 @@ function codeGroup(kind: string): CodeGroup {
   }
 }
 
-function codeNodeClass(group: CodeGroup) {
-  switch (group) {
-    case "module": return styles.graphNodeStructure;
-    case "file": return styles.graphNodeMemory;
-    case "external": return styles.graphNodeExperience;
-    case "symbol": return styles.graphNodeProject;
-  }
-}
-
-function codeBand(group: CodeGroup) {
-  switch (group) {
-    case "module": return [70, 155] as const;
-    case "file": return [150, 235] as const;
-    case "symbol": return [175, 285] as const;
-    case "external": return [235, 305] as const;
-  }
-}
-
-function codeOffset(group: CodeGroup) {
-  switch (group) {
-    case "module": return 0.15;
-    case "file": return 1.05;
-    case "symbol": return 2.05;
-    case "external": return 3.15;
-  }
-}
-
-function layoutCodeNodes(nodes: CodeGraphNode[]): PositionedCodeNode[] {
-  const counts = new Map<CodeGroup, number>();
-  return nodes.map((node) => {
-    const group = codeGroup(node.kind);
-    const index = counts.get(group) ?? 0;
-    counts.set(group, index + 1);
-    const [minRadius, maxRadius] = codeBand(group);
-    const variation = ((index * 43) % 101) / 100;
-    const radius = minRadius + (maxRadius - minRadius) * variation;
-    const angle = index * goldenAngle + codeOffset(group);
-    return {
-      ...node,
-      group,
-      x: 500 + Math.cos(angle) * radius * 1.52,
-      y: 310 + Math.sin(angle) * radius,
-    };
-  });
-}
-
 function relationCount(nodeID: string, graph: CodeGraphResource) {
   return graph.edges.reduce((count, edge) => count + (edge.from === nodeID || edge.to === nodeID ? 1 : 0), 0);
 }
 
+function InspectorIcon({ kind }: { kind: string }) {
+  if (codeGroup(kind) === "file") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v5h5" /></svg>;
+  if (codeGroup(kind) === "module") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7M16 5l6 7-6 7" /></svg>;
+}
+
 export function CodeGraphView({ graph }: { graph: CodeGraphResource }) {
   const [selectedID, setSelectedID] = useState<string | null>(graph.selectedId ?? null);
-  const nodes = useMemo(() => layoutCodeNodes(graph.nodes), [graph.nodes]);
-  const byID = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const selected = selectedID ? byID.get(selectedID) ?? null : null;
-  const connected = useMemo(() => {
-    const ids = new Set<string>();
-    if (!selectedID) return ids;
-    ids.add(selectedID);
-    for (const edge of graph.edges) {
-      if (edge.from === selectedID) ids.add(edge.to);
-      if (edge.to === selectedID) ids.add(edge.from);
-    }
-    return ids;
-  }, [graph.edges, selectedID]);
+  const selected = graph.nodes.find((node) => node.id === selectedID) ?? null;
+  const primaryID = graph.selectedId
+    ?? graph.nodes.find((node) => codeGroup(node.kind) === "module")?.id
+    ?? graph.nodes[0]?.id;
+
+  const nodes = useMemo<NeuralStageNode[]>(() => graph.nodes.map((node) => {
+    const group = codeGroup(node.kind);
+    return {
+      id: node.id,
+      kind: node.kind,
+      label: node.name,
+      group,
+      color: colors[group],
+      weight: node.confidence,
+      primary: node.id === primaryID,
+      alwaysLabel: node.selected || group === "module",
+    };
+  }), [graph.nodes, primaryID]);
+
+  const edges = useMemo(() => graph.edges.map((edge) => ({
+    id: edge.id,
+    from: edge.from,
+    to: edge.to,
+    relation: edge.relation,
+    strength: edge.confidence,
+    weak: edge.resolutionMode === "text" || edge.confidence < 0.7,
+  })), [graph.edges]);
 
   return (
-    <div className={styles.knowledgeGraphLayout}>
-      <div className={styles.knowledgeGraphPanel}>
-        <div className={styles.graphToolbar}>
-          <div>
-            <span className={styles.eyebrow}>{graph.view === "files" ? "File view" : "Architecture view"}</span>
-            <strong className={styles.graphToolbarTitle}>{graph.query ? `Query: ${graph.query}` : "Bounded runtime evidence"}</strong>
-          </div>
-          <div className={styles.graphLegend} aria-label="Code Graph legend">
-            <span><i className={styles.graphNodeStructure} />Module</span>
-            <span><i className={styles.graphNodeMemory} />File</span>
-            <span><i className={styles.graphNodeProject} />Symbol</span>
-            <span><i className={styles.graphNodeExperience} />External</span>
-          </div>
+    <div className={viewStyles.shell} data-inspector={selected ? "true" : undefined}>
+      <div className={viewStyles.main}>
+        <div className={viewStyles.toolbar}>
+          <span className={viewStyles.meta}>{graph.view === "files" ? "Files" : "Architecture"} · {graph.nodes.length}/{graph.edges.length}</span>
         </div>
-
-        <div className={styles.graphViewport}>
-          <svg viewBox="0 0 1000 620" role="img" aria-label={`Code Graph with ${graph.nodes.length} nodes and ${graph.edges.length} relationships`}>
-            <g className={styles.graphEdges}>
-              {graph.edges.map((edge) => {
-                const from = byID.get(edge.from);
-                const to = byID.get(edge.to);
-                if (!from || !to) return null;
-                const active = selectedID !== null && (edge.from === selectedID || edge.to === selectedID);
-                const opacity = selectedID ? (active ? 0.82 : 0.035) : 0.08 + edge.confidence * 0.22;
-                const dashed = edge.resolutionMode === "text" || edge.confidence < 0.7;
-                return (
-                  <line
-                    key={edge.id}
-                    x1={from.x}
-                    y1={from.y}
-                    x2={to.x}
-                    y2={to.y}
-                    style={{ opacity, strokeDasharray: dashed ? "4 6" : undefined }}
-                  >
-                    <title>{edge.relation} · {Math.round(edge.confidence * 100)}% confidence</title>
-                  </line>
-                );
-              })}
-            </g>
-            <g>
-              {nodes.map((node) => {
-                const active = node.id === selectedID;
-                const related = selectedID ? connected.has(node.id) : true;
-                const opacity = related ? 1 : 0.14;
-                const radius = 4.5 + Math.max(0.1, node.confidence) * 4.2 + (active ? 3 : 0);
-                return (
-                  <g
-                    className={styles.graphNode}
-                    data-active={active ? "true" : undefined}
-                    key={node.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`${node.kind}: ${node.name}`}
-                    style={{ opacity }}
-                    onClick={() => setSelectedID(active ? null : node.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedID(active ? null : node.id);
-                      }
-                    }}
-                  >
-                    <circle className={codeNodeClass(node.group)} cx={node.x} cy={node.y} r={radius} />
-                    {(active || node.selected || node.kind === "module") && (
-                      <text x={node.x + radius + 7} y={node.y + 4}>{node.name}</text>
-                    )}
-                    <title>{node.qualifiedName || node.name}</title>
-                  </g>
-                );
-              })}
-            </g>
-          </svg>
-          {graph.nodes.length === 0 && <div className={styles.graphEmpty}>No code relationships are available in this bounded slice.</div>}
-        </div>
-        <div className={styles.graphFooter}>
-          <span>{graph.nodes.length} nodes · {graph.edges.length} edges · depth {graph.depth}</span>
-          <span>{graph.truncated ? "Safety bound reached" : "Bounded local-runtime result"} · no full graph persisted in Cloud</span>
-        </div>
+        <NeuralGraphStage
+          nodes={nodes}
+          edges={edges}
+          selectedId={selectedID}
+          onSelect={setSelectedID}
+          ariaLabel={`Code Graph with ${graph.nodes.length} nodes and ${graph.edges.length} relationships`}
+          emptyLabel="No code relationships"
+          legend={[
+            { label: "Module", color: colors.module },
+            { label: "File", color: colors.file },
+            { label: "Symbol", color: colors.symbol },
+            { label: "External", color: colors.external },
+          ]}
+        />
       </div>
 
-      <aside className={styles.graphInspector}>
-        <span className={styles.eyebrow}>Code inspector</span>
-        {selected ? (
-          <>
-            <h3>{selected.qualifiedName || selected.name}</h3>
-            <div className={styles.inspectorMeta}>
-              <span>{selected.kind}</span>
-              {selected.resolutionMode && <span>{selected.resolutionMode}</span>}
-              {selected.canonical && <span>canonical</span>}
+      {selected && (
+        <aside className={viewStyles.inspector} aria-label="Code node details">
+          <div className={viewStyles.inspectorHead}>
+            <div className={viewStyles.identity}>
+              <span className={viewStyles.avatar} style={{ "--node-color": colors[codeGroup(selected.kind)] } as CSSProperties}><InspectorIcon kind={selected.kind} /></span>
+              <div><small>{selected.kind}</small><h3>{selected.qualifiedName || selected.name}</h3></div>
             </div>
-            {selected.summary && <p>{selected.summary}</p>}
-            <dl>
-              <div><dt>Path</dt><dd>{selected.path || "—"}</dd></div>
-              <div><dt>Position</dt><dd>{selected.line ? `${selected.line}:${selected.column || 1}` : "—"}</dd></div>
-              <div><dt>Repository</dt><dd>{selected.repositoryPath || "."}</dd></div>
-              <div><dt>Provider</dt><dd>{selected.provider || "structural"}</dd></div>
-              <div><dt>Confidence</dt><dd>{Math.round(selected.confidence * 100)}%</dd></div>
-              <div><dt>Connections</dt><dd>{relationCount(selected.id, graph)}</dd></div>
-            </dl>
-          </>
-        ) : (
-          <p className={styles.inspectorEmpty}>Select a node</p>
-        )}
-      </aside>
+            <button className={viewStyles.close} type="button" aria-label="Close inspector" onClick={() => setSelectedID(null)}>×</button>
+          </div>
+          <div className={viewStyles.chips}>
+            {selected.resolutionMode && <span>{selected.resolutionMode}</span>}
+            {selected.canonical && <span>canonical</span>}
+            <span>{relationCount(selected.id, graph)} links</span>
+          </div>
+          {selected.summary && <p className={viewStyles.summary}>{selected.summary}</p>}
+          <dl className={viewStyles.facts}>
+            {selected.path && <div><dt>Path</dt><dd>{selected.path}</dd></div>}
+            {selected.line ? <div><dt>Position</dt><dd>{selected.line}:{selected.column || 1}</dd></div> : null}
+            <div><dt>Repository</dt><dd>{selected.repositoryPath || "."}</dd></div>
+            <div><dt>Provider</dt><dd>{selected.provider || "structural"}</dd></div>
+            <div><dt>Confidence</dt><dd>{Math.round(selected.confidence * 100)}%</dd></div>
+          </dl>
+        </aside>
+      )}
     </div>
   );
 }

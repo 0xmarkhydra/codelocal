@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { DashboardOverview, isDashboardOverview } from "@/lib/contracts/dashboard";
 import { DashboardResourceFeedback } from "./dashboard-resource-feedback";
+import { NeuralGraphStage, NeuralStageNode } from "./neural-graph-stage";
 import styles from "./dashboard.module.css";
 import overviewStyles from "./overview.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
@@ -11,17 +12,6 @@ const compactNumber = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
 });
-
-const nodePositions = [
-  [90, 88],
-  [198, 52],
-  [314, 92],
-  [428, 54],
-  [514, 132],
-  [418, 202],
-  [284, 226],
-  [142, 198],
-] as const;
 
 function workspaceStateLabel(status: DashboardOverview["workspaces"]["recent"][number]["status"]) {
   switch (status) {
@@ -43,62 +33,47 @@ function usageHeight(value: number, max: number) {
 }
 
 function OverviewBrain({ overview }: { overview: DashboardOverview }) {
-  const visible = overview.workspaces.recent.slice(0, nodePositions.length);
-  const labels = visible.slice(0, 4);
+  const visible = overview.workspaces.recent.slice(0, 10);
+  const nodes: NeuralStageNode[] = [
+    {
+      id: "project-brain",
+      kind: "brain",
+      label: "Project Brain",
+      group: "core",
+      color: "#75e6ff",
+      weight: 1,
+      primary: true,
+      alwaysLabel: true,
+    },
+    ...visible.map((workspace, index) => ({
+      id: `${workspace.deviceId}:${workspace.workspaceId}`,
+      kind: "workspace",
+      label: workspace.workspaceName,
+      group: "workspace",
+      color: workspace.status === "active" ? "#76ffc0" : workspace.status === "sleeping" ? "#d392ff" : "#6686b8",
+      weight: workspace.status === "active" ? 0.9 : 0.58,
+      alwaysLabel: index < 4,
+    })),
+  ];
+  const edges = visible.map((workspace) => ({
+    id: `brain:${workspace.deviceId}:${workspace.workspaceId}`,
+    from: "project-brain",
+    to: `${workspace.deviceId}:${workspace.workspaceId}`,
+    relation: "Workspace",
+    strength: workspace.status === "active" ? 0.9 : 0.55,
+    weak: workspace.status === "offline",
+  }));
 
   return (
     <div className={overviewStyles.brainPane} aria-label="Live project brain summary">
-      <svg
-        className={overviewStyles.brainSvg}
-        viewBox="0 0 600 280"
-        role="img"
-        aria-label={`${overview.workspaces.total} authorized workspaces in the current account; ${visible.length} recent workspaces visualized`}
-      >
-        <defs>
-          <linearGradient id="overview-edge" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#42dcff" />
-            <stop offset="0.5" stopColor="#7f70ff" />
-            <stop offset="1" stopColor="#ff62d9" />
-          </linearGradient>
-        </defs>
-        <g className={overviewStyles.brainEdges}>
-          {visible.map((_, index) => {
-            const [x, y] = nodePositions[index];
-            const next = nodePositions[(index + 2) % nodePositions.length];
-            return (
-              <path
-                key={`${x}:${y}`}
-                d={`M300 140 C${(300 + x) / 2} ${(140 + y) / 2 - 20} ${(300 + next[0]) / 2} ${(140 + next[1]) / 2 + 18} ${x} ${y}`}
-              />
-            );
-          })}
-        </g>
-        <g className={overviewStyles.brainNodes}>
-          <circle cx="300" cy="140" r="13" data-state="core" />
-          {visible.map((workspace, index) => {
-            const [x, y] = nodePositions[index];
-            return (
-              <circle
-                key={`${workspace.deviceId}:${workspace.workspaceId}`}
-                cx={x}
-                cy={y}
-                r={workspace.status === "active" ? 7 : 5.5}
-                data-state={workspace.status}
-              />
-            );
-          })}
-        </g>
-      </svg>
-      {labels.map((workspace, index) => (
-        <span
-          className={overviewStyles.brainLabel}
-          data-index={index}
-          key={`${workspace.deviceId}:${workspace.workspaceId}:label`}
-          title={workspace.workspaceName}
-        >
-          {workspace.workspaceName}
-        </span>
-      ))}
+      <NeuralGraphStage
+        nodes={nodes}
+        edges={edges}
+        compact
+        controls={false}
+        ariaLabel={`${overview.workspaces.total} authorized workspaces; ${visible.length} recent workspaces visualized`}
+        emptyLabel="No workspaces"
+      />
     </div>
   );
 }
