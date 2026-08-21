@@ -7,7 +7,7 @@ import styles from "./dashboard.module.css";
 import controls from "./dashboard-controls.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
 
-type IconName = "home" | "link" | "grid" | "device" | "book" | "graph" | "usage" | "invite" | "trophy" | "admin";
+type IconName = "home" | "link" | "grid" | "device" | "book" | "graph" | "usage" | "invite" | "admin";
 type NavigationItem = { label: string; href: string; icon: IconName };
 type NavigationGroup = { label: string; items: NavigationItem[] };
 
@@ -29,7 +29,6 @@ const intelligenceNavigation: NavigationGroup = {
 const moreNavigation: NavigationItem[] = [
   { label: "Usage", href: "/dashboard/usage", icon: "usage" },
   { label: "Invite", href: "/dashboard/invite", icon: "invite" },
-  { label: "Leaderboard", href: "/dashboard/leaderboard", icon: "trophy" },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -56,8 +55,6 @@ function NavIcon({ name }: { name: IconName }) {
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="M4 20V10m6 10V4m6 16v-7m4 7H2" /></svg>;
     case "invite":
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><circle cx="9" cy="8" r="4" /><path d="M2.5 21a6.5 6.5 0 0 1 13 0M19 8v6m-3-3h6" /></svg>;
-    case "trophy":
-      return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="M8 4h8v4a4 4 0 0 1-8 0zM10 16h4m-2-4v4m-5 4h10" /><path d="M8 6H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4" /></svg>;
     case "admin":
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="M12 3 4 7v5c0 5 3.4 8.1 8 9 4.6-.9 8-4 8-9V7z" /><path d="M9 12h6m-3-3v6" /></svg>;
   }
