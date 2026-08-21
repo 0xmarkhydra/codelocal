@@ -534,6 +534,52 @@
   border-bottom: 1px solid var(--line);
 }
 
+.workspaceResourceRow {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+}
+
+.workspaceFolderIcon {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(120, 160, 255, .14);
+  border-radius: 9px;
+  color: #819bc8;
+  background: rgba(83, 128, 239, .045);
+}
+
+.workspaceFolderIcon svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspaceFolderIcon i {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--surface-sunken);
+  border-radius: 999px;
+  background: #59677d;
+}
+
+.workspaceFolderIcon[data-state="active"] i {
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(105, 221, 176, .32);
+}
+
+.workspaceFolderIcon[data-state="sleeping"] i {
+  background: #e1b769;
+}
+
 .resourceRow:last-child {
   border-bottom: 0;
 }
@@ -1070,6 +1116,10 @@
 
   .resourceRow {
     grid-template-columns: 10px minmax(0, 1fr);
+  }
+
+  .workspaceResourceRow {
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .resourceActions {

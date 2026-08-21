@@ -7,14 +7,14 @@ import styles from "./dashboard.module.css";
 import controls from "./dashboard-controls.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
 
-type IconName = "home" | "link" | "grid" | "device" | "book" | "graph" | "usage" | "invite" | "admin";
+type IconName = "home" | "link" | "folder" | "device" | "book" | "graph" | "usage" | "invite" | "admin";
 type NavigationItem = { label: string; href: string; icon: IconName };
 type NavigationGroup = { label: string; items: NavigationItem[] };
 
 const primaryNavigation: NavigationItem[] = [
   { label: "Home", href: "/dashboard", icon: "home" },
   { label: "Connections", href: "/dashboard/connect", icon: "link" },
-  { label: "Workspaces", href: "/dashboard/workspaces", icon: "grid" },
+  { label: "Workspaces", href: "/dashboard/workspaces", icon: "folder" },
   { label: "Devices", href: "/dashboard/devices", icon: "device" },
 ];
 
@@ -43,8 +43,8 @@ function NavIcon({ name }: { name: IconName }) {
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10M9 20v-6h6v6" /></svg>;
     case "link":
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" /></svg>;
-    case "grid":
-      return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>;
+    case "folder":
+      return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2.5h6.5A2.5 2.5 0 0 1 21 9v7.5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" /></svg>;
     case "device":
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
     case "book":

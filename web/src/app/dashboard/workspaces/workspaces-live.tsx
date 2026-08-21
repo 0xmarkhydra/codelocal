@@ -82,8 +82,13 @@ export function LiveWorkspaces() {
         {visible.length === 0 ? (
           <p className={styles.emptyCopy}>{query ? "No workspaces match your search." : <>No authorized workspace has synced yet. Run <code>codelocal .</code> inside a project to authorize it.</>}</p>
         ) : visible.map((workspace) => (
-          <article className={styles.resourceRow} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
-            <span className={styles.stateDot} data-state={workspace.status} />
+          <article className={`${styles.resourceRow} ${styles.workspaceResourceRow}`} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
+            <span className={styles.workspaceFolderIcon} data-state={workspace.status} aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2.5h6.5A2.5 2.5 0 0 1 21 9v7.5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" />
+              </svg>
+              <i />
+            </span>
             <div className={styles.resourceIdentity}>
               <strong>{workspace.workspaceName}</strong>
               <span>{workspace.deviceName} · last seen {formatDashboardTime(workspace.lastSeenAt)}</span>
