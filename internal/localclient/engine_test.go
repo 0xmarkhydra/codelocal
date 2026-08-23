@@ -290,7 +290,7 @@ func TestContextForTaskIncludesBoundedProjectBrainRules(t *testing.T) {
 	if !ok || !duplicateOK || !deduplicatedOK || duplicates != 1 || deduplicated <= 0 {
 		t.Fatalf("project brain savings were not projected into context budget: %#v", packetMap["contextBudget"])
 	}
-	if brain.Budget.UsedChars > brain.Budget.MaxChars || brain.Budget.MaxChars != 8000 || len(brain.Fingerprint) != 64 {
+	if brain.Budget.UsedChars > brain.Budget.MaxChars || brain.Budget.MaxChars != projectbrain.DefaultRuleContextBudget || len(brain.Fingerprint) != 64 {
 		t.Fatalf("unexpected Project Brain budget/fingerprint: %#v", brain)
 	}
 }
