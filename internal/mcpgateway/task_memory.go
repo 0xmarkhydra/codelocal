@@ -1338,7 +1338,7 @@ func contextRefreshRequired(result *mcp.CallToolResult, targets []string) *mcp.C
 	root["error"] = "Project Brain resolved rules for the concrete mutation target. Review the refreshed projectBrain packet, then retry the mutation."
 	root["targets"] = append([]string(nil), targets...)
 	result.StructuredContent = root
-	result.IsError = true
+	result.IsError = false
 	return result
 }
 

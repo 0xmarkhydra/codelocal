@@ -522,6 +522,9 @@ func projectBrainTargets(result map[string]any, explicit []string) []string {
 			return out
 		}
 	}
+	if len(out) > 0 {
+		return out
+	}
 	// Ranked files remain useful for initial grounding, but explicit targets
 	// discovered during work always win and trigger a fresh rule resolution.
 	switch ranked := result["rankedFiles"].(type) {
@@ -706,7 +709,7 @@ func (e *Engine) attachProjectBrainContext(result map[string]any, explicitTarget
 	if err != nil {
 		return
 	}
-	packet := projectbrain.CompileContext(resolved, 8000)
+	packet := projectbrain.CompileContext(resolved, projectbrain.DefaultRuleContextBudget)
 	result["projectBrain"] = packet
 	if len(explicitTargets) > 0 {
 		result["projectBrainTargetSource"] = "explicit"
