@@ -19,7 +19,6 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	"github.com/0xmarkhydra/codelocal/internal/oauth"
 	usagecalc "github.com/0xmarkhydra/codelocal/internal/usage"
-	"github.com/0xmarkhydra/codelocal/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -229,8 +228,7 @@ func (s *Service) serverFor(userID string) *mcp.Server {
 	if existing := s.servers[userID]; existing != nil {
 		return existing
 	}
-	instructions := compactOrchestrationInstructions + "\n\nCompatibility: " + toolSurfaceSummary() + ". If CodeLocal reports CODELOCAL_TOOL_SCHEMA_STALE or CODELOCAL_TOOL_SCHEMA_MISMATCH, finish the current request when possible and tell the user to reconnect or refresh CodeLocal in the current AI client so the latest tool schema is loaded."
-	server := mcp.NewServer(&mcp.Implementation{Name: "codelocal", Version: version.Version}, &mcp.ServerOptions{Instructions: instructions})
+	server := mcp.NewServer(&mcp.Implementation{Name: "codelocal", Version: PublicMCPImplementationVersion}, &mcp.ServerOptions{Instructions: publicMCPInstructions()})
 	registerCompactTools(server, s, userID)
 	s.servers[userID] = server
 	return server

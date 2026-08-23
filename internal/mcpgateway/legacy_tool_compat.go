@@ -67,7 +67,7 @@ func addLegacyCompatibilityNotice(raw []byte, originalTool string) ([]byte, bool
 	if structured == nil {
 		structured = map[string]any{}
 	}
-	structured["codeLocalCompatibility"] = map[string]any{"toolSurface": PublicToolSurface(), "reconnectRecommended": true}
+	structured["codeLocalCompatibility"] = map[string]any{"toolSurface": PublicToolSurface(), "translated": true, "reconnectRecommended": false}
 	result["structuredContent"] = structured
 	rewritten, err := json.Marshal(envelope)
 	if err != nil {

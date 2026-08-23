@@ -12,11 +12,19 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// PublicToolSurfaceVersion is a coarse compatibility generation for the
-// model-facing CodeLocal schema. The hash below changes automatically whenever
-// a public tool name/schema/behavior hint changes; bump this version only when a
-// release intentionally changes the compatibility generation.
-const PublicToolSurfaceVersion = 1
+// PublicToolSurfaceVersion is the compatibility generation of the public MCP
+// contract. It is intentionally independent from the CodeLocal application
+// release version: routine backend deploys must not change the identity seen by
+// already-open ChatGPT threads.
+const (
+	PublicToolSurfaceVersion = 1
+	// Freeze the MCP-facing implementation identity at the value already
+	// advertised by the current production gateway. Application releases may
+	// advance independently without invalidating an existing AI-client binding.
+	PublicMCPImplementationVersion = "1.5.16"
+	PinnedPublicToolSurfaceHash    = "2990886b5dd54c05be422077abcd055c4afe6ccc0dd73a584cb1917c2a8c35b2"
+	PinnedPublicToolContractHash   = "037d5e67a4c2c04b1db5f2b00a2a337c0479fafea40880a261d871960e971f28"
+)
 
 type ToolSurfaceInfo struct {
 	Version int    `json:"version"`
@@ -30,6 +38,17 @@ type toolSurfaceFingerprint struct {
 	ReadOnly    bool            `json:"readOnly"`
 	Destructive bool            `json:"destructive"`
 	OpenWorld   bool            `json:"openWorld"`
+}
+
+type toolContractFingerprint struct {
+	Name            string          `json:"name"`
+	Title           string          `json:"title"`
+	Description     string          `json:"description"`
+	Schema          json.RawMessage `json:"schema"`
+	AnnotationTitle string          `json:"annotationTitle"`
+	ReadOnly        bool            `json:"readOnly"`
+	Destructive     bool            `json:"destructive"`
+	OpenWorld       bool            `json:"openWorld"`
 }
 
 func annotationFlag(value *bool) bool {
@@ -77,6 +96,39 @@ func PublicToolSurface() ToolSurfaceInfo {
 	return toolSurfaceCache
 }
 
+func publicToolContractHash() string {
+	defs := compactToolDefinitions()
+	fingerprints := make([]toolContractFingerprint, 0, len(defs))
+	for _, def := range defs {
+		fingerprint := toolContractFingerprint{
+			Name:        def.Name,
+			Title:       def.Title,
+			Description: def.Description,
+			Schema:      canonicalSchema(def.Schema),
+		}
+		if def.Annotations != nil {
+			fingerprint.AnnotationTitle = def.Annotations.Title
+			fingerprint.ReadOnly = def.Annotations.ReadOnlyHint
+			fingerprint.Destructive = annotationFlag(def.Annotations.DestructiveHint)
+			fingerprint.OpenWorld = annotationFlag(def.Annotations.OpenWorldHint)
+		}
+		fingerprints = append(fingerprints, fingerprint)
+	}
+	sort.Slice(fingerprints, func(i, j int) bool { return fingerprints[i].Name < fingerprints[j].Name })
+	payload := struct {
+		ImplementationVersion string                    `json:"implementationVersion"`
+		Instructions          string                    `json:"instructions"`
+		Tools                 []toolContractFingerprint `json:"tools"`
+	}{
+		ImplementationVersion: PublicMCPImplementationVersion,
+		Instructions:          publicMCPInstructions(),
+		Tools:                 fingerprints,
+	}
+	raw, _ := json.Marshal(payload)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 func currentPublicToolNames() map[string]struct{} {
 	toolNamesOnce.Do(func() {
 		toolNamesCache = make(map[string]struct{}, len(compactToolDefinitions()))
@@ -92,18 +144,21 @@ func toolSurfaceSummary() string {
 	return fmt.Sprintf("CodeLocal tool surface v%d (%d tools, sha256:%s)", surface.Version, surface.Count, surface.Hash)
 }
 
+func publicMCPInstructions() string {
+	return compactOrchestrationInstructions + "\n\nCompatibility: " + toolSurfaceSummary() + ". Legacy tool calls that CodeLocal can translate remain supported without user action. Only CODELOCAL_TOOL_SCHEMA_MISMATCH means the client requested a contract CodeLocal cannot translate."
+}
+
 func staleToolSchemaNotice(originalTool string) string {
 	surface := PublicToolSurface()
 	tool := strings.TrimSpace(originalTool)
 	if tool == "" {
-		tool = "an outdated tool"
+		tool = "an older tool"
 	}
 	return strings.Join([]string{
 		"[CODELOCAL_TOOL_SCHEMA_STALE]",
-		"IMPORTANT FOR MCP CLIENT: Tell the user this MCP session is using an older CodeLocal tool schema and should reconnect or refresh CodeLocal after the current request.",
 		fmt.Sprintf("The MCP client called legacy CodeLocal tool %q; CodeLocal translated it for compatibility.", tool),
 		fmt.Sprintf("Current tool surface: v%d, %d tools, sha256:%s", surface.Version, surface.Count, surface.Hash),
-		"Reconnect or refresh CodeLocal in the current AI client to load the latest tools/actions. A normal reconnect does not remove local pairing or workspace grants.",
+		"Compatibility translation succeeded. Continue the workflow normally; no reconnect, refresh, new chat, or local client update is required for this request.",
 		"[/CODELOCAL_TOOL_SCHEMA_STALE]",
 	}, "\n")
 }
@@ -126,7 +181,7 @@ func appendCompatibilityNotice(result *mcp.CallToolResult, notice string) *mcp.C
 	}
 	result.Content = append([]mcp.Content{&mcp.TextContent{Text: notice}}, result.Content...)
 	if root, ok := result.StructuredContent.(map[string]any); ok && root != nil {
-		root["codeLocalCompatibility"] = map[string]any{"toolSurface": PublicToolSurface(), "reconnectRecommended": true}
+		root["codeLocalCompatibility"] = map[string]any{"toolSurface": PublicToolSurface(), "translated": true, "reconnectRecommended": false}
 		result.StructuredContent = root
 	}
 	return result

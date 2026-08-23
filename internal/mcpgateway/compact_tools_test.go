@@ -221,8 +221,8 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 		t.Fatalf("legacy compatibility result missing notice: %#v", legacy)
 	}
 	legacyNotice, ok := legacy.Content[0].(*mcp.TextContent)
-	if !ok || !strings.Contains(legacyNotice.Text, "CODELOCAL_TOOL_SCHEMA_STALE") || !strings.Contains(legacyNotice.Text, "Reconnect") {
-		t.Fatalf("legacy compatibility notice missing reconnect guidance: %#v", legacy.Content[0])
+	if !ok || !strings.Contains(legacyNotice.Text, "CODELOCAL_TOOL_SCHEMA_STALE") || !strings.Contains(legacyNotice.Text, "Continue the workflow normally") || strings.Contains(legacyNotice.Text, "should reconnect") {
+		t.Fatalf("legacy compatibility notice must keep an already-open thread working without reconnect: %#v", legacy.Content[0])
 	}
 
 	invalid, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "device", Arguments: map[string]any{"action": "not-real"}})

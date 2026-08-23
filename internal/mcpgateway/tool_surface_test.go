@@ -22,8 +22,18 @@ func TestPublicToolSurfaceIsStableAndMatchesCompactRegistry(t *testing.T) {
 	if first.Count != 19 {
 		t.Fatalf("public MCP surface changed unexpectedly: got %d tools want 19", first.Count)
 	}
-	if len(first.Hash) != 64 {
-		t.Fatalf("surface hash length=%d want 64: %q", len(first.Hash), first.Hash)
+	if first.Hash != PinnedPublicToolSurfaceHash {
+		t.Fatalf("public MCP surface changed: got %s want pinned %s; preserve the existing contract or deliberately create a compatibility generation", first.Hash, PinnedPublicToolSurfaceHash)
+	}
+}
+
+func TestPublicMCPContractIsPinnedAcrossBackendReleases(t *testing.T) {
+	if PublicMCPImplementationVersion != "1.5.16" {
+		t.Fatalf("public MCP implementation identity changed with the app release: %q", PublicMCPImplementationVersion)
+	}
+	got := publicToolContractHash()
+	if got != PinnedPublicToolContractHash {
+		t.Fatalf("public MCP contract changed: got %s want pinned %s; tool metadata/instructions are thread-facing ABI and require an explicit compatibility generation", got, PinnedPublicToolContractHash)
 	}
 }
 
