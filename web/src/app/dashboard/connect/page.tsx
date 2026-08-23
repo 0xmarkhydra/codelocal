@@ -12,7 +12,7 @@ function InfoTip({ label, children }: Readonly<{ label: string; children: React.
   );
 }
 
-const connectionSteps = ["Add server", "Choose OAuth", "Sign in", "Approve"] as const;
+const connectionSteps = ["Add server", "Choose OAuth", "Scan tools", "Sign in", "Approve"] as const;
 
 export default function ConnectPage() {
   return (
@@ -45,7 +45,7 @@ export default function ConnectPage() {
           <div className={surface.titleRow}>
             <h2 className={surface.title}>Connect</h2>
             <InfoTip label="Connection flow">
-              Follow these steps in the MCP client. CodeLocal asks for approval before the connection is authorized.
+              In ChatGPT custom MCP setup, run Scan Tools after choosing OAuth; sign in when prompted so ChatGPT loads the CodeLocal actions.
             </InfoTip>
           </div>
           <ol className={surface.steps}>
