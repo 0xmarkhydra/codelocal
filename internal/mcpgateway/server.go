@@ -143,13 +143,17 @@ func isModernMCPProtocolVersion(version string) bool {
 }
 
 func requestUsesModernMCP(r *http.Request) bool {
-	if r == nil || r.Method != http.MethodPost {
+	if r == nil {
 		return false
 	}
+	// MCP clients can use GET for the Streamable HTTP SSE lane as well as POST
+	// for JSON-RPC messages. Classify the protocol header before checking the
+	// method so one modern ChatGPT connection cannot be split between the
+	// stateless 2026 handler (POST) and the legacy stateful handler (GET).
 	if isModernMCPProtocolVersion(r.Header.Get("Mcp-Protocol-Version")) {
 		return true
 	}
-	if r.Body == nil {
+	if r.Method != http.MethodPost || r.Body == nil {
 		return false
 	}
 	const probeLimit = 64 << 10

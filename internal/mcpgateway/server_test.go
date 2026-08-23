@@ -89,12 +89,14 @@ func TestToolCompatibilityGating(t *testing.T) {
 func TestHybridMCPTransportRoutesModernRequestsStateless(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
+		method     string
 		body       string
 		setVersion bool
 	}{
-		{name: "protocol header", body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`, setVersion: true},
-		{name: "discover method", body: `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`},
-		{name: "request meta", body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`},
+		{name: "protocol header post", method: http.MethodPost, body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`, setVersion: true},
+		{name: "protocol header get", method: http.MethodGet, setVersion: true},
+		{name: "discover method", method: http.MethodPost, body: `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`},
+		{name: "request meta", method: http.MethodPost, body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			statefulCalled := false
@@ -109,7 +111,7 @@ func TestHybridMCPTransportRoutesModernRequestsStateless(t *testing.T) {
 					w.WriteHeader(http.StatusNoContent)
 				}),
 			)
-			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tc.body))
+			req := httptest.NewRequest(tc.method, "/mcp", strings.NewReader(tc.body))
 			if tc.setVersion {
 				req.Header.Set("Mcp-Protocol-Version", modernMCPProtocolVersion)
 			}
