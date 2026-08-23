@@ -355,6 +355,44 @@ func gatewayFailureResult(err error, runtimeCode, requestID, workspaceKey string
 	})
 }
 
+func activeWorkspaceKeyForOperation(active []gateway.WorkspaceView, operation operationInvocation) (string, bool) {
+	if len(active) == 1 {
+		return active[0].Key, true
+	}
+	if len(active) < 2 || !strings.HasPrefix(operation.RuntimeTool, "computer_") {
+		return "", false
+	}
+	deviceID := strings.TrimSpace(active[0].DeviceID)
+	if deviceID == "" {
+		return "", false
+	}
+	best := active[0]
+	for _, workspace := range active[1:] {
+		if strings.TrimSpace(workspace.DeviceID) != deviceID {
+			return "", false
+		}
+		if workspace.LastSeenAt > best.LastSeenAt {
+			best = workspace
+		}
+	}
+	return best.Key, true
+}
+
+func attachWorkspaceHandle(result *mcp.CallToolResult, workspace *gateway.WorkspaceView) *mcp.CallToolResult {
+	if result == nil || workspace == nil {
+		return result
+	}
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		structured = map[string]any{"result": result.StructuredContent}
+		result.StructuredContent = structured
+	}
+	structured["workspaceKey"] = workspace.Key
+	structured["deviceId"] = workspace.DeviceID
+	structured["workspaceId"] = workspace.WorkspaceID
+	return result
+}
+
 func (s *Service) route(userID, session string) string {
 	if strings.TrimSpace(session) == "" || session == "stateless" {
 		return ""
@@ -441,8 +479,8 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 				active = append(active, w)
 			}
 		}
-		if len(active) == 1 {
-			key = active[0].Key
+		if inferred, ok := activeWorkspaceKeyForOperation(active, operation); ok {
+			key = inferred
 		} else if len(active) == 0 {
 			err := workspaceRoutingError(false)
 			return gatewayFailureResult(err, "", "", "", 0, false), nil
@@ -520,7 +558,7 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 		s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "terminal.executed", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID, "tool": publicTool, "runtimeTool": operation.RuntimeTool, "operationId": operation.OperationID}})
 	}
 	notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
-	return toolResultWithNotice(result.Result, false, notice), nil
+	return attachWorkspaceHandle(toolResultWithNotice(result.Result, false, notice), workspace), nil
 }
 
 func workspaceRoutingError(multiple bool) error {

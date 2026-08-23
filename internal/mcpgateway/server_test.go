@@ -219,6 +219,41 @@ func TestTextResultWrapsTopLevelArrayStructuredContent(t *testing.T) {
 	}
 }
 
+func TestComputerCanInferOneActiveDeviceAcrossMultipleWorkspaces(t *testing.T) {
+	computer, _ := operationForRuntimeTool("computer_list_windows")
+	active := []gateway.WorkspaceView{
+		{Key: "workspace-a", DeviceID: "mac-1", LastSeenAt: 10},
+		{Key: "workspace-b", DeviceID: "mac-1", LastSeenAt: 20},
+	}
+	key, ok := activeWorkspaceKeyForOperation(active, computer)
+	if !ok || key != "workspace-b" {
+		t.Fatalf("computer route = (%q,%v), want most recent workspace on the single active device", key, ok)
+	}
+
+	gitStatus, _ := operationForRuntimeTool("git_status")
+	if key, ok := activeWorkspaceKeyForOperation(active, gitStatus); ok || key != "" {
+		t.Fatalf("project-scoped route must remain explicit across multiple workspaces: (%q,%v)", key, ok)
+	}
+
+	active[1].DeviceID = "mac-2"
+	if key, ok := activeWorkspaceKeyForOperation(active, computer); ok || key != "" {
+		t.Fatalf("computer route must remain explicit across multiple devices: (%q,%v)", key, ok)
+	}
+}
+
+func TestSuccessfulResultsCarryWorkspaceHandle(t *testing.T) {
+	result := textResult([]any{map[string]any{"windowId": "ax:123:0"}}, false)
+	workspace := &gateway.WorkspaceView{Key: "user::device::workspace", DeviceID: "device-1", WorkspaceID: "workspace-1"}
+	attachWorkspaceHandle(result, workspace)
+	root, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured content = %T, want object", result.StructuredContent)
+	}
+	if root["workspaceKey"] != workspace.Key || root["deviceId"] != workspace.DeviceID || root["workspaceId"] != workspace.WorkspaceID {
+		t.Fatalf("workspace handle missing from successful result: %#v", root)
+	}
+}
+
 func TestGatewayFailureReasonCodesAreMachineReadable(t *testing.T) {
 	cases := []struct {
 		name        string
