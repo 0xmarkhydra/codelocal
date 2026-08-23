@@ -2,6 +2,7 @@ package mcpgateway
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -169,5 +170,59 @@ func TestTextResultWrapsTopLevelArrayStructuredContent(t *testing.T) {
 	items, ok := root["result"].([]any)
 	if !ok || len(items) != 1 {
 		t.Fatalf("wrapped structured result = %#v", root)
+	}
+}
+
+func TestGatewayFailureReasonCodesAreMachineReadable(t *testing.T) {
+	cases := []struct {
+		name        string
+		err         error
+		runtimeCode string
+		wantCode    string
+		wantRetry   bool
+	}{
+		{name: "runtime route loss", err: errors.New("workspace connection is not owned by this gateway"), runtimeCode: "CLIENT_OFFLINE", wantCode: codeLocalTransientRoutingFailure, wantRetry: true},
+		{name: "device offline", err: errors.New("the device for BIDDI is offline; run `codelocal` on that device"), wantCode: codeLocalDeviceOffline},
+		{name: "workspace unauthorized", err: errors.New("workspace is not authorized by the local CodeLocal runtime: BIDDI"), wantCode: codeLocalWorkspaceUnauthorized},
+		{name: "route missing", err: workspaceRoutingError(false), wantCode: codeLocalWorkspaceNotSelected},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, retryable := classifyGatewayFailure(tc.err, tc.runtimeCode)
+			if code != tc.wantCode || retryable != tc.wantRetry {
+				t.Fatalf("classification = (%q,%v), want (%q,%v)", code, retryable, tc.wantCode, tc.wantRetry)
+			}
+		})
+	}
+
+	result := gatewayFailureResult(errors.New("workspace is offline"), "", "req-1", "workspace-1", 1, true)
+	root, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured content = %T, want object", result.StructuredContent)
+	}
+	if root["code"] != codeLocalTransientRoutingFailure || root["retryable"] != true || root["requestId"] != "req-1" || root["rebound"] != true {
+		t.Fatalf("unexpected structured failure: %#v", root)
+	}
+}
+
+func TestRouteRetryPolicyPreservesSafetyBoundary(t *testing.T) {
+	readOnly, _ := operationForRuntimeTool("git_status")
+	if !routeRetryAllowed(readOnly, nil) {
+		t.Fatal("read-only operations should retry one transient route loss")
+	}
+
+	idempotentWrite, _ := operationForRuntimeTool("write_file")
+	if !routeRetryAllowed(idempotentWrite, &gateway.WorkspaceView{ProtocolVersion: 1}) {
+		t.Fatal("intrinsically idempotent operation should be retryable")
+	}
+
+	command, _ := operationForRuntimeTool("run_command")
+	legacy := &gateway.WorkspaceView{ProtocolVersion: 1, Capabilities: map[string]any{"idempotency": false}}
+	if routeRetryAllowed(command, legacy) {
+		t.Fatal("non-idempotent legacy side effect must not be retried")
+	}
+	modern := &gateway.WorkspaceView{ProtocolVersion: 3, Capabilities: map[string]any{"idempotency": true}}
+	if !routeRetryAllowed(command, modern) {
+		t.Fatal("modern request-id-idempotent side effect should survive one route rebind")
 	}
 }

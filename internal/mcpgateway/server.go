@@ -259,6 +259,73 @@ func errorResult(err error) *mcp.CallToolResult {
 	return textResult(map[string]any{"error": err.Error()}, true)
 }
 
+const (
+	codeLocalDeviceOffline           = "CODELOCAL_DEVICE_OFFLINE"
+	codeLocalWorkspaceUnauthorized   = "CODELOCAL_WORKSPACE_UNAUTHORIZED"
+	codeLocalWorkspaceUnavailable    = "CODELOCAL_WORKSPACE_UNAVAILABLE"
+	codeLocalWorkspaceNotSelected    = "CODELOCAL_WORKSPACE_NOT_SELECTED"
+	codeLocalTransientRoutingFailure = "CODELOCAL_TRANSIENT_ROUTING_FAILURE"
+	codeLocalRuntimeFailure          = "CODELOCAL_RUNTIME_FAILURE"
+)
+
+func codedErrorResult(code string, err error, retryable bool, details map[string]any) *mcp.CallToolResult {
+	payload := map[string]any{"code": code, "error": err.Error(), "retryable": retryable}
+	for key, value := range details {
+		payload[key] = value
+	}
+	return textResult(payload, true)
+}
+
+func classifyGatewayFailure(err error, runtimeCode string) (string, bool) {
+	if runtimeCode == "CLIENT_OFFLINE" {
+		return codeLocalTransientRoutingFailure, true
+	}
+	if err == nil {
+		return codeLocalRuntimeFailure, false
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "no active workspace"), strings.Contains(message, "multiple workspaces are active"), strings.Contains(message, "no workspace selected"):
+		return codeLocalWorkspaceNotSelected, false
+	case strings.Contains(message, "not authorized"), strings.Contains(message, "no longer authorized"):
+		return codeLocalWorkspaceUnauthorized, false
+	case strings.Contains(message, "device for") && strings.Contains(message, "offline"):
+		return codeLocalDeviceOffline, false
+	case strings.Contains(message, "workspace is not available"):
+		return codeLocalWorkspaceUnavailable, false
+	case strings.Contains(message, "workspace activation timed out"),
+		strings.Contains(message, "workspace is offline"),
+		strings.Contains(message, "gateway coordinator closed"),
+		strings.Contains(message, "client disconnected"),
+		strings.Contains(message, "connection is not owned by this gateway"):
+		return codeLocalTransientRoutingFailure, true
+	default:
+		return codeLocalRuntimeFailure, false
+	}
+}
+
+func routeRetryAllowed(operation operationInvocation, workspace *gateway.WorkspaceView) bool {
+	if !operation.SideEffecting || operation.Idempotent {
+		return true
+	}
+	return workspace != nil && workspace.ProtocolVersion >= 2 && capabilityBool(workspace.Capabilities, "idempotency")
+}
+
+func transientRouteFailure(result gateway.RoutedResult, err error) bool {
+	code, retryable := classifyGatewayFailure(err, result.ErrorCode)
+	return code == codeLocalTransientRoutingFailure && retryable
+}
+
+func gatewayFailureResult(err error, runtimeCode, requestID, workspaceKey string, retryCount int, rebound bool) *mcp.CallToolResult {
+	code, retryable := classifyGatewayFailure(err, runtimeCode)
+	return codedErrorResult(code, err, retryable, map[string]any{
+		"requestId":    requestID,
+		"workspaceKey": workspaceKey,
+		"retryCount":   retryCount,
+		"rebound":      rebound,
+	})
+}
+
 func (s *Service) route(userID, session string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -331,7 +398,7 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 	if key == "" {
 		catalog, catalogErr := s.Workspaces.Catalog(ctx, userID)
 		if catalogErr != nil {
-			return errorResult(catalogErr), nil
+			return gatewayFailureResult(catalogErr, "", "", "", 0, false), nil
 		}
 		active := []gateway.WorkspaceView{}
 		for _, w := range catalog {
@@ -342,14 +409,16 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 		if len(active) == 1 {
 			key = active[0].Key
 		} else if len(active) == 0 {
-			return errorResult(workspaceRoutingError(false)), nil
+			err := workspaceRoutingError(false)
+			return gatewayFailureResult(err, "", "", "", 0, false), nil
 		} else {
-			return errorResult(workspaceRoutingError(true)), nil
+			err := workspaceRoutingError(true)
+			return gatewayFailureResult(err, "", "", "", 0, false), nil
 		}
 	}
 	workspace, err := s.Workspaces.Activate(ctx, userID, key)
 	if err != nil {
-		return errorResult(err), nil
+		return gatewayFailureResult(err, "", "", key, 0, false), nil
 	}
 	usageDeviceID = workspace.DeviceID
 	usageWorkspaceID = workspace.WorkspaceID
@@ -372,18 +441,45 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 	}
 	requestID := cloud.RandomHex(16)
 	result, callErr := s.Hub.Call(ctx, userID, key, session, operation.RuntimeTool, args, operation.SideEffecting, requestID)
+	retryCount := 0
+	rebound := false
+	if transientRouteFailure(result, callErr) && routeRetryAllowed(operation, workspace) {
+		retryCount = 1
+		initialCode := result.ErrorCode
+		if initialCode == "" && callErr != nil {
+			initialCode, _ = classifyGatewayFailure(callErr, "")
+		}
+		slog.Warn("MCP workspace route lost; rebinding once", "requestId", requestID, "mcpSessionId", session, "workspace", key, "publicTool", publicTool, "runtimeTool", operation.RuntimeTool, "initialErrorCode", initialCode)
+		if s.Store != nil {
+			s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "workspace.route_rebind", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID, "mcpSessionId": session, "tool": publicTool, "runtimeTool": operation.RuntimeTool, "initialErrorCode": initialCode}})
+		}
+		reboundWorkspace, rebindErr := s.Workspaces.Activate(ctx, userID, key)
+		if rebindErr != nil {
+			callErr = rebindErr
+			result = gateway.RoutedResult{}
+		} else {
+			workspace = reboundWorkspace
+			rebound = true
+			// Reuse the exact request ID and arguments. Side-effecting operations
+			// are retried only when their operation is intrinsically idempotent or
+			// the runtime advertises request-id idempotency, so an approval token
+			// and execution identity remain bound to the exact same action.
+			result, callErr = s.Hub.Call(ctx, userID, key, session, operation.RuntimeTool, args, operation.SideEffecting, requestID)
+		}
+	}
 	totalDurationMs := time.Since(startedAt).Milliseconds()
 	runtimeDurationMs := metadataInt64(result.Metadata, "runtimeDurationMs")
 	relayDurationMs := totalDurationMs - runtimeDurationMs
 	if relayDurationMs < 0 {
 		relayDurationMs = 0
 	}
-	slog.Debug("MCP gateway operation completed", "requestId", requestID, "publicTool", publicTool, "operationId", operation.OperationID, "runtimeTool", operation.RuntimeTool, "workspace", key, "ok", callErr == nil && result.OK, "durationMs", totalDurationMs, "runtimeDurationMs", runtimeDurationMs, "relayDurationMs", relayDurationMs)
+	slog.Debug("MCP gateway operation completed", "requestId", requestID, "mcpSessionId", session, "publicTool", publicTool, "operationId", operation.OperationID, "runtimeTool", operation.RuntimeTool, "workspace", key, "ok", callErr == nil && result.OK, "durationMs", totalDurationMs, "runtimeDurationMs", runtimeDurationMs, "relayDurationMs", relayDurationMs, "retryCount", retryCount, "rebound", rebound)
 	if callErr != nil {
-		return errorResult(callErr), nil
+		return gatewayFailureResult(callErr, "", requestID, key, retryCount, rebound), nil
 	}
 	if !result.OK {
-		return errorResult(errors.New(firstNonEmpty(result.Error, result.ErrorCode, "tool failed"))), nil
+		err := errors.New(firstNonEmpty(result.Error, result.ErrorCode, "tool failed"))
+		return gatewayFailureResult(err, result.ErrorCode, requestID, key, retryCount, rebound), nil
 	}
 	if operation.TerminalExecution && s.Store != nil {
 		s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "terminal.executed", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID, "tool": publicTool, "runtimeTool": operation.RuntimeTool, "operationId": operation.OperationID}})
@@ -489,7 +585,7 @@ func (s *Service) callLocal(ctx context.Context, userID, session, tool string, a
 		key, _ := args["key"].(string)
 		workspace, err := s.Workspaces.Activate(ctx, userID, key)
 		if err != nil {
-			return errorResult(err), nil
+			return gatewayFailureResult(err, "", "", key, 0, false), nil
 		}
 		s.setRoute(userID, session, key)
 		notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
@@ -500,11 +596,12 @@ func (s *Service) callLocal(ctx context.Context, userID, session, tool string, a
 			key = s.route(userID, session)
 		}
 		if key == "" {
-			return errorResult(errors.New("no workspace selected")), nil
+			err := errors.New("no workspace selected")
+			return gatewayFailureResult(err, "", "", "", 0, false), nil
 		}
 		workspace, err := s.Workspaces.Activate(ctx, userID, key)
 		if err != nil {
-			return errorResult(err), nil
+			return gatewayFailureResult(err, "", "", key, 0, false), nil
 		}
 		notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
 		return textResultWithNotice(workspace, false, notice), nil

@@ -476,6 +476,16 @@ func (h *Hub) unregister(ctx context.Context, client *Client) {
 func (h *Hub) HandleRouted(ctx context.Context, call RoutedCall) RoutedResult {
 	client := h.localClient(call.ClientKey)
 	if client == nil {
+		// A coordinator owner lease can briefly outlive the WebSocket that claimed
+		// it (gateway restart, reconnect race, or a replaced connection). If this
+		// request reached the advertised owner but the owner no longer has the
+		// client, release only this gateway's own lease. The caller can then wake
+		// or rebind the still-authorized workspace instead of repeatedly routing
+		// into a stale owner until the Redis TTL expires.
+		if h.Coordinator != nil {
+			h.Coordinator.ReleaseOwner(ctx, call.ClientKey)
+		}
+		slog.Warn("stale workspace owner released", "requestId", call.RequestID, "clientKey", call.ClientKey, "gateway", h.InstanceID)
 		return RoutedResult{RequestID: call.RequestID, OK: false, ErrorCode: "CLIENT_OFFLINE", Error: "workspace connection is not owned by this gateway"}
 	}
 	result, err := h.callLocal(ctx, client, call)
