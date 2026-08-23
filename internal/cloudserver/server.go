@@ -244,7 +244,15 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("X-CodeLocal-Gateway", s.InstanceID)
 		next.ServeHTTP(w, r)
 		if r.URL.Path != "/health" {
-			slog.Info("http request", "method", r.Method, "path", r.URL.Path, "durationMs", time.Since(started).Milliseconds(), "gateway", s.InstanceID)
+			fields := []any{"method", r.Method, "path", r.URL.Path, "durationMs", time.Since(started).Milliseconds(), "gateway", s.InstanceID}
+			if r.URL.Path == "/mcp" {
+				fields = append(fields,
+					"mcpProtocolVersion", strings.TrimSpace(r.Header.Get("Mcp-Protocol-Version")),
+					"mcpTransport", strings.TrimSpace(w.Header().Get("X-CodeLocal-MCP-Transport")),
+					"mcpSessionIdPresent", strings.TrimSpace(r.Header.Get("Mcp-Session-Id")) != "",
+				)
+			}
+			slog.Info("http request", fields...)
 		}
 	})
 }
