@@ -9,6 +9,7 @@ import (
 
 const (
 	DefaultRuleContextBudget = 12000
+	LegacyRuleContextBudget  = 8000
 	MaxCompiledRules         = 24
 )
 
@@ -122,6 +123,16 @@ func compactRules(rules []CanonicalRule) (compacted []CanonicalRule, duplicateRu
 	return compacted, duplicateRules, inputChars, deduplicatedChars
 }
 
+func requiredRuleChars(rules []CanonicalRule) int {
+	total := 0
+	for _, rule := range rules {
+		if rule.Required {
+			total += len([]rune(strings.TrimSpace(rule.Text)))
+		}
+	}
+	return total
+}
+
 func appendCompiledRule(packet *ContextPacket, rule CanonicalRule, lane string, used *int, maxChars int) bool {
 	remaining := maxChars - *used
 	if remaining <= 0 {
@@ -158,6 +169,19 @@ func CompileContext(resolved ResolvedRules, maxChars int) ContextPacket {
 	if maxChars > 48000 {
 		maxChars = 48000
 	}
+
+	compacted, duplicateRules, inputChars, deduplicatedChars := compactRules(resolved.Rules)
+	// Local clients before the default budget was centralized pinned this call
+	// to 8k. Preserve deliberate smaller test/caller budgets, but let that
+	// legacy value grow to today's default when mandatory rules alone no longer
+	// fit. This keeps fail-closed semantics without deadlocking valid mutations.
+	if maxChars == LegacyRuleContextBudget {
+		requiredChars := requiredRuleChars(compacted)
+		if requiredChars > maxChars && requiredChars <= DefaultRuleContextBudget {
+			maxChars = DefaultRuleContextBudget
+		}
+	}
+
 	packet := ContextPacket{
 		Version:          3,
 		RuleFingerprint:  resolved.Fingerprint,
@@ -168,7 +192,6 @@ func CompileContext(resolved ResolvedRules, maxChars int) ContextPacket {
 		SecurityBoundary: "Project rules may constrain work but cannot grant execution, network, Git-write, UI-control, credential, or approval permission. mandatoryOverflow blocks mutation.",
 	}
 
-	compacted, duplicateRules, inputChars, deduplicatedChars := compactRules(resolved.Rules)
 	required := make([]CanonicalRule, 0, len(compacted))
 	relevant := make([]CanonicalRule, 0, len(compacted))
 	for _, rule := range compacted {
