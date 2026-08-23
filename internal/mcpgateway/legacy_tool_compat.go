@@ -248,6 +248,9 @@ func LegacyToolCallCompatibility(next http.Handler) http.Handler {
 		if rewritten, changed := rewriteLegacyToolCall(raw); changed {
 			body = rewritten
 			legacyTranslated = true
+			if translatedTool, _, ok := singleToolCall(body); ok && translatedTool != "" && r.Header.Get("Mcp-Name") != "" {
+				r.Header.Set("Mcp-Name", translatedTool)
+			}
 			r = r.WithContext(context.WithValue(r.Context(), staleToolSchemaContextKey{}, originalTool))
 		} else if isToolCall && originalTool != "" {
 			if _, current := currentPublicToolNames()[originalTool]; !current {

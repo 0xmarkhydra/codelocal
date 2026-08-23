@@ -143,53 +143,80 @@ func isModernMCPProtocolVersion(version string) bool {
 	return len(version) == len(modernMCPProtocolVersion) && version >= modernMCPProtocolVersion
 }
 
-func statefulMCPCompatibility(next http.Handler) http.Handler {
+func requestUsesModernMCP(r *http.Request) bool {
+	if r == nil || r.Method != http.MethodPost {
+		return false
+	}
+	if isModernMCPProtocolVersion(r.Header.Get("Mcp-Protocol-Version")) {
+		return true
+	}
+	if r.Body == nil {
+		return false
+	}
+	const probeLimit = 64 << 10
+	raw, err := io.ReadAll(io.LimitReader(r.Body, probeLimit+1))
+	if len(raw) > 0 {
+		r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(raw), r.Body))
+	}
+	if err != nil || len(raw) > probeLimit {
+		return false
+	}
+	var envelope struct {
+		Method string `json:"method"`
+		Params struct {
+			Meta map[string]any `json:"_meta"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return false
+	}
+	if envelope.Method == "server/discover" {
+		return true
+	}
+	version, _ := envelope.Params.Meta[mcp.MetaKeyProtocolVersion].(string)
+	return isModernMCPProtocolVersion(version)
+}
+
+func hybridMCPTransport(stateful, stateless http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && strings.TrimSpace(r.Header.Get("Mcp-Session-Id")) == "" {
-			modernProbe := isModernMCPProtocolVersion(r.Header.Get("Mcp-Protocol-Version"))
-			if !modernProbe && r.ContentLength > 0 && r.ContentLength <= 64<<10 {
-				raw, err := io.ReadAll(r.Body)
-				if err == nil {
-					_ = r.Body.Close()
-					r.Body = io.NopCloser(bytes.NewReader(raw))
-					var envelope struct {
-						Method string `json:"method"`
-					}
-					if json.Unmarshal(raw, &envelope) == nil && envelope.Method == "server/discover" {
-						modernProbe = true
-					}
-				}
-			}
-			if modernProbe {
-				// Keep the proven 2025-era stateful handshake used by the previous
-				// TypeScript gateway. CodeLocal still relies on MCP session IDs to
-				// isolate workspace selection between ChatGPT threads. The Go SDK's
-				// 2026-07-28 HTTP era is stateless, so reject the modern probe and let
-				// auto-negotiating clients fall back to the stateful initialize/tools/list flow.
-				w.Header().Set("Content-Type", "application/json; charset=utf-8")
-				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":-32000,"message":"Invalid or missing MCP session."},"id":null}`))
-				return
-			}
+		if requestUsesModernMCP(r) {
+			w.Header().Set("X-CodeLocal-MCP-Transport", "stateless-2026")
+			stateless.ServeHTTP(w, r)
+			return
 		}
-		next.ServeHTTP(w, r)
+		w.Header().Set("X-CodeLocal-MCP-Transport", "stateful-legacy")
+		stateful.ServeHTTP(w, r)
 	})
 }
 
+func streamableMCPHandler(getServer func(*http.Request) *mcp.Server) http.Handler {
+	stateful := mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
+		Stateless:           false,
+		JSONResponse:        true,
+		MaxRequestBodyBytes: 4 << 20,
+	})
+	stateless := mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
+		Stateless:                    true,
+		JSONResponse:                 true,
+		MaxRequestBodyBytes:          4 << 20,
+		PropagateRequestCancellation: true,
+	})
+	return hybridMCPTransport(stateful, stateless)
+}
+
 func (s *Service) Handler() http.Handler {
-	stream := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+	stream := streamableMCPHandler(func(r *http.Request) *mcp.Server {
 		claims, ok := oauth.ClaimsFrom(r.Context())
 		if !ok || claims.Subject == "" {
 			return nil
 		}
 		return s.serverFor(claims.Subject)
-	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true, MaxRequestBodyBytes: 4 << 20})
+	})
 	surface := PublicToolSurface()
-	compatible := statefulMCPCompatibility(stream)
 	withSurface := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-CodeLocal-Tool-Surface-Version", fmt.Sprint(surface.Version))
 		w.Header().Set("X-CodeLocal-Tool-Surface-Hash", surface.Hash)
-		compatible.ServeHTTP(w, r)
+		stream.ServeHTTP(w, r)
 	})
 	return withSurface
 }
@@ -211,7 +238,9 @@ func (s *Service) serverFor(userID string) *mcp.Server {
 
 func sessionID(req *mcp.CallToolRequest) string {
 	if req != nil && req.Session != nil {
-		return req.Session.ID()
+		if id := strings.TrimSpace(req.Session.ID()); id != "" {
+			return id
+		}
 	}
 	return "stateless"
 }
@@ -327,11 +356,17 @@ func gatewayFailureResult(err error, runtimeCode, requestID, workspaceKey string
 }
 
 func (s *Service) route(userID, session string) string {
+	if strings.TrimSpace(session) == "" || session == "stateless" {
+		return ""
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.routes[userID][session]
 }
 func (s *Service) setRoute(userID, session, key string) {
+	if strings.TrimSpace(session) == "" || session == "stateless" {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.routes[userID] == nil {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/clientupdate"
@@ -85,64 +86,79 @@ func TestToolCompatibilityGating(t *testing.T) {
 	}
 }
 
-func TestStatefulMCPCompatibilityForcesModernProbeToFallback(t *testing.T) {
+func TestHybridMCPTransportRoutesModernRequestsStateless(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		body       string
 		setVersion bool
 	}{
-		{name: "protocol header", body: `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`, setVersion: true},
+		{name: "protocol header", body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`, setVersion: true},
 		{name: "discover method", body: `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`},
+		{name: "request meta", body: `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			called := false
-			handler := statefulMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				called = true
-				w.WriteHeader(http.StatusNoContent)
-			}))
+			statefulCalled := false
+			statelessCalled := false
+			handler := hybridMCPTransport(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					statefulCalled = true
+					w.WriteHeader(http.StatusNoContent)
+				}),
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					statelessCalled = true
+					w.WriteHeader(http.StatusNoContent)
+				}),
+			)
 			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tc.body))
 			if tc.setVersion {
 				req.Header.Set("Mcp-Protocol-Version", modernMCPProtocolVersion)
 			}
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("modern probe status = %d, want 400", rec.Code)
+			if !statelessCalled || statefulCalled {
+				t.Fatalf("modern request routed incorrectly: stateful=%v stateless=%v", statefulCalled, statelessCalled)
 			}
-			if called {
-				t.Fatal("modern probe must not reach the stateful Go transport")
-			}
-			if !strings.Contains(rec.Body.String(), "Invalid or missing MCP session") {
-				t.Fatalf("unexpected fallback response: %s", rec.Body.String())
+			if got := rec.Header().Get("X-CodeLocal-MCP-Transport"); got != "stateless-2026" {
+				t.Fatalf("transport header = %q, want stateless-2026", got)
 			}
 		})
 	}
 }
 
-func TestStatefulMCPCompatibilityPassesInitialize(t *testing.T) {
-	called := false
-	handler := statefulMCPCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusNoContent)
-	}))
+func TestHybridMCPTransportKeepsLegacyInitializeStateful(t *testing.T) {
+	statefulCalled := false
+	statelessCalled := false
+	handler := hybridMCPTransport(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			statefulCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			statelessCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if !called || rec.Code != http.StatusNoContent {
-		t.Fatalf("stateful initialize should pass through: called=%v status=%d", called, rec.Code)
+	if !statefulCalled || statelessCalled {
+		t.Fatalf("legacy initialize routed incorrectly: stateful=%v stateless=%v", statefulCalled, statelessCalled)
 	}
 }
 
-func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
+func newTestStreamableMCPHandler() http.Handler {
 	s := &Service{
 		servers:      map[string]*mcp.Server{},
 		routes:       map[string]map[string]string{},
 		shownUpdates: map[string]map[string]struct{}{},
 	}
-	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+	return streamableMCPHandler(func(*http.Request) *mcp.Server {
 		return s.serverFor("test-user")
-	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
-	httpServer := httptest.NewServer(statefulMCPCompatibility(stream))
+	})
+}
+
+func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
+	httpServer := httptest.NewServer(newTestStreamableMCPHandler())
 	defer httpServer.Close()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-test", Version: "1"}, nil)
@@ -158,6 +174,36 @@ func TestStreamableHTTPListsRegisteredTools(t *testing.T) {
 	}
 	if len(result.Tools) != len(compactToolDefinitions()) {
 		t.Fatalf("tools/list returned %d tools, want %d", len(result.Tools), len(compactToolDefinitions()))
+	}
+}
+
+func TestModernStatelessTransportSurvivesGatewayRestart(t *testing.T) {
+	var mu sync.RWMutex
+	current := newTestStreamableMCPHandler()
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.RLock()
+		handler := current
+		mu.RUnlock()
+		handler.ServeHTTP(w, r)
+	}))
+	defer httpServer.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-test", Version: "1"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
+	if err != nil {
+		t.Fatalf("connect streamable MCP client: %v", err)
+	}
+	defer session.Close()
+	if _, err := session.ListTools(context.Background(), nil); err != nil {
+		t.Fatalf("initial tools/list failed: %v", err)
+	}
+
+	mu.Lock()
+	current = newTestStreamableMCPHandler()
+	mu.Unlock()
+
+	if _, err := session.ListTools(context.Background(), nil); err != nil {
+		t.Fatalf("tools/list after gateway restart failed: %v", err)
 	}
 }
 

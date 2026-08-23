@@ -129,8 +129,8 @@ func TestCompactResolverRejectsInvalidOrIncompleteActions(t *testing.T) {
 func listServerTools(t *testing.T) []string {
 	t.Helper()
 	s := &Service{servers: map[string]*mcp.Server{}, routes: map[string]map[string]string{}, shownUpdates: map[string]map[string]struct{}{}}
-	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.serverFor("test-user") }, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
-	httpServer := httptest.NewServer(statefulMCPCompatibility(stream))
+	stream := streamableMCPHandler(func(*http.Request) *mcp.Server { return s.serverFor("test-user") })
+	httpServer := httptest.NewServer(stream)
 	defer httpServer.Close()
 	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-surface-test", Version: "1"}, nil)
 	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: httpServer.URL}, nil)
@@ -177,10 +177,10 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 		routes:       map[string]map[string]string{},
 		shownUpdates: map[string]map[string]struct{}{},
 	}
-	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+	stream := streamableMCPHandler(func(*http.Request) *mcp.Server {
 		return s.serverFor("test-user")
-	}, &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: true})
-	httpServer := httptest.NewServer(LegacyToolCallCompatibility(statefulMCPCompatibility(stream)))
+	})
+	httpServer := httptest.NewServer(LegacyToolCallCompatibility(stream))
 	defer httpServer.Close()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-compact-call-test", Version: "1"}, nil)
