@@ -3,23 +3,41 @@ name: CodeLocal Cloud CI
 on:
   push:
     branches: [main, dev, go-migration]
-    paths:
+    paths: &cloud_paths
       - 'cmd/codelocal-cloud/**'
-      - 'internal/**'
+      - 'internal/clientupdate/**'
+      - 'internal/cloud/**'
+      - 'internal/cloudserver/**'
+      - 'internal/deviceauth/**'
+      - 'internal/gateway/**'
+      - 'internal/learnedskills/**'
+      - 'internal/localfs/**'
+      - 'internal/lsp/**'
+      - 'internal/mailer/**'
+      - 'internal/mcpgateway/**'
+      - 'internal/memory/**'
+      - 'internal/oauth/**'
+      - 'internal/orchestration/**'
+      - 'internal/project/**'
+      - 'internal/projectbrain/**'
+      - 'internal/projectidentity/**'
+      - 'internal/protocol/**'
+      - 'internal/repository/**'
+      - 'internal/security/**'
+      - 'internal/social/**'
+      - 'internal/state/**'
+      - 'internal/taskstate/**'
+      - 'internal/usage/**'
+      - 'internal/version/**'
+      - 'internal/webauth/**'
+      - 'internal/webutil/**'
       - 'assets/**'
       - 'go.mod'
       - 'go.sum'
       - 'Dockerfile'
       - 'railway.json'
   pull_request:
-    paths:
-      - 'cmd/codelocal-cloud/**'
-      - 'internal/**'
-      - 'assets/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'Dockerfile'
-      - 'railway.json'
+    paths: *cloud_paths
   workflow_dispatch:
 
 jobs:
