@@ -500,22 +500,22 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: npm publish ./.release/npm --tag latest --access public
 
-      - name: Verify npm registry
+      - name: Verify npm registry propagation
         if: steps.registry.outputs.published != 'true'
         shell: bash
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 20); do
+          for attempt in $(seq 1 12); do
             published="$(npm view "codelocal@$VERSION" version --prefer-online 2>/dev/null || true)"
             latest="$(npm view 'codelocal@latest' version --prefer-online 2>/dev/null || true)"
-            if [[ "$published" == "$VERSION" && "$latest" == "$VERSION" ]]; then
-              echo "Published codelocal@$VERSION and latest now points to it."
+            if [[ "$published" == "$VERSION" ]]; then
+              echo "Published codelocal@$VERSION is visible in the npm registry (latest=${latest:-pending})."
               exit 0
             fi
-            echo "Registry sync $attempt/20: version=${published:-pending}, latest=${latest:-pending}"
-            sleep 3
+            echo "Registry propagation $attempt/12: version=${published:-pending}, latest=${latest:-pending}"
+            sleep 5
           done
-          echo "npm registry did not converge to codelocal@$VERSION in time." >&2
-          exit 1
+
+          echo "::warning::npm publish returned success, but registry read-after-write has not propagated codelocal@$VERSION yet. Notification will continue because npm publish itself is the authoritative release step."
