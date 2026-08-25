@@ -26,6 +26,7 @@ type dashboardChatHistoryItem struct {
 type dashboardChatRequest struct {
 	Message string                     `json:"message"`
 	History []dashboardChatHistoryItem `json:"history"`
+	Image   string                     `json:"image,omitempty"`
 }
 
 type dashboardToolCall struct {
@@ -104,7 +105,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req dashboardChatRequest
-	if err := webutil.DecodeJSON(r, 64<<10, &req); err != nil {
+	if err := webutil.DecodeJSON(r, 12<<20, &req); err != nil {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
@@ -147,7 +148,10 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			lower2 := strings.ToLower(msg)
 			var tcs []dashboardToolCall
 			var reply string
-			if strings.Contains(lower2, "workspace") {
+			if req.Image != "" {
+				tcs = []dashboardToolCall{{ID: "mock_img", Name: "image_upload", Arguments: `{"size":` + fmt.Sprintf("%d", len(req.Image)) + `}`, Result: `{"received":true}`, DurationMs: 30, Status: "done"}}
+				reply = "Đã nhận ảnh stream (" + fmt.Sprintf("%d", len(req.Image)) + " bytes) — đã lưu backend."
+			} else if strings.Contains(lower2, "workspace") {
 				tcs = []dashboardToolCall{{ID: "mock_1", Name: "list_workspaces", Arguments: `{"status":"all"}`, Result: `{"total":26,"sample":["codex-mcp","X.com","BIDDI"]}`, DurationMs: 42, Status: "done"}}
 				reply = "Đây là workspaces của bạn (Go mock stream):"
 			} else if strings.Contains(lower2, "device") || strings.Contains(lower2, "máy") {
@@ -168,7 +172,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
 			now2 := time.Now().UnixMilli()
 			tcsJSON2, _ := json.Marshal(tcs)
-			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now2}); err != nil {
+			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: req.Image, CreatedAt: now2}); err != nil {
 				slog.Warn("dashboard chat stream mock save user failed", "error", err)
 			}
 			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1}); err != nil {
@@ -202,7 +206,10 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if apiKey == "" {
 		var tcs []dashboardToolCall
 		var reply string
-		if strings.Contains(lower, "workspace") {
+		if req.Image != "" {
+			tcs = []dashboardToolCall{{ID: "mock_img", Name: "image_upload", Arguments: `{"size":` + fmt.Sprintf("%d", len(req.Image)) + `}`, Result: `{"received":true}`, DurationMs: 30, Status: "done"}}
+			reply = "Đã nhận ảnh (" + fmt.Sprintf("%d", len(req.Image)) + " bytes) — CodeLocal sẽ phân tích khi model vision được gắn. Hiện mock đã lưu ảnh vào history backend."
+		} else if strings.Contains(lower, "workspace") {
 			tcs = []dashboardToolCall{{ID: "mock_1", Name: "list_workspaces", Arguments: `{"status":"all"}`, Result: `{"total":26,"sample":["codex-mcp","X.com","BIDDI"]}`, DurationMs: 42, Status: "done"}}
 			reply = "Đây là workspaces của bạn (Go mock tool call):"
 		} else if strings.Contains(lower, "device") || strings.Contains(lower, "máy") {
@@ -217,7 +224,8 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		// persist to backend (not FE localStorage)
 		now := time.Now().UnixMilli()
 		tcsJSON, _ := json.Marshal(tcs)
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now}); err != nil {
+		// image handled: save with image field for backend history
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: req.Image, CreatedAt: now}); err != nil {
 			slog.Warn("dashboard chat save user failed", "error", err, "user", identity.User.ID)
 		}
 		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1}); err != nil {
@@ -238,7 +246,11 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		messages = append(messages, m)
 	}
-	messages = append(messages, map[string]any{"role": "user", "content": msg})
+	if req.Image != "" {
+		messages = append(messages, map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": msg}, {"type": "image_url", "image_url": map[string]any{"url": req.Image}}}})
+	} else {
+		messages = append(messages, map[string]any{"role": "user", "content": msg})
+	}
 	toolCalls, content, err := callLLMWithTools(baseURL, apiKey, model, messages, dashboardChatTools)
 	if err != nil {
 		webutil.JSON(w, http.StatusBadGateway, map[string]string{"error": "upstream: " + err.Error()})
@@ -246,7 +258,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(toolCalls) == 0 {
 		now3 := time.Now().UnixMilli()
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3}); err != nil {
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: req.Image, CreatedAt: now3}); err != nil {
 			slog.Warn("dashboard chat save no-tool user failed", "error", err)
 		}
 		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1}); err != nil {
@@ -279,11 +291,10 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	now4 := time.Now().UnixMilli()
 	tcsJSON4, _ := json.Marshal(results)
-	// truncate tool result if too large for DB (avoid 1MB JSONB)
 	if len(tcsJSON4) > 5000 {
 		tcsJSON4 = tcsJSON4[:5000]
 	}
-	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now4}); err != nil {
+	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: req.Image, CreatedAt: now4}); err != nil {
 		slog.Warn("dashboard chat save final user failed", "error", err)
 	}
 	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
@@ -555,7 +566,7 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		defer resp2.Body.Close()
 		var secondContent strings.Builder
 		scanner2 := bufio.NewScanner(resp2.Body)
-		scanner2.Buffer(buf, 1024*1024)
+		scanner2.Buffer(buf, 2*1024*1024)
 		for scanner2.Scan() {
 			select {
 			case <-r.Context().Done():

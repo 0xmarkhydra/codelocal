@@ -6,12 +6,13 @@ import (
 )
 
 type DashboardChatMessage struct {
-	ID        string `json:"id"`
-	UserID    string `json:"userId"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
+	ID        string          `json:"id"`
+	UserID    string          `json:"userId"`
+	Role      string          `json:"role"`
+	Content   string          `json:"content"`
 	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
-	CreatedAt int64  `json:"createdAt"`
+	Image     string          `json:"image,omitempty"`
+	CreatedAt int64           `json:"createdAt"`
 }
 
 const dashboardChatMigrationSQL = `
@@ -21,13 +22,25 @@ CREATE TABLE IF NOT EXISTS codelocal_dashboard_chat (
  role TEXT NOT NULL CHECK (role IN ('user','assistant','tool')),
  content TEXT NOT NULL,
  tool_calls JSONB NOT NULL DEFAULT '[]'::jsonb,
+ image TEXT,
  created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_codelocal_dashboard_chat_user_time ON codelocal_dashboard_chat(user_id, created_at DESC);
 `
 
+const dashboardChatImageMigrationSQL = `ALTER TABLE codelocal_dashboard_chat ADD COLUMN IF NOT EXISTS image TEXT;`
+
 func (s *Store) SaveDashboardChatMessage(ctx context.Context, msg DashboardChatMessage) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_dashboard_chat(id, user_id, role, content, tool_calls, created_at) VALUES($1,$2,$3,$4,$5,$6)`, msg.ID, msg.UserID, msg.Role, msg.Content, string(msg.ToolCalls), msg.CreatedAt)
+	// truncate image if too large for DB (8MB base64)
+	img := msg.Image
+	if len(img) > 2*1024*1024 {
+		img = img[:2*1024*1024]
+	}
+	toolCalls := string(msg.ToolCalls)
+	if toolCalls == "" {
+		toolCalls = "[]"
+	}
+	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_dashboard_chat(id, user_id, role, content, tool_calls, image, created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, msg.ID, msg.UserID, msg.Role, msg.Content, toolCalls, img, msg.CreatedAt)
 	return err
 }
 
@@ -35,7 +48,7 @@ func (s *Store) ListDashboardChatHistory(ctx context.Context, userID string, lim
 	if limit <= 0 || limit > 100 {
 		limit = 30
 	}
-	rows, err := s.DB.Query(ctx, `SELECT id, user_id, role, content, tool_calls, created_at FROM codelocal_dashboard_chat WHERE user_id=$1 ORDER BY created_at ASC LIMIT $2`, userID, limit)
+	rows, err := s.DB.Query(ctx, `SELECT id, user_id, role, content, tool_calls, image, created_at FROM codelocal_dashboard_chat WHERE user_id=$1 ORDER BY created_at ASC LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -44,10 +57,14 @@ func (s *Store) ListDashboardChatHistory(ctx context.Context, userID string, lim
 	for rows.Next() {
 		var m DashboardChatMessage
 		var toolCalls string
-		if err := rows.Scan(&m.ID, &m.UserID, &m.Role, &m.Content, &toolCalls, &m.CreatedAt); err != nil {
+		var img *string
+		if err := rows.Scan(&m.ID, &m.UserID, &m.Role, &m.Content, &toolCalls, &img, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		m.ToolCalls = json.RawMessage(toolCalls)
+		if img != nil {
+			m.Image = *img
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()

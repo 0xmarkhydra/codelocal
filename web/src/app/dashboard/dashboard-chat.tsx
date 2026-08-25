@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import styles from "./dashboard-chat.module.css";
 
 type ToolCall = { id: string; name: string; arguments: string; result?: string; durationMs?: number; status: "done" | "error" };
-type ChatMsg = { role: "user" | "assistant"; content: string; tool_calls?: ToolCall[] };
+type ChatMsg = { role: "user" | "assistant"; content: string; tool_calls?: ToolCall[]; image?: string };
 
 export function DashboardChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [image, setImage] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/v1/dashboard/chat/history", { credentials: "include" })
@@ -20,7 +22,7 @@ export function DashboardChat() {
         }
         return r.ok ? r.json() : null;
       })
-      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[] }> } | null) => {
+      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; image?: string }> } | null) => {
         if (!data?.messages) return;
         const mapped: ChatMsg[] = data.messages.map((m) => {
           let tcs: ToolCall[] | undefined;
@@ -31,30 +33,56 @@ export function DashboardChat() {
               tcs = undefined;
             }
           } else if (Array.isArray(m.tool_calls)) tcs = m.tool_calls as ToolCall[];
-          return { role: m.role as ChatMsg["role"], content: m.content, tool_calls: tcs };
+          return { role: m.role as ChatMsg["role"], content: m.content, tool_calls: tcs, image: (m as unknown as { image?: string }).image };
         });
         if (mapped.length) setMessages(mapped.slice(-50));
       })
       .catch(() => {});
   }, []);
 
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 8 * 1024 * 1024) {
+      alert("Ảnh quá lớn (>8MB)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setImage(reader.result as string);
+    reader.readAsDataURL(f);
+  }
+
+  function onPaste(e: React.ClipboardEvent) {
+    const item = Array.from(e.clipboardData.items).find((it) => it.type.startsWith("image/"));
+    if (!item) return;
+    const f = item.getAsFile();
+    if (!f) return;
+    e.preventDefault();
+    const reader = new FileReader();
+    reader.onload = () => setImage(reader.result as string);
+    reader.readAsDataURL(f);
+  }
+
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || loading) return;
-    const next: ChatMsg[] = [...messages, { role: "user", content: text }];
+    if ((!text && !image) || loading) return;
+    const userMsg: ChatMsg = { role: "user", content: text || "(ảnh)", image: image || undefined };
+    const next: ChatMsg[] = [...messages, userMsg];
     setMessages(next);
+    const sendImage = image;
     setInput("");
+    setImage(null);
+    if (fileRef.current) fileRef.current.value = "";
     setLoading(true);
-    // prepare placeholder for streaming like opencode text-delta
     const placeholderIdx = next.length;
     setMessages((m) => [...m, { role: "assistant", content: "", tool_calls: [] }]);
     try {
-      const history = next.slice(-12).map((m) => ({ role: m.role, content: m.content }));
+      const history = next.slice(-12).map((m) => ({ role: m.role, content: m.content, image: m.image }));
       const res = await fetch("/api/v1/dashboard/chat?stream=1", {
         method: "POST",
         headers: { "content-type": "application/json", accept: "text/event-stream" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({ message: text || "Phân tích ảnh này", history, image: sendImage }),
       });
       if (res.status === 401) {
         window.location.href = "/login";
@@ -70,7 +98,6 @@ export function DashboardChat() {
       }
       const contentType = res.headers.get("content-type") || "";
       if (!contentType.includes("text/event-stream")) {
-        // fallback batch (Go not streaming or old)
         const data = (await res.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string };
         if (data.error) throw new Error(data.error);
         setMessages((m) => {
@@ -117,7 +144,6 @@ export function DashboardChat() {
                 return copy;
               });
             } else if (event === "tool_delta" && data.tool_calls) {
-              // incremental tool delta from Go proxy
               const deltas = data.tool_calls as Array<{ index: number; name?: string; arguments?: string; id?: string }>;
               for (const d of deltas) {
                 if (!toolCalls[d.index]) toolCalls[d.index] = { id: d.id || `tool_${d.index}`, name: d.name || toolCalls[d.index]?.name || "", arguments: "", status: "done" };
@@ -138,7 +164,6 @@ export function DashboardChat() {
                 return copy;
               });
             } else if (event === "done") {
-              // final flush
               setMessages((m) => {
                 const copy = [...m];
                 copy[placeholderIdx] = { role: "assistant", content: acc || copy[placeholderIdx].content, tool_calls: [...toolCalls] };
@@ -150,7 +175,6 @@ export function DashboardChat() {
           } catch {}
         }
       }
-      // ensure final content set
       setMessages((m) => {
         const copy = [...m];
         if (!copy[placeholderIdx].content && acc) copy[placeholderIdx].content = acc;
@@ -184,10 +208,10 @@ export function DashboardChat() {
           Xóa
         </button>
       </div>
-      <div className={styles.chatMessages}>
+      <div className={styles.chatMessages} onPaste={onPaste}>
         {messages.length === 0 ? (
           <div className={styles.msgEmpty}>
-            Hỏi ngay trên dashboard — ví dụ: “liệt kê workspaces”, “máy nào đang online?”, “tìm trong Project Brain: dashboard”. Sẽ thấy 🔧 func call.
+            Hỏi ngay trên dashboard — ví dụ: “liệt kê workspaces”, “máy nào đang online?”, “tìm trong Project Brain: dashboard”. Kéo ảnh vào, dán Ctrl+V, hoặc bấm 📎 để upload — sẽ thấy 🔧 func call.
           </div>
         ) : (
           messages.map((m, i) => (
@@ -214,19 +238,32 @@ export function DashboardChat() {
                   ))}
                 </div>
               ) : null}
+              {m.image ? <img src={m.image} alt="upload" className={styles.msgImage} /> : null}
               <div className={`${styles.msg} ${m.role === "user" ? styles.msgUser : styles.msgAssistant}`}>{m.content}</div>
             </div>
           ))
         )}
         {loading ? <div className={`${styles.msg} ${styles.msgAssistant}`}>CodeLocal đang nghĩ… (có thể đang gọi func)</div> : null}
       </div>
+      {image ? (
+        <div className={styles.imagePreview}>
+          <img src={image} alt="preview" />
+          <button type="button" onClick={() => setImage(null)} aria-label="Xóa ảnh">
+            ✕
+          </button>
+        </div>
+      ) : null}
       <form className={styles.chatForm} onSubmit={send}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Nhắn cho CodeLocal... (thử: liệt kê workspaces)" aria-label="Chat input" />
-        <button type="submit" disabled={loading || !input.trim()}>
+        <input ref={fileRef} type="file" accept="image/*" onChange={onFile} style={{ display: "none" }} />
+        <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Upload ảnh">
+          📎
+        </button>
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Nhắn cho CodeLocal... dán ảnh Ctrl+V hoặc 📎" aria-label="Chat input" />
+        <button type="submit" disabled={loading || (!input.trim() && !image)}>
           Gửi
         </button>
       </form>
-      <div className={styles.chatHint}>Nhánh feat/dashboard-chat · Go backend stream SSE · history lưu backend (không FE) · gắn CODELOCAL_LLM_API_KEY vào Go env (railway.json) để dùng model free</div>
+      <div className={styles.chatHint}>Nhánh main đã có chat · Go backend stream SSE · history backend · gắn CODELOCAL_LLM_API_KEY vào Go env để dùng model free · hỗ trợ upload/paste ảnh</div>
     </section>
   );
 }

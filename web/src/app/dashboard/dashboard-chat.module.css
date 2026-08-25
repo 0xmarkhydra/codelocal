@@ -77,12 +77,18 @@
 
 .chatForm {
   display: grid;
-  grid-template-columns: minmax(0,1fr) auto;
+  grid-template-columns: auto minmax(0,1fr) auto;
   gap: 8px;
   padding: 12px 14px;
   border-top: 1px solid var(--line);
   background: rgba(5,9,14,.72);
 }
+
+.msgImage { max-width: 240px; max-height: 180px; border-radius: 10px; border: 1px solid var(--line); object-fit: contain; }
+.imagePreview { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--line); background: rgba(5,9,14,.5); }
+.imagePreview img { max-height: 64px; max-width: 120px; border-radius: 8px; border: 1px solid var(--line); }
+.imagePreview button { height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.02); color: var(--muted-2); cursor: pointer; }
+.attachBtn { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.02); cursor: pointer; }
 
 .chatForm input {
   height: 40px;
