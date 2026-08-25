@@ -6,11 +6,16 @@ export default function DashboardPage() {
   return (
     <section className={styles.content}>
       <header className={`${styles.header} ${styles.compactHeader}`}>
-        <div><h1>Home</h1></div>
+        <div>
+          <h1>Chat</h1>
+          <p>Chức năng chính — trò chuyện với CodeLocal ngay trên dashboard, hiện logic func call</p>
+        </div>
       </header>
 
-      <LiveOverview />
       <DashboardChat />
+      <div style={{ marginTop: 14 }}>
+        <LiveOverview />
+      </div>
     </section>
   );
 }

@@ -1,13 +1,13 @@
 .chatShell {
   width: min(100%, 1360px);
-  margin: 12px auto 0;
-  border: 1px solid rgba(123,151,224,.18);
+  margin: 0 auto 0;
+  border: 1px solid rgba(123,151,224,.22);
   border-radius: 17px;
   background:
-    radial-gradient(circle at 88% 0%, rgba(76,101,160,.07), transparent 22rem),
-    linear-gradient(180deg, rgba(255,255,255,.012), transparent 42%),
-    rgba(6,10,16,.88);
-  box-shadow: 0 18px 56px rgba(0,0,0,.16);
+    radial-gradient(circle at 88% 0%, rgba(76,101,160,.09), transparent 22rem),
+    linear-gradient(180deg, rgba(255,255,255,.014), transparent 42%),
+    rgba(6,10,16,.92);
+  box-shadow: 0 22px 64px rgba(0,0,0,.2);
   overflow: hidden;
 }
 
@@ -36,8 +36,8 @@
 }
 
 .chatMessages {
-  min-height: 260px;
-  max-height: 420px;
+  min-height: 420px;
+  max-height: 62vh;
   overflow-y: auto;
   display: grid;
   gap: 10px;

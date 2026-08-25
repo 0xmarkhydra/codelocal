@@ -7,12 +7,12 @@ import styles from "./dashboard.module.css";
 import controls from "./dashboard-controls.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
 
-type IconName = "home" | "link" | "folder" | "device" | "book" | "graph" | "usage" | "invite" | "admin";
+type IconName = "home" | "chat" | "link" | "folder" | "device" | "book" | "graph" | "usage" | "invite" | "admin";
 type NavigationItem = { label: string; href: string; icon: IconName };
 type NavigationGroup = { label: string; items: NavigationItem[] };
 
 const primaryNavigation: NavigationItem[] = [
-  { label: "Home", href: "/dashboard", icon: "home" },
+  { label: "Chat", href: "/dashboard", icon: "chat" },
   { label: "Connections", href: "/dashboard/connect", icon: "link" },
   { label: "Workspaces", href: "/dashboard/workspaces", icon: "folder" },
   { label: "Devices", href: "/dashboard/devices", icon: "device" },
@@ -41,6 +41,8 @@ function NavIcon({ name }: { name: IconName }) {
   switch (name) {
     case "home":
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10M9 20v-6h6v6" /></svg>;
+    case "chat":
+      return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="M8 9h8M8 13h6" /><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H12L8 22v-2.5A8.5 8.5 0 0 1 21 11.5Z" /></svg>;
     case "link":
       return <svg className={styles.navIcon} viewBox="0 0 24 24" aria-hidden="true" {...common}><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" /></svg>;
     case "folder":
