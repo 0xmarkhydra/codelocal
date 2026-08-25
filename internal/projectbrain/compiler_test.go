@@ -65,3 +65,17 @@ func TestCompileContextDuplicateMandatoryRuleDoesNotCauseFalseOverflow(t *testin
 		t.Fatalf("duplicate mandatory guidance was not compacted: %#v", packet)
 	}
 }
+
+func TestCompileContextRecoversLegacyBudgetWhenMandatoryRulesOutgrowIt(t *testing.T) {
+	text := strings.Repeat("x", LegacyRuleContextBudget+100)
+	resolved := ResolvedRules{Fingerprint: "resolved", Rules: []CanonicalRule{
+		compilerRule("legacy-budget-growth", text, AuthorityRepository, true),
+	}}
+	packet := CompileContext(resolved, LegacyRuleContextBudget)
+	if packet.Budget.MaxChars != DefaultRuleContextBudget {
+		t.Fatalf("legacy budget was not upgraded: %#v", packet.Budget)
+	}
+	if packet.MandatoryOverflow || !packet.MutationAllowed || packet.Budget.DroppedRequired != 0 {
+		t.Fatalf("legacy budget upgrade must preserve required rules: %#v", packet)
+	}
+}

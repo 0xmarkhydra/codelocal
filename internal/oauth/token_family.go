@@ -149,6 +149,9 @@ local rotated=tonumber(redis.call('HGET',key,'rotatedAt') or '0')
 if previous==presented and rotated>0 and (nowms-rotated)<=grace then
  return {'retry',storedFamily,current,redis.call('HGET',key,'issuedAt') or issued}
 end
+if previous==presented then
+ return {'stale',storedFamily,'','0'}
+end
 redis.call('HSET',key,'revoked','1','replayAt',tostring(nowms))
 redis.call('PEXPIRE',key,ttl)
 return {'replay',storedFamily,'','0'}

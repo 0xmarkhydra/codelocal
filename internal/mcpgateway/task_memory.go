@@ -1377,9 +1377,10 @@ func (s *Service) refreshProjectBrainBeforeMutation(ctx context.Context, userID,
 	patch := taskPatchForOperation("context", contextOperation, contextArgs, result)
 	state = workingMemory.Update(userID, session, workspaceKey, patch)
 	if state.ContextHash != "" && state.ContextHash != oldHash {
-		// Stop before the write. The caller receives the exact-target rule packet
-		// and can retry only after it has observed the refreshed constraints.
-		return contextRefreshRequired(result, targets), true
+		// The context has been refreshed for the exact mutation targets. Continue
+		// in this call with the refreshed state; stopping here created a dead-end
+		// where every edit required the model to manually replay the mutation.
+		return nil, false
 	}
 	return nil, false
 }

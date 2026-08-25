@@ -302,6 +302,7 @@ func registerCompactTools(server *mcp.Server, service *Service, userID string) {
 		server.AddTool(&mcp.Tool{Name: def.Name, Title: def.Title, Annotations: def.Annotations, Description: def.Description, InputSchema: def.Schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			legacyTool := staleToolSchemaFromContext(ctx)
 			wrap := func(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
+				result = normalizeRecoverableToolResult(result)
 				if legacyTool != "" {
 					result = appendCompatibilityNotice(result, staleToolSchemaNotice(legacyTool))
 				}

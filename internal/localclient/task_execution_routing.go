@@ -216,8 +216,19 @@ func (e *Engine) taskApplyEdits(ctx context.Context, args map[string]any, opts H
 	return result, nil
 }
 
+func normalizeTaskPatchPayload(patch string) string {
+	// Some clients serialize the unified patch as one JSON string containing
+	// literal backslash-n sequences. Only decode that transport artifact when
+	// the payload has no actual line breaks, so source content remains intact.
+	if !strings.Contains(patch, "\n") && strings.Contains(patch, `\n`) {
+		return strings.ReplaceAll(patch, `\n`, "\n")
+	}
+	return patch
+}
+
 func taskPatchPaths(patch string) []string {
 	seen, paths := map[string]struct{}{}, []string{}
+	patch = normalizeTaskPatchPayload(patch)
 	for _, line := range strings.Split(patch, "\n") {
 		candidate := ""
 		switch {
