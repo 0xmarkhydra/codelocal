@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -119,6 +120,64 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	model := strings.TrimSpace(os.Getenv("CODELOCAL_LLM_MODEL"))
 	if model == "" {
 		model = "gpt-4o-mini"
+	}
+	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+	if isStream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher, _ := w.(http.Flusher)
+		writeSSE := func(event string, data any) {
+			b, _ := json.Marshal(data)
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, string(b))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		// Mock stream when no key — still shows func call streaming like ChatGPT
+		if apiKey == "" {
+			lower2 := strings.ToLower(msg)
+			var tcs []dashboardToolCall
+			var reply string
+			if strings.Contains(lower2, "workspace") {
+				tcs = []dashboardToolCall{{ID: "mock_1", Name: "list_workspaces", Arguments: `{"status":"all"}`, Result: `{"total":26,"sample":["codex-mcp","X.com","BIDDI"]}`, DurationMs: 42, Status: "done"}}
+				reply = "Đây là workspaces của bạn (Go mock stream):"
+			} else if strings.Contains(lower2, "device") || strings.Contains(lower2, "máy") {
+				tcs = []dashboardToolCall{{ID: "mock_2", Name: "list_devices", Arguments: `{}`, Result: `{"paired":1,"online":1}`, DurationMs: 18, Status: "done"}}
+				reply = "Thiết bị đã pair (Go mock stream):"
+			} else {
+				reply = "CodeLocal Go (mock stream - chưa gắn CODELOCAL_LLM_API_KEY): đã nhận \"" + msg + "\"."
+			}
+			if len(tcs) > 0 {
+				writeSSE("tool_calls", map[string]any{"tool_calls": tcs})
+				time.Sleep(120 * time.Millisecond)
+			}
+			// stream reply by words like opencode text-delta
+			for _, wrd := range strings.Split(reply, " ") {
+				writeSSE("delta", map[string]any{"delta": wrd + " "})
+				time.Sleep(35 * time.Millisecond)
+			}
+			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
+			return
+		}
+		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed
+		system2 := "You are CodeLocal assistant on codelocal.cloud/dashboard. Answer concisely in Vietnamese when user speaks Vietnamese. Use tools when user asks about workspaces/devices/Project Brain."
+		msgs := []map[string]any{{"role": "system", "content": system2}}
+		for _, h := range req.History {
+			m := map[string]any{"role": h.Role, "content": h.Content}
+			if h.ToolCallID != "" {
+				m["tool_call_id"] = h.ToolCallID
+			}
+			if h.Name != "" {
+				m["name"] = h.Name
+			}
+			msgs = append(msgs, m)
+		}
+		msgs = append(msgs, map[string]any{"role": "user", "content": msg})
+		if err := proxyLLMStream(w, flusher, baseURL, apiKey, model, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
+			writeSSE("error", map[string]string{"error": err.Error()})
+		}
+		return
 	}
 	lower := strings.ToLower(msg)
 	if apiKey == "" {
@@ -276,6 +335,178 @@ type httpError struct {
 }
 
 func (e *httpError) Error() string { return fmt.Sprintf("http %d: %s", e.Status, e.Body) }
+
+func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {
+	body := map[string]any{"model": model, "messages": messages, "temperature": 0.7, "stream": true, "stream_options": map[string]any{"include_usage": true}}
+	if len(tools) > 0 {
+		body["tools"] = tools
+		body["tool_choice"] = "auto"
+	}
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return &httpError{Status: resp.StatusCode, Body: string(raw)}
+	}
+	writeRaw := func(data string) {
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	toolCallsByIndex := map[int]*llmToolCall{}
+	var fullContent strings.Builder
+	finishedWithToolCalls := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content   *string `json:"content"`
+					ToolCalls []struct {
+						Index    int     `json:"index"`
+						ID       *string `json:"id"`
+						Function *struct {
+							Name      *string `json:"name"`
+							Arguments *string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta
+		if delta.Content != nil && *delta.Content != "" {
+			fullContent.WriteString(*delta.Content)
+			b2, _ := json.Marshal(map[string]any{"delta": *delta.Content})
+			writeRaw(string(b2))
+		}
+		for _, tc := range delta.ToolCalls {
+			idx := tc.Index
+			if _, ok := toolCallsByIndex[idx]; !ok {
+				toolCallsByIndex[idx] = &llmToolCall{}
+			}
+			if tc.ID != nil {
+				toolCallsByIndex[idx].ID = *tc.ID
+			}
+			if tc.Function != nil {
+				if tc.Function.Name != nil {
+					toolCallsByIndex[idx].Name = *tc.Function.Name
+				}
+				if tc.Function.Arguments != nil {
+					toolCallsByIndex[idx].Arguments += *tc.Function.Arguments
+				}
+			}
+			// stream tool call delta as event
+			b2, _ := json.Marshal(map[string]any{"tool_calls": []map[string]any{{"index": idx, "id": toolCallsByIndex[idx].ID, "name": toolCallsByIndex[idx].Name, "arguments": toolCallsByIndex[idx].Arguments}}})
+			_, _ = fmt.Fprintf(w, "event: tool_delta\ndata: %s\n\n", string(b2))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if chunk.Choices[0].FinishReason != nil && *chunk.Choices[0].FinishReason == "tool_calls" {
+			finishedWithToolCalls = true
+		}
+	}
+	if len(toolCallsByIndex) > 0 && finishedWithToolCalls {
+		var tcs []llmToolCall
+		for i := 0; i < len(toolCallsByIndex); i++ {
+			if tc, ok := toolCallsByIndex[i]; ok {
+				tcs = append(tcs, *tc)
+			}
+		}
+		// execute tools and stream final answer like opencode second call
+		var results []dashboardToolCall
+		for _, tc := range tcs {
+			t0 := time.Now()
+			argsMap := map[string]any{}
+			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
+			resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
+			results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"})
+			b2, _ := json.Marshal(map[string]any{"tool_calls": results})
+			_, _ = fmt.Fprintf(w, "event: tool_calls\ndata: %s\n\n", string(b2))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		// second LLM call streamed
+		follow := append([]map[string]any{}, messages...)
+		toolCallsAny := []map[string]any{}
+		for _, tc := range tcs {
+			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+		}
+		follow = append(follow, map[string]any{"role": "assistant", "content": fullContent.String(), "tool_calls": toolCallsAny})
+		for _, tr := range results {
+			follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
+		}
+		body2 := map[string]any{"model": model, "messages": follow, "temperature": 0.7, "stream": true, "stream_options": map[string]any{"include_usage": true}}
+		b2, _ := json.Marshal(body2)
+		req2, _ := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(b2))
+		req2.Header.Set("Content-Type", "application/json")
+		req2.Header.Set("Authorization", "Bearer "+apiKey)
+		resp2, err := client.Do(req2)
+		if err != nil {
+			return err
+		}
+		defer resp2.Body.Close()
+		scanner2 := bufio.NewScanner(resp2.Body)
+		scanner2.Buffer(buf, 1024*1024)
+		for scanner2.Scan() {
+			line := strings.TrimSpace(scanner2.Text())
+			if line == "" || !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "[DONE]" {
+				break
+			}
+			var ch struct {
+				Choices []struct {
+					Delta struct {
+						Content *string `json:"content"`
+					} `json:"delta"`
+				} `json:"choices"`
+			}
+			_ = json.Unmarshal([]byte(payload), &ch)
+			if len(ch.Choices) > 0 && ch.Choices[0].Delta.Content != nil {
+				b3, _ := json.Marshal(map[string]any{"delta": *ch.Choices[0].Delta.Content})
+				writeRaw(string(b3))
+			}
+		}
+	}
+	_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", `{"done":true}`)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return nil
+}
 
 func jsonQuote(s string) string {
 	b, _ := json.Marshal(s)

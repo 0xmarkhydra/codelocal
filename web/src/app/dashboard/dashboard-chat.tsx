@@ -33,22 +33,115 @@ export function DashboardChat() {
     setMessages(next);
     setInput("");
     setLoading(true);
+    // prepare placeholder for streaming like opencode text-delta
+    const placeholderIdx = next.length;
+    setMessages((m) => [...m, { role: "assistant", content: "", tool_calls: [] }]);
     try {
       const history = next.slice(-12).map((m) => ({ role: m.role, content: m.content }));
-      const res = await fetch("/api/v1/dashboard/chat", {
+      const res = await fetch("/api/v1/dashboard/chat?stream=1", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
         body: JSON.stringify({ message: text, history }),
       });
-      const data = (await res.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string };
-      if (!res.ok) {
-        setMessages((m) => [...m, { role: "assistant", content: data.error ? `Lỗi: ${data.error}` : `Lỗi ${res.status}` }]);
-      } else {
-        setMessages((m) => [...m, { role: "assistant", content: data.reply ?? "(no reply)", tool_calls: data.tool_calls }]);
+      if (!res.ok || !res.body) {
+        const data = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { reply?: string; tool_calls?: ToolCall[]; error?: string };
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("text/event-stream")) {
+        // fallback batch (Go not streaming or old)
+        const data = (await res.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string };
+        if (data.error) throw new Error(data.error);
+        setMessages((m) => {
+          const copy = [...m];
+          copy[placeholderIdx] = { role: "assistant", content: data.reply ?? "", tool_calls: data.tool_calls };
+          return copy;
+        });
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      let toolCalls: ToolCall[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() || "";
+        for (const part of parts) {
+          const lines = part.split("\n");
+          let event = "message";
+          let dataStr = "";
+          for (const ln of lines) {
+            if (ln.startsWith("event:")) event = ln.slice(6).trim();
+            else if (ln.startsWith("data:")) dataStr += ln.slice(5).trim();
+          }
+          if (!dataStr) continue;
+          try {
+            const data = JSON.parse(dataStr);
+            if (event === "delta" && typeof data.delta === "string") {
+              acc += data.delta;
+              setMessages((m) => {
+                const copy = [...m];
+                copy[placeholderIdx] = { role: "assistant", content: acc, tool_calls: [...toolCalls] };
+                return copy;
+              });
+            } else if (event === "tool_calls" && Array.isArray(data.tool_calls)) {
+              toolCalls = data.tool_calls as ToolCall[];
+              setMessages((m) => {
+                const copy = [...m];
+                copy[placeholderIdx] = { role: "assistant", content: acc, tool_calls: [...toolCalls] };
+                return copy;
+              });
+            } else if (event === "tool_delta" && data.tool_calls) {
+              // incremental tool delta from Go proxy
+              const deltas = data.tool_calls as Array<{ index: number; name?: string; arguments?: string; id?: string }>;
+              for (const d of deltas) {
+                if (!toolCalls[d.index]) toolCalls[d.index] = { id: d.id || `tool_${d.index}`, name: d.name || toolCalls[d.index]?.name || "", arguments: "", status: "done" };
+                if (d.name) toolCalls[d.index].name = d.name;
+                if (d.arguments) toolCalls[d.index].arguments += d.arguments;
+              }
+              setMessages((m) => {
+                const copy = [...m];
+                copy[placeholderIdx] = { role: "assistant", content: acc, tool_calls: [...toolCalls] };
+                return copy;
+              });
+            } else if (event === "done" && data.reply) {
+              acc = data.reply;
+              if (data.tool_calls) toolCalls = data.tool_calls;
+              setMessages((m) => {
+                const copy = [...m];
+                copy[placeholderIdx] = { role: "assistant", content: acc, tool_calls: [...toolCalls] };
+                return copy;
+              });
+            } else if (event === "done") {
+              // final flush
+              setMessages((m) => {
+                const copy = [...m];
+                copy[placeholderIdx] = { role: "assistant", content: acc || copy[placeholderIdx].content, tool_calls: [...toolCalls] };
+                return copy;
+              });
+            } else if (event === "error") {
+              throw new Error(data.error || "stream error");
+            }
+          } catch {}
+        }
+      }
+      // ensure final content set
+      setMessages((m) => {
+        const copy = [...m];
+        if (!copy[placeholderIdx].content && acc) copy[placeholderIdx].content = acc;
+        return copy;
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setMessages((m) => [...m, { role: "assistant", content: `CodeLocal offline: ${msg}` }]);
+      setMessages((m) => {
+        const copy = [...m];
+        copy[placeholderIdx] = { role: "assistant", content: `Lỗi: ${msg}` };
+        return copy;
+      });
     } finally {
       setLoading(false);
     }
