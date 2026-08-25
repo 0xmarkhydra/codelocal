@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -92,6 +93,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// 7. Rate limit 20 req/min per user to prevent LLM abuse
+	if allowed, _, retry, _ := s.Store.RateLimit(r.Context(), "dashboard-chat", identity.User.ID, 20, 60); !allowed {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retry))
+		webutil.JSON(w, http.StatusTooManyRequests, map[string]any{"error": "rate_limited", "retry_after": retry})
+		return
+	}
 	if r.Method != http.MethodPost {
 		webutil.JSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
 		return
@@ -161,8 +168,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
 			now2 := time.Now().UnixMilli()
 			tcsJSON2, _ := json.Marshal(tcs)
-			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now2})
-			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1})
+			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now2}); err != nil {
+				slog.Warn("dashboard chat stream mock save user failed", "error", err)
+			}
+			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1}); err != nil {
+				slog.Warn("dashboard chat stream mock save assistant failed", "error", err)
+			}
 			return
 		}
 		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed
@@ -179,8 +190,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			msgs = append(msgs, m)
 		}
 		msgs = append(msgs, map[string]any{"role": "user", "content": msg})
-		// persist user message immediately for backend history (assistant will be saved after stream via proxy)
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()}); err != nil {
+			slog.Warn("dashboard chat stream save user failed", "error", err)
+		}
 		if err := proxyLLMStream(w, flusher, baseURL, apiKey, model, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
 			writeSSE("error", map[string]string{"error": err.Error()})
 		}
@@ -205,8 +217,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		// persist to backend (not FE localStorage)
 		now := time.Now().UnixMilli()
 		tcsJSON, _ := json.Marshal(tcs)
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now})
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1})
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now}); err != nil {
+			slog.Warn("dashboard chat save user failed", "error", err, "user", identity.User.ID)
+		}
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1}); err != nil {
+			slog.Warn("dashboard chat save assistant failed", "error", err)
+		}
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
 		return
 	}
@@ -230,8 +246,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(toolCalls) == 0 {
 		now3 := time.Now().UnixMilli()
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3})
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1})
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3}); err != nil {
+			slog.Warn("dashboard chat save no-tool user failed", "error", err)
+		}
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1}); err != nil {
+			slog.Warn("dashboard chat save no-tool assistant failed", "error", err)
+		}
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": model, "tool_calls": []dashboardToolCall{}})
 		return
 	}
@@ -259,8 +279,16 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	now4 := time.Now().UnixMilli()
 	tcsJSON4, _ := json.Marshal(results)
-	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now4})
-	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1})
+	// truncate tool result if too large for DB (avoid 1MB JSONB)
+	if len(tcsJSON4) > 5000 {
+		tcsJSON4 = tcsJSON4[:5000]
+	}
+	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now4}); err != nil {
+		slog.Warn("dashboard chat save final user failed", "error", err)
+	}
+	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
+		slog.Warn("dashboard chat save final assistant failed", "error", err)
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": model, "tool_calls": results})
 }
 
@@ -283,6 +311,13 @@ func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request)
 }
 
 func execDashboardTool(r *http.Request, s *Server, userID, name string, args map[string]any) string {
+	const maxToolResult = 5000
+	trunc := func(b []byte) string {
+		if len(b) > maxToolResult {
+			return string(b[:maxToolResult]) + `,"truncated":true}`
+		}
+		return string(b)
+	}
 	switch name {
 	case "list_workspaces":
 		ws, err := s.Workspaces.Catalog(r.Context(), userID)
@@ -290,7 +325,7 @@ func execDashboardTool(r *http.Request, s *Server, userID, name string, args map
 			return `{"error":"workspaces_unavailable"}`
 		}
 		b, _ := json.Marshal(map[string]any{"total": len(ws), "workspaces": ws})
-		return string(b)
+		return trunc(b)
 	case "list_devices":
 		devs, err := s.Store.ListDevices(r.Context(), userID)
 		if err != nil {
@@ -300,7 +335,7 @@ func execDashboardTool(r *http.Request, s *Server, userID, name string, args map
 			devs[i].SecretHash = ""
 		}
 		b, _ := json.Marshal(map[string]any{"devices": devs})
-		return string(b)
+		return trunc(b)
 	case "search_project_brain":
 		q, _ := args["query"].(string)
 		return `{"query":` + jsonQuote(q) + `,"hits":[{"path":"web/src/app/dashboard","score":0.92}],"note":"Go mock - will query Project Brain index"}`
@@ -401,11 +436,16 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	scanner.Buffer(buf, 2*1024*1024)
 	toolCallsByIndex := map[int]*llmToolCall{}
 	var fullContent strings.Builder
 	finishedWithToolCalls := false
 	for scanner.Scan() {
+		select {
+		case <-r.Context().Done():
+			return r.Context().Err()
+		default:
+		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
@@ -517,6 +557,11 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		scanner2 := bufio.NewScanner(resp2.Body)
 		scanner2.Buffer(buf, 1024*1024)
 		for scanner2.Scan() {
+			select {
+			case <-r.Context().Done():
+				return r.Context().Err()
+			default:
+			}
 			line := strings.TrimSpace(scanner2.Text())
 			if line == "" || !strings.HasPrefix(line, "data:") {
 				continue

@@ -12,9 +12,14 @@ export function DashboardChat() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Load history from backend (not FE localStorage) — persists cross-device
     fetch("/api/v1/dashboard/chat/history", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (r.status === 401) {
+          window.location.href = "/login";
+          return null;
+        }
+        return r.ok ? r.json() : null;
+      })
       .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[] }> } | null) => {
         if (!data?.messages) return;
         const mapped: ChatMsg[] = data.messages.map((m) => {
@@ -28,7 +33,7 @@ export function DashboardChat() {
           } else if (Array.isArray(m.tool_calls)) tcs = m.tool_calls as ToolCall[];
           return { role: m.role as ChatMsg["role"], content: m.content, tool_calls: tcs };
         });
-        if (mapped.length) setMessages(mapped);
+        if (mapped.length) setMessages(mapped.slice(-50));
       })
       .catch(() => {});
   }, []);
@@ -51,6 +56,14 @@ export function DashboardChat() {
         headers: { "content-type": "application/json", accept: "text/event-stream" },
         body: JSON.stringify({ message: text, history }),
       });
+      if (res.status === 401) {
+        window.location.href = "/login";
+        throw new Error("Unauthorized - redirecting to login");
+      }
+      if (res.status === 429) {
+        const data = (await res.json().catch(() => ({ error: "rate_limited" }))) as { error?: string; retry_after?: number };
+        throw new Error(data.error ? `Rate limited, thử lại sau ${data.retry_after || 60}s` : "Rate limited");
+      }
       if (!res.ok || !res.body) {
         const data = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { reply?: string; tool_calls?: ToolCall[]; error?: string };
         throw new Error(data.error || `HTTP ${res.status}`);
