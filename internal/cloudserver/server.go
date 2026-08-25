@@ -263,6 +263,7 @@ func (s *Server) routes() {
 	s.OAuth.Register(mux)
 	mux.Handle("GET /api/status", s.WebAuth.Require(http.HandlerFunc(s.apiStatus)))
 	mux.HandleFunc("GET /api/v1/dashboard/overview", s.dashboardOverviewAPI)
+	mux.HandleFunc("GET /api/v1/dashboard/models", s.dashboardModelsAPI)
 	mux.HandleFunc("POST /api/v1/dashboard/chat", s.dashboardChatAPI)
 	mux.HandleFunc("GET /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
 	mux.HandleFunc("DELETE /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)

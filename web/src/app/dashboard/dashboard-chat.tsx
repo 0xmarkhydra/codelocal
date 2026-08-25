@@ -11,6 +11,8 @@ export function DashboardChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState<string | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,6 +38,18 @@ export function DashboardChat() {
           return { role: m.role as ChatMsg["role"], content: m.content, tool_calls: tcs, image: (m as unknown as { image?: string }).image };
         });
         if (mapped.length) setMessages(mapped.slice(-50));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/v1/dashboard/models", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { models?: string[]; default_model?: string } | null) => {
+        const nextModels = Array.isArray(data?.models) ? data!.models! : [];
+        setModels(nextModels);
+        const preferred = data?.default_model || nextModels[0] || "";
+        setSelectedModel((current) => current || preferred);
       })
       .catch(() => {});
   }, []);
@@ -82,7 +96,7 @@ export function DashboardChat() {
       const res = await fetch("/api/v1/dashboard/chat?stream=1", {
         method: "POST",
         headers: { "content-type": "application/json", accept: "text/event-stream" },
-        body: JSON.stringify({ message: text || "Phân tích ảnh này", history, image: sendImage }),
+        body: JSON.stringify({ message: text || "Phân tích ảnh này", history, image: sendImage, model: selectedModel || undefined }),
       });
       if (res.status === 401) {
         window.location.href = "/login";
@@ -204,9 +218,25 @@ export function DashboardChat() {
           <h3>Chat với CodeLocal</h3>
           <span>dashboard · codelocal · không cần ChatGPT · hiện logic func call</span>
         </div>
-        <button onClick={clear} className={styles.clearBtn} type="button" aria-label="Xóa lịch sử">
-          Xóa
-        </button>
+        <div className={styles.chatActions}>
+          <select
+            className={styles.modelSelect}
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            aria-label="Chọn model"
+            title="Model dùng cho chat"
+          >
+            {selectedModel && !models.includes(selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
+            {models.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+          <button onClick={clear} className={styles.clearBtn} type="button" aria-label="Xóa lịch sử">
+            Xóa
+          </button>
+        </div>
       </div>
       <div className={styles.chatMessages} onPaste={onPaste}>
         {messages.length === 0 ? (

@@ -27,6 +27,7 @@ type dashboardChatRequest struct {
 	Message string                     `json:"message"`
 	History []dashboardChatHistoryItem `json:"history"`
 	Image   string                     `json:"image,omitempty"`
+	Model   string                     `json:"model,omitempty"`
 }
 
 type dashboardToolCall struct {
@@ -89,6 +90,76 @@ var dashboardChatTools = []map[string]any{
 	},
 }
 
+func dashboardLLMConfig() (apiKey, baseURL, model string) {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
+	apiKey = strings.TrimSpace(os.Getenv("CODELOCAL_LLM_API_KEY"))
+	if apiKey == "" && provider == "zen" {
+		apiKey = strings.TrimSpace(os.Getenv("OPENCODE_ZEN_API_KEY"))
+	}
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	}
+	baseURL = strings.TrimSpace(os.Getenv("CODELOCAL_LLM_BASE_URL"))
+	if baseURL == "" {
+		if provider == "zen" {
+			baseURL = "https://opencode.ai/zen/v1"
+		} else {
+			baseURL = "https://api.openai.com/v1"
+		}
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	model = strings.TrimSpace(os.Getenv("CODELOCAL_LLM_MODEL"))
+	if model == "" {
+		if provider == "zen" {
+			model = "muse-spark-1.2-contributor-free"
+		} else {
+			model = "gpt-4o-mini"
+		}
+	}
+	return apiKey, baseURL, model
+}
+
+func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authenticatedAPIIdentity(w, r); !ok {
+		return
+	}
+	apiKey, baseURL, defaultModel := dashboardLLMConfig()
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, baseURL+"/models", nil)
+	if err != nil {
+		webutil.JSON(w, http.StatusInternalServerError, map[string]string{"error": "models_request_failed"})
+		return
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		webutil.JSON(w, http.StatusBadGateway, map[string]any{"error": "models_upstream_failed", "default_model": defaultModel})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		webutil.JSON(w, http.StatusBadGateway, map[string]any{"error": "models_upstream_failed", "status": resp.StatusCode, "default_model": defaultModel})
+		return
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&payload); err != nil {
+		webutil.JSON(w, http.StatusBadGateway, map[string]any{"error": "models_decode_failed", "default_model": defaultModel})
+		return
+	}
+	models := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			models = append(models, id)
+		}
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"models": models, "default_model": defaultModel})
+}
+
 func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.authenticatedAPIIdentity(w, r)
 	if !ok {
@@ -117,18 +188,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if len(req.History) > 12 {
 		req.History = req.History[len(req.History)-12:]
 	}
-	apiKey := strings.TrimSpace(os.Getenv("CODELOCAL_LLM_API_KEY"))
-	if apiKey == "" {
-		apiKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	}
-	baseURL := strings.TrimSpace(os.Getenv("CODELOCAL_LLM_BASE_URL"))
-	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
-	model := strings.TrimSpace(os.Getenv("CODELOCAL_LLM_MODEL"))
-	if model == "" {
-		model = "gpt-4o-mini"
+	apiKey, baseURL, model := dashboardLLMConfig()
+	if requestedModel := strings.TrimSpace(req.Model); requestedModel != "" {
+		model = requestedModel
 	}
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {

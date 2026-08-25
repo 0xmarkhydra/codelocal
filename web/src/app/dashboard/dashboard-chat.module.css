@@ -139,4 +139,7 @@
 .toolMeta { color: var(--muted-2); font-size: 7px; white-space: nowrap; }
 .toolDetail { margin-top: 6px; display: grid; gap: 4px; color: #dce7f5; font-size: 9px; }
 .toolDetail code { display: block; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: rgba(5,9,14,.72); overflow-wrap: anywhere; font-family: var(--font-geist-mono), monospace; font-size: 8px; }
+.chatActions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.modelSelect { max-width: 260px; height: 28px; padding: 0 28px 0 9px; border: 1px solid var(--line); border-radius: 8px; color: #c9d6e7; background: rgba(255,255,255,.02); font-family: var(--font-geist-mono), monospace; font-size: 8px; outline: 0; }
+.modelSelect:focus { border-color: rgba(120,160,255,.58); }
 .clearBtn { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted-2); background: rgba(255,255,255,.02); font-size: 9px; cursor: pointer; }
