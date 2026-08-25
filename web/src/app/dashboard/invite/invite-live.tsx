@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CopyButton } from "../copy-button";
+import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
 import dashboard from "../dashboard.module.css";
 import surface from "../dashboard-surfaces.module.css";
 
@@ -16,8 +17,8 @@ function isInvite(value: unknown): value is Invite {
 }
 
 function statusLabel(status: string) {
-  if (status === "mcp_active") return "Using MCP now";
-  if (status === "runtime_online") return "Runtime online";
+  if (status === "mcp_active") return "Đang dùng";
+  if (status === "runtime_online") return "Online";
   return "Offline";
 }
 
@@ -25,6 +26,8 @@ export function InviteLive() {
   const router = useRouter();
   const [data, setData] = useState<Invite | null>(null);
   const [error, setError] = useState(false);
+  const [filter, setFilter] = useState<"all" | "active">("all");
+
   useEffect(() => {
     fetch("/api/v1/invite", { cache: "no-store", credentials: "same-origin" })
       .then(async (response) => {
@@ -36,28 +39,60 @@ export function InviteLive() {
       .catch((reason) => { if (reason instanceof Error && reason.message !== "unauthorized") setError(true); });
   }, [router]);
 
-  if (error) return <section className={dashboard.livePanel}><h2>Unavailable</h2></section>;
-  if (!data) return <section className={dashboard.livePanel}><h2>Loading…</h2></section>;
+  const members = useMemo(() => {
+    if (!data) return [];
+    if (filter === "active") return data.members.filter((member) => member.status === "mcp_active" || member.status === "runtime_online");
+    return data.members;
+  }, [data, filter]);
 
-  return <div className={surface.grid}>
-    <section className={surface.card}>
-      <span className={dashboard.eyebrow}>Your invite</span>
-      <h2 className={surface.title}>Invite code</h2>
-      <div className={surface.codeRow}><div className={surface.code}>{data.referralCode}</div><CopyButton value={data.referralCode} label="Copy code" /></div>
-    </section>
-    <div className={surface.metrics}>
-      <div className={surface.metric}><span>Direct invites</span><strong>{data.directCount}</strong></div>
-      <div className={surface.metric}><span>Active invites</span><strong>{data.activeCount}</strong></div>
-      <div className={surface.metric}><span>Invite link</span><strong>Ready</strong></div>
+  if (error) return <DashboardResourceFeedback kind="error" label="Invite" message="Invite tạm thời không khả dụng" onRetry={() => window.location.reload()} />;
+  if (!data) return <DashboardResourceFeedback kind="loading" label="Invite" />;
+
+  return (
+    <div className={surface.inviteLayout}>
+      <section className={surface.inviteHero}>
+        <div className={surface.inviteHeroCopy}>
+          <span className={dashboard.eyebrow}>Invite link</span>
+          <h2>Mời mọi người vào CodeLocal</h2>
+          <p>Chia sẻ link hoặc mã mời. Trạng thái thành viên sẽ cập nhật từ backend hiện có.</p>
+        </div>
+        <div className={surface.inviteLinkBox}>
+          <div>
+            <small>Link của bạn</small>
+            <strong title={data.inviteLink}>{data.inviteLink}</strong>
+          </div>
+          <CopyButton value={data.inviteLink} label="Copy link" />
+        </div>
+        <div className={surface.inviteCodeRow}>
+          <span>Mã mời <strong>{data.referralCode}</strong></span>
+          <CopyButton value={data.referralCode} label="Copy code" />
+        </div>
+      </section>
+
+      <section className={surface.memberPanel}>
+        <div className={surface.memberPanelHead}>
+          <div>
+            <span className={dashboard.eyebrow}>Members</span>
+            <h2>{data.directCount} người đã tham gia</h2>
+          </div>
+          <div className={surface.memberFilters} role="tablist" aria-label="Invite filters">
+            <button type="button" data-active={filter === "all" || undefined} onClick={() => setFilter("all")}>Tất cả {data.directCount}</button>
+            <button type="button" data-active={filter === "active" || undefined} onClick={() => setFilter("active")}>Đang hoạt động {data.activeCount}</button>
+          </div>
+        </div>
+
+        {members.length === 0 ? <div className={surface.empty}>Chưa có thành viên phù hợp.</div> : (
+          <div className={surface.memberList}>
+            {members.map((member, index) => (
+              <div className={surface.memberRow} key={`${member.emailMasked}-${member.joinedAt}-${index}`}>
+                <span className={surface.memberAvatar} aria-hidden="true">{member.initial}</span>
+                <div className={surface.identity}><strong>{member.emailMasked}</strong><span>Tham gia {new Date(member.joinedAt).toLocaleString()}</span></div>
+                <span className={surface.memberStatus} data-state={member.status}><i />{statusLabel(member.status)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
-    <section className={surface.card}>
-      <span className={dashboard.eyebrow}>Share link</span>
-      <div className={surface.codeRow}><div className={surface.code}>{data.inviteLink}</div><CopyButton value={data.inviteLink} label="Copy link" /></div>
-    </section>
-    <section className={surface.card}>
-      <span className={dashboard.eyebrow}>People you invited</span>
-      <h2 className={surface.title}>{data.directCount} direct referral{data.directCount === 1 ? "" : "s"}</h2>
-      {data.members.length === 0 ? <div className={surface.empty}>No one has joined with your invite code yet.</div> : <div className={surface.list}>{data.members.map((member, index) => <div className={surface.row} key={`${member.emailMasked}-${member.joinedAt}-${index}`}><div className={surface.identity}><strong>{member.initial} · {member.emailMasked}</strong><span>Joined {new Date(member.joinedAt).toLocaleString()}</span></div><span className={`${surface.badge} ${member.status === "mcp_active" ? surface.badgeGreen : member.status === "runtime_online" ? surface.badgeBlue : ""}`}>{statusLabel(member.status)}</span></div>)}</div>}
-    </section>
-  </div>;
+  );
 }

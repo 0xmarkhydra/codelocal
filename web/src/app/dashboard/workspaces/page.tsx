@@ -4,7 +4,13 @@ import styles from "../dashboard.module.css";
 export default function WorkspacesPage() {
   return (
     <section className={styles.content}>
-      <header className={styles.header}><div><h1>Workspaces</h1></div></header>
+      <header className={styles.header}>
+        <div>
+          <span className={styles.eyebrow}>Projects</span>
+          <h1>Workspaces</h1>
+          <p>Quản lý dự án và mở Chat hoặc Brain đúng context.</p>
+        </div>
+      </header>
       <LiveWorkspaces />
     </section>
   );

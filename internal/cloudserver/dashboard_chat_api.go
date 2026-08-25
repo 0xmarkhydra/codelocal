@@ -23,11 +23,26 @@ type dashboardChatHistoryItem struct {
 	Name       string `json:"name,omitempty"`
 }
 
+type dashboardChatWorkspace struct {
+	DeviceID      string `json:"deviceId"`
+	WorkspaceID   string `json:"workspaceId"`
+	WorkspaceName string `json:"workspaceName"`
+}
+
 type dashboardChatRequest struct {
-	Message string                     `json:"message"`
-	History []dashboardChatHistoryItem `json:"history"`
-	Image   string                     `json:"image,omitempty"`
-	Model   string                     `json:"model,omitempty"`
+	Message   string                     `json:"message"`
+	History   []dashboardChatHistoryItem `json:"history"`
+	Image     string                     `json:"image,omitempty"`
+	Model     string                     `json:"model,omitempty"`
+	Workspace *dashboardChatWorkspace    `json:"workspace,omitempty"`
+}
+
+func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace) string {
+	prompt := "You are Thánh Gióng, the CodeLocal assistant on codelocal.cloud/dashboard. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, or Project Brain. Never mention the underlying model or provider unless the user explicitly asks."
+	if workspace == nil || strings.TrimSpace(workspace.WorkspaceID) == "" {
+		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results."
+	}
+	return fmt.Sprintf("%s The user manually selected workspace %q (workspaceId=%q, deviceId=%q). Treat this workspace as the primary project context unless the user explicitly asks to switch projects.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
 }
 
 type dashboardToolCall struct {
@@ -281,8 +296,8 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed
-		system2 := "You are CodeLocal assistant on codelocal.cloud/dashboard. Answer concisely in Vietnamese when user speaks Vietnamese. Use tools when user asks about workspaces/devices/Project Brain."
+		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed.
+		system2 := dashboardChatSystemPrompt(req.Workspace)
 		msgs := []map[string]any{{"role": "system", "content": system2}}
 		for _, h := range req.History {
 			m := map[string]any{"role": h.Role, "content": h.Content}
@@ -339,7 +354,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
 		return
 	}
-	system := "You are CodeLocal assistant on codelocal.cloud/dashboard. Answer concisely in Vietnamese when user speaks Vietnamese. Use tools when user asks about workspaces/devices/Project Brain. No need to go to ChatGPT."
+	system := dashboardChatSystemPrompt(req.Workspace)
 	messages := []map[string]any{{"role": "system", "content": system}}
 	for _, h := range req.History {
 		m := map[string]any{"role": h.Role, "content": h.Content}

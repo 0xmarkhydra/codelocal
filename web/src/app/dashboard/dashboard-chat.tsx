@@ -1,6 +1,12 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- chat images are user-provided data/blob previews and should not be optimized remotely */
 
-import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from "react";
+import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
+import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
+import { AppIcon } from "./app-icon";
+import { useDashboardResource } from "./use-dashboard-resource";
 import styles from "./dashboard-chat.module.css";
 
 type ToolCall = {
@@ -26,24 +32,56 @@ type StreamData = {
   tool_calls?: ToolCall[] | Array<{ index: number; name?: string; arguments?: string; id?: string }>;
 };
 
-const suggestions = ["Liệt kê workspaces", "Máy nào đang online?", "Tìm trong Project Brain"];
+type WorkspaceItem = WorkspacesResource["items"][number];
+
+const suggestions = ["Tóm tắt dự án hiện tại", "Tìm file liên quan", "Kiểm tra workspace đang online"];
+
+function workspaceKey(workspace: WorkspaceItem) {
+  return `${workspace.deviceId}::${workspace.workspaceId}`;
+}
+
+function toolLabel(name: string) {
+  switch (name) {
+    case "list_workspaces": return "Đang xem workspaces";
+    case "list_devices": return "Đang kiểm tra thiết bị";
+    case "search_project_brain": return "Đang truy vấn Brain";
+    case "get_workspace_detail": return "Đang đọc dự án";
+    default: return name.replaceAll("_", " ");
+  }
+}
 
 export function DashboardChat() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState<string | null>(null);
-  const [models, setModels] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState("");
   const [notice, setNotice] = useState("");
+  const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState(() => {
+    const deviceId = searchParams.get("deviceId");
+    const workspaceId = searchParams.get("workspaceId");
+    return deviceId && workspaceId ? `${deviceId}::${workspaceId}` : "auto";
+  });
+  const workspaces = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const workspaceItems = useMemo(
+    () => workspaces.state.kind === "ready" ? workspaces.state.value.items : [],
+    [workspaces.state],
+  );
+  const selectedWorkspace = useMemo(
+    () => workspaceItems.find((workspace) => workspaceKey(workspace) === selectedWorkspaceKey),
+    [selectedWorkspaceKey, workspaceItems],
+  );
 
   useEffect(() => {
     fetch("/api/v1/dashboard/chat/history", { credentials: "include" })
       .then(async (response) => {
         if (response.status === 401) {
-          window.location.href = "/login";
+          router.replace("/login");
           return null;
         }
         if (!response.ok) throw new Error(`history ${response.status}`);
@@ -72,21 +110,7 @@ export function DashboardChat() {
         setMessages(mapped.slice(-50));
       })
       .catch(() => setNotice("Không tải được lịch sử chat"));
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/v1/dashboard/models", { credentials: "include" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`models ${response.status}`);
-        return response.json();
-      })
-      .then((data: { models?: string[]; default_model?: string }) => {
-        const nextModels = Array.isArray(data.models) ? data.models : [];
-        setModels(nextModels);
-        setSelectedModel((current) => current || data.default_model || nextModels[0] || "");
-      })
-      .catch(() => setNotice((current) => current || "Không tải được danh sách model"));
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -116,6 +140,12 @@ export function DashboardChat() {
     if (!file) return;
     event.preventDefault();
     readImage(file);
+  }
+
+  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    formRef.current?.requestSubmit();
   }
 
   function updateAssistant(index: number, content: string, toolCalls: ToolCall[]) {
@@ -149,11 +179,20 @@ export function DashboardChat() {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json", accept: "text/event-stream" },
-        body: JSON.stringify({ message: text || "Phân tích ảnh này", history, image: sendImage, model: selectedModel || undefined }),
+        body: JSON.stringify({
+          message: text || "Phân tích ảnh này",
+          history,
+          image: sendImage,
+          workspace: selectedWorkspace ? {
+            deviceId: selectedWorkspace.deviceId,
+            workspaceId: selectedWorkspace.workspaceId,
+            workspaceName: selectedWorkspace.workspaceName,
+          } : undefined,
+        }),
       });
 
       if (response.status === 401) {
-        window.location.href = "/login";
+        router.replace("/login");
         throw new Error("Phiên đăng nhập đã hết hạn");
       }
       if (response.status === 429) {
@@ -201,9 +240,7 @@ export function DashboardChat() {
             continue;
           }
 
-          if (eventName === "error") {
-            throw new Error(data.error || "Model trả về lỗi stream");
-          }
+          if (eventName === "error") throw new Error(data.error || "Model trả về lỗi stream");
           if (eventName === "delta" && typeof data.delta === "string") {
             content += data.delta;
             updateAssistant(placeholderIndex, content, toolCalls);
@@ -255,31 +292,27 @@ export function DashboardChat() {
   }
 
   return (
-    <section className={styles.chatShell} aria-label="Chat với CodeLocal">
+    <section className={styles.chatShell} aria-label="Chat với Thánh Gióng">
       <div className={styles.chatHead}>
         <div className={styles.brandBlock}>
-          <span className={styles.brandMark} aria-hidden="true" />
+          <span className={styles.avatar} aria-hidden="true"><Image src="/thanh-giong-mark.svg" alt="" width={44} height={44} priority /></span>
           <div>
-            <h3>CodeLocal</h3>
-            <span>Project Brain · local tools</span>
+            <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
+            <span>Trợ lý AI của CodeLocal</span>
           </div>
         </div>
         <div className={styles.chatActions}>
-          <select
-            className={styles.modelSelect}
-            value={selectedModel}
-            onChange={(event) => setSelectedModel(event.target.value)}
-            aria-label="Chọn model"
-            disabled={!models.length && !selectedModel}
-          >
-            {!selectedModel && !models.length ? <option value="">Đang tải model…</option> : null}
-            {selectedModel && !models.includes(selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
-            {models.map((model) => (
-              <option key={model} value={model}>{model}</option>
-            ))}
-          </select>
+          <label className={styles.projectPicker}>
+            <span className={styles.projectPickerIcon} aria-hidden="true">
+              <AppIcon name="folder" size={17} />
+            </span>
+            <select value={selectedWorkspaceKey} onChange={(event) => setSelectedWorkspaceKey(event.target.value)} aria-label="Chọn dự án">
+              <option value="auto">Dự án: Auto</option>
+              {workspaceItems.map((workspace) => <option key={workspaceKey(workspace)} value={workspaceKey(workspace)}>Dự án: {workspace.workspaceName}</option>)}
+            </select>
+          </label>
           <button onClick={clear} className={styles.clearBtn} type="button" aria-label="Xóa lịch sử" title="Xóa lịch sử">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" /></svg>
+            <AppIcon name="trash" size={18} />
           </button>
         </div>
       </div>
@@ -287,25 +320,24 @@ export function DashboardChat() {
       <div className={styles.chatMessages} onPaste={onPaste}>
         {messages.length === 0 ? (
           <div className={styles.emptyState}>
-            <div className={styles.emptyMark}><span /></div>
-            <strong>Hỏi CodeLocal</strong>
-            <p>Workspace, thiết bị và Project Brain trong một cuộc trò chuyện.</p>
+            <span className={styles.emptyOrb} aria-hidden="true"><Image src="/thanh-giong-mark.svg" alt="" width={58} height={58} /></span>
+            <strong>Bạn muốn làm gì?</strong>
+            <p>{selectedWorkspace ? `Đang làm việc với ${selectedWorkspace.workspaceName}.` : "Auto sẽ tự chọn dự án phù hợp."}</p>
             <div className={styles.suggestions}>
-              {suggestions.map((suggestion) => (
-                <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>
-              ))}
+              {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
             </div>
           </div>
-        ) : (
-          messages.map((message, index) => (
-            <div key={`${message.role}-${index}`} className={styles.msgBlock}>
+        ) : messages.map((message, index) => (
+          <div key={`${message.role}-${index}`} className={`${styles.msgBlock} ${message.role === "user" ? styles.userBlock : styles.assistantBlock}`}>
+            {message.role === "assistant" ? <span className={styles.messageAvatar} aria-hidden="true"><Image src="/thanh-giong-mark.svg" alt="" width={32} height={32} /></span> : null}
+            <div className={styles.messageBody}>
               {message.tool_calls?.length ? (
                 <div className={styles.toolList}>
                   {message.tool_calls.map((tool) => (
                     <details key={tool.id} className={styles.toolPill}>
                       <summary>
-                        <span className={styles.toolName}><span className={styles.toolDot} />{tool.name}</span>
-                        <span className={styles.toolMeta}>{tool.durationMs ? `${tool.durationMs}ms` : tool.status}</span>
+                        <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name)}</span>
+                        <span className={styles.toolMeta}>{tool.status === "done" ? "Hoàn tất" : "Lỗi"}</span>
                       </summary>
                       <div className={styles.toolDetail}>
                         <code>{tool.arguments || "{}"}</code>
@@ -316,36 +348,26 @@ export function DashboardChat() {
                 </div>
               ) : null}
               {message.image ? <img src={message.image} alt="Ảnh đã gửi" className={styles.msgImage} /> : null}
-              {message.content ? (
-                <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant}`}>{message.content}</div>
-              ) : loading && index === messages.length - 1 ? (
-                <div className={styles.thinking} aria-label="CodeLocal đang trả lời"><i /><i /><i /></div>
-              ) : null}
+              {message.content ? <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant}`}>{message.content}</div> : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="Thánh Gióng đang trả lời"><i /><i /><i /></div> : null}
             </div>
-          ))
-        )}
+          </div>
+        ))}
         <div ref={endRef} />
       </div>
 
-      {image ? (
-        <div className={styles.imagePreview}>
-          <img src={image} alt="Ảnh chuẩn bị gửi" />
-          <button type="button" onClick={() => setImage(null)} aria-label="Bỏ ảnh">×</button>
-        </div>
-      ) : null}
+      {image ? <div className={styles.imagePreview}><img src={image} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={() => setImage(null)} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
 
-      <form className={styles.chatForm} onSubmit={send}>
+      <form ref={formRef} className={styles.chatForm} onSubmit={send}>
         <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
         <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5 14.7 5.8a3 3 0 0 1 4.2 4.2l-8.2 8.2a5 5 0 0 1-7.1-7.1l8-8" /></svg>
+          <AppIcon name="paperclip" size={18} />
         </button>
-        <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Nhắn cho CodeLocal" aria-label="Nội dung chat" autoComplete="off" />
+        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
         <button className={styles.sendBtn} type="submit" disabled={loading || (!input.trim() && !image)} aria-label="Gửi">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14" /></svg>
+          <AppIcon name="send" size={18} />
         </button>
       </form>
-
-      <div className={styles.chatHint}>{notice || "Enter để gửi · Dán ảnh trực tiếp"}</div>
+      <div className={styles.chatHint}>{notice || "Enter để gửi · Shift+Enter để xuống dòng"}</div>
     </section>
   );
 }

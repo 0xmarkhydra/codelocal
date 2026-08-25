@@ -68,3 +68,25 @@ func TestResponsesInputTranslatesFunctionCallAndOutput(t *testing.T) {
 		t.Fatalf("unexpected function call output: %#v", input[1])
 	}
 }
+
+func TestDashboardChatSystemPromptUsesThanhGiongAndAutoRouting(t *testing.T) {
+	prompt := dashboardChatSystemPrompt(nil)
+	for _, token := range []string{"Thánh Gióng", "Auto", "authorized workspace"} {
+		if !strings.Contains(prompt, token) {
+			t.Fatalf("auto prompt missing %q: %s", token, prompt)
+		}
+	}
+}
+
+func TestDashboardChatSystemPromptPinsSelectedWorkspace(t *testing.T) {
+	prompt := dashboardChatSystemPrompt(&dashboardChatWorkspace{
+		DeviceID:      "device-1",
+		WorkspaceID:   "workspace-1",
+		WorkspaceName: "MediaUpload",
+	})
+	for _, token := range []string{"MediaUpload", "workspace-1", "device-1", "primary project context"} {
+		if !strings.Contains(prompt, token) {
+			t.Fatalf("manual workspace prompt missing %q: %s", token, prompt)
+		}
+	}
+}

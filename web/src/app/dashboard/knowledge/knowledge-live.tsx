@@ -11,7 +11,7 @@ export function LiveKnowledgeGraph() {
   if (state.kind !== "ready") {
     return (
       <DashboardResourceFeedback
-        label="Knowledge Graph"
+        label="Brain"
         {...(state.kind === "error"
           ? { kind: "error" as const, message: state.message, onRetry: retry }
           : { kind: state.kind })}

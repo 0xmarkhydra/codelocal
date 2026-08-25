@@ -3,16 +3,18 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { CodeGraphResource } from "@/lib/contracts/code-graph";
+import type { AppIconName } from "../app-icon";
+import { AppIcon } from "../app-icon";
 import { NeuralGraphStage, NeuralStageNode } from "../neural-graph-stage";
 import viewStyles from "../graph-view.module.css";
 
 type CodeGroup = "module" | "file" | "symbol" | "external";
 
 const colors: Record<CodeGroup, string> = {
-  module: "#59c9df",
-  file: "#50d9a6",
-  symbol: "#6d9cff",
-  external: "#a98bff",
+  module: "#72a4d2",
+  file: "#69b2ac",
+  symbol: "#8da3e8",
+  external: "#a792c5",
 };
 
 function codeGroup(kind: string): CodeGroup {
@@ -29,10 +31,12 @@ function relationCount(nodeID: string, graph: CodeGraphResource) {
   return graph.edges.reduce((count, edge) => count + (edge.from === nodeID || edge.to === nodeID ? 1 : 0), 0);
 }
 
-function InspectorIcon({ kind }: { kind: string }) {
-  if (codeGroup(kind) === "file") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v5h5" /></svg>;
-  if (codeGroup(kind) === "module") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9" /></svg>;
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7M16 5l6 7-6 7" /></svg>;
+function inspectorIconName(kind: string): AppIconName {
+  const group = codeGroup(kind);
+  if (group === "file") return "file";
+  if (group === "module") return "module";
+  if (group === "external") return "connection";
+  return "code";
 }
 
 export function CodeGraphView({ graph }: { graph: CodeGraphResource }) {
@@ -91,10 +95,10 @@ export function CodeGraphView({ graph }: { graph: CodeGraphResource }) {
         <aside className={viewStyles.inspector} aria-label="Code node details">
           <div className={viewStyles.inspectorHead}>
             <div className={viewStyles.identity}>
-              <span className={viewStyles.avatar} style={{ "--node-color": colors[codeGroup(selected.kind)] } as CSSProperties}><InspectorIcon kind={selected.kind} /></span>
+              <span className={viewStyles.avatar} style={{ "--node-color": colors[codeGroup(selected.kind)] } as CSSProperties}><AppIcon name={inspectorIconName(selected.kind)} size={17} /></span>
               <div><small>{selected.kind}</small><h3>{selected.qualifiedName || selected.name}</h3></div>
             </div>
-            <button className={viewStyles.close} type="button" aria-label="Close inspector" onClick={() => setSelectedID(null)}>×</button>
+            <button className={viewStyles.close} type="button" aria-label="Close inspector" onClick={() => setSelectedID(null)}><AppIcon name="close" size={15} /></button>
           </div>
           <div className={viewStyles.chips}>
             {selected.resolutionMode && <span>{selected.resolutionMode}</span>}
