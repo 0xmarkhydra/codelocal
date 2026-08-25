@@ -1,0 +1,97 @@
+name: CodeLocal Cloud CI
+
+on:
+  push:
+    branches: [main, dev, go-migration]
+    paths:
+      - 'cmd/codelocal-cloud/**'
+      - 'internal/clientupdate/**'
+      - 'internal/cloud/**'
+      - 'internal/cloudserver/**'
+      - 'internal/deviceauth/**'
+      - 'internal/gateway/**'
+      - 'internal/learnedskills/**'
+      - 'internal/localfs/**'
+      - 'internal/lsp/**'
+      - 'internal/mailer/**'
+      - 'internal/mcpgateway/**'
+      - 'internal/memory/**'
+      - 'internal/oauth/**'
+      - 'internal/orchestration/**'
+      - 'internal/project/**'
+      - 'internal/projectbrain/**'
+      - 'internal/projectidentity/**'
+      - 'internal/protocol/**'
+      - 'internal/repository/**'
+      - 'internal/security/**'
+      - 'internal/social/**'
+      - 'internal/state/**'
+      - 'internal/taskstate/**'
+      - 'internal/usage/**'
+      - 'internal/version/**'
+      - 'internal/webauth/**'
+      - 'internal/webutil/**'
+      - 'assets/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
+      - 'railway.json'
+  pull_request:
+    paths:
+      - 'cmd/codelocal-cloud/**'
+      - 'internal/clientupdate/**'
+      - 'internal/cloud/**'
+      - 'internal/cloudserver/**'
+      - 'internal/deviceauth/**'
+      - 'internal/gateway/**'
+      - 'internal/learnedskills/**'
+      - 'internal/localfs/**'
+      - 'internal/lsp/**'
+      - 'internal/mailer/**'
+      - 'internal/mcpgateway/**'
+      - 'internal/memory/**'
+      - 'internal/oauth/**'
+      - 'internal/orchestration/**'
+      - 'internal/project/**'
+      - 'internal/projectbrain/**'
+      - 'internal/projectidentity/**'
+      - 'internal/protocol/**'
+      - 'internal/repository/**'
+      - 'internal/security/**'
+      - 'internal/social/**'
+      - 'internal/state/**'
+      - 'internal/taskstate/**'
+      - 'internal/usage/**'
+      - 'internal/version/**'
+      - 'internal/webauth/**'
+      - 'internal/webutil/**'
+      - 'assets/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
+      - 'railway.json'
+  workflow_dispatch:
+
+jobs:
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Test cloud packages
+        run: go test ./cmd/codelocal-cloud ./internal/cloud/... ./internal/cloudserver/... ./internal/mcpgateway/...
+      - name: Vet cloud packages
+        run: go vet ./cmd/codelocal-cloud ./internal/cloud/... ./internal/cloudserver/... ./internal/mcpgateway/...
+      - name: Build cloud command
+        run: go build ./cmd/codelocal-cloud
+
+  cloud-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Cloud image
+        run: docker build -t codelocal-cloud:ci .

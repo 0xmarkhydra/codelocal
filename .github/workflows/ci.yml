@@ -3,7 +3,40 @@ name: CodeLocal CI
 on:
   push:
     branches: [main, dev, go-migration]
+    paths:
+      - 'cmd/codelocal/**'
+      - 'cmd/computerhelper/**'
+      - 'cmd/computernative/**'
+      - 'cmd/release/**'
+      - 'internal/**'
+      - '!internal/cloud/**'
+      - '!internal/cloudserver/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.nvmrc'
   pull_request:
+    paths:
+      - 'cmd/codelocal/**'
+      - 'cmd/computerhelper/**'
+      - 'cmd/computernative/**'
+      - 'cmd/release/**'
+      - 'internal/**'
+      - '!internal/cloud/**'
+      - '!internal/cloudserver/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.nvmrc'
+  workflow_dispatch:
 
 jobs:
   core:
@@ -42,24 +75,3 @@ jobs:
         run: npm pack --dry-run ./.release/npm
       - name: Native CLI smoke
         run: node .release/npm/bin/codelocal.js --version
-
-  cloud-image:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
-      - name: Build Cloud image
-        run: docker build -t codelocal-cloud:ci .
-
-  web-image:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
-      - name: Build Next.js web image
-        run: >-
-          docker build
-          --file Dockerfile.web
-          --build-arg CODELOCAL_BACKEND_URL=http://codelocal-backend.railway.internal:3333
-          --tag codelocal-web:ci
-          .
