@@ -17,13 +17,13 @@ import (
 // release version: routine backend deploys must not change the identity seen by
 // already-open ChatGPT threads.
 const (
-	PublicToolSurfaceVersion = 1
+	PublicToolSurfaceVersion = 2
 	// Freeze the MCP-facing implementation identity at the value already
 	// advertised by the current production gateway. Application releases may
 	// advance independently without invalidating an existing AI-client binding.
 	PublicMCPImplementationVersion = "1.5.16"
-	PinnedPublicToolSurfaceHash    = "2990886b5dd54c05be422077abcd055c4afe6ccc0dd73a584cb1917c2a8c35b2"
-	PinnedPublicToolContractHash   = "037d5e67a4c2c04b1db5f2b00a2a337c0479fafea40880a261d871960e971f28"
+	PinnedPublicToolSurfaceHash    = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
+	PinnedPublicToolContractHash   = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
 )
 
 type ToolSurfaceInfo struct {

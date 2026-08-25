@@ -16,7 +16,7 @@ import (
 
 var frozenCompactToolNames = []string{
 	"device", "workspace", "project", "context", "agent", "read", "search", "dependency", "lsp",
-	"edit", "verify", "git", "terminal", "process", "approvals", "security", "mcp", "browser", "computer",
+	"edit", "verify", "git", "terminal", "process", "approvals", "security", "mcp", "social", "browser", "computer",
 }
 
 func compactSurfaceBytes(defs []compactToolDef) int {
@@ -36,8 +36,8 @@ func TestCompactToolSurfaceContract(t *testing.T) {
 	if !reflect.DeepEqual(got, frozenCompactToolNames) {
 		t.Fatalf("compact MCP tool contract changed\n got: %#v\nwant: %#v", got, frozenCompactToolNames)
 	}
-	if len(defs) != 19 {
-		t.Fatalf("compact tool count = %d, want 19 including bounded agent orchestration, Browser and Computer Use", len(defs))
+	if len(defs) != 20 {
+		t.Fatalf("compact tool count = %d, want 20 including one server-side social gateway, bounded agent orchestration, Browser and Computer Use", len(defs))
 	}
 	const previousPublicSchemaBytes = 39798
 	compactBytes := compactSurfaceBytes(defs)
@@ -78,6 +78,9 @@ func universalCompactArgs(action string) map[string]any {
 func TestCompactSurfaceCoversEveryRuntimeOperation(t *testing.T) {
 	covered := map[string]struct{}{}
 	for _, def := range compactToolDefinitions() {
+		if def.Execute != nil {
+			continue
+		}
 		if def.Name == "context" {
 			operation, _, err := def.Resolve(map[string]any{"taskHint": "fix bug"})
 			if err != nil {
@@ -101,6 +104,41 @@ func TestCompactSurfaceCoversEveryRuntimeOperation(t *testing.T) {
 	}
 	if !reflect.DeepEqual(covered, expected) {
 		t.Fatalf("compact operation coverage mismatch\ncovered=%v\nexpected=%v", covered, expected)
+	}
+}
+
+func TestSocialToolIsOneServerSideGatewayWithoutWorkspaceRouting(t *testing.T) {
+	var socialDef *compactToolDef
+	for _, def := range compactToolDefinitions() {
+		if def.Name == "social" {
+			copy := def
+			socialDef = &copy
+			break
+		}
+	}
+	if socialDef == nil {
+		t.Fatal("social tool missing from compact MCP surface")
+	}
+	if socialDef.Execute == nil || socialDef.Resolve != nil {
+		t.Fatal("social must execute server-side instead of routing through a local workspace runtime")
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(socialDef.Schema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := schema.Properties["workspaceKey"]; ok {
+		t.Fatal("social must not require or advertise workspace routing")
+	}
+	if !reflect.DeepEqual(schema.Properties["action"].Enum, []string{"read"}) {
+		t.Fatalf("social actions = %v, want only read", schema.Properties["action"].Enum)
+	}
+	if !reflect.DeepEqual(schema.Required, []string{"action", "url"}) {
+		t.Fatalf("social required fields = %v", schema.Required)
 	}
 }
 

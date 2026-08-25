@@ -19,8 +19,8 @@ func TestPublicToolSurfaceIsStableAndMatchesCompactRegistry(t *testing.T) {
 	if first.Count != len(compactToolDefinitions()) {
 		t.Fatalf("surface count=%d registry=%d", first.Count, len(compactToolDefinitions()))
 	}
-	if first.Count != 19 {
-		t.Fatalf("public MCP surface changed unexpectedly: got %d tools want 19", first.Count)
+	if first.Count != 20 {
+		t.Fatalf("public MCP compatibility generation 2 should expose exactly 20 tools including social: got %d", first.Count)
 	}
 	if first.Hash != PinnedPublicToolSurfaceHash {
 		t.Fatalf("public MCP surface changed: got %s want pinned %s; preserve the existing contract or deliberately create a compatibility generation", first.Hash, PinnedPublicToolSurfaceHash)
