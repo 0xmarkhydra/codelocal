@@ -9,9 +9,9 @@
 - Không mất logic khi reload, có auth, rate-limit, truncate.
 
 ## 2. Kiến trúc hiện tại (đã làm)
-- `web/src/app/dashboard/dashboard-chat.tsx` + `dashboard-chat.module.css` + `web/src/app/dashboard/page.tsx` (render `<DashboardChat/>`).
-- `web/src/app/api/v1/dashboard/chat/route.ts` mock fallback khi thiếu `CODELOCAL_LLM_API_KEY`.
-- Build pass: `typecheck` + `next build` 29/29 pages, `○ /dashboard` static.
+- `web/src/app/dashboard/dashboard-chat.tsx` + `dashboard-chat.module.css` + `web/src/app/dashboard/page.tsx` (render `<DashboardChat/>` thuần UI, không localStorage).
+- Go `internal/cloudserver/dashboard_chat_api.go` `POST /api/v1/dashboard/chat?stream=1` SSE stream như opencode `doStream`, `GET/DELETE /api/v1/dashboard/chat/history` lưu backend `codelocal_dashboard_chat` (migration 44), mock khi thiếu key vẫn hiện pill.
+- Build pass: `go vet` + `typecheck` + `next build` 29/29 pages, `○ /dashboard` static, `ƒ /api/v1/dashboard/chat` Go.
 
 ## 3. Chuẩn API (sẽ giữ)
 - Request: `POST /api/v1/dashboard/chat` (Go backend `internal/cloudserver/dashboard_chat_api.go`, Next.js thuần UI gọi qua rewrites `next.config.ts:39` `/api/v1/*` → `CODELOCAL_BACKEND_URL`) `{ message: string, history: {role:"user"|"assistant"|"tool", content:string, tool_call_id?:string}[] }`
@@ -29,14 +29,14 @@
 - Lưu `history` gồm tool messages để LLM có context liên tục.
 - Hỗ trợ 2 mode: **batch** (đợi xong) và **stream SSE** (`ReadableStream` + `text/event-stream`) để hiện `calling...` realtime.
 
-## 6. Bổ sung để production (đã review còn thiếu)
-1. **Auth & phân quyền:** check session/cookie + CSRF trên `POST /api/...`, chỉ user đã pair device và có workspace mới được gọi func liên quan Project Brain.
-2. **Streaming realtime:** implement `GET /api/.../chat/stream` hoặc `POST` trả stream, frontend dùng `EventSource`/fetch stream.
-3. **Tool registry động:** `GET /api/v1/mcp/tools` sync với MCP hub, không hardcode.
-4. **Persist lịch sử:** lưu vào `internal/history` hoặc `Project Brain memory` + `localStorage` fallback, reload không mất, có API `GET /api/v1/dashboard/chat/history`.
-5. **Bảo mật & giới hạn:** rate limit (e.g. 20 req/min/user), truncate result, không log secrets, sanitize args hiển thị.
-6. **UI hoàn thiện:** markdown + code block + copy, collapse nhiều tool calls, mobile responsive, a11y, keyboard `Enter` gửi `Shift+Enter` xuống dòng.
-7. **Test & quan sát:** `go test ./internal/...`, `npm run check --prefix web`, e2e mock tool, log trace `tool_calls` với requestId.
+## 6. Bổ sung để production (đã review — đã làm 2,4)
+1. **Auth & phân quyền:** `authenticatedAPIIdentity` đã check session, còn thiếu CSRF + rate limit `webutil.RateLimit` cho chat.
+2. **Streaming realtime:** ✅ Go `?stream=1` SSE `delta/tool_calls/done` như opencode, Next.js `ReadableStream` render dần.
+3. **Tool registry động:** còn hardcode 4 tools, cần `GET /api/v1/mcp/tools` sync `mcpgateway`.
+4. **Persist lịch sử:** ✅ Go `codelocal_dashboard_chat` (migration 44) + `GET/DELETE /api/v1/dashboard/chat/history`, FE không còn `localStorage`.
+5. **Bảo mật & giới hạn:** cần rate limit 20 req/min, truncate >2k, không log secrets.
+6. **UI hoàn thiện:** cơ bản pill expand đã có, còn thiếu markdown/code copy, `Shift+Enter`.
+7. **Test & quan sát:** cần `dashboard_chat_api_test.go` + e2e stream.
 
 ## 7. Tích hợp codelocal runtime
 - Không dùng opencode server. Chat gọi trực tiếp codelocal Go runtime qua `internal/*` hoặc HTTP local khi `web` dev. Zen free model chỉ là LLM provider, logic tool vẫn do codelocal.
@@ -49,11 +49,11 @@
 - Commit trên `feat/dashboard-chat`, không đụng `main`.
 
 ## 9. Next steps (todo)
-- [ ] Implement `tools` động + loop tool calling trong `route.ts`
-- [ ] Thêm stream + frontend tool pill
-- [ ] Thêm auth + rate limit
-- [ ] Persist history vào Project Brain
-- [ ] Test + docs
+- [x] `tools` loop + stream SSE + frontend pill
+- [x] History backend `codelocal_dashboard_chat` (FE pure UI)
+- [ ] CSRF + rate limit cho chat
+- [ ] Tool registry động từ MCP hub
+- [ ] UI markdown + test e2e
 
 ---
 *File này giữ logic không mất, mọi thay đổi phải cập nhật đây trước khi code.*

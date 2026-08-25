@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
@@ -158,6 +159,10 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(35 * time.Millisecond)
 			}
 			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
+			now2 := time.Now().UnixMilli()
+			tcsJSON2, _ := json.Marshal(tcs)
+			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now2})
+			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1})
 			return
 		}
 		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed
@@ -174,6 +179,8 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			msgs = append(msgs, m)
 		}
 		msgs = append(msgs, map[string]any{"role": "user", "content": msg})
+		// persist user message immediately for backend history (assistant will be saved after stream via proxy)
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
 		if err := proxyLLMStream(w, flusher, baseURL, apiKey, model, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
 			writeSSE("error", map[string]string{"error": err.Error()})
 		}
@@ -195,6 +202,11 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		} else {
 			reply = "CodeLocal Go (mock - chưa gắn CODELOCAL_LLM_API_KEY): đã nhận \"" + msg + "\". Gắn key vào Go env (railway.json) với MODEL=" + model + " để dùng model free qua codelocal."
 		}
+		// persist to backend (not FE localStorage)
+		now := time.Now().UnixMilli()
+		tcsJSON, _ := json.Marshal(tcs)
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now})
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1})
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
 		return
 	}
@@ -217,6 +229,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(toolCalls) == 0 {
+		now3 := time.Now().UnixMilli()
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3})
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1})
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": model, "tool_calls": []dashboardToolCall{}})
 		return
 	}
@@ -242,7 +257,29 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusBadGateway, map[string]any{"error": "upstream2: " + err2.Error(), "tool_calls": results})
 		return
 	}
+	now4 := time.Now().UnixMilli()
+	tcsJSON4, _ := json.Marshal(results)
+	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: now4})
+	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1})
 	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": model, "tool_calls": results})
+}
+
+func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.authenticatedAPIIdentity(w, r)
+	if !ok {
+		return
+	}
+	if r.Method == http.MethodDelete {
+		_ = s.Store.ClearDashboardChatHistory(r.Context(), identity.User.ID)
+		webutil.JSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	msgs, err := s.Store.ListDashboardChatHistory(r.Context(), identity.User.ID, 50)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "history_unavailable"})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"messages": msgs})
 }
 
 func execDashboardTool(r *http.Request, s *Server, userID, name string, args map[string]any) string {
@@ -476,6 +513,7 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 			return err
 		}
 		defer resp2.Body.Close()
+		var secondContent strings.Builder
 		scanner2 := bufio.NewScanner(resp2.Body)
 		scanner2.Buffer(buf, 1024*1024)
 		for scanner2.Scan() {
@@ -496,10 +534,17 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 			}
 			_ = json.Unmarshal([]byte(payload), &ch)
 			if len(ch.Choices) > 0 && ch.Choices[0].Delta.Content != nil {
+				secondContent.WriteString(*ch.Choices[0].Delta.Content)
 				b3, _ := json.Marshal(map[string]any{"delta": *ch.Choices[0].Delta.Content})
 				writeRaw(string(b3))
 			}
 		}
+		tcsJSON, _ := json.Marshal(results)
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: secondContent.String(), ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+	}
+	// persist assistant for non-tool stream
+	if len(toolCallsByIndex) == 0 {
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: fullContent.String(), ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
 	}
 	_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", `{"done":true}`)
 	if flusher != nil {

@@ -6,24 +6,32 @@ import styles from "./dashboard-chat.module.css";
 type ToolCall = { id: string; name: string; arguments: string; result?: string; durationMs?: number; status: "done" | "error" };
 type ChatMsg = { role: "user" | "assistant"; content: string; tool_calls?: ToolCall[] };
 
-const STORAGE_KEY = "codelocal:dashboard-chat";
-
 export function DashboardChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setMessages(JSON.parse(raw) as ChatMsg[]);
-    } catch {}
+    // Load history from backend (not FE localStorage) — persists cross-device
+    fetch("/api/v1/dashboard/chat/history", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[] }> } | null) => {
+        if (!data?.messages) return;
+        const mapped: ChatMsg[] = data.messages.map((m) => {
+          let tcs: ToolCall[] | undefined;
+          if (typeof m.tool_calls === "string") {
+            try {
+              tcs = JSON.parse(m.tool_calls as unknown as string) as ToolCall[];
+            } catch {
+              tcs = undefined;
+            }
+          } else if (Array.isArray(m.tool_calls)) tcs = m.tool_calls as ToolCall[];
+          return { role: m.role as ChatMsg["role"], content: m.content, tool_calls: tcs };
+        });
+        if (mapped.length) setMessages(mapped);
+      })
+      .catch(() => {});
   }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-30)));
-    } catch {}
-  }, [messages]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
@@ -149,9 +157,7 @@ export function DashboardChat() {
 
   function clear() {
     setMessages([]);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {}
+    fetch("/api/v1/dashboard/chat/history", { method: "DELETE", credentials: "include" }).catch(() => {});
   }
 
   return (
@@ -207,7 +213,7 @@ export function DashboardChat() {
           Gửi
         </button>
       </form>
-      <div className={styles.chatHint}>Nhánh feat/dashboard-chat · chuẩn OpenAI tool_calls · gắn CODELOCAL_LLM_API_KEY vào web/.env để dùng model free · mock vẫn hiện func call khi chưa gắn key</div>
+      <div className={styles.chatHint}>Nhánh feat/dashboard-chat · Go backend stream SSE · history lưu backend (không FE) · gắn CODELOCAL_LLM_API_KEY vào Go env (railway.json) để dùng model free</div>
     </section>
   );
 }

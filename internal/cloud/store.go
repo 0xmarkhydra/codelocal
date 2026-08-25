@@ -224,6 +224,7 @@ func accountSchemaMigrations() []schemaMigration {
 		{41, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS password_changed_at BIGINT NOT NULL DEFAULT 0;`},
 		{42, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS security_version BIGINT NOT NULL DEFAULT 1;`},
 		{43, `ALTER TABLE codelocal_devices ADD COLUMN IF NOT EXISTS public_key TEXT;`},
+		{44, dashboardChatMigrationSQL},
 	}
 }
 
