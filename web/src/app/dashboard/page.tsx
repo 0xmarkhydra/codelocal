@@ -1,4 +1,5 @@
 import { LiveOverview } from "./overview-live";
+import { DashboardChat } from "./dashboard-chat";
 import styles from "./dashboard.module.css";
 
 export default function DashboardPage() {
@@ -9,6 +10,7 @@ export default function DashboardPage() {
       </header>
 
       <LiveOverview />
+      <DashboardChat />
     </section>
   );
 }
