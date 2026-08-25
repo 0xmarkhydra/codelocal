@@ -14,10 +14,10 @@
 - Build pass: `typecheck` + `next build` 29/29 pages, `○ /dashboard` static.
 
 ## 3. Chuẩn API (sẽ giữ)
-- Request: `POST /api/dashboard-chat` (tránh proxy `/api/v1/*` → Go backend, dùng Next.js route `web/src/app/api/dashboard-chat/route.ts`) `{ message: string, history: {role:"user"|"assistant"|"tool", content:string, tool_call_id?:string}[] }`
+- Request: `POST /api/v1/dashboard/chat` (Go backend `internal/cloudserver/dashboard_chat_api.go`, Next.js thuần UI gọi qua rewrites `next.config.ts:39` `/api/v1/*` → `CODELOCAL_BACKEND_URL`) `{ message: string, history: {role:"user"|"assistant"|"tool", content:string, tool_call_id?:string}[] }`
 - Response: `{ reply: string, tool_calls?: {id,name,arguments,result,durationMs,status:"done"|"error"}[], model?:string, mock?:boolean }` hoặc `{error}`
-- Env: `CODELOCAL_LLM_API_KEY` (fallback `OPENAI_API_KEY`), `CODELOCAL_LLM_BASE_URL` (default `https://api.openai.com/v1`), `CODELOCAL_LLM_MODEL` (default `gpt-4o-mini`)
-- Upstream: `POST {baseUrl}/chat/completions` với `tools` + `tool_choice:"auto"`, system prompt: "You are CodeLocal assistant on dashboard..."
+- Env **phải nằm Go server** (`railway.json`, `PORT=3333`, không phải `web/.env`): `CODELOCAL_LLM_API_KEY` (fallback `OPENAI_API_KEY`), `CODELOCAL_LLM_BASE_URL` (default `https://api.openai.com/v1`), `CODELOCAL_LLM_MODEL` (default `gpt-4o-mini`) — Next.js chỉ `CODELOCAL_BACKEND_URL`, không lộ key ra browser
+- Upstream: Go gọi `POST {baseUrl}/chat/completions` với `tools` + `tool_choice:"auto"`, system prompt: "You are CodeLocal assistant..."
 
 ## 4. Phase 2 — Backend func calling (codelocal MCP)
 - Định nghĩa `tools` động: lấy từ `internal/mcpgateway` / `internal/mcphub` / `learnedskills` thay vì hardcode. Các hàm dự kiến: `list_workspaces`, `get_workspace_detail`, `search_project_brain`, `recall_memory`, `list_devices`.

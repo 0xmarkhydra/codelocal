@@ -35,7 +35,7 @@ export function DashboardChat() {
     setLoading(true);
     try {
       const history = next.slice(-12).map((m) => ({ role: m.role, content: m.content }));
-      const res = await fetch("/api/dashboard-chat", {
+      const res = await fetch("/api/v1/dashboard/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message: text, history }),
