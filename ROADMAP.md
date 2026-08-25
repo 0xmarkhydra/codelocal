@@ -4,6 +4,8 @@
 >
 > Project Brain architecture, durable knowledge, rules/skills discovery, cross-device learning, Context Compiler, and the measurable strategy for competing beyond Codex/Claude are defined in [`PROJECT_BRAIN_MASTER_PLAN.md`](./docs/plans/intelligence/PROJECT_BRAIN_MASTER_PLAN.md). Treat that document as the source of truth for the intelligence layer.
 >
+> The accepted Hybrid Runtime direction — Local remains first-class while CodeLocal adds a managed Cloud Sandbox that auto-runs CodeLocal, uses CodeLocal-managed Git, sleeps/restores on demand, exposes layered GUI/preview capabilities, and stays compute-provider neutral — is tracked in [`HYBRID_LOCAL_CLOUD_RUNTIME_MASTER_PLAN.md`](./docs/plans/runtime/HYBRID_LOCAL_CLOUD_RUNTIME_MASTER_PLAN.md).
+>
 > The management-review execution plan for Knowledge V2 hardening, Knowledge Health, Collective Intelligence, and deterministic Code Quality Policy is tracked in [`KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md`](./docs/plans/intelligence/KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md). It is an implementation plan and does not replace the Project Brain source of truth.
 >
 > The web-first Neural Control Plane / living Project Brain dashboard redesign, including the explicit boundary between web-only phases and later npm/native realtime telemetry, is tracked in [`NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`](./docs/plans/ui/NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md).
@@ -12,24 +14,25 @@
 
 ## Goal
 
-Build a remote MCP coding bridge that gives ChatGPT/Codex a local execution and code-intelligence layer comparable to the practical capabilities of Codex CLI, while keeping the model reasoning in ChatGPT and keeping filesystem/shell execution on the user's own machine.
+Build the persistent execution and project-intelligence layer for AI coding assistants. CodeLocal keeps the existing Local Runtime first-class while adding an optional/default-on-demand managed Cloud Runtime so a user can work either on their own machine or on an isolated CodeLocal Cloud computer without changing the MCP/tool mental model.
 
 Architecture:
 
 ```text
-ChatGPT / Codex
+ChatGPT / Claude / other AI
     |  MCP over HTTPS + OAuth
     v
-Railway MCP Gateway
-    |  authenticated WebSocket
+CodeLocal Control Plane
+    |  identity · Project Brain · routing · policy
     v
-CodeLocal Client
-    |  sandboxed workspace tools
-    v
-PROJECT_ROOT
+Runtime Router
+    |\
+    | +--> Cloud Runtime -> managed isolated sandbox -> CodeLocal Runtime
+    |
+    +----> Local Runtime -> authenticated WebSocket -> user Mac/Windows/Linux
 ```
 
-The MCP server is not the "brain". ChatGPT/Codex provides reasoning. CodeLocal provides high-quality local tools, repository intelligence, execution, safety, observability and state.
+The MCP server is not the reasoning "brain". AI models provide replaceable reasoning/agent workers. CodeLocal owns durable project intelligence, execution, Git/workspace state, safety, observability, verification and runtime routing across Local and Cloud.
 
 ---
 
