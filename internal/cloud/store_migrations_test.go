@@ -88,8 +88,13 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 3 || migrations[0].version != 41 || migrations[1].version != 42 || migrations[2].version != 43 {
+	if len(migrations) != 5 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
+	}
+	for index, version := range []int{41, 42, 43, 44, 45} {
+		if migrations[index].version != version {
+			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
+		}
 	}
 	if !strings.Contains(strings.ToLower(migrations[0].sql), "password_changed_at") {
 		t.Fatal("account migration 41 must add password_changed_at")
@@ -99,6 +104,12 @@ func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(migrations[2].sql), "public_key") {
 		t.Fatal("account migration 43 must add device public_key")
+	}
+	if !strings.Contains(strings.ToLower(migrations[3].sql), "codelocal_dashboard_chat") {
+		t.Fatal("dashboard migration 44 must create dashboard chat storage")
+	}
+	if !strings.Contains(strings.ToLower(migrations[4].sql), "image") {
+		t.Fatal("dashboard migration 45 must preserve the image column")
 	}
 }
 
@@ -112,11 +123,11 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 43 {
-		t.Fatalf("latest schema version=%d want 43", got)
+	if got := LatestSchemaMigrationVersion(); got != 45 {
+		t.Fatalf("latest schema version=%d want 45", got)
 	}
-	ready := schemaMigrationStatus(43, 43)
-	if !ready.UpToDate || ready.TargetVersion != 43 || ready.AppliedCount != 43 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(45, 45)
+	if !ready.UpToDate || ready.TargetVersion != 45 || ready.AppliedCount != 45 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
@@ -126,8 +137,10 @@ func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
 		{current: 40, count: 40},
 		{current: 41, count: 41},
 		{current: 42, count: 42},
-		{current: 43, count: 42},
+		{current: 43, count: 43},
 		{current: 44, count: 44},
+		{current: 45, count: 44},
+		{current: 46, count: 46},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)
@@ -148,20 +161,20 @@ func TestProjectBrainMigrationPlanHashIsDeterministicAndCoversTrain(t *testing.T
 }
 
 func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
-	if err := validateDatabaseSchemaHistory(25, 25, 43); err != nil {
+	if err := validateDatabaseSchemaHistory(25, 25, 45); err != nil {
 		t.Fatalf("valid older contiguous schema rejected: %v", err)
 	}
-	if err := validateDatabaseSchemaHistory(43, 43, 43); err != nil {
+	if err := validateDatabaseSchemaHistory(45, 45, 45); err != nil {
 		t.Fatalf("target schema rejected: %v", err)
 	}
 	for _, tc := range []struct {
 		name                   string
 		current, count, target int
 	}{
-		{name: "newer database", current: 44, count: 44, target: 43},
-		{name: "missing history row", current: 43, count: 42, target: 43},
-		{name: "corrupt sparse history", current: 20, count: 19, target: 43},
-		{name: "invalid negative", current: -1, count: 0, target: 43},
+		{name: "newer database", current: 46, count: 46, target: 45},
+		{name: "missing history row", current: 45, count: 44, target: 45},
+		{name: "corrupt sparse history", current: 20, count: 19, target: 45},
+		{name: "invalid negative", current: -1, count: 0, target: 45},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {

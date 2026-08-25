@@ -119,6 +119,44 @@ func dashboardLLMConfig() (apiKey, baseURL, model string) {
 	return apiKey, baseURL, model
 }
 
+type dashboardLLMProtocol int
+
+const (
+	dashboardProtocolUnsupported dashboardLLMProtocol = iota
+	dashboardProtocolChatCompletions
+	dashboardProtocolResponses
+)
+
+func dashboardUsesZen(baseURL string) bool {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
+	return provider == "zen" || strings.Contains(strings.ToLower(baseURL), "opencode.ai/zen")
+}
+
+func dashboardProtocolForModel(baseURL, model string) dashboardLLMProtocol {
+	if !dashboardUsesZen(baseURL) {
+		return dashboardProtocolChatCompletions
+	}
+	name := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.HasPrefix(name, "gpt-"), strings.HasPrefix(name, "grok-"), strings.HasPrefix(name, "muse-"):
+		return dashboardProtocolResponses
+	case strings.HasPrefix(name, "claude-"), strings.HasPrefix(name, "qwen"), strings.HasPrefix(name, "gemini-"):
+		return dashboardProtocolUnsupported
+	case strings.HasPrefix(name, "deepseek-"), strings.HasPrefix(name, "minimax-"), strings.HasPrefix(name, "glm-"), strings.HasPrefix(name, "kimi-"), strings.HasPrefix(name, "nemotron-"), strings.HasPrefix(name, "mimo-"), strings.HasPrefix(name, "hy3-"), strings.HasPrefix(name, "x-preview-"), name == "big-pickle":
+		return dashboardProtocolChatCompletions
+	default:
+		return dashboardProtocolUnsupported
+	}
+}
+
+func writeDashboardSSE(w http.ResponseWriter, flusher http.Flusher, event string, data any) {
+	payload, _ := json.Marshal(data)
+	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
 func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authenticatedAPIIdentity(w, r); !ok {
 		return
@@ -153,9 +191,14 @@ func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	models := make([]string, 0, len(payload.Data))
 	for _, item := range payload.Data {
-		if id := strings.TrimSpace(item.ID); id != "" {
-			models = append(models, id)
+		id := strings.TrimSpace(item.ID)
+		if id == "" || dashboardProtocolForModel(baseURL, id) == dashboardProtocolUnsupported {
+			continue
 		}
+		models = append(models, id)
+	}
+	if dashboardProtocolForModel(baseURL, defaultModel) == dashboardProtocolUnsupported && len(models) > 0 {
+		defaultModel = models[0]
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"models": models, "default_model": defaultModel})
 }
@@ -199,11 +242,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "keep-alive")
 		flusher, _ := w.(http.Flusher)
 		writeSSE := func(event string, data any) {
-			b, _ := json.Marshal(data)
-			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, string(b))
-			if flusher != nil {
-				flusher.Flush()
-			}
+			writeDashboardSSE(w, flusher, event, data)
 		}
 		// Mock stream when no key — still shows func call streaming like ChatGPT
 		if apiKey == "" {
@@ -255,8 +294,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			msgs = append(msgs, m)
 		}
-		msgs = append(msgs, map[string]any{"role": "user", "content": msg})
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()}); err != nil {
+		if req.Image != "" {
+			msgs = append(msgs, map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": msg}, {"type": "image_url", "image_url": map[string]any{"url": req.Image}}}})
+		} else {
+			msgs = append(msgs, map[string]any{"role": "user", "content": msg})
+		}
+		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: req.Image, CreatedAt: time.Now().UnixMilli()}); err != nil {
 			slog.Warn("dashboard chat stream save user failed", "error", err)
 		}
 		if err := proxyLLMStream(w, flusher, baseURL, apiKey, model, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
@@ -426,7 +469,116 @@ type llmToolCall struct {
 	Arguments string
 }
 
-func callLLMWithTools(baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any) ([]llmToolCall, string, error) {
+func responsesInput(messages []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		role, _ := message["role"].(string)
+		if role == "tool" {
+			out = append(out, map[string]any{"type": "function_call_output", "call_id": message["tool_call_id"], "output": message["content"]})
+			continue
+		}
+		if role == "assistant" {
+			if calls, ok := message["tool_calls"].([]map[string]any); ok && len(calls) > 0 {
+				if content, ok := message["content"].(string); ok && strings.TrimSpace(content) != "" {
+					out = append(out, map[string]any{"role": role, "content": content})
+				}
+				for _, call := range calls {
+					fn, _ := call["function"].(map[string]any)
+					out = append(out, map[string]any{"type": "function_call", "call_id": call["id"], "name": fn["name"], "arguments": fn["arguments"]})
+				}
+				continue
+			}
+		}
+		content := message["content"]
+		if parts, ok := content.([]map[string]any); ok {
+			converted := make([]map[string]any, 0, len(parts))
+			for _, part := range parts {
+				switch part["type"] {
+				case "text":
+					converted = append(converted, map[string]any{"type": "input_text", "text": part["text"]})
+				case "image_url":
+					image, _ := part["image_url"].(map[string]any)
+					converted = append(converted, map[string]any{"type": "input_image", "image_url": image["url"]})
+				default:
+					converted = append(converted, part)
+				}
+			}
+			content = converted
+		}
+		out = append(out, map[string]any{"role": role, "content": content})
+	}
+	return out
+}
+
+func responsesTools(tools []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		fn, _ := tool["function"].(map[string]any)
+		if len(fn) == 0 {
+			continue
+		}
+		out = append(out, map[string]any{"type": "function", "name": fn["name"], "description": fn["description"], "parameters": fn["parameters"]})
+	}
+	return out
+}
+
+func callResponsesWithTools(baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any) ([]llmToolCall, string, error) {
+	body := map[string]any{"model": model, "input": responsesInput(messages)}
+	if converted := responsesTools(tools); len(converted) > 0 {
+		body["tools"] = converted
+		body["tool_choice"] = "auto"
+	}
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, baseURL+"/responses", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := (&http.Client{Timeout: 45 * time.Second}).Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", &httpError{Status: resp.StatusCode, Body: string(raw)}
+	}
+	var data struct {
+		Output []struct {
+			Type      string `json:"type"`
+			ID        string `json:"id"`
+			CallID    string `json:"call_id"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+			Content   []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, "", err
+	}
+	var content strings.Builder
+	var calls []llmToolCall
+	for _, item := range data.Output {
+		switch item.Type {
+		case "function_call":
+			id := item.CallID
+			if id == "" {
+				id = item.ID
+			}
+			calls = append(calls, llmToolCall{ID: id, Name: item.Name, Arguments: item.Arguments})
+		case "message":
+			for _, part := range item.Content {
+				if part.Type == "output_text" && part.Text != "" {
+					content.WriteString(part.Text)
+				}
+			}
+		}
+	}
+	return calls, content.String(), nil
+}
+
+func callChatCompletionsWithTools(baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any) ([]llmToolCall, string, error) {
 	body := map[string]any{"model": model, "messages": messages, "temperature": 0.7}
 	if len(tools) > 0 {
 		body["tools"] = tools
@@ -474,6 +626,17 @@ func callLLMWithTools(baseURL, apiKey, model string, messages []map[string]any, 
 	return tcs, m.Content, nil
 }
 
+func callLLMWithTools(baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any) ([]llmToolCall, string, error) {
+	switch dashboardProtocolForModel(baseURL, model) {
+	case dashboardProtocolResponses:
+		return callResponsesWithTools(baseURL, apiKey, model, messages, tools)
+	case dashboardProtocolChatCompletions:
+		return callChatCompletionsWithTools(baseURL, apiKey, model, messages, tools)
+	default:
+		return nil, "", &httpError{Status: http.StatusBadRequest, Body: "unsupported model protocol"}
+	}
+}
+
 type httpError struct {
 	Status int
 	Body   string
@@ -481,7 +644,68 @@ type httpError struct {
 
 func (e *httpError) Error() string { return fmt.Sprintf("http %d: %s", e.Status, e.Body) }
 
+func writeDashboardTextDeltas(w http.ResponseWriter, flusher http.Flusher, content string) {
+	runes := []rune(content)
+	const chunkSize = 28
+	for start := 0; start < len(runes); start += chunkSize {
+		end := start + chunkSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": string(runes[start:end])})
+	}
+}
+
+func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {
+	toolCalls, content, err := callResponsesWithTools(baseURL, apiKey, model, messages, tools)
+	if err != nil {
+		return err
+	}
+	if len(toolCalls) == 0 {
+		writeDashboardTextDeltas(w, flusher, content)
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
+		writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": content, "model": model})
+		return nil
+	}
+
+	results := make([]dashboardToolCall, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		t0 := time.Now()
+		argsMap := map[string]any{}
+		_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
+		resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
+		results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"})
+	}
+	writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
+
+	follow := append([]map[string]any{}, messages...)
+	toolCallsAny := make([]map[string]any, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+	}
+	follow = append(follow, map[string]any{"role": "assistant", "content": content, "tool_calls": toolCallsAny})
+	for _, result := range results {
+		follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
+	}
+	_, finalContent, err := callResponsesWithTools(baseURL, apiKey, model, follow, nil)
+	if err != nil {
+		return err
+	}
+	writeDashboardTextDeltas(w, flusher, finalContent)
+	tcsJSON, _ := json.Marshal(results)
+	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": results, "model": model})
+	return nil
+}
+
 func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {
+	switch dashboardProtocolForModel(baseURL, model) {
+	case dashboardProtocolResponses:
+		return proxyResponsesStream(w, flusher, baseURL, apiKey, model, messages, tools, r, s, userID)
+	case dashboardProtocolUnsupported:
+		return &httpError{Status: http.StatusBadRequest, Body: "unsupported model protocol"}
+	}
+
 	body := map[string]any{"model": model, "messages": messages, "temperature": 0.7, "stream": true, "stream_options": map[string]any{"include_usage": true}}
 	if len(tools) > 0 {
 		body["tools"] = tools
@@ -502,7 +726,7 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		return &httpError{Status: resp.StatusCode, Body: string(raw)}
 	}
 	writeRaw := func(data string) {
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		_, _ = fmt.Fprintf(w, "event: delta\ndata: %s\n\n", data)
 		if flusher != nil {
 			flusher.Flush()
 		}

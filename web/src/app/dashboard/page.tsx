@@ -8,7 +8,7 @@ export default function DashboardPage() {
       <header className={`${styles.header} ${styles.compactHeader}`}>
         <div>
           <h1>Chat</h1>
-          <p>Chức năng chính — trò chuyện với CodeLocal ngay trên dashboard, hiện logic func call</p>
+          <p>CodeLocal · Project Brain · local tools</p>
         </div>
       </header>
 
