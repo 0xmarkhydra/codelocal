@@ -42,8 +42,9 @@ type ChatImageMeta = {
   size: number;
 };
 
-type PreparedChatImage = ChatImageMeta & {
+type PreparedChatImage = {
   previewUrl: string;
+  file: File;
 };
 
 type MediaPrepareResponse = ChatImageMeta & {
@@ -163,7 +164,70 @@ export function DashboardChat() {
     return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
   }
 
-  async function prepareImage(file: File) {
+  async function uploadImage(file: File): Promise<ChatImageMeta> {
+    const sha256 = await sha256Hex(file);
+    const presign = await fetch("/api/v1/dashboard/media/presign", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sha256, contentType: file.type, size: file.size }),
+    });
+    if (presign.status === 401) {
+      router.replace("/login");
+      throw new Error("Phiên đăng nhập đã hết hạn");
+    }
+    const prepared = (await presign.json().catch(() => ({}))) as Partial<MediaPrepareResponse> & { error?: string; message?: string };
+    if (!presign.ok || !prepared.url || !prepared.imageRef) {
+      if (prepared.error === "media_not_configured") throw new Error("Hệ thống chưa bật upload ảnh");
+      throw new Error(prepared.message || "Không chuẩn bị được upload ảnh");
+    }
+
+    if (prepared.upload?.required) {
+      if (!prepared.upload.url) throw new Error("Thiếu đường dẫn upload ảnh");
+      let directUploadOK = false;
+      try {
+        const headers = new Headers();
+        for (const [key, values] of Object.entries(prepared.upload.headers || {})) {
+          const lower = key.toLowerCase();
+          if (lower === "host" || lower === "content-length") continue;
+          for (const value of values) headers.append(key, value);
+        }
+        if (!headers.has("content-type")) headers.set("content-type", file.type);
+        const upload = await fetch(prepared.upload.url, {
+          method: prepared.upload.method || "PUT",
+          headers,
+          body: file,
+        });
+        directUploadOK = upload.ok;
+      } catch {
+        directUploadOK = false;
+      }
+
+      if (!directUploadOK) {
+        const fallback = await fetch("/api/v1/dashboard/media/upload", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "content-type": file.type,
+            "x-codelocal-media-sha256": sha256,
+            "x-codelocal-media-size": String(file.size),
+          },
+          body: file,
+        });
+        const fallbackData = (await fallback.json().catch(() => ({}))) as { error?: string; message?: string };
+        if (!fallback.ok) throw new Error(fallbackData.message || "Không tải được ảnh lên CodeLocal");
+      }
+    }
+
+    return {
+      imageRef: prepared.imageRef,
+      sha256,
+      contentType: prepared.contentType || file.type,
+      size: prepared.size || file.size,
+    };
+  }
+
+  function prepareImage(file: File) {
     if (!file.type.startsWith("image/")) {
       setNotice("Chỉ hỗ trợ file ảnh");
       return;
@@ -173,80 +237,9 @@ export function DashboardChat() {
       return;
     }
 
-    const previewUrl = URL.createObjectURL(file);
-    setImageUploading(true);
-    setNotice("Đang tải ảnh…");
-    try {
-      const sha256 = await sha256Hex(file);
-      const presign = await fetch("/api/v1/dashboard/media/presign", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sha256, contentType: file.type, size: file.size }),
-      });
-      if (presign.status === 401) {
-        URL.revokeObjectURL(previewUrl);
-        router.replace("/login");
-        return;
-      }
-      const prepared = (await presign.json().catch(() => ({}))) as Partial<MediaPrepareResponse> & { error?: string; message?: string };
-      if (!presign.ok || !prepared.url || !prepared.imageRef) {
-        if (prepared.error === "media_not_configured") throw new Error("Hệ thống chưa bật upload ảnh");
-        throw new Error(prepared.message || "Không chuẩn bị được upload ảnh");
-      }
-
-      if (prepared.upload?.required) {
-        if (!prepared.upload.url) throw new Error("Thiếu đường dẫn upload ảnh");
-        let directUploadOK = false;
-        try {
-          const headers = new Headers();
-          for (const [key, values] of Object.entries(prepared.upload.headers || {})) {
-            const lower = key.toLowerCase();
-            if (lower === "host" || lower === "content-length") continue;
-            for (const value of values) headers.append(key, value);
-          }
-          if (!headers.has("content-type")) headers.set("content-type", file.type);
-          const upload = await fetch(prepared.upload.url, {
-            method: prepared.upload.method || "PUT",
-            headers,
-            body: file,
-          });
-          directUploadOK = upload.ok;
-        } catch {
-          directUploadOK = false;
-        }
-
-        if (!directUploadOK) {
-          const fallback = await fetch("/api/v1/dashboard/media/upload", {
-            method: "POST",
-            credentials: "include",
-            headers: {
-              "content-type": file.type,
-              "x-codelocal-media-sha256": sha256,
-              "x-codelocal-media-size": String(file.size),
-            },
-            body: file,
-          });
-          const fallbackData = (await fallback.json().catch(() => ({}))) as { error?: string; message?: string };
-          if (!fallback.ok) throw new Error(fallbackData.message || "Không tải được ảnh lên CodeLocal");
-        }
-      }
-
-      setImage({
-        previewUrl,
-        imageRef: prepared.imageRef,
-        sha256,
-        contentType: prepared.contentType || file.type,
-        size: prepared.size || file.size,
-      });
-      setNotice("");
-    } catch (error) {
-      URL.revokeObjectURL(previewUrl);
-      setImage(null);
-      setNotice(error instanceof Error ? error.message : "Không tải được ảnh");
-    } finally {
-      setImageUploading(false);
-    }
+    if (image?.previewUrl.startsWith("blob:")) URL.revokeObjectURL(image.previewUrl);
+    setImage({ previewUrl: URL.createObjectURL(file), file });
+    setNotice("");
   }
 
   function discardImage() {
@@ -297,9 +290,24 @@ export function DashboardChat() {
     const text = (quickMessage ?? input).trim();
     if ((!text && !image) || loading || imageUploading) return;
 
-    const userMessage: ChatMsg = { role: "user", content: text || "Phân tích ảnh này", image: image?.previewUrl };
+    const pendingImage = image;
+    let sendImage: ChatImageMeta | undefined;
+    if (pendingImage) {
+      setImageUploading(true);
+      setNotice("Đang tải ảnh…");
+      try {
+        sendImage = await uploadImage(pendingImage.file);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Không tải được ảnh");
+        setImageUploading(false);
+        return;
+      }
+      setImageUploading(false);
+      setNotice("");
+    }
+
+    const userMessage: ChatMsg = { role: "user", content: text || "Phân tích ảnh này", image: pendingImage?.previewUrl };
     const next = [...messages, userMessage];
-    const sendImage = image;
     const placeholderIndex = next.length;
 
     setMessages([...next, { role: "assistant", content: "", tool_calls: [] }]);
