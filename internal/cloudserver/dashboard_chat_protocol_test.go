@@ -1,8 +1,10 @@
 package cloudserver
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -338,5 +340,41 @@ func TestDashboardChatStoredImageKeepsLegacyValue(t *testing.T) {
 	}
 	if _, ok := dashboardChatImageMetaFromStored(legacy); ok {
 		t.Fatal("legacy image must not be parsed as compact metadata")
+	}
+}
+
+func TestDecodeDashboardChatRequestAcceptsMultipartImageFallback(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("payload", `{"message":"phân tích ảnh này"}`); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("image", "screenshot.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52}
+	if _, err := part.Write(png); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/chat?stream=1", &body)
+	r.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	req, ephemeral, err := decodeDashboardChatRequest(w, r)
+	if err != nil {
+		t.Fatalf("decode multipart chat request: %v", err)
+	}
+	if !ephemeral {
+		t.Fatal("multipart image fallback must be marked ephemeral")
+	}
+	if req.Message != "phân tích ảnh này" {
+		t.Fatalf("unexpected message: %q", req.Message)
+	}
+	if !strings.HasPrefix(req.Image, "data:image/png;base64,") {
+		t.Fatalf("expected image data URL, got %q", req.Image)
 	}
 }

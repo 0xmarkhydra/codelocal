@@ -292,18 +292,18 @@ export function DashboardChat() {
 
     const pendingImage = image;
     let sendImage: ChatImageMeta | undefined;
+    let useMultipartFallback = false;
     if (pendingImage) {
       setImageUploading(true);
       setNotice("Đang tải ảnh…");
       try {
         sendImage = await uploadImage(pendingImage.file);
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Không tải được ảnh");
+      } catch {
+        useMultipartFallback = true;
+        setNotice("Đang gửi ảnh trực tiếp…");
+      } finally {
         setImageUploading(false);
-        return;
       }
-      setImageUploading(false);
-      setNotice("");
     }
 
     const userMessage: ChatMsg = { role: "user", content: text || "Phân tích ảnh này", image: pendingImage?.previewUrl };
@@ -313,7 +313,6 @@ export function DashboardChat() {
     setMessages([...next, { role: "assistant", content: "", tool_calls: [] }]);
     setInput("");
     setImage(null);
-    setNotice("");
     setLoading(true);
     if (fileRef.current) fileRef.current.value = "";
 
@@ -321,25 +320,37 @@ export function DashboardChat() {
     let streamedToolCalls: ToolCall[] = [];
     try {
       const history = next.slice(-12).map((message) => ({ role: message.role, content: message.content }));
+      const payload = {
+        message: text || "Phân tích ảnh này",
+        history,
+        imageMeta: sendImage ? {
+          imageRef: sendImage.imageRef,
+          sha256: sendImage.sha256,
+          contentType: sendImage.contentType,
+          size: sendImage.size,
+        } : undefined,
+        workspace: selectedWorkspace ? {
+          deviceId: selectedWorkspace.deviceId,
+          workspaceId: selectedWorkspace.workspaceId,
+          workspaceName: selectedWorkspace.workspaceName,
+        } : undefined,
+      };
+      let requestBody: BodyInit;
+      const requestHeaders: HeadersInit = { accept: "text/event-stream" };
+      if (useMultipartFallback && pendingImage) {
+        const form = new FormData();
+        form.append("payload", JSON.stringify(payload));
+        form.append("image", pendingImage.file, pendingImage.file.name || "pasted-image");
+        requestBody = form;
+      } else {
+        requestHeaders["content-type"] = "application/json";
+        requestBody = JSON.stringify(payload);
+      }
       const response = await fetch("/api/v1/dashboard/chat?stream=1", {
         method: "POST",
         credentials: "include",
-        headers: { "content-type": "application/json", accept: "text/event-stream" },
-        body: JSON.stringify({
-          message: text || "Phân tích ảnh này",
-          history,
-          imageMeta: sendImage ? {
-            imageRef: sendImage.imageRef,
-            sha256: sendImage.sha256,
-            contentType: sendImage.contentType,
-            size: sendImage.size,
-          } : undefined,
-          workspace: selectedWorkspace ? {
-            deviceId: selectedWorkspace.deviceId,
-            workspaceId: selectedWorkspace.workspaceId,
-            workspaceName: selectedWorkspace.workspaceName,
-          } : undefined,
-        }),
+        headers: requestHeaders,
+        body: requestBody,
       });
 
       if (response.status === 401) {
@@ -354,6 +365,7 @@ export function DashboardChat() {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error || `HTTP ${response.status}`);
       }
+      setNotice("");
 
       if (!(response.headers.get("content-type") || "").includes("text/event-stream")) {
         const data = (await response.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string };

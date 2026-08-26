@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -414,6 +415,54 @@ func writeDashboardSSE(w http.ResponseWriter, flusher http.Flusher, event string
 	}
 }
 
+func decodeDashboardChatRequest(w http.ResponseWriter, r *http.Request) (dashboardChatRequest, bool, error) {
+	var req dashboardChatRequest
+	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		return req, false, webutil.DecodeJSON(r, 12<<20, &req)
+	}
+
+	maxImageBytes := mediaMaxBytes()
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(2<<20))
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		return req, false, err
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	payload := r.FormValue("payload")
+	if payload == "" || len(payload) > 1<<20 {
+		return req, false, errors.New("invalid multipart payload")
+	}
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		return req, false, err
+	}
+
+	file, header, err := r.FormFile("image")
+	if errors.Is(err, http.ErrMissingFile) {
+		return req, false, nil
+	}
+	if err != nil {
+		return req, false, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxImageBytes+1))
+	if err != nil {
+		return req, false, err
+	}
+	if len(data) == 0 || int64(len(data)) > maxImageBytes {
+		return req, false, errors.New("invalid image size")
+	}
+	contentType := strings.ToLower(strings.TrimSpace(header.Header.Get("Content-Type")))
+	if mediaExtension(contentType) == "" {
+		contentType = strings.ToLower(http.DetectContentType(data))
+	}
+	if mediaExtension(contentType) == "" {
+		return req, false, errors.New("unsupported image content type")
+	}
+	req.Image = "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data)
+	return req, true, nil
+}
+
 func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authenticatedAPIIdentity(w, r); !ok {
 		return
@@ -436,13 +485,20 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
 		return
 	}
-	var req dashboardChatRequest
-	if err := webutil.DecodeJSON(r, 12<<20, &req); err != nil {
-		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+	req, ephemeralImage, err := decodeDashboardChatRequest(w, r)
+	if err != nil {
+		errorCode := "invalid_request"
+		if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+			errorCode = "invalid_json"
+		}
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": errorCode})
 		return
 	}
 	msg := strings.TrimSpace(req.Message)
 	storedImage := dashboardChatStoredImage(req)
+	if ephemeralImage {
+		storedImage = ""
+	}
 	if req.ImageMeta != nil {
 		imageURL, imageErr := s.dashboardChatPreparedImageURL(r.Context(), identity.User.ID, req.ImageMeta)
 		if imageErr != nil {
