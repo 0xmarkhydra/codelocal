@@ -535,7 +535,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thinking i { animation: none; }
+  .thinking i,
+  .streamingDots i { animation: none; }
   .suggestions button,
   .clearBtn,
   .attachBtn,
@@ -682,6 +683,37 @@
   background: linear-gradient(145deg, rgba(25, 33, 47, 0.68), rgba(14, 20, 30, 0.78));
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.025), 0 10px 28px rgba(0, 0, 0, 0.13);
 }
+
+.msgStreaming {
+  position: relative;
+  padding-right: 50px;
+}
+
+.streamingDots {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 26px;
+  height: 18px;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.streamingDots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(191, 208, 240, 0.64);
+  animation: thinking 1.15s ease-in-out infinite;
+}
+
+.streamingDots i:nth-child(2) { animation-delay: 120ms; }
+.streamingDots i:nth-child(3) { animation-delay: 240ms; }
 
 .richMessage {
   display: grid;

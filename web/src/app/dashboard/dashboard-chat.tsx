@@ -373,8 +373,11 @@ export function DashboardChat() {
               ) : null}
               {message.image ? <img src={message.image} alt="Ảnh đã gửi" className={styles.msgImage} /> : null}
               {message.content ? (
-                <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant}`}>
+                <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant} ${loading && message.role === "assistant" && index === messages.length - 1 ? styles.msgStreaming : ""}`}>
                   {message.role === "assistant" ? <ChatRichMessage content={message.content} /> : message.content}
+                  {loading && message.role === "assistant" && index === messages.length - 1 ? (
+                    <span className={styles.streamingDots} aria-label="Thánh Gióng vẫn đang trả lời"><i /><i /><i /></span>
+                  ) : null}
                 </div>
               ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="Thánh Gióng đang trả lời"><i /><i /><i /></div> : null}
             </div>
