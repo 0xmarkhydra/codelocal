@@ -27,6 +27,7 @@ type ChatMsg = {
 
 type StreamData = {
   delta?: string;
+  content?: string;
   reply?: string;
   error?: string;
   tool_calls?: ToolCall[] | Array<{ index: number; name?: string; arguments?: string; id?: string }>;
@@ -274,6 +275,12 @@ export function DashboardChat() {
           if (eventName === "error") throw new Error(data.error || "Model trả về lỗi stream");
           if (eventName === "delta" && typeof data.delta === "string") {
             content += data.delta;
+            streamedContent = content;
+            updateAssistant(placeholderIndex, content, toolCalls);
+            continue;
+          }
+          if (eventName === "replace" && typeof data.content === "string") {
+            content = data.content;
             streamedContent = content;
             updateAssistant(placeholderIndex, content, toolCalls);
             continue;

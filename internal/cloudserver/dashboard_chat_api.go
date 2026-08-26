@@ -42,7 +42,7 @@ type dashboardChatRequest struct {
 const dashboardPublicModelName = "Thánh Gióng"
 
 func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace, autoResolved bool) string {
-	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never tell the user to navigate to another dashboard page to approve an action. If the user explicitly chooses one of CodeLocal's access modes in chat, the server applies that mode directly; resume the previously blocked task instead of only acknowledging the choice. For Git pushes, if the branch is behind or diverged from the remote, inspect Git state, fetch/rebase onto the remote branch, and retry the push; stop only when an actual merge/rebase conflict requires the user. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
+	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never tell the user to navigate to another dashboard page to approve an action. If the user explicitly chooses one of CodeLocal's access modes in chat, the server applies that mode directly; resume the previously blocked task instead of only acknowledging the choice. For Git pushes, if the branch is behind or diverged from the remote, inspect Git state, fetch/rebase onto the remote branch, and retry the push; stop only when an actual merge/rebase conflict requires the user. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. While tools are running, do not narrate access mode, tool status, or repeatedly say what you are about to do; the dashboard activity UI already communicates progress. Give one concise final summary after execution. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
 	if workspace == nil || strings.TrimSpace(workspace.WorkspaceID) == "" {
 		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results. If a project is needed, call get_workspace_detail; it activates the workspace automatically."
 	}
@@ -904,35 +904,54 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 	stopReason := ""
 	var visibleContent strings.Builder
 
-	callbacks := dashboardResponsesStreamCallbacks{
-		OnText: func(delta string) {
-			if delta == "" {
+	for round := 0; round < dashboardMaxToolRounds && len(allResults) < dashboardMaxToolCalls; round++ {
+		visibleBeforeRound := visibleContent.String()
+		roundTextVisible := false
+		roundUsesTool := false
+		rollbackRoundText := func() {
+			if !roundTextVisible {
 				return
 			}
-			visibleContent.WriteString(delta)
-			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
-		},
-		OnToolDelta: func(index int, id, name, arguments string) {
-			writeDashboardSSE(w, flusher, "tool_delta", map[string]any{"tool_calls": []map[string]any{{
-				"index": index, "id": id, "name": name, "arguments": arguments,
-			}}})
-		},
-	}
+			visibleContent.Reset()
+			visibleContent.WriteString(visibleBeforeRound)
+			writeDashboardSSE(w, flusher, "replace", map[string]any{"content": visibleBeforeRound})
+			roundTextVisible = false
+		}
+		callbacks := dashboardResponsesStreamCallbacks{
+			OnText: func(delta string) {
+				if delta == "" || roundUsesTool {
+					return
+				}
+				roundTextVisible = true
+				visibleContent.WriteString(delta)
+				writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+			},
+			OnToolDelta: func(index int, id, name, arguments string) {
+				if !roundUsesTool {
+					roundUsesTool = true
+					rollbackRoundText()
+				}
+				writeDashboardSSE(w, flusher, "tool_delta", map[string]any{"tool_calls": []map[string]any{{
+					"index": index, "id": id, "name": name, "arguments": arguments,
+				}}})
+			},
+		}
 
-	for round := 0; round < dashboardMaxToolRounds && len(allResults) < dashboardMaxToolCalls; round++ {
 		roundResult, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, follow, tools, callbacks)
 		if err != nil {
-			if roundResult.Progressed && strings.TrimSpace(roundResult.Content) != "" {
-				follow = append(follow, map[string]any{"role": "assistant", "content": roundResult.Content})
-			}
 			if len(allResults) == 0 {
 				return err
 			}
+			rollbackRoundText()
 			stopReason = "model connection interrupted after completed tool work"
 			break
 		}
 		toolCalls := roundResult.ToolCalls
 		content := roundResult.Content
+		if len(toolCalls) > 0 && !roundUsesTool {
+			roundUsesTool = true
+			rollbackRoundText()
+		}
 		if len(toolCalls) == 0 {
 			finalContent := visibleContent.String()
 			if finalContent == "" {
@@ -971,7 +990,7 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 		if len(results) > 0 {
 			writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
 		}
-		follow = append(follow, map[string]any{"role": "assistant", "content": content, "tool_calls": toolCallsAny})
+		follow = append(follow, map[string]any{"role": "assistant", "content": "", "tool_calls": toolCallsAny})
 		for _, result := range results {
 			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
 		}
@@ -989,7 +1008,14 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": "\n\n"})
 	}
 	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
-	finalRound, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, dashboardResponsesStreamCallbacks{OnText: callbacks.OnText})
+	finalCallbacks := dashboardResponsesStreamCallbacks{OnText: func(delta string) {
+		if delta == "" {
+			return
+		}
+		visibleContent.WriteString(delta)
+		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+	}}
+	finalRound, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
 	if err != nil {
 		if strings.TrimSpace(finalRound.Content) == "" {
 			fallback := dashboardFallbackReply(allResults)
@@ -1051,6 +1077,7 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 	toolCallsByIndex := map[int]*llmToolCall{}
 	var fullContent strings.Builder
 	finishedWithToolCalls := false
+	rolledBackToolPreamble := false
 	for scanner.Scan() {
 		select {
 		case <-r.Context().Done():
@@ -1095,6 +1122,10 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 			fullContent.WriteString(*delta.Content)
 			b2, _ := json.Marshal(map[string]any{"delta": *delta.Content})
 			writeRaw(string(b2))
+		}
+		if len(delta.ToolCalls) > 0 && !rolledBackToolPreamble && fullContent.Len() > 0 {
+			rolledBackToolPreamble = true
+			writeDashboardSSE(w, flusher, "replace", map[string]any{"content": ""})
 		}
 		for _, tc := range delta.ToolCalls {
 			idx := tc.Index
