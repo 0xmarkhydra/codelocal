@@ -260,9 +260,13 @@ func parseCommand(command string) (*commandParts, bool) {
 		index++
 	}
 	if index < len(words) && strings.EqualFold(filepath.Base(words[index]), "env") {
+		envIndex := index
 		index++
 		for index < len(words) && (envAssignment.MatchString(words[index]) || strings.HasPrefix(words[index], "-")) {
 			index++
+		}
+		if index >= len(words) {
+			return &commandParts{Words: words, CommandIndex: envIndex, Executable: "env", Args: words[envIndex+1:]}, true
 		}
 	}
 	if index >= len(words) {

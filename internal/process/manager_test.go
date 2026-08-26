@@ -154,6 +154,19 @@ func TestManagerPrunesFinishedProcesses(t *testing.T) {
 	}
 }
 
+func TestCanInjectEnvKeyRejectsExecutionBoundaryOverrides(t *testing.T) {
+	for _, key := range []string{"PATH", "HOME", "CODELOCAL_SECRET", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND"} {
+		if CanInjectEnvKey(key) {
+			t.Fatalf("protected env key %q must not be injectable", key)
+		}
+	}
+	for _, key := range []string{"VBEE_ACCESS_TOKEN", "ELEVENLABS_API_KEY", "APP_SIGNING_SECRET"} {
+		if !CanInjectEnvKey(key) {
+			t.Fatalf("ordinary runtime secret key %q should be injectable", key)
+		}
+	}
+}
+
 func TestTail(t *testing.T) {
 	if got := Tail([]byte("abcdef"), 3); got != "def" {
 		t.Fatalf("Tail=%q", got)

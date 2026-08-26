@@ -236,6 +236,11 @@ func explicitEnvAllowed(key string) bool {
 	}
 }
 
+// CanInjectEnvKey reports whether an explicitly requested runtime value may be
+// injected into a child process without overriding CodeLocal's own execution
+// boundary or high-risk process-loader variables.
+func CanInjectEnvKey(key string) bool { return explicitEnvAllowed(key) }
+
 func withEnv(cmd *exec.Cmd, explicit map[string]string) {
 	values := map[string]string{}
 	for _, entry := range security.SanitizeEnvironment(os.Environ()) {

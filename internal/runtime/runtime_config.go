@@ -176,14 +176,9 @@ func (r *Runtime) materializeRuntimeSystemProjects(settings map[string]cloud.Run
 	}()
 }
 
-func runtimeConfigEnvironment(snapshot cloud.RuntimeConfigSnapshot, secrets map[string]string) map[string]string {
+func runtimeConfigEnvironment(snapshot cloud.RuntimeConfigSnapshot) map[string]string {
 	out := map[string]string{}
 	for key, value := range snapshot.Values {
-		if cloud.ValidRuntimeEnvKey(strings.TrimSpace(key)) {
-			out[key] = value
-		}
-	}
-	for key, value := range secrets {
 		if cloud.ValidRuntimeEnvKey(strings.TrimSpace(key)) {
 			out[key] = value
 		}
@@ -212,7 +207,7 @@ func (r *Runtime) applyRuntimeSettings(settings map[string]cloud.RuntimeMaterial
 		settings[workspaceID] = materialized
 		cache.Workspaces[workspaceID] = materialized.Snapshot
 		if worker := r.workers[workspaceID]; worker != nil && worker.Engine != nil {
-			worker.Engine.SetRuntimeEnvironment(runtimeConfigEnvironment(materialized.Snapshot, materialized.Secrets), runtimeSecretRedactValues(materialized.Secrets))
+			worker.Engine.SetRuntimeEnvironment(runtimeConfigEnvironment(materialized.Snapshot), materialized.Secrets)
 		}
 	}
 	r.runtimeSettings = settings

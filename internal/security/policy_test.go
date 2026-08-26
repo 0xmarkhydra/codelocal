@@ -73,6 +73,21 @@ func TestSanitizeEnvironment(t *testing.T) {
 	}
 }
 
+func TestPolicyStillBlocksDirectSecretExfiltration(t *testing.T) {
+	root := t.TempDir()
+	ctx := Context{WorkspaceRoot: root, CWD: root}
+	for _, command := range []string{
+		"echo $VBEE_ACCESS_TOKEN",
+		"printenv VBEE_ACCESS_TOKEN",
+		"env",
+	} {
+		decision := Classify(command, NetworkApproval, ctx)
+		if !decision.Blocked || decision.RiskLevel != RiskBlocked {
+			t.Fatalf("direct secret exfiltration %q must remain blocked: %#v", command, decision)
+		}
+	}
+}
+
 func TestPolicyChainedAndCommands(t *testing.T) {
 	root := t.TempDir()
 	ctx := Context{WorkspaceRoot: root, CWD: root}

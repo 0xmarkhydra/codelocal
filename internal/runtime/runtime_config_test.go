@@ -9,14 +9,17 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 )
 
-func TestRuntimeConfigEnvironmentExportsOnlyEnvKeys(t *testing.T) {
+func TestRuntimeConfigEnvironmentExportsOnlyNonSecretEnvKeys(t *testing.T) {
 	snapshot := cloud.RuntimeConfigSnapshot{Values: map[string]string{"FFMPEG_PATH": "ffmpeg", "video.aspect": "9:16"}}
-	env := runtimeConfigEnvironment(snapshot, map[string]string{"VBEE_API_KEY": "secret", "bad.key": "ignored"})
-	if env["FFMPEG_PATH"] != "ffmpeg" || env["VBEE_API_KEY"] != "secret" {
-		t.Fatalf("expected environment values missing: %#v", env)
+	env := runtimeConfigEnvironment(snapshot)
+	if env["FFMPEG_PATH"] != "ffmpeg" {
+		t.Fatalf("expected runtime config value missing: %#v", env)
 	}
 	if _, ok := env["video.aspect"]; ok {
 		t.Fatalf("preference key leaked into environment: %#v", env)
+	}
+	if _, ok := env["VBEE_API_KEY"]; ok {
+		t.Fatal("secret unexpectedly merged into ordinary runtime config")
 	}
 }
 

@@ -397,6 +397,123 @@ func TestSymbolAtHandlesEmptyAndOutOfRangeColumns(t *testing.T) {
 	}
 }
 
+func TestOpaqueSecretRuntimeEnvironmentIsLeastPrivilege(t *testing.T) {
+	engine := newTestEngine(t)
+	t.Setenv("LOCAL_ONLY_TOKEN", "local-host-secret")
+	engine.SetRuntimeEnvironment(
+		map[string]string{"SAFE_CONFIG": "configured"},
+		map[string]string{
+			"VBEE_ACCESS_TOKEN": "managed-vbee-secret",
+			"OTHER_SECRET":      "managed-other-secret",
+		},
+	)
+
+	env, redact, err := engine.runtimeEnvironment([]string{"VBEE_ACCESS_TOKEN", "LOCAL_ONLY_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["SAFE_CONFIG"] != "configured" || env["VBEE_ACCESS_TOKEN"] != "managed-vbee-secret" || env["LOCAL_ONLY_TOKEN"] != "local-host-secret" {
+		t.Fatalf("requested secret environment missing values: %#v", env)
+	}
+	if _, ok := env["OTHER_SECRET"]; ok {
+		t.Fatalf("unrequested managed secret was injected: %#v", env)
+	}
+	joinedRedact := strings.Join(redact, "\n")
+	for _, value := range []string{"managed-vbee-secret", "managed-other-secret", "local-host-secret"} {
+		if !strings.Contains(joinedRedact, value) {
+			t.Fatalf("redaction set missing synthetic secret %q", value)
+		}
+	}
+	if _, _, err := engine.runtimeEnvironment([]string{"MISSING_SECRET"}); err == nil || !strings.Contains(err.Error(), "MISSING_SECRET") {
+		t.Fatalf("missing secret should fail by name only, err=%v", err)
+	}
+}
+
+func TestOpaqueSecretApprovalIsScopedByNamesAndDeclaredHosts(t *testing.T) {
+	base := security.Classify("node generate-tts.js", security.NetworkApproval, security.Context{})
+	firstNames, firstDecision, err := prepareOpaqueSecretExecution(map[string]any{
+		"secrets":      []any{"VBEE_APP_ID", "VBEE_ACCESS_TOKEN"},
+		"networkHosts": []any{"VBEE.VN"},
+	}, "node generate-tts.js", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondNames, secondDecision, err := prepareOpaqueSecretExecution(map[string]any{
+		"secrets":      []any{"VBEE_ACCESS_TOKEN", "VBEE_APP_ID", "VBEE_APP_ID"},
+		"networkHosts": []any{"vbee.vn"},
+	}, "node generate-tts.js", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(firstNames, ",") != strings.Join(secondNames, ",") || firstDecision.ApprovalKey != secondDecision.ApprovalKey {
+		t.Fatalf("equivalent secret scopes must produce one deterministic approval: first=%#v second=%#v", firstDecision, secondDecision)
+	}
+	if firstDecision.Blocked || firstDecision.RiskLevel != security.RiskReview || !firstDecision.RequiresApproval || firstDecision.ApprovalPolicy != security.ApprovalRememberable || firstDecision.ApprovalKey == "" {
+		t.Fatalf("opaque secret use should require rememberable review: %#v", firstDecision)
+	}
+	for _, want := range []string{"VBEE_ACCESS_TOKEN", "VBEE_APP_ID", "vbee.vn"} {
+		if !strings.Contains(firstDecision.ApprovalLabel, want) {
+			t.Fatalf("approval label missing %q: %q", want, firstDecision.ApprovalLabel)
+		}
+	}
+	_, otherHost, err := prepareOpaqueSecretExecution(map[string]any{
+		"secrets":      []any{"VBEE_ACCESS_TOKEN", "VBEE_APP_ID"},
+		"networkHosts": []any{"api.example.com"},
+	}, "node generate-tts.js", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherHost.ApprovalKey == firstDecision.ApprovalKey {
+		t.Fatal("changing the declared destination must change remembered approval scope")
+	}
+
+	blocked := security.Classify("echo $VBEE_ACCESS_TOKEN", security.NetworkApproval, security.Context{})
+	_, blockedDecision, err := prepareOpaqueSecretExecution(map[string]any{"secrets": []any{"VBEE_ACCESS_TOKEN"}}, "echo $VBEE_ACCESS_TOKEN", blocked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !blockedDecision.Blocked || blockedDecision.RiskLevel != security.RiskBlocked {
+		t.Fatalf("opaque secret declaration must never override exfiltration block: %#v", blockedDecision)
+	}
+}
+
+func TestOpaqueSecretInferenceFindsManagedSecretInExecutedScript(t *testing.T) {
+	engine := newTestEngine(t)
+	engine.SetRuntimeEnvironment(nil, map[string]string{
+		"VBEE_ACCESS_TOKEN": "synthetic-vbee-secret",
+		"OTHER_SECRET":      "synthetic-other-secret",
+	})
+	script := filepath.Join(engine.Root, "generate-tts.js")
+	body := `const token = process.env.VBEE_ACCESS_TOKEN;
+fetch("https://vbee.vn/api/v1/tts", {headers: {Authorization: token}});
+`
+	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := "node generate-tts.js"
+	base := security.Classify(command, security.NetworkApproval, security.Context{WorkspaceRoot: engine.Root, CWD: engine.Root})
+	names, decision, err := engine.prepareOpaqueSecretExecution(map[string]any{}, command, engine.Root, engine.Root, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(names, ",") != "VBEE_ACCESS_TOKEN" {
+		t.Fatalf("inferred secrets=%v, want only VBEE_ACCESS_TOKEN", names)
+	}
+	if !decision.RequiresApproval || decision.ApprovalPolicy != security.ApprovalRememberable || !strings.Contains(decision.ApprovalLabel, "VBEE_ACCESS_TOKEN") || !strings.Contains(decision.ApprovalLabel, "vbee.vn") {
+		t.Fatalf("inferred secret approval was not scoped to name+host: %#v", decision)
+	}
+	env, _, err := engine.runtimeEnvironment(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["VBEE_ACCESS_TOKEN"] != "synthetic-vbee-secret" {
+		t.Fatalf("inferred secret was not resolved locally: %#v", env)
+	}
+	if _, ok := env["OTHER_SECRET"]; ok {
+		t.Fatalf("unreferenced secret was injected: %#v", env)
+	}
+}
+
 func TestProjectInfoReportsCurrentProtocolVersion(t *testing.T) {
 	engine := newTestEngine(t)
 	result, err := engine.Handle(context.Background(), "project_info", nil, HandleOptions{RequestID: "project-info"})
