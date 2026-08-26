@@ -378,12 +378,12 @@ export function DashboardChat() {
         </div>
       ) : null}
 
-      <form className={styles.chatForm} onSubmit={send}>
+      <form className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
         <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
         <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5 14.7 5.8a3 3 0 0 1 4.2 4.2l-8.2 8.2a5 5 0 0 1-7.1-7.1l8-8" /></svg>
         </button>
-        <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Nhắn cho CodeLocal" aria-label="Nội dung chat" autoComplete="off" />
+        <input value={input} onChange={(event) => setInput(event.target.value)} onPaste={onPaste} placeholder="Nhắn cho CodeLocal" aria-label="Nội dung chat" autoComplete="off" />
         <button className={styles.sendBtn} type="submit" disabled={loading || (!input.trim() && !image)} aria-label="Gửi">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14" /></svg>
         </button>
