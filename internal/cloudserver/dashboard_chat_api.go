@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
@@ -37,12 +39,189 @@ type dashboardChatRequest struct {
 	Workspace *dashboardChatWorkspace    `json:"workspace,omitempty"`
 }
 
-func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace) string {
-	prompt := "You are Thánh Gióng, the CodeLocal assistant on codelocal.cloud/dashboard. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, or Project Brain. Never mention the underlying model or provider unless the user explicitly asks."
+func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace, autoResolved bool) string {
+	prompt := "You are Thánh Gióng, the CodeLocal assistant on codelocal.cloud/dashboard. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, or Project Brain. Never mention the underlying model or provider unless the user explicitly asks. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
 	if workspace == nil || strings.TrimSpace(workspace.WorkspaceID) == "" {
-		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results."
+		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results. If a project is needed, call get_workspace_detail; it activates the workspace automatically."
 	}
-	return fmt.Sprintf("%s The user manually selected workspace %q (workspaceId=%q, deviceId=%q). Treat this workspace as the primary project context unless the user explicitly asks to switch projects.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
+	if autoResolved {
+		return fmt.Sprintf("%s Auto routing resolved the current project to %q (workspaceId=%q, deviceId=%q), and CodeLocal already activated it. Continue in this project without discussing wake/sleep state unless activation itself failed.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
+	}
+	return fmt.Sprintf("%s The user manually selected workspace %q (workspaceId=%q, deviceId=%q). CodeLocal already activated it. Treat this workspace as the primary project context unless the user explicitly asks to switch projects, and do not ask about wake/sleep state.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
+}
+
+func dashboardChatNormalizeWorkspaceText(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.NewReplacer("_", " ", "-", " ", "/", " ", "\\", " ", ".", " ").Replace(value)
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func dashboardChatWorkspaceScore(workspace gateway.WorkspaceView, query string) int {
+	query = dashboardChatNormalizeWorkspaceText(query)
+	if query == "" {
+		return 0
+	}
+	aliases := []string{workspace.WorkspaceName, workspace.ProjectName, workspace.WorkspaceID, workspace.ProjectID}
+	best := 0
+	for _, alias := range aliases {
+		normalized := dashboardChatNormalizeWorkspaceText(alias)
+		if len([]rune(normalized)) < 3 {
+			continue
+		}
+		score := 0
+		switch {
+		case query == normalized:
+			score = 10000 + len(normalized)
+		case strings.Contains(query, normalized):
+			score = 1000 + len(normalized)
+		}
+		if score > best {
+			best = score
+		}
+	}
+	return best
+}
+
+func dashboardChatFindWorkspace(catalog []gateway.WorkspaceView, query string) *gateway.WorkspaceView {
+	bestScore := 0
+	var best *gateway.WorkspaceView
+	for i := range catalog {
+		score := dashboardChatWorkspaceScore(catalog[i], query)
+		if score <= bestScore {
+			continue
+		}
+		copy := catalog[i]
+		best = &copy
+		bestScore = score
+	}
+	return best
+}
+
+func dashboardChatWantsCurrentWorkspace(message string) bool {
+	message = dashboardChatNormalizeWorkspaceText(message)
+	for _, phrase := range []string{"dự án đang active", "project đang active", "dự án đang hoạt động", "dự án hiện tại", "project hiện tại", "current project", "active project"} {
+		if strings.Contains(message, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func dashboardChatContinuationMessage(message string) bool {
+	message = dashboardChatNormalizeWorkspaceText(message)
+	if len([]rune(message)) <= 48 {
+		return true
+	}
+	for _, phrase := range []string{"dự án đó", "project đó", "ở đó", "tiếp tục", "xong chưa", "làm tiếp"} {
+		if strings.Contains(message, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func dashboardChatCurrentWorkspace(catalog []gateway.WorkspaceView) *gateway.WorkspaceView {
+	var best *gateway.WorkspaceView
+	for i := range catalog {
+		if catalog[i].Status != "active" {
+			continue
+		}
+		if best == nil || catalog[i].LastSeenAt > best.LastSeenAt {
+			copy := catalog[i]
+			best = &copy
+		}
+	}
+	return best
+}
+
+func dashboardChatResolveWorkspace(ctx context.Context, s *Server, userID string, req dashboardChatRequest) (*gateway.WorkspaceView, bool, error) {
+	if s.Workspaces == nil {
+		return nil, false, nil
+	}
+	catalog, err := s.Workspaces.Catalog(ctx, userID)
+	if err != nil {
+		return nil, false, err
+	}
+	if req.Workspace != nil && strings.TrimSpace(req.Workspace.WorkspaceID) != "" {
+		for i := range catalog {
+			if catalog[i].WorkspaceID != req.Workspace.WorkspaceID {
+				continue
+			}
+			if req.Workspace.DeviceID != "" && catalog[i].DeviceID != req.Workspace.DeviceID {
+				continue
+			}
+			copy := catalog[i]
+			return &copy, false, nil
+		}
+		return nil, false, fmt.Errorf("selected workspace is unavailable: %s", req.Workspace.WorkspaceName)
+	}
+	if matched := dashboardChatFindWorkspace(catalog, req.Message); matched != nil {
+		return matched, true, nil
+	}
+	if dashboardChatWantsCurrentWorkspace(req.Message) {
+		if current := dashboardChatCurrentWorkspace(catalog); current != nil {
+			return current, true, nil
+		}
+	}
+	if dashboardChatContinuationMessage(req.Message) {
+		for i := len(req.History) - 1; i >= 0; i-- {
+			if req.History[i].Role != "user" {
+				continue
+			}
+			if matched := dashboardChatFindWorkspace(catalog, req.History[i].Content); matched != nil {
+				return matched, true, nil
+			}
+		}
+	}
+	return nil, false, nil
+}
+
+func dashboardChatActivateWorkspace(ctx context.Context, s *Server, userID string, workspace *gateway.WorkspaceView) (*gateway.WorkspaceView, error) {
+	if workspace == nil || workspace.Status == "active" {
+		return workspace, nil
+	}
+	if !workspace.RuntimeOnline {
+		return nil, fmt.Errorf("device offline for workspace %s", workspace.WorkspaceName)
+	}
+	if workspace.Authorized != true {
+		return nil, fmt.Errorf("workspace is not authorized: %s", workspace.WorkspaceName)
+	}
+	return s.Workspaces.Activate(ctx, userID, workspace.Key)
+}
+
+func dashboardChatWorkspaceError(workspace *gateway.WorkspaceView, err error) string {
+	name := "dự án"
+	if workspace != nil && strings.TrimSpace(workspace.WorkspaceName) != "" {
+		name = workspace.WorkspaceName
+	}
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "offline"):
+		return fmt.Sprintf("Máy chứa %s đang offline. Mở CodeLocal trên máy đó rồi thử lại.", name)
+	case strings.Contains(lower, "not authorized"), strings.Contains(lower, "no longer authorized"):
+		return fmt.Sprintf("%s chưa được CodeLocal cấp quyền trên máy này.", name)
+	case strings.Contains(lower, "timed out"):
+		return fmt.Sprintf("%s chưa mở kịp. CodeLocal runtime vẫn online, hãy thử lại sau vài giây.", name)
+	default:
+		return fmt.Sprintf("Không thể mở %s lúc này.", name)
+	}
+}
+
+func dashboardWorkspaceToolView(workspace gateway.WorkspaceView) map[string]any {
+	status := workspace.Status
+	if status == "sleeping" {
+		status = "idle"
+	}
+	if status == "device_offline" {
+		status = "offline"
+	}
+	return map[string]any{
+		"deviceId": workspace.DeviceID, "deviceName": workspace.DeviceName,
+		"workspaceId": workspace.WorkspaceID, "workspaceName": workspace.WorkspaceName,
+		"projectId": workspace.ProjectID, "projectName": workspace.ProjectName,
+		"status": status, "runtimeOnline": workspace.RuntimeOnline,
+		"authorized": workspace.Authorized == true, "lastSeenAt": workspace.LastSeenAt,
+	}
 }
 
 type dashboardToolCall struct {
@@ -63,7 +242,7 @@ var dashboardChatTools = []map[string]any{
 			"parameters": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"status": map[string]any{"type": "string", "enum": []string{"all", "active", "offline"}},
+					"status": map[string]any{"type": "string", "enum": []string{"all", "active", "idle", "offline"}},
 				},
 			},
 		},
@@ -95,7 +274,7 @@ var dashboardChatTools = []map[string]any{
 		"type": "function",
 		"function": map[string]any{
 			"name":        "get_workspace_detail",
-			"description": "Get detail of a workspace by name or id",
+			"description": "Get detail of a workspace by name or id. If the workspace is idle and its runtime is online, CodeLocal activates it automatically before returning details. Never ask the user to wake it manually.",
 			"parameters": map[string]any{
 				"type":       "object",
 				"properties": map[string]any{"workspace": map[string]any{"type": "string"}},
@@ -246,6 +425,32 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if len(req.History) > 12 {
 		req.History = req.History[len(req.History)-12:]
 	}
+
+	promptWorkspace := req.Workspace
+	autoResolved := false
+	resolvedWorkspace, resolvedByAuto, resolveErr := dashboardChatResolveWorkspace(r.Context(), s, identity.User.ID, req)
+	if resolveErr != nil {
+		if req.Workspace != nil {
+			name := strings.TrimSpace(req.Workspace.WorkspaceName)
+			if name == "" {
+				name = "Dự án đã chọn"
+			}
+			webutil.JSON(w, http.StatusConflict, map[string]string{"error": name + " không còn khả dụng."})
+			return
+		}
+		slog.Warn("dashboard chat auto workspace resolve failed", "error", resolveErr, "user", identity.User.ID)
+	} else if resolvedWorkspace != nil {
+		activeWorkspace, activateErr := dashboardChatActivateWorkspace(r.Context(), s, identity.User.ID, resolvedWorkspace)
+		if activateErr != nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": dashboardChatWorkspaceError(resolvedWorkspace, activateErr)})
+			return
+		}
+		if activeWorkspace != nil {
+			promptWorkspace = &dashboardChatWorkspace{DeviceID: activeWorkspace.DeviceID, WorkspaceID: activeWorkspace.WorkspaceID, WorkspaceName: activeWorkspace.WorkspaceName}
+			autoResolved = resolvedByAuto
+		}
+	}
+
 	apiKey, baseURL, model := dashboardLLMConfig()
 	if requestedModel := strings.TrimSpace(req.Model); requestedModel != "" {
 		model = requestedModel
@@ -297,7 +502,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed.
-		system2 := dashboardChatSystemPrompt(req.Workspace)
+		system2 := dashboardChatSystemPrompt(promptWorkspace, autoResolved)
 		msgs := []map[string]any{{"role": "system", "content": system2}}
 		for _, h := range req.History {
 			m := map[string]any{"role": h.Role, "content": h.Content}
@@ -354,7 +559,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": model})
 		return
 	}
-	system := dashboardChatSystemPrompt(req.Workspace)
+	system := dashboardChatSystemPrompt(promptWorkspace, autoResolved)
 	messages := []map[string]any{{"role": "system", "content": system}}
 	for _, h := range req.History {
 		m := map[string]any{"role": h.Role, "content": h.Content}
@@ -455,7 +660,17 @@ func execDashboardTool(r *http.Request, s *Server, userID, name string, args map
 		if err != nil {
 			return `{"error":"workspaces_unavailable"}`
 		}
-		b, _ := json.Marshal(map[string]any{"total": len(ws), "workspaces": ws})
+		wanted, _ := args["status"].(string)
+		views := make([]map[string]any, 0, len(ws))
+		for _, workspace := range ws {
+			view := dashboardWorkspaceToolView(workspace)
+			status, _ := view["status"].(string)
+			if wanted != "" && wanted != "all" && wanted != status {
+				continue
+			}
+			views = append(views, view)
+		}
+		b, _ := json.Marshal(map[string]any{"total": len(views), "workspaces": views})
 		return trunc(b)
 	case "list_devices":
 		devs, err := s.Store.ListDevices(r.Context(), userID)
@@ -472,7 +687,21 @@ func execDashboardTool(r *http.Request, s *Server, userID, name string, args map
 		return `{"query":` + jsonQuote(q) + `,"hits":[{"path":"web/src/app/dashboard","score":0.92}],"note":"Go mock - will query Project Brain index"}`
 	case "get_workspace_detail":
 		wk, _ := args["workspace"].(string)
-		return `{"workspace":` + jsonQuote(wk) + `,"note":"Go mock - lookup via Workspaces.Catalog"}`
+		catalog, err := s.Workspaces.Catalog(r.Context(), userID)
+		if err != nil {
+			return `{"error":"workspaces_unavailable"}`
+		}
+		workspace := dashboardChatFindWorkspace(catalog, wk)
+		if workspace == nil {
+			return `{"error":"workspace_not_found","workspace":` + jsonQuote(wk) + `}`
+		}
+		active, err := dashboardChatActivateWorkspace(r.Context(), s, userID, workspace)
+		if err != nil {
+			b, _ := json.Marshal(map[string]any{"error": "workspace_activation_failed", "message": dashboardChatWorkspaceError(workspace, err), "workspace": dashboardWorkspaceToolView(*workspace)})
+			return trunc(b)
+		}
+		b, _ := json.Marshal(map[string]any{"workspace": dashboardWorkspaceToolView(*active), "ready": true})
+		return trunc(b)
 	default:
 		return `{"error":"unknown tool ` + name + `"}`
 	}

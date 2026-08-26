@@ -4,6 +4,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/0xmarkhydra/codelocal/internal/gateway"
 )
 
 func TestDashboardProtocolForZenModels(t *testing.T) {
@@ -70,8 +72,8 @@ func TestResponsesInputTranslatesFunctionCallAndOutput(t *testing.T) {
 }
 
 func TestDashboardChatSystemPromptUsesThanhGiongAndAutoRouting(t *testing.T) {
-	prompt := dashboardChatSystemPrompt(nil)
-	for _, token := range []string{"Thánh Gióng", "Auto", "authorized workspace"} {
+	prompt := dashboardChatSystemPrompt(nil, false)
+	for _, token := range []string{"Thánh Gióng", "Auto", "authorized workspace", "never ask the user whether to wake"} {
 		if !strings.Contains(prompt, token) {
 			t.Fatalf("auto prompt missing %q: %s", token, prompt)
 		}
@@ -83,10 +85,43 @@ func TestDashboardChatSystemPromptPinsSelectedWorkspace(t *testing.T) {
 		DeviceID:      "device-1",
 		WorkspaceID:   "workspace-1",
 		WorkspaceName: "MediaUpload",
-	})
-	for _, token := range []string{"MediaUpload", "workspace-1", "device-1", "primary project context"} {
+	}, false)
+	for _, token := range []string{"MediaUpload", "workspace-1", "device-1", "primary project context", "already activated"} {
 		if !strings.Contains(prompt, token) {
 			t.Fatalf("manual workspace prompt missing %q: %s", token, prompt)
 		}
+	}
+}
+
+func TestDashboardChatFindWorkspaceMatchesProjectName(t *testing.T) {
+	catalog := []gateway.WorkspaceView{
+		{WorkspaceID: "MediaUpload-1", WorkspaceName: "MediaUpload", ProjectName: "MediaUpload"},
+		{WorkspaceID: "MMON-Trading-2", WorkspaceName: "MMON Trading", ProjectName: "MMON Trading"},
+	}
+	got := dashboardChatFindWorkspace(catalog, "vào MMON Trading tóm tắt dự án giúp tôi")
+	if got == nil || got.WorkspaceID != "MMON-Trading-2" {
+		t.Fatalf("got %#v, want MMON Trading", got)
+	}
+}
+
+func TestDashboardChatCurrentWorkspaceUsesMostRecentActive(t *testing.T) {
+	catalog := []gateway.WorkspaceView{
+		{WorkspaceID: "old", WorkspaceName: "Old", Status: "active", LastSeenAt: 10},
+		{WorkspaceID: "idle", WorkspaceName: "Idle", Status: "sleeping", LastSeenAt: 30},
+		{WorkspaceID: "new", WorkspaceName: "New", Status: "active", LastSeenAt: 20},
+	}
+	got := dashboardChatCurrentWorkspace(catalog)
+	if got == nil || got.WorkspaceID != "new" {
+		t.Fatalf("got %#v, want newest active workspace", got)
+	}
+}
+
+func TestDashboardWorkspaceToolViewHidesSleepingLifecycle(t *testing.T) {
+	view := dashboardWorkspaceToolView(gateway.WorkspaceView{WorkspaceID: "workspace-1", WorkspaceName: "MediaUpload", Status: "sleeping", RuntimeOnline: true, Authorized: true})
+	if view["status"] != "idle" {
+		t.Fatalf("status = %#v, want idle", view["status"])
+	}
+	if view["runtimeOnline"] != true || view["authorized"] != true {
+		t.Fatalf("unexpected runtime fields: %#v", view)
 	}
 }
