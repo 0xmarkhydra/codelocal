@@ -1,6 +1,9 @@
 package cloudserver
 
 import (
+	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -222,5 +225,64 @@ func TestDashboardFallbackReplyNeverExposesHTTP508(t *testing.T) {
 	reply := dashboardFallbackReply([]dashboardToolCall{{Name: "read_project_file", Status: "done"}})
 	if strings.Contains(reply, "508") || strings.Contains(strings.ToLower(reply), "tool loop") {
 		t.Fatalf("fallback leaked internal orchestration error: %s", reply)
+	}
+}
+
+func TestResponsesNativeStreamEmitsTextDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(raw), `"stream":true`) {
+			t.Errorf("responses request did not enable native streaming: %s", raw)
+		}
+		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+			t.Errorf("Accept = %q, want text/event-stream", got)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"Xin\"}\n\n")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\" chào\"}\n\n")
+		_, _ = io.WriteString(w, "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"text\":\"Xin chào\"}\n\n")
+	}))
+	defer server.Close()
+
+	var deltas []string
+	round, err := callResponsesStreamWithTools(context.Background(), server.URL, "test-key", "muse-spark-1.2-contributor-free", []map[string]any{{"role": "user", "content": "hi"}}, nil, dashboardResponsesStreamCallbacks{
+		OnText: func(delta string) { deltas = append(deltas, delta) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(deltas, ""); got != "Xin chào" {
+		t.Fatalf("streamed text = %q, want Xin chào", got)
+	}
+	if round.Content != "Xin chào" || !round.Progressed || len(round.ToolCalls) != 0 {
+		t.Fatalf("unexpected stream round: %#v", round)
+	}
+}
+
+func TestResponsesNativeStreamCollectsFunctionCall(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"item_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"read_project_file\",\"arguments\":\"\"}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"item_1\",\"output_index\":0,\"delta\":\"{\\\"path\\\":\"}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"item_1\",\"output_index\":0,\"name\":\"read_project_file\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}\n\n")
+	}))
+	defer server.Close()
+
+	var toolDeltas int
+	round, err := callResponsesStreamWithTools(context.Background(), server.URL, "test-key", "muse-spark-1.2-contributor-free", []map[string]any{{"role": "user", "content": "read"}}, dashboardChatTools, dashboardResponsesStreamCallbacks{
+		OnToolDelta: func(index int, id, name, arguments string) { toolDeltas++ },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if toolDeltas == 0 {
+		t.Fatal("expected streamed tool deltas")
+	}
+	if len(round.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %#v, want one", round.ToolCalls)
+	}
+	call := round.ToolCalls[0]
+	if call.ID != "call_1" || call.Name != "read_project_file" || call.Arguments != `{"path":"README.md"}` {
+		t.Fatalf("unexpected function call: %#v", call)
 	}
 }

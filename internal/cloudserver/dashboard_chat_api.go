@@ -873,21 +873,45 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 	allResults := make([]dashboardToolCall, 0, 12)
 	seenProgress := map[string]int{}
 	stopReason := ""
+	var visibleContent strings.Builder
+
+	callbacks := dashboardResponsesStreamCallbacks{
+		OnText: func(delta string) {
+			if delta == "" {
+				return
+			}
+			visibleContent.WriteString(delta)
+			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+		},
+		OnToolDelta: func(index int, id, name, arguments string) {
+			writeDashboardSSE(w, flusher, "tool_delta", map[string]any{"tool_calls": []map[string]any{{
+				"index": index, "id": id, "name": name, "arguments": arguments,
+			}}})
+		},
+	}
 
 	for round := 0; round < dashboardMaxToolRounds && len(allResults) < dashboardMaxToolCalls; round++ {
-		toolCalls, content, err := dashboardCallResponsesWithRetry(r.Context(), baseURL, apiKey, model, follow, tools)
+		roundResult, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, follow, tools, callbacks)
 		if err != nil {
+			if roundResult.Progressed && strings.TrimSpace(roundResult.Content) != "" {
+				follow = append(follow, map[string]any{"role": "assistant", "content": roundResult.Content})
+			}
 			if len(allResults) == 0 {
 				return err
 			}
 			stopReason = "model connection interrupted after completed tool work"
 			break
 		}
+		toolCalls := roundResult.ToolCalls
+		content := roundResult.Content
 		if len(toolCalls) == 0 {
-			writeDashboardTextDeltas(w, flusher, content)
+			finalContent := visibleContent.String()
+			if finalContent == "" {
+				finalContent = content
+			}
 			tcsJSON, _ := json.Marshal(allResults)
-			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
-			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": content, "tool_calls": allResults, "model": dashboardPublicModelName})
+			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName})
 			return nil
 		}
 
@@ -931,12 +955,28 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 	if stopReason == "" {
 		stopReason = "tool execution budget reached"
 	}
-	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
-	_, finalContent, err := dashboardCallResponsesWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil)
-	if err != nil || strings.TrimSpace(finalContent) == "" {
-		finalContent = dashboardFallbackReply(allResults)
+	if visibleContent.Len() > 0 {
+		visibleContent.WriteString("\n\n")
+		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": "\n\n"})
 	}
-	writeDashboardTextDeltas(w, flusher, finalContent)
+	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
+	finalRound, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, dashboardResponsesStreamCallbacks{OnText: callbacks.OnText})
+	if err != nil {
+		if strings.TrimSpace(finalRound.Content) == "" {
+			fallback := dashboardFallbackReply(allResults)
+			visibleContent.WriteString(fallback)
+			writeDashboardTextDeltas(w, flusher, fallback)
+		} else {
+			suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
+			visibleContent.WriteString(suffix)
+			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+		}
+	}
+	finalContent := visibleContent.String()
+	if strings.TrimSpace(finalContent) == "" {
+		finalContent = dashboardFallbackReply(allResults)
+		writeDashboardTextDeltas(w, flusher, finalContent)
+	}
 	tcsJSON, _ := json.Marshal(allResults)
 	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
 	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true})

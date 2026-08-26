@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net"
 	"strings"
-	"time"
 )
 
 const (
@@ -37,30 +36,6 @@ func dashboardIsTransientLLMError(err error) bool {
 		}
 	}
 	return false
-}
-
-func dashboardCallResponsesWithRetry(ctx context.Context, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any) ([]llmToolCall, string, error) {
-	var lastErr error
-	delay := 250 * time.Millisecond
-	for attempt := 0; attempt < dashboardLLMRetryAttempts; attempt++ {
-		calls, content, err := callResponsesWithTools(baseURL, apiKey, model, messages, tools)
-		if err == nil {
-			return calls, content, nil
-		}
-		lastErr = err
-		if !dashboardIsTransientLLMError(err) || attempt == dashboardLLMRetryAttempts-1 {
-			break
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, "", ctx.Err()
-		case <-timer.C:
-		}
-		delay *= 2
-	}
-	return nil, "", lastErr
 }
 
 func dashboardCanonicalJSON(raw string) string {
