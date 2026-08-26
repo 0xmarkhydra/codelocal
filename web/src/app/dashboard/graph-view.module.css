@@ -6,7 +6,7 @@
   margin: 0;
 }
 
-.viewportShell { height: 100%; min-height: 560px; }
+.viewportShell { height: 100%; min-height: 0; }
 .shell[data-inspector="true"] { grid-template-columns: minmax(0, 1fr) minmax(260px, 310px); }
 
 .main {

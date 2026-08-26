@@ -2631,3 +2631,38 @@
   margin: 0;
   font-size: clamp(25px, 2vw, 30px);
 }
+
+/* Brain immersive canvas: use the viewport instead of a centered dashboard column. */
+.brainContent {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px !important;
+}
+
+.brainTopbar {
+  width: 100%;
+  max-width: none;
+  margin: 0 0 -44px;
+  padding: 6px 8px 0;
+}
+
+.brainStage {
+  width: 100%;
+  max-width: none;
+  height: calc(100dvh - 20px);
+  min-height: 0;
+  margin: 0;
+}
+
+.brainStage > * {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+@media (max-width: 620px) {
+  .brainContent { height: 100dvh; padding: 6px 6px 72px !important; }
+  .brainTopbar { margin-bottom: -40px; padding: 4px 5px 0; }
+  .brainStage { height: calc(100dvh - 78px); min-height: 0; }
+}

@@ -2,10 +2,10 @@
   position: relative;
   height: 100%;
   min-width: 0;
-  min-height: 560px;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.075);
-  border-radius: 24px;
+  border-radius: 18px;
   background:
     radial-gradient(circle at 50% 44%, rgba(87, 107, 153, .075), transparent 40%),
     linear-gradient(rgba(130, 147, 178, .018) 1px, transparent 1px),

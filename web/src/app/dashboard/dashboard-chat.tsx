@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
 import { AppIcon } from "./app-icon";
+import { ChatRichMessage } from "./chat-rich-message";
 import { useDashboardResource } from "./use-dashboard-resource";
 import styles from "./dashboard-chat.module.css";
 
@@ -342,7 +343,11 @@ export function DashboardChat() {
                 </div>
               ) : null}
               {message.image ? <img src={message.image} alt="Ảnh đã gửi" className={styles.msgImage} /> : null}
-              {message.content ? <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant}`}>{message.content}</div> : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="Thánh Gióng đang trả lời"><i /><i /><i /></div> : null}
+              {message.content ? (
+                <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant}`}>
+                  {message.role === "assistant" ? <ChatRichMessage content={message.content} /> : message.content}
+                </div>
+              ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="Thánh Gióng đang trả lời"><i /><i /><i /></div> : null}
             </div>
           </div>
         ))}
