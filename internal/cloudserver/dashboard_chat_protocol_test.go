@@ -73,10 +73,19 @@ func TestResponsesInputTranslatesFunctionCallAndOutput(t *testing.T) {
 
 func TestDashboardChatSystemPromptUsesThanhGiongAndAutoRouting(t *testing.T) {
 	prompt := dashboardChatSystemPrompt(nil, false)
-	for _, token := range []string{"Thánh Gióng", "Auto", "authorized workspace", "never ask the user whether to wake"} {
+	for _, token := range []string{"Thánh Gióng", "public AI model of CodeLocal", "Your model name is always Thánh Gióng", "Never disclose", "Auto", "authorized workspace", "never ask the user whether to wake"} {
 		if !strings.Contains(prompt, token) {
 			t.Fatalf("auto prompt missing %q: %s", token, prompt)
 		}
+	}
+	if strings.Contains(prompt, "unless the user explicitly asks") {
+		t.Fatalf("prompt must not allow underlying model disclosure: %s", prompt)
+	}
+}
+
+func TestDashboardPublicModelNameIsThanhGiong(t *testing.T) {
+	if dashboardPublicModelName != "Thánh Gióng" {
+		t.Fatalf("dashboard public model = %q, want Thánh Gióng", dashboardPublicModelName)
 	}
 }
 
