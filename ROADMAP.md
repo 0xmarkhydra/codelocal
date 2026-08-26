@@ -4,6 +4,8 @@
 >
 > Project Brain architecture, durable knowledge, rules/skills discovery, cross-device learning, Context Compiler, and the measurable strategy for competing beyond Codex/Claude are defined in [`PROJECT_BRAIN_MASTER_PLAN.md`](./docs/plans/intelligence/PROJECT_BRAIN_MASTER_PLAN.md). Treat that document as the source of truth for the intelligence layer.
 >
+> The accepted Hybrid Runtime direction — Local remains first-class while CodeLocal adds a managed Cloud Sandbox that auto-runs CodeLocal, uses CodeLocal-managed Git, sleeps/restores on demand, exposes layered GUI/preview capabilities, and stays compute-provider neutral — is tracked in [`HYBRID_LOCAL_CLOUD_RUNTIME_MASTER_PLAN.md`](./docs/plans/runtime/HYBRID_LOCAL_CLOUD_RUNTIME_MASTER_PLAN.md).
+>
 > The management-review execution plan for Knowledge V2 hardening, Knowledge Health, Collective Intelligence, and deterministic Code Quality Policy is tracked in [`KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md`](./docs/plans/intelligence/KNOWLEDGE_V2_COLLECTIVE_QUALITY_MASTER_PLAN.md). It is an implementation plan and does not replace the Project Brain source of truth.
 >
 > The web-first Neural Control Plane / living Project Brain dashboard redesign, including the explicit boundary between web-only phases and later npm/native realtime telemetry, is tracked in [`NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`](./docs/plans/ui/NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md).
@@ -12,24 +14,25 @@
 
 ## Goal
 
-Build a remote MCP coding bridge that gives ChatGPT/Codex a local execution and code-intelligence layer comparable to the practical capabilities of Codex CLI, while keeping the model reasoning in ChatGPT and keeping filesystem/shell execution on the user's own machine.
+Build the persistent execution and project-intelligence layer for AI coding assistants. CodeLocal keeps the existing Local Runtime first-class while adding an optional/default-on-demand managed Cloud Runtime so a user can work either on their own machine or on an isolated CodeLocal Cloud computer without changing the MCP/tool mental model.
 
 Architecture:
 
 ```text
-ChatGPT / Codex
+ChatGPT / Claude / other AI
     |  MCP over HTTPS + OAuth
     v
-Railway MCP Gateway
-    |  authenticated WebSocket
+CodeLocal Control Plane
+    |  identity · Project Brain · routing · policy
     v
-CodeLocal Client
-    |  sandboxed workspace tools
-    v
-PROJECT_ROOT
+Runtime Router
+    |\
+    | +--> Cloud Runtime -> managed isolated sandbox -> CodeLocal Runtime
+    |
+    +----> Local Runtime -> authenticated WebSocket -> user Mac/Windows/Linux
 ```
 
-The MCP server is not the "brain". ChatGPT/Codex provides reasoning. CodeLocal provides high-quality local tools, repository intelligence, execution, safety, observability and state.
+The MCP server is not the reasoning "brain". AI models provide replaceable reasoning/agent workers. CodeLocal owns durable project intelligence, execution, Git/workspace state, safety, observability, verification and runtime routing across Local and Cloud.
 
 ---
 
@@ -353,9 +356,13 @@ git_push
 
 ---
 
-# V0.8 — Approval and strong sandboxing
+# V0.8 — Approval and strong sandboxing — Partially implemented (approval done, OS sandbox pending)
 
-Current regex shell policy is a guardrail, not a real operating-system sandbox.
+Guarded shell + workspace filesystem checks are implemented; true OS-level sandbox not yet.
+
+## Implementation status
+- **Done:** Guarded shell with risk levels SAFE/REVIEW/HIGH/CRITICAL, local approval prompt, audit console (`internal/process` + `server-v2.ts`), sensitive-path policy.
+- **Pending:** True OS-level sandbox containment (macOS/Linux/Windows) — currently only application-level guardrails.
 
 ## Action classification
 
@@ -413,13 +420,13 @@ Network policy should eventually be independently controllable from filesystem p
 
 ---
 
-# V0.9 — Terminal and process parity
+# V0.9 — Terminal and process parity — Partially implemented (Unix done, Windows pending)
 
-## PTY support
+## PTY support — Implemented on Unix, stubbed on Windows
 
-Current stdio pipes cover many commands but not all interactive tools.
+**Implemented:** Unix PTY (`internal/process/pty_unix.go` via `github.com/creack/pty`, exposed as `pty_start/poll/write/resize/signal` in `server-v2.ts` with Resize/Signal). Windows (`pty_windows.go`) still reports `not available`. **Remaining:** Windows PTY implementation and full terminal emulation coverage.
 
-Add PTY support for:
+Original scope (now largely covered on Unix):
 
 - interactive CLIs
 - dev servers
@@ -427,16 +434,18 @@ Add PTY support for:
 - package manager prompts
 - migration tools
 
-Tools:
+Tools (now implemented on Unix as `pty_*`):
 
 ```text
-process_start
-process_poll
-process_write
-process_resize
-process_signal
-process_kill
+process_start  -> pty_start (Unix PTY) / run_command fallback
+process_poll   -> pty_poll
+process_write  -> pty_write
+process_resize -> pty_resize
+process_signal -> pty_signal
+process_kill   -> pty_kill / process_kill
 ```
+
+> On Unix these map to `pty_*` tools; on Windows they still fall back to stdio pipes.
 
 ## Process lifecycle
 
@@ -449,9 +458,13 @@ process_kill
 
 ---
 
-# V1.0 — Multi-project, multi-device production architecture
+# V1.0 — Multi-project, multi-device production architecture — Partially implemented (primitives done, pairing UX pending)
 
 After single-user coding quality is stable.
+
+**Implementation status:**
+- **Done:** Multi-device/workspace registry (`list_devices`, `list_workspaces`, `select_workspace`, `workspace_info`), auto-routing when single workspace online, heartbeat/pong liveness, durable primitives (`internal/deviceauth/signing.go` ed25519 90s skew, `internal/cloud/device_nonce.go` Redis Lua `ZADD` nonce TTL 3m, `internal/cloud/store_runtime.go` usage/outbox/retention/knowledgeHealth workers).
+- **Pending:** Full per-device pairing/revocation UX migration away from shared `DEVICE_TOKEN` bootstrap and durable persistence validation for all connection state.
 
 ## Device model
 
@@ -472,17 +485,17 @@ Mong
       -> Agent_X
 ```
 
-## Pairing
+## Pairing — Primitives implemented, UX migration pending
 
-Replace one shared `DEVICE_TOKEN` with per-device credentials.
+Shared `DEVICE_TOKEN` bootstrap still in use; per-device primitives now exist (`deviceauth/signing.go` ed25519, `device_nonce.go` Redis nonce). Remaining: full migration to per-device credentials.
 
-Flow:
+Target flow (partially done):
 
 ```text
 user creates pairing code
 -> local client exchanges it for device credential
--> server stores device identity
--> token can be revoked/rotated independently
+-> server stores device identity (store_runtime.go workers)
+-> token can be revoked/rotated independently [PENDING]
 ```
 
 ## Workspace selection
@@ -573,16 +586,18 @@ Log path/tool metadata only when safe.
 
 ---
 
-# Reliability plan
+# Reliability plan — Partially implemented
 
-## Request cancellation
+## Request cancellation — Timeouts/kill done, MCP propagation pending
 
-Add MCP/tool cancellation propagation:
+Timeouts and `process_kill`/`pty_signal` exist. Remaining: full MCP cancellation propagation end-to-end.
+
+Target:
 
 ```text
 ChatGPT cancel
 -> Railway cancels request
--> client stops operation/process where possible
+-> client stops operation/process where possible [PARTIAL]
 ```
 
 ## Disconnect handling
@@ -595,9 +610,9 @@ ChatGPT cancel
 
 Add ping/pong and device health state.
 
-## Idempotency
+## Idempotency — Journal implemented, validation pending
 
-For write operations, include request identifiers and safeguards against accidental duplicate execution after reconnect/retry.
+Implemented: `internal/idempotency/journal.go` persisted as `journals/*.json` with `Started/Completed/Failed/Abandon` (approval tokens intentionally not persisted), replay safeguards for write operations. Remaining: formal validation under reconnect/retry and MCP replay handling.
 
 ---
 

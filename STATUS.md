@@ -51,6 +51,9 @@
 - stdin / process list / kill
 - realtime stdout/stderr mirror in local terminal
 - reconnect with exponential backoff
+- PTY support on Unix (`internal/process/pty_unix.go` via `creack/pty`, `pty_start/poll/write/resize/signal` in `server-v2.ts`) — Windows (`pty_windows.go`) still reports `not available`
+- idempotency journal (`internal/idempotency/journal.go`, persisted `journals/*.json`, `Started/Completed/Failed/Abandon`, approval tokens not persisted) with replay safeguards for write operations
+- durable device identity primitives (`internal/deviceauth/signing.go` ed25519 sign/verify, 90s skew; `internal/cloud/device_nonce.go` Redis Lua `ZADD` nonce TTL 3m; `internal/cloud/store_runtime.go` usage/outbox/retention/knowledgeHealth workers)
 
 ### Security observability
 - structured server/client logs
@@ -69,16 +72,16 @@ These require platform-specific work and should not be represented as finished:
 The current guarded shell and workspace filesystem checks are strong application guardrails, but arbitrary shell execution is not yet contained by a true OS-level sandbox on macOS/Linux/Windows.
 
 ### True PTY terminal
-Current child-process pipes support most builds/tests/dev servers and stdin, but not full terminal emulation/resize semantics required by every interactive CLI.
+Unix PTY is implemented (`internal/process/pty_unix.go` + `server-v2.ts` `pty_*` tools) with resize/signal; Windows PTY (`pty_windows.go`) is still stubbed as `not available` and full terminal emulation coverage remains incomplete.
 
 ### Durable production identity/state
-The gateway supports multiple live device/workspace registrations, but still uses the shared `DEVICE_TOKEN` bootstrap model and in-memory connection state. Per-device pairing/revocation and durable storage remain production-hardening work.
+Partially implemented: `internal/deviceauth/signing.go` (ed25519 device signing/verification, 90s clock skew), `internal/cloud/device_nonce.go` (Redis Lua nonce with 3m TTL via `ZADD`), and `internal/cloud/store_runtime.go` workers (usage/outbox/retention/knowledgeHealth) provide durable identity primitives. Remaining work: full per-device pairing/revocation UX migration away from shared `DEVICE_TOKEN` bootstrap and durable persistence validation for all connection state.
 
 ### Cross-language semantic parity
 TypeScript/JavaScript has the first semantic index. Python/Rust/Go currently rely on filesystem/search/toolchain commands rather than persistent Pyright/rust-analyzer/gopls sessions.
 
 ### Full request cancellation/idempotency
-Timeouts and process kill exist, but MCP cancellation propagation and write-operation replay protection are not yet complete end-to-end.
+Idempotency journal is implemented (`internal/idempotency/journal.go` persisted as `journals/*.json`, with `Started/Completed/Failed/Abandon`; approval tokens are intentionally not persisted) providing replay protection for write operations. Timeouts and process kill exist. Remaining work: full MCP cancellation propagation end-to-end and formal validation of replay handling under reconnect/retry.
 
 ## Release rule
 

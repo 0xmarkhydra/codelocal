@@ -92,9 +92,18 @@ export function DashboardChat() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
+  const SUPPORTED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+  const MAX_BYTES = 8 * 1024 * 1024;
+
   function readImage(file: File) {
-    if (file.size > 8 * 1024 * 1024) {
-      setNotice("Ảnh tối đa 8 MB");
+    const mime = (file.type || "").toLowerCase();
+    // Bê logic KidGPT (clipboard_image_paste_web.dart): chỉ nhận PNG/JPG/WebP, báo lỗi rõ ràng
+    if (mime && mime.startsWith("image/") && !SUPPORTED_MIME.has(mime)) {
+      setNotice(`Ảnh dán vào cần là PNG, JPG hoặc WebP (bạn dán ${mime})`);
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      setNotice(`Ảnh tối đa 8 MB (ảnh của bạn ${(file.size / 1024 / 1024).toFixed(1)} MB)`);
       return;
     }
     const reader = new FileReader();
@@ -102,6 +111,7 @@ export function DashboardChat() {
       setImage(reader.result as string);
       setNotice("");
     };
+    reader.onerror = () => setNotice("Không đọc được ảnh trong clipboard");
     reader.readAsDataURL(file);
   }
 
@@ -110,13 +120,47 @@ export function DashboardChat() {
     if (file) readImage(file);
   }
 
+  function extractImageFromClipboard(clipboardData: DataTransfer | null): File | null {
+    if (!clipboardData) return null;
+    // Bê y nguyên KidGPT: duyệt DataTransferItem kind=='file' && type.startsWith('image/')
+    for (const item of Array.from(clipboardData.items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) return f;
+      }
+    }
+    const firstFile = clipboardData.files?.[0];
+    if (firstFile && firstFile.type.startsWith("image/")) return firstFile;
+    const anyImage = Array.from(clipboardData.items).find((entry) => entry.type.startsWith("image/"));
+    return anyImage?.getAsFile() ?? null;
+  }
+
   function onPaste(event: ClipboardEvent) {
-    const item = Array.from(event.clipboardData.items).find((entry) => entry.type.startsWith("image/"));
-    const file = item?.getAsFile();
+    const file = extractImageFromClipboard(event.clipboardData);
     if (!file) return;
     event.preventDefault();
     readImage(file);
   }
+
+  // Fix bug hiện tại: onPaste chỉ gắn ở chatMessages nên dán khi focus trong input không được.
+  // Bê logic KidGPT document.addEventListener('paste') sang React.
+  useEffect(() => {
+    function onDocumentPaste(event: globalThis.ClipboardEvent) {
+      const dt = event.clipboardData as unknown as DataTransfer | null;
+      const file = extractImageFromClipboard(dt);
+      if (!file) return;
+      // Chỉ xử lý khi focus trong chat để tránh bắt paste全局
+      const ae = document.activeElement as HTMLElement | null;
+      const shell = document.querySelector(`.${styles.chatShell}`);
+      const insideShell = !!shell?.contains(ae);
+      const isTextField = !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable);
+      if (!insideShell && !isTextField) return;
+      event.preventDefault();
+      readImage(file);
+    }
+    document.addEventListener("paste", onDocumentPaste as unknown as EventListener);
+    return () => document.removeEventListener("paste", onDocumentPaste as unknown as EventListener);
+  }, []);
 
   function updateAssistant(index: number, content: string, toolCalls: ToolCall[]) {
     setMessages((current) => {
