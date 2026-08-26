@@ -189,3 +189,61 @@ func TestProcessSubprocessEnvironmentSanitization(t *testing.T) {
 		t.Fatalf("subprocess failed to preserve safe environment variables: %q", stdout)
 	}
 }
+
+func TestEnvInjectionHelper(t *testing.T) {
+	if os.Getenv("RUNTIME_ENV_HELPER") != "1" {
+		return
+	}
+	if os.Getenv("RUNTIME_TEST_SECRET") != "super-secret-value" {
+		t.Fatal("explicit environment was not injected")
+	}
+}
+
+func TestProcessExplicitEnvironmentInjectionDoesNotLeakMetadata(t *testing.T) {
+	usePortableTestShell(t)
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(root, "test-workspace", nil, nil)
+	start, err := manager.Start("go test . -run TestEnvInjectionHelper -count=1", StartOptions{
+		CWD: root, Timeout: 20 * time.Second,
+		Env:          map[string]string{"RUNTIME_ENV_HELPER": "1", "RUNTIME_TEST_SECRET": "super-secret-value"},
+		RedactValues: []string{"super-secret-value"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := waitExited(t, manager, start.ProcessID)
+	stdout, _ := finished.Stdout["text"].(string)
+	if finished.ExitCode == nil || *finished.ExitCode != 0 || !strings.Contains(stdout, "ok") {
+		t.Fatalf("child process did not receive explicit environment: exit=%v stdout=%q", finished.ExitCode, stdout)
+	}
+	if strings.Contains(finished.Command, "super-secret-value") {
+		t.Fatal("snapshot command leaked injected secret")
+	}
+	for _, record := range manager.List() {
+		if command, _ := record["command"].(string); strings.Contains(command, "super-secret-value") {
+			t.Fatal("process list leaked injected secret")
+		}
+	}
+}
+
+func TestProcessRedactsInjectedSecretFromOutput(t *testing.T) {
+	usePortableTestShell(t)
+	root := t.TempDir()
+	manager := NewManager(root, "test-workspace", nil, nil)
+	command := "echo $RUNTIME_TEST_SECRET"
+	if runtime.GOOS == "windows" {
+		command = "echo %RUNTIME_TEST_SECRET%"
+	}
+	start, err := manager.Start(command, StartOptions{CWD: root, Timeout: 10 * time.Second, Env: map[string]string{"RUNTIME_TEST_SECRET": "super-secret-value"}, RedactValues: []string{"super-secret-value"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := waitExited(t, manager, start.ProcessID)
+	stdout, _ := finished.Stdout["text"].(string)
+	if strings.Contains(stdout, "super-secret-value") || !strings.Contains(stdout, "[REDACTED]") {
+		t.Fatalf("secret output was not redacted: %q", stdout)
+	}
+}

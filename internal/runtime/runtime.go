@@ -60,6 +60,7 @@ type Runtime struct {
 	syncedSignature         string
 	mediaOnce               sync.Once
 	mediaPublisher          *mediatransport.Publisher
+	runtimeSettings         map[string]cloud.RuntimeMaterializedConfig
 }
 
 type WorkspaceWorker struct {
@@ -95,7 +96,7 @@ func New(options Options) *Runtime {
 	if options.IdleWorkspace <= 0 {
 		options.IdleWorkspace = 20 * time.Minute
 	}
-	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}, projectIdentities: map[string]projectidentity.Snapshot{}, knowledgeManifests: map[string]projectbrain.Manifest{}, knowledgeBaseRevisions: map[string]map[string]string{}, syncedKnowledgeRoots: map[string]string{}, brainSync: projectbrain.NewSyncStateStore(), brainCloudSyncEnabled: false}
+	return &Runtime{Options: options, Registry: workspace.New(), client: &http.Client{Timeout: 45 * time.Second}, workers: map[string]*WorkspaceWorker{}, projectIdentities: map[string]projectidentity.Snapshot{}, knowledgeManifests: map[string]projectbrain.Manifest{}, knowledgeBaseRevisions: map[string]map[string]string{}, syncedKnowledgeRoots: map[string]string{}, brainSync: projectbrain.NewSyncStateStore(), brainCloudSyncEnabled: false, runtimeSettings: map[string]cloud.RuntimeMaterializedConfig{}}
 }
 func normalizeBase(value string) string { return strings.TrimRight(value, "/") }
 func wsURL(base string) string {
@@ -186,9 +187,10 @@ func learnedSkillMetadataSnapshot(store *learnedskills.Store, deviceID, workspac
 }
 
 type workspaceSyncResponse struct {
-	Knowledge      map[string]cloud.KnowledgeManifestSyncResult `json:"knowledge"`
-	PortableSkills map[string][]learnedskills.PortableRecipe    `json:"portableSkills"`
-	ProjectBrain   *struct {
+	Knowledge       map[string]cloud.KnowledgeManifestSyncResult `json:"knowledge"`
+	PortableSkills  map[string][]learnedskills.PortableRecipe    `json:"portableSkills"`
+	RuntimeSettings map[string]cloud.RuntimeMaterializedConfig   `json:"runtimeSettings"`
+	ProjectBrain    *struct {
 		CloudSyncEnabled bool `json:"cloudSyncEnabled"`
 	} `json:"projectBrain,omitempty"`
 }
@@ -325,6 +327,7 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 	if err := r.post(ctx, "/api/client/workspaces/sync", payload, &response); err != nil {
 		return nil, err
 	}
+	r.applyRuntimeSettings(response.RuntimeSettings)
 
 	// Pull portable project recipes only into already-active workspaces. Sleeping
 	// projects stay asleep, and imported recipes remain non-replayable until a
@@ -456,6 +459,8 @@ func newWorkspaceWorker(r *Runtime, w workspace.Workspace) (*WorkspaceWorker, er
 	if err != nil {
 		return nil, err
 	}
+	setting := r.runtimeSetting(w.WorkspaceID)
+	engine.SetRuntimeEnvironment(runtimeConfigEnvironment(setting.Snapshot, setting.Secrets), runtimeSecretRedactValues(setting.Secrets))
 	worker := &WorkspaceWorker{Runtime: r, Workspace: w, Engine: engine, done: make(chan struct{}), calls: map[string]context.CancelFunc{}}
 	worker.lastUsed.Store(time.Now().UnixMilli())
 	return worker, nil

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +57,7 @@ type Record struct {
 	stdin          io.WriteCloser
 	pty            ptyHandle
 	cancel         context.CancelFunc
+	redactValues   []string
 }
 
 type Snapshot struct {
@@ -87,6 +89,8 @@ type StartOptions struct {
 	UsePTY         bool
 	Cols           int
 	Rows           int
+	Env            map[string]string
+	RedactValues   []string
 }
 
 type Manager struct {
@@ -141,7 +145,7 @@ func (m *Manager) append(record *Record, stream, value string) {
 	}
 	if m.onOutput != nil {
 		copyRecord := *record
-		go m.onOutput(&copyRecord, stream, value)
+		go m.onOutput(&copyRecord, stream, redactProcessSecrets(record, value))
 	}
 }
 
@@ -202,13 +206,62 @@ func hostShell(command, cwd string) *exec.Cmd {
 	return cmd
 }
 
-func withEnv(cmd *exec.Cmd) {
-	env := security.SanitizeEnvironment(os.Environ())
-	env = append(env, "PAGER=cat", "GIT_PAGER=cat", "CODELOCAL_EXECUTION_MODE=host-policy")
-	if os.Getenv("CI") == "" {
-		env = append(env, "CI=1")
+func validEnvKey(key string) bool {
+	if key == "" {
+		return false
 	}
-	cmd.Env = env
+	for index, r := range key {
+		letter := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '_'
+		if letter || index > 0 && r >= '0' && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func explicitEnvAllowed(key string) bool {
+	if !validEnvKey(key) {
+		return false
+	}
+	upper := strings.ToUpper(key)
+	if strings.HasPrefix(upper, "CODELOCAL_") {
+		return false
+	}
+	switch upper {
+	case "PATH", "HOME", "SHELL", "COMSPEC", "CI", "PAGER", "GIT_PAGER", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "PYTHONPATH", "BASH_ENV", "ENV", "PROMPT_COMMAND", "GIT_SSH_COMMAND", "SSH_AUTH_SOCK":
+		return false
+	default:
+		return true
+	}
+}
+
+func withEnv(cmd *exec.Cmd, explicit map[string]string) {
+	values := map[string]string{}
+	for _, entry := range security.SanitizeEnvironment(os.Environ()) {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && validEnvKey(key) {
+			values[key] = value
+		}
+	}
+	values["PAGER"], values["GIT_PAGER"], values["CODELOCAL_EXECUTION_MODE"] = "cat", "cat", "host-policy"
+	if os.Getenv("CI") == "" {
+		values["CI"] = "1"
+	}
+	for key, value := range explicit {
+		if explicitEnvAllowed(key) {
+			values[key] = value
+		}
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	cmd.Env = make([]string, 0, len(keys))
+	for _, key := range keys {
+		cmd.Env = append(cmd.Env, key+"="+values[key])
+	}
 }
 
 func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) {
@@ -218,7 +271,7 @@ func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) 
 		return Snapshot{}, err
 	}
 	now := time.Now().UnixMilli()
-	record := &Record{ProcessID: id(), WorkspaceKey: m.workspaceKey, OwnerSessionID: options.OwnerSessionID, RequestID: options.RequestID, Command: command, CWD: options.CWD, DisplayCWD: options.DisplayCWD, StartedAt: now, LastActivityAt: now, Status: StatusRunning, ExecutionMode: "host-policy"}
+	record := &Record{ProcessID: id(), WorkspaceKey: m.workspaceKey, OwnerSessionID: options.OwnerSessionID, RequestID: options.RequestID, Command: command, CWD: options.CWD, DisplayCWD: options.DisplayCWD, StartedAt: now, LastActivityAt: now, Status: StatusRunning, ExecutionMode: "host-policy", redactValues: append([]string(nil), options.RedactValues...)}
 	m.records[record.ProcessID] = record
 	if record.RequestID != "" {
 		m.requestToProcess[record.RequestID] = record.ProcessID
@@ -233,7 +286,7 @@ func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) 
 		record.TimeoutAt = time.Now().Add(options.Timeout).UnixMilli()
 	}
 	cmd := hostShell(command, options.CWD)
-	withEnv(cmd)
+	withEnv(cmd, options.Env)
 	if options.UsePTY {
 		if handle, err := startPTY(cmd, options.Cols, options.Rows); err == nil && handle != nil {
 			record.PTY = true
@@ -413,22 +466,36 @@ func processPathAliases(value string) []string {
 	return aliases
 }
 
+func redactProcessSecrets(record *Record, text string) string {
+	if record == nil || text == "" {
+		return text
+	}
+	for _, value := range record.redactValues {
+		if value = strings.TrimSpace(value); len(value) >= 4 {
+			text = strings.ReplaceAll(text, value, "[REDACTED]")
+		}
+	}
+	return text
+}
+
 func sanitizeProcessOutput(record *Record, read map[string]any) map[string]any {
-	if record == nil || strings.TrimSpace(record.DisplayCWD) == "" || strings.TrimSpace(record.CWD) == "" || read == nil {
+	if record == nil || read == nil {
 		return read
 	}
 	text, _ := read["text"].(string)
 	if text == "" {
 		return read
 	}
-	replacement := filepath.ToSlash(filepath.Clean(record.DisplayCWD))
-	if replacement == "" || replacement == "./" {
-		replacement = "."
+	if strings.TrimSpace(record.DisplayCWD) != "" && strings.TrimSpace(record.CWD) != "" {
+		replacement := filepath.ToSlash(filepath.Clean(record.DisplayCWD))
+		if replacement == "" || replacement == "./" {
+			replacement = "."
+		}
+		for _, privatePath := range processPathAliases(record.CWD) {
+			text = strings.ReplaceAll(text, privatePath, replacement)
+		}
 	}
-	for _, privatePath := range processPathAliases(record.CWD) {
-		text = strings.ReplaceAll(text, privatePath, replacement)
-	}
-	read["text"] = text
+	read["text"] = redactProcessSecrets(record, text)
 	return read
 }
 

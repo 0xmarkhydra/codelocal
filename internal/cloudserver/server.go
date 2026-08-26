@@ -271,6 +271,9 @@ func (s *Server) routes() {
 	mux.HandleFunc("DELETE /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
 	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspacesResourceAPI)
+	mux.HandleFunc("GET /api/v1/runtime/settings", s.runtimeSettingsResourceAPI)
+	mux.HandleFunc("POST /api/v1/runtime/settings/config", s.runtimeConfigMutationAPI)
+	mux.HandleFunc("POST /api/v1/runtime/settings/secret", s.runtimeSecretMutationAPI)
 	mux.HandleFunc("GET /api/v1/usage", s.usageResourceAPI)
 	mux.HandleFunc("GET /api/v1/knowledge/graph", s.knowledgeGraphResourceAPI)
 	mux.HandleFunc("GET /api/v1/knowledge/health", s.knowledgeHealthResourceAPI)
@@ -750,6 +753,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	synced := 0
 	knowledgeResults := map[string]cloud.KnowledgeManifestSyncResult{}
 	portableSkillResults := map[string][]learnedskills.PortableRecipe{}
+	runtimeSettings := map[string]cloud.RuntimeMaterializedConfig{}
 	validID := regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`)
 	for _, item := range input.Workspaces {
 		if !validID.MatchString(item.WorkspaceID) {
@@ -813,6 +817,17 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 				portableSkillResults[item.WorkspaceID] = portable
 			}
 		}
+		snapshot, settingsErr := s.Store.ResolveRuntimeConfig(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID)
+		if settingsErr != nil {
+			slog.Warn("runtime config lookup failed; workspace remains usable", "workspaceId", item.WorkspaceID, "error", settingsErr)
+		} else {
+			secrets, secretErr := s.Store.MaterializeRuntimeSecrets(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID)
+			if secretErr != nil {
+				slog.Warn("runtime secret materialization failed; config remains usable", "workspaceId", item.WorkspaceID, "error", secretErr)
+				secrets = map[string]string{}
+			}
+			runtimeSettings[item.WorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets}
+		}
 		synced++
 	}
 
@@ -830,7 +845,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	_ = s.Activation.Heartbeat(r.Context(), device.UserID, device.DeviceID, ids, 45*time.Second)
 	s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "runtime.workspaces_synced", DeviceID: device.DeviceID, Detail: map[string]any{"count": synced, "removed": len(removed)}})
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"synced": synced, "removed": len(removed), "knowledge": knowledgeResults, "portableSkills": portableSkillResults, "syncedAt": time.Now().UnixMilli(),
+		"synced": synced, "removed": len(removed), "knowledge": knowledgeResults, "portableSkills": portableSkillResults, "runtimeSettings": runtimeSettings, "syncedAt": time.Now().UnixMilli(),
 		"projectBrain": map[string]any{"cloudSyncEnabled": brainEnabled},
 	})
 }

@@ -60,6 +60,8 @@ type Engine struct {
 	Skills         *learnedskills.Store
 	mu             sync.Mutex
 	baselines      map[string][]map[string]any
+	runtimeEnv     map[string]string
+	runtimeRedact  []string
 }
 
 type HandleOptions struct{ RequestID, SessionID, IdempotencyKey string }
@@ -75,7 +77,7 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	shellEnabled := os.Getenv("CODELOCAL_ALLOW_SHELL") != "0"
 	approvalMode := string(approval.ResolveMode(workspaceID))
 	repositories := repository.New(fs.Root, workspaceName)
-	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.NewWithRepositories(fs, repositories), Repositories: repositories, TaskExecutions: taskexecution.NewManager(nil, nil), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
+	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.NewWithRepositories(fs, repositories), Repositories: repositories, TaskExecutions: taskexecution.NewManager(nil, nil), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}, runtimeEnv: map[string]string{}}
 	engine.Processes = processmgr.NewManager(fs.Root, workspaceKey, func(record *processmgr.Record, stream, value string) {}, func(record *processmgr.Record) {
 		_, _ = terminalHistory.Finished(record)
 		engine.Project.Invalidate()
@@ -89,6 +91,26 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	}
 	engine.MCP = mcpHub
 	return engine, nil
+}
+
+func (e *Engine) SetRuntimeEnvironment(values map[string]string, redactValues []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.runtimeEnv = make(map[string]string, len(values))
+	for key, value := range values {
+		e.runtimeEnv[key] = value
+	}
+	e.runtimeRedact = append([]string(nil), redactValues...)
+}
+
+func (e *Engine) runtimeEnvironment() (map[string]string, []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make(map[string]string, len(e.runtimeEnv))
+	for key, value := range e.runtimeEnv {
+		out[key] = value
+	}
+	return out, append([]string(nil), e.runtimeRedact...)
 }
 
 func (e *Engine) SemanticProviders() []string {
@@ -332,7 +354,8 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 		return approvalState, nil
 	}
 	timeoutMs := asInt(args["timeoutMs"], 0)
-	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, DisplayCWD: logicalCWD, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36)})
+	runtimeEnv, redactValues := e.runtimeEnvironment()
+	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, DisplayCWD: logicalCWD, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36), Env: runtimeEnv, RedactValues: redactValues})
 	if err != nil {
 		return nil, err
 	}

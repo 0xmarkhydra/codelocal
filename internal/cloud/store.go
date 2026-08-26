@@ -226,6 +226,8 @@ func accountSchemaMigrations() []schemaMigration {
 		{43, `ALTER TABLE codelocal_devices ADD COLUMN IF NOT EXISTS public_key TEXT;`},
 		{44, dashboardChatMigrationSQL},
 		{45, dashboardChatImageMigrationSQL},
+		{46, runtimeConfigMigrationSQL},
+		{47, runtimeSecretsMigrationSQL},
 	}
 }
 

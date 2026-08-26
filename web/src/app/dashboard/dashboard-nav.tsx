@@ -17,6 +17,7 @@ const navigation: NavigationItem[] = [
   { label: "Connections", href: "/dashboard/connect", icon: "connection" },
   { label: "Workspaces", href: "/dashboard/workspaces", icon: "folder" },
   { label: "Devices", href: "/dashboard/devices", icon: "device" },
+  { label: "Settings", href: "/dashboard/settings", icon: "runtime" },
   { label: "Invite", href: "/dashboard/invite", icon: "invite" },
 ];
 
