@@ -15,7 +15,7 @@ type ToolCall = {
   arguments: string;
   result?: string;
   durationMs?: number;
-  status: "done" | "error";
+  status: "done" | "error" | "approval_required";
 };
 
 type ChatMsg = {
@@ -85,6 +85,7 @@ export function DashboardChat() {
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const quickMessageRef = useRef<string | null>(null);
 
   const workspaceItems = useMemo(
     () => workspaces.state.kind === "ready" ? workspaces.state.value.items : [],
@@ -174,9 +175,17 @@ export function DashboardChat() {
     });
   }
 
+  function submitQuickMessage(message: string) {
+    if (loading) return;
+    quickMessageRef.current = message;
+    formRef.current?.requestSubmit();
+  }
+
   async function send(event: FormEvent) {
     event.preventDefault();
-    const text = input.trim();
+    const quickMessage = quickMessageRef.current;
+    quickMessageRef.current = null;
+    const text = (quickMessage ?? input).trim();
     if ((!text && !image) || loading) return;
 
     const userMessage: ChatMsg = { role: "user", content: text || "Phân tích ảnh này", image: image || undefined };
@@ -358,16 +367,24 @@ export function DashboardChat() {
               {message.tool_calls?.length ? (
                 <div className={styles.toolList}>
                   {message.tool_calls.map((tool) => (
-                    <details key={tool.id} className={styles.toolPill}>
-                      <summary>
-                        <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name)}</span>
-                        {tool.status === "error" ? <span className={styles.toolMeta}>Lỗi</span> : null}
-                      </summary>
-                      <div className={styles.toolDetail}>
-                        <code>{tool.arguments || "{}"}</code>
-                        {tool.result ? <code>{tool.result.length > 800 ? `${tool.result.slice(0, 800)}…` : tool.result}</code> : null}
-                      </div>
-                    </details>
+                    <div key={tool.id} className={styles.toolActionRow}>
+                      <details className={styles.toolPill}>
+                        <summary>
+                          <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name)}</span>
+                          {tool.status === "error" ? <span className={styles.toolMeta}>Lỗi</span> : null}
+                          {tool.status === "approval_required" ? <span className={styles.toolMeta}>Cần quyền</span> : null}
+                        </summary>
+                        <div className={styles.toolDetail}>
+                          <code>{tool.arguments || "{}"}</code>
+                          {tool.result ? <code>{tool.result.length > 800 ? `${tool.result.slice(0, 800)}…` : tool.result}</code> : null}
+                        </div>
+                      </details>
+                      {tool.status === "approval_required" ? (
+                        <button type="button" className={styles.fullAccessBtn} onClick={() => submitQuickMessage("Toàn quyền truy cập")} disabled={loading}>
+                          Toàn quyền truy cập
+                        </button>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               ) : null}

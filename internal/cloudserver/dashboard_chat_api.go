@@ -42,7 +42,7 @@ type dashboardChatRequest struct {
 const dashboardPublicModelName = "Thánh Gióng"
 
 func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace, autoResolved bool) string {
-	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
+	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never tell the user to navigate to another dashboard page to approve an action. If the user explicitly chooses one of CodeLocal's access modes in chat, the server applies that mode directly; resume the previously blocked task instead of only acknowledging the choice. For Git pushes, if the branch is behind or diverged from the remote, inspect Git state, fetch/rebase onto the remote branch, and retry the push; stop only when an actual merge/rebase conflict requires the user. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
 	if workspace == nil || strings.TrimSpace(workspace.WorkspaceID) == "" {
 		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results. If a project is needed, call get_workspace_detail; it activates the workspace automatically."
 	}
@@ -417,6 +417,26 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	r = dashboardWithExecutionState(r, identity.User.ID, executionWorkspace)
 
+	accessChoice, accessRequested := dashboardRequestedAccessChoice(msg)
+	accessLabel := ""
+	if accessRequested {
+		accessWorkspace, accessErr := dashboardAccessWorkspace(r.Context(), s, identity.User.ID, executionWorkspace)
+		if accessErr != nil {
+			webutil.JSON(w, http.StatusConflict, map[string]string{"error": "Không xác định được dự án để đổi quyền truy cập. Hãy chọn dự án rồi thử lại."})
+			return
+		}
+		executionWorkspace = accessWorkspace
+		dashboardSetExecutionWorkspace(r, executionWorkspace)
+		promptWorkspace = &dashboardChatWorkspace{DeviceID: executionWorkspace.DeviceID, WorkspaceID: executionWorkspace.WorkspaceID, WorkspaceName: executionWorkspace.WorkspaceName}
+		label, accessErr := dashboardApplyAccessChoice(r.Context(), s, identity.User.ID, executionWorkspace, accessChoice)
+		if accessErr != nil {
+			slog.Warn("dashboard chat access mode update failed", "error", accessErr, "user", identity.User.ID, "workspace", executionWorkspace.WorkspaceID, "mode", accessChoice.Mode)
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Không thể đổi quyền truy cập cho dự án lúc này."})
+			return
+		}
+		accessLabel = label
+	}
+
 	apiKey, baseURL, model := dashboardLLMConfig()
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {
@@ -426,6 +446,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		flusher, _ := w.(http.Flusher)
 		writeSSE := func(event string, data any) {
 			writeDashboardSSE(w, flusher, event, data)
+		}
+		if accessRequested {
+			writeSSE("access_mode", dashboardAccessEvent(accessChoice, accessLabel, executionWorkspace))
 		}
 		// Mock stream when no key — still shows func call streaming like ChatGPT
 		if apiKey == "" {
@@ -476,6 +499,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 				m["name"] = h.Name
 			}
 			msgs = append(msgs, m)
+		}
+		if accessRequested {
+			msgs = append(msgs, dashboardAccessResumeInstruction(accessChoice, accessLabel, executionWorkspace))
 		}
 		if req.Image != "" {
 			msgs = append(msgs, map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": msg}, {"type": "image_url", "image_url": map[string]any{"url": req.Image}}}})
@@ -534,6 +560,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			m["name"] = h.Name
 		}
 		messages = append(messages, m)
+	}
+	if accessRequested {
+		messages = append(messages, dashboardAccessResumeInstruction(accessChoice, accessLabel, executionWorkspace))
 	}
 	if req.Image != "" {
 		messages = append(messages, map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": msg}, {"type": "image_url", "image_url": map[string]any{"url": req.Image}}}})

@@ -286,3 +286,35 @@ func TestResponsesNativeStreamCollectsFunctionCall(t *testing.T) {
 		t.Fatalf("unexpected function call: %#v", call)
 	}
 }
+
+func TestDashboardRequestedAccessChoice(t *testing.T) {
+	tests := []struct {
+		message string
+		mode    string
+		label   string
+	}{
+		{"Toàn quyền truy cập", "full", "Toàn quyền truy cập"},
+		{"Phê duyệt giúp tôi", "smart", "Phê duyệt giúp tôi"},
+		{"Yêu cầu phê duyệt", "prompt", "Yêu cầu phê duyệt"},
+		{"full access", "full", "Toàn quyền truy cập"},
+	}
+	for _, test := range tests {
+		choice, ok := dashboardRequestedAccessChoice(test.message)
+		if !ok || choice.Mode != test.mode || choice.Label != test.label {
+			t.Fatalf("choice for %q = %#v, %v", test.message, choice, ok)
+		}
+	}
+	if _, ok := dashboardRequestedAccessChoice("sửa code giúp tôi"); ok {
+		t.Fatal("ordinary chat message must not change workspace access mode")
+	}
+}
+
+func TestDashboardAccessResumeInstructionContinuesBlockedTask(t *testing.T) {
+	instruction := dashboardAccessResumeInstruction(dashboardAccessChoice{Mode: "full", Label: "Toàn quyền truy cập"}, "Toàn quyền truy cập", &gateway.WorkspaceView{WorkspaceName: "codex-mcp"})
+	content, _ := instruction["content"].(string)
+	for _, token := range []string{"already applied", "Resume the immediately preceding blocked task", "fetch/rebase", "codex-mcp"} {
+		if !strings.Contains(content, token) {
+			t.Fatalf("access resume instruction missing %q: %s", token, content)
+		}
+	}
+}
