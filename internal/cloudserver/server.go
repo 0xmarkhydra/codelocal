@@ -265,6 +265,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/dashboard/overview", s.dashboardOverviewAPI)
 	mux.HandleFunc("GET /api/v1/dashboard/models", s.dashboardModelsAPI)
 	mux.HandleFunc("POST /api/v1/dashboard/chat", s.dashboardChatAPI)
+	mux.HandleFunc("POST /api/v1/dashboard/media/presign", s.dashboardMediaPresign)
+	mux.HandleFunc("POST /api/v1/dashboard/media/upload", s.dashboardMediaUpload)
 	mux.HandleFunc("GET /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
 	mux.HandleFunc("DELETE /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
 	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)

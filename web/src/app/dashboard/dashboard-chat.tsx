@@ -35,6 +35,27 @@ type StreamData = {
 
 type WorkspaceItem = WorkspacesResource["items"][number];
 
+type ChatImageMeta = {
+  imageRef: string;
+  sha256: string;
+  contentType: string;
+  size: number;
+};
+
+type PreparedChatImage = ChatImageMeta & {
+  previewUrl: string;
+};
+
+type MediaPrepareResponse = ChatImageMeta & {
+  url: string;
+  upload: {
+    required: boolean;
+    url?: string;
+    method?: string;
+    headers?: Record<string, string[]>;
+  };
+};
+
 const suggestions = ["Tóm tắt dự án hiện tại", "Tìm file liên quan", "Kiểm tra workspace đang online"];
 
 function workspaceKey(workspace: WorkspaceItem) {
@@ -75,7 +96,8 @@ export function DashboardChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [image, setImage] = useState<string | null>(null);
+  const [image, setImage] = useState<PreparedChatImage | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
   const [notice, setNotice] = useState("");
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState(() => {
     const deviceId = searchParams.get("deviceId");
@@ -136,22 +158,106 @@ export function DashboardChat() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
-  function readImage(file: File) {
+  async function sha256Hex(file: File) {
+    const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function prepareImage(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setNotice("Chỉ hỗ trợ file ảnh");
+      return;
+    }
     if (file.size > 8 * 1024 * 1024) {
       setNotice("Ảnh tối đa 8 MB");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImage(reader.result as string);
+
+    const previewUrl = URL.createObjectURL(file);
+    setImageUploading(true);
+    setNotice("Đang tải ảnh…");
+    try {
+      const sha256 = await sha256Hex(file);
+      const presign = await fetch("/api/v1/dashboard/media/presign", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sha256, contentType: file.type, size: file.size }),
+      });
+      if (presign.status === 401) {
+        URL.revokeObjectURL(previewUrl);
+        router.replace("/login");
+        return;
+      }
+      const prepared = (await presign.json().catch(() => ({}))) as Partial<MediaPrepareResponse> & { error?: string; message?: string };
+      if (!presign.ok || !prepared.url || !prepared.imageRef) {
+        if (prepared.error === "media_not_configured") throw new Error("Hệ thống chưa bật upload ảnh");
+        throw new Error(prepared.message || "Không chuẩn bị được upload ảnh");
+      }
+
+      if (prepared.upload?.required) {
+        if (!prepared.upload.url) throw new Error("Thiếu đường dẫn upload ảnh");
+        let directUploadOK = false;
+        try {
+          const headers = new Headers();
+          for (const [key, values] of Object.entries(prepared.upload.headers || {})) {
+            const lower = key.toLowerCase();
+            if (lower === "host" || lower === "content-length") continue;
+            for (const value of values) headers.append(key, value);
+          }
+          if (!headers.has("content-type")) headers.set("content-type", file.type);
+          const upload = await fetch(prepared.upload.url, {
+            method: prepared.upload.method || "PUT",
+            headers,
+            body: file,
+          });
+          directUploadOK = upload.ok;
+        } catch {
+          directUploadOK = false;
+        }
+
+        if (!directUploadOK) {
+          const fallback = await fetch("/api/v1/dashboard/media/upload", {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "content-type": file.type,
+              "x-codelocal-media-sha256": sha256,
+              "x-codelocal-media-size": String(file.size),
+            },
+            body: file,
+          });
+          const fallbackData = (await fallback.json().catch(() => ({}))) as { error?: string; message?: string };
+          if (!fallback.ok) throw new Error(fallbackData.message || "Không tải được ảnh lên CodeLocal");
+        }
+      }
+
+      setImage({
+        previewUrl,
+        imageRef: prepared.imageRef,
+        sha256,
+        contentType: prepared.contentType || file.type,
+        size: prepared.size || file.size,
+      });
       setNotice("");
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      URL.revokeObjectURL(previewUrl);
+      setImage(null);
+      setNotice(error instanceof Error ? error.message : "Không tải được ảnh");
+    } finally {
+      setImageUploading(false);
+    }
+  }
+
+  function discardImage() {
+    if (image?.previewUrl.startsWith("blob:")) URL.revokeObjectURL(image.previewUrl);
+    setImage(null);
+    if (fileRef.current) fileRef.current.value = "";
   }
 
   function onFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) readImage(file);
+    if (file) void prepareImage(file);
   }
 
   function onPaste(event: ClipboardEvent) {
@@ -161,7 +267,7 @@ export function DashboardChat() {
     if (!file) return;
     event.preventDefault();
     event.stopPropagation();
-    readImage(file);
+    void prepareImage(file);
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -189,9 +295,9 @@ export function DashboardChat() {
     const quickMessage = quickMessageRef.current;
     quickMessageRef.current = null;
     const text = (quickMessage ?? input).trim();
-    if ((!text && !image) || loading) return;
+    if ((!text && !image) || loading || imageUploading) return;
 
-    const userMessage: ChatMsg = { role: "user", content: text || "Phân tích ảnh này", image: image || undefined };
+    const userMessage: ChatMsg = { role: "user", content: text || "Phân tích ảnh này", image: image?.previewUrl };
     const next = [...messages, userMessage];
     const sendImage = image;
     const placeholderIndex = next.length;
@@ -206,7 +312,7 @@ export function DashboardChat() {
     let streamedContent = "";
     let streamedToolCalls: ToolCall[] = [];
     try {
-      const history = next.slice(-12).map((message) => ({ role: message.role, content: message.content, image: message.image }));
+      const history = next.slice(-12).map((message) => ({ role: message.role, content: message.content }));
       const response = await fetch("/api/v1/dashboard/chat?stream=1", {
         method: "POST",
         credentials: "include",
@@ -214,7 +320,12 @@ export function DashboardChat() {
         body: JSON.stringify({
           message: text || "Phân tích ảnh này",
           history,
-          image: sendImage,
+          imageMeta: sendImage ? {
+            imageRef: sendImage.imageRef,
+            sha256: sendImage.sha256,
+            contentType: sendImage.contentType,
+            size: sendImage.size,
+          } : undefined,
           workspace: selectedWorkspace ? {
             deviceId: selectedWorkspace.deviceId,
             workspaceId: selectedWorkspace.workspaceId,
@@ -412,15 +523,15 @@ export function DashboardChat() {
         <div ref={endRef} />
       </div>
 
-      {image ? <div className={styles.imagePreview}><img src={image} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={() => setImage(null)} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
+      {image ? <div className={styles.imagePreview}><img src={image.previewUrl} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={discardImage} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
 
       <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
         <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
-        <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh">
+        <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={imageUploading}>
           <AppIcon name="paperclip" size={18} />
         </button>
         <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
-        <button className={styles.sendBtn} type="submit" disabled={loading || (!input.trim() && !image)} aria-label="Gửi">
+        <button className={styles.sendBtn} type="submit" disabled={loading || imageUploading || (!input.trim() && !image)} aria-label="Gửi">
           <AppIcon name="send" size={18} />
         </button>
       </form>

@@ -318,3 +318,25 @@ func TestDashboardAccessResumeInstructionContinuesBlockedTask(t *testing.T) {
 		}
 	}
 }
+
+func TestDashboardChatStoredImageUsesCompactMetadata(t *testing.T) {
+	meta := &dashboardChatImageMeta{ImageRef: "sha256:" + testMediaHash, SHA256: testMediaHash, ContentType: "image/png", Size: 1024}
+	stored := dashboardChatStoredImage(dashboardChatRequest{Image: "https://signed.example.test/temporary", ImageMeta: meta})
+	if strings.Contains(stored, "signed.example.test") {
+		t.Fatalf("stored image must not persist a short-lived signed URL: %s", stored)
+	}
+	parsed, ok := dashboardChatImageMetaFromStored(stored)
+	if !ok || parsed.SHA256 != testMediaHash || parsed.ContentType != "image/png" || parsed.Size != 1024 {
+		t.Fatalf("unexpected stored image metadata: %#v ok=%v", parsed, ok)
+	}
+}
+
+func TestDashboardChatStoredImageKeepsLegacyValue(t *testing.T) {
+	legacy := "data:image/png;base64,abc123"
+	if got := dashboardChatStoredImage(dashboardChatRequest{Image: legacy}); got != legacy {
+		t.Fatalf("legacy image changed: %q", got)
+	}
+	if _, ok := dashboardChatImageMetaFromStored(legacy); ok {
+		t.Fatal("legacy image must not be parsed as compact metadata")
+	}
+}
