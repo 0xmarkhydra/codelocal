@@ -35,3 +35,22 @@ func TestResolveRuntimeSnapshotUsesSharedOpenMontagePath(t *testing.T) {
 		t.Fatalf("project=%#v", project)
 	}
 }
+
+func TestManagedRuntimeSystemProjectsFiltersDisabledProjects(t *testing.T) {
+	settings := map[string]cloud.RuntimeMaterializedConfig{
+		"one": {Snapshot: resolveRuntimeSnapshot(cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{ID: "openmontage", Enabled: true}}})},
+		"two": {Snapshot: cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{ID: "disabled", Managed: true, Enabled: false}}}},
+	}
+	projects := managedRuntimeSystemProjects(settings)
+	if len(projects) != 1 || projects[0].ID != "openmontage" {
+		t.Fatalf("projects=%#v", projects)
+	}
+}
+
+func TestValidateManagedSystemProjectRejectsUnexpectedSource(t *testing.T) {
+	project := resolveRuntimeSnapshot(cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{ID: "openmontage", Enabled: true}}}).SystemProjects[0]
+	project.Source = "https://example.com/not-openmontage.git"
+	if err := validateManagedSystemProject(project); err == nil {
+		t.Fatal("expected unexpected managed source to be rejected")
+	}
+}

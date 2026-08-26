@@ -61,6 +61,7 @@ type Runtime struct {
 	mediaOnce               sync.Once
 	mediaPublisher          *mediatransport.Publisher
 	runtimeSettings         map[string]cloud.RuntimeMaterializedConfig
+	systemProjectSyncMu     sync.Mutex
 }
 
 type WorkspaceWorker struct {

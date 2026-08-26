@@ -1,8 +1,13 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -80,6 +85,97 @@ func resolveRuntimeSnapshot(snapshot cloud.RuntimeConfigSnapshot) cloud.RuntimeC
 	return snapshot
 }
 
+func managedRuntimeSystemProjects(settings map[string]cloud.RuntimeMaterializedConfig) []cloud.RuntimeSystemProject {
+	projects := map[string]cloud.RuntimeSystemProject{}
+	for _, materialized := range settings {
+		for _, project := range materialized.Snapshot.SystemProjects {
+			if !project.Enabled || !project.Managed || strings.TrimSpace(project.ID) == "" {
+				continue
+			}
+			projects[project.ID] = project
+		}
+	}
+	out := make([]cloud.RuntimeSystemProject, 0, len(projects))
+	for _, project := range projects {
+		out = append(out, project)
+	}
+	return out
+}
+
+func validateManagedSystemProject(project cloud.RuntimeSystemProject) error {
+	if project.ID != "openmontage" {
+		return fmt.Errorf("unsupported managed system project: %s", project.ID)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	wantPath := filepath.Join(home, ".codelocal", "system-projects", "openmontage")
+	wantSource := "https://github.com/calesthio/OpenMontage.git"
+	if filepath.Clean(project.Path) != filepath.Clean(wantPath) || project.Source != wantSource {
+		return errors.New("managed OpenMontage source or path does not match the CodeLocal system project")
+	}
+	return nil
+}
+
+func runSystemProjectGit(ctx context.Context, dir string, args ...string) error {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "CI=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func materializeManagedSystemProject(ctx context.Context, project cloud.RuntimeSystemProject) error {
+	if err := validateManagedSystemProject(project); err != nil {
+		return err
+	}
+	if info, err := os.Stat(project.Path); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("system project path is not a directory: %s", project.Path)
+		}
+		if _, err := os.Stat(filepath.Join(project.Path, ".git")); err != nil {
+			return fmt.Errorf("system project exists but is not a Git checkout: %s", project.Path)
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(project.Path), 0o700); err != nil {
+		return err
+	}
+	tmp := project.Path + ".installing"
+	_ = os.RemoveAll(tmp)
+	defer os.RemoveAll(tmp)
+	if err := runSystemProjectGit(ctx, filepath.Dir(project.Path), "clone", "--depth", "1", project.Source, tmp); err != nil {
+		return err
+	}
+	return os.Rename(tmp, project.Path)
+}
+
+func (r *Runtime) materializeRuntimeSystemProjects(settings map[string]cloud.RuntimeMaterializedConfig) {
+	projects := managedRuntimeSystemProjects(settings)
+	if len(projects) == 0 {
+		return
+	}
+	go func() {
+		r.systemProjectSyncMu.Lock()
+		defer r.systemProjectSyncMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		for _, project := range projects {
+			if err := materializeManagedSystemProject(ctx, project); err != nil {
+				slog.Warn("managed system project materialization failed", "projectId", project.ID, "error", err)
+				continue
+			}
+			slog.Debug("managed system project ready", "projectId", project.ID, "path", project.Path)
+		}
+	}()
+}
+
 func runtimeConfigEnvironment(snapshot cloud.RuntimeConfigSnapshot, secrets map[string]string) map[string]string {
 	out := map[string]string{}
 	for key, value := range snapshot.Values {
@@ -121,6 +217,7 @@ func (r *Runtime) applyRuntimeSettings(settings map[string]cloud.RuntimeMaterial
 	}
 	r.runtimeSettings = settings
 	r.mu.Unlock()
+	r.materializeRuntimeSystemProjects(settings)
 	if err := saveRuntimeConfigCache(cache); err != nil {
 		// Runtime config is an optimization layer; losing the metadata cache must
 		// never take an otherwise healthy local workspace offline.
