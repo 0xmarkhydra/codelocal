@@ -134,3 +134,54 @@ func TestDashboardWorkspaceToolViewHidesSleepingLifecycle(t *testing.T) {
 		t.Fatalf("unexpected runtime fields: %#v", view)
 	}
 }
+
+func TestDashboardPromptRequiresRealRuntimeExecution(t *testing.T) {
+	prompt := dashboardChatSystemPrompt(&dashboardChatWorkspace{WorkspaceID: "workspace-1", WorkspaceName: "BitArena"}, false)
+	for _, token := range []string{"runtime execution tools", "Never claim that you read, edited, ran, tested, or verified"} {
+		if !strings.Contains(prompt, token) {
+			t.Fatalf("execution prompt missing %q: %s", token, prompt)
+		}
+	}
+}
+
+func TestDashboardChatExposesExecutionTools(t *testing.T) {
+	wanted := map[string]bool{"read_project_file": false, "edit_project_file": false, "run_project_command": false, "verify_project_changes": false}
+	for _, tool := range dashboardChatTools {
+		fn, _ := tool["function"].(map[string]any)
+		name, _ := fn["name"].(string)
+		if _, ok := wanted[name]; ok {
+			wanted[name] = true
+		}
+	}
+	for name, found := range wanted {
+		if !found {
+			t.Fatalf("dashboard chat missing execution tool %q", name)
+		}
+	}
+}
+
+func TestDashboardRuntimeToolSpecMapsToNativeRuntime(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       map[string]any
+		wantTool   string
+		wantEffect bool
+	}{
+		{"read_project_file", map[string]any{"path": "README.md"}, "read_file", false},
+		{"read_project_file", map[string]any{"path": "README.md", "startLine": 1, "endLine": 10}, "read_file_range", false},
+		{"search_project_code", map[string]any{"query": "TODO"}, "search_code", false},
+		{"edit_project_file", map[string]any{"path": "a.go", "oldText": "a", "newText": "b"}, "edit_file", true},
+		{"write_project_file", map[string]any{"path": "a.go", "content": "x"}, "write_file", true},
+		{"apply_project_patch", map[string]any{"patch": "diff --git"}, "apply_patch", true},
+		{"run_project_command", map[string]any{"command": "go test ./..."}, "run_command", true},
+		{"verify_project_changes", map[string]any{}, "verify_changes", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name+test.wantTool, func(t *testing.T) {
+			tool, effect, _, ok := dashboardRuntimeToolSpec(test.name, test.args)
+			if !ok || tool != test.wantTool || effect != test.wantEffect {
+				t.Fatalf("mapping = (%q,%v,%v), want (%q,%v,true)", tool, effect, ok, test.wantTool, test.wantEffect)
+			}
+		})
+	}
+}

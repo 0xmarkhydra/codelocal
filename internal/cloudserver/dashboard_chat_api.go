@@ -42,7 +42,7 @@ type dashboardChatRequest struct {
 const dashboardPublicModelName = "Thánh Gióng"
 
 func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace, autoResolved bool) string {
-	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, or Project Brain. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
+	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
 	if workspace == nil || strings.TrimSpace(workspace.WorkspaceID) == "" {
 		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results. If a project is needed, call get_workspace_detail; it activates the workspace automatically."
 	}
@@ -235,7 +235,7 @@ type dashboardToolCall struct {
 	Status     string `json:"status"`
 }
 
-var dashboardChatTools = []map[string]any{
+var dashboardChatTools = append([]map[string]any{
 	{
 		"type": "function",
 		"function": map[string]any{
@@ -284,7 +284,7 @@ var dashboardChatTools = []map[string]any{
 			},
 		},
 	},
-}
+}, dashboardRuntimeChatTools...)
 
 func dashboardLLMConfig() (apiKey, baseURL, model string) {
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
@@ -391,6 +391,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 
 	promptWorkspace := req.Workspace
 	autoResolved := false
+	var executionWorkspace *gateway.WorkspaceView
 	resolvedWorkspace, resolvedByAuto, resolveErr := dashboardChatResolveWorkspace(r.Context(), s, identity.User.ID, req)
 	if resolveErr != nil {
 		if req.Workspace != nil {
@@ -409,10 +410,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if activeWorkspace != nil {
+			executionWorkspace = activeWorkspace
 			promptWorkspace = &dashboardChatWorkspace{DeviceID: activeWorkspace.DeviceID, WorkspaceID: activeWorkspace.WorkspaceID, WorkspaceName: activeWorkspace.WorkspaceName}
 			autoResolved = resolvedByAuto
 		}
 	}
+	r = dashboardWithExecutionState(r, identity.User.ID, executionWorkspace)
 
 	apiKey, baseURL, model := dashboardLLMConfig()
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
@@ -660,9 +663,13 @@ func execDashboardTool(r *http.Request, s *Server, userID, name string, args map
 			b, _ := json.Marshal(map[string]any{"error": "workspace_activation_failed", "message": dashboardChatWorkspaceError(workspace, err), "workspace": dashboardWorkspaceToolView(*workspace)})
 			return trunc(b)
 		}
+		dashboardSetExecutionWorkspace(r, active)
 		b, _ := json.Marshal(map[string]any{"workspace": dashboardWorkspaceToolView(*active), "ready": true})
 		return trunc(b)
 	default:
+		if result, ok := execDashboardRuntimeTool(r, s, userID, name, args); ok {
+			return result
+		}
 		return `{"error":"unknown tool ` + name + `"}`
 	}
 }
@@ -861,45 +868,42 @@ func writeDashboardTextDeltas(w http.ResponseWriter, flusher http.Flusher, conte
 }
 
 func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {
-	toolCalls, content, err := callResponsesWithTools(baseURL, apiKey, model, messages, tools)
-	if err != nil {
-		return err
-	}
-	if len(toolCalls) == 0 {
-		writeDashboardTextDeltas(w, flusher, content)
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
-		writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": content, "model": dashboardPublicModelName})
-		return nil
-	}
-
-	results := make([]dashboardToolCall, 0, len(toolCalls))
-	for _, tc := range toolCalls {
-		t0 := time.Now()
-		argsMap := map[string]any{}
-		_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
-		resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
-		results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"})
-	}
-	writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
-
 	follow := append([]map[string]any{}, messages...)
-	toolCallsAny := make([]map[string]any, 0, len(toolCalls))
-	for _, tc := range toolCalls {
-		toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+	allResults := make([]dashboardToolCall, 0, 8)
+	const maxToolRounds = 8
+
+	for round := 0; round < maxToolRounds; round++ {
+		toolCalls, content, err := callResponsesWithTools(baseURL, apiKey, model, follow, tools)
+		if err != nil {
+			return err
+		}
+		if len(toolCalls) == 0 {
+			writeDashboardTextDeltas(w, flusher, content)
+			tcsJSON, _ := json.Marshal(allResults)
+			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": content, "tool_calls": allResults, "model": dashboardPublicModelName})
+			return nil
+		}
+
+		results := make([]dashboardToolCall, 0, len(toolCalls))
+		toolCallsAny := make([]map[string]any, 0, len(toolCalls))
+		for _, tc := range toolCalls {
+			t0 := time.Now()
+			argsMap := map[string]any{}
+			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
+			resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
+			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"}
+			results = append(results, result)
+			allResults = append(allResults, result)
+			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+		}
+		writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
+		follow = append(follow, map[string]any{"role": "assistant", "content": content, "tool_calls": toolCallsAny})
+		for _, result := range results {
+			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
+		}
 	}
-	follow = append(follow, map[string]any{"role": "assistant", "content": content, "tool_calls": toolCallsAny})
-	for _, result := range results {
-		follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
-	}
-	_, finalContent, err := callResponsesWithTools(baseURL, apiKey, model, follow, nil)
-	if err != nil {
-		return err
-	}
-	writeDashboardTextDeltas(w, flusher, finalContent)
-	tcsJSON, _ := json.Marshal(results)
-	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
-	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": results, "model": dashboardPublicModelName})
-	return nil
+	return &httpError{Status: http.StatusLoopDetected, Body: "dashboard tool loop exceeded 8 rounds"}
 }
 
 func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {
