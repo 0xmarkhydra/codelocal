@@ -1,7 +1,6 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- chat images are user-provided data/blob previews and should not be optimized remotely */
 
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
@@ -295,11 +294,8 @@ export function DashboardChat() {
     <section className={styles.chatShell} aria-label="Chat với Thánh Gióng">
       <div className={styles.chatHead}>
         <div className={styles.brandBlock}>
-          <span className={styles.avatar} aria-hidden="true"><Image src="/thanh-giong-mark.svg" alt="" width={44} height={44} priority /></span>
-          <div>
-            <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
-            <span>Trợ lý AI của CodeLocal</span>
-          </div>
+          <span className={styles.avatar} aria-hidden="true"><AppIcon name="thanh-giong" size={22} /></span>
+          <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
         </div>
         <div className={styles.chatActions}>
           <label className={styles.projectPicker}>
@@ -320,16 +316,14 @@ export function DashboardChat() {
       <div className={styles.chatMessages} onPaste={onPaste}>
         {messages.length === 0 ? (
           <div className={styles.emptyState}>
-            <span className={styles.emptyOrb} aria-hidden="true"><Image src="/thanh-giong-mark.svg" alt="" width={58} height={58} /></span>
+            <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="thanh-giong" size={27} /></span>
             <strong>Bạn muốn làm gì?</strong>
-            <p>{selectedWorkspace ? `Đang làm việc với ${selectedWorkspace.workspaceName}.` : "Auto sẽ tự chọn dự án phù hợp."}</p>
             <div className={styles.suggestions}>
               {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
             </div>
           </div>
         ) : messages.map((message, index) => (
           <div key={`${message.role}-${index}`} className={`${styles.msgBlock} ${message.role === "user" ? styles.userBlock : styles.assistantBlock}`}>
-            {message.role === "assistant" ? <span className={styles.messageAvatar} aria-hidden="true"><Image src="/thanh-giong-mark.svg" alt="" width={32} height={32} /></span> : null}
             <div className={styles.messageBody}>
               {message.tool_calls?.length ? (
                 <div className={styles.toolList}>
@@ -337,7 +331,7 @@ export function DashboardChat() {
                     <details key={tool.id} className={styles.toolPill}>
                       <summary>
                         <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name)}</span>
-                        <span className={styles.toolMeta}>{tool.status === "done" ? "Hoàn tất" : "Lỗi"}</span>
+                        {tool.status === "error" ? <span className={styles.toolMeta}>Lỗi</span> : null}
                       </summary>
                       <div className={styles.toolDetail}>
                         <code>{tool.arguments || "{}"}</code>
@@ -367,7 +361,7 @@ export function DashboardChat() {
           <AppIcon name="send" size={18} />
         </button>
       </form>
-      <div className={styles.chatHint}>{notice || "Enter để gửi · Shift+Enter để xuống dòng"}</div>
+      {notice ? <div className={styles.chatHint}>{notice}</div> : null}
     </section>
   );
 }

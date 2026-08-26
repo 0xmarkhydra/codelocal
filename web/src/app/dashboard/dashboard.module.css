@@ -2574,3 +2574,60 @@
 @media (prefers-reduced-motion: reduce) {
   .resourceFeedbackSpinner i { animation: none; opacity: 0.55; }
 }
+
+/* Brain density pass: graph first, chrome second. */
+.brainContent {
+  position: relative;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.brainTopbar {
+  width: min(100%, 1480px);
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0 auto -44px;
+  padding: 6px 10px 0;
+  position: relative;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.brainTopbar .segmentedNav {
+  pointer-events: auto;
+  background: rgba(10, 14, 20, 0.72);
+  backdrop-filter: blur(20px);
+}
+
+.brainStage {
+  min-height: calc(100dvh - 24px);
+}
+
+.brainStage > * {
+  min-height: inherit;
+}
+
+@media (max-width: 620px) {
+  .brainContent { padding-top: 8px; padding-bottom: 76px; }
+  .brainTopbar { height: 40px; margin-bottom: -40px; padding: 4px 7px 0; }
+  .brainStage { min-height: calc(100dvh - 84px); }
+}
+
+/* Product-wide density: navigation already provides context, so headers do not repeat it. */
+.header {
+  min-height: 52px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.header .eyebrow,
+.header p {
+  display: none;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: clamp(25px, 2vw, 30px);
+}
