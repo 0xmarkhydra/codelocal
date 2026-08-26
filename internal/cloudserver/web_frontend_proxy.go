@@ -58,6 +58,7 @@ var nextDashboardPaths = map[string]struct{}{
 	"/dashboard/invite":      {},
 	"/dashboard/leaderboard": {},
 	"/dashboard/security":    {},
+	"/dashboard/settings":    {},
 	"/dashboard/account":     {},
 	"/dashboard/admin":       {},
 }
