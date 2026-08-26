@@ -155,10 +155,12 @@ export function DashboardChat() {
   }
 
   function onPaste(event: ClipboardEvent) {
-    const item = Array.from(event.clipboardData.items).find((entry) => entry.type.startsWith("image/"));
-    const file = item?.getAsFile();
+    const fileFromClipboard = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"));
+    const itemFromClipboard = Array.from(event.clipboardData.items).find((entry) => entry.kind === "file" && entry.type.startsWith("image/"));
+    const file = fileFromClipboard ?? itemFromClipboard?.getAsFile();
     if (!file) return;
     event.preventDefault();
+    event.stopPropagation();
     readImage(file);
   }
 
@@ -412,12 +414,12 @@ export function DashboardChat() {
 
       {image ? <div className={styles.imagePreview}><img src={image} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={() => setImage(null)} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
 
-      <form ref={formRef} className={styles.chatForm} onSubmit={send}>
+      <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
         <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
         <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh">
           <AppIcon name="paperclip" size={18} />
         </button>
-        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
+        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
         <button className={styles.sendBtn} type="submit" disabled={loading || (!input.trim() && !image)} aria-label="Gửi">
           <AppIcon name="send" size={18} />
         </button>
