@@ -185,3 +185,42 @@ func TestDashboardRuntimeToolSpecMapsToNativeRuntime(t *testing.T) {
 		})
 	}
 }
+
+func TestDashboardTransientLLMErrorsAreRetryable(t *testing.T) {
+	for _, status := range []int{408, 425, 429, 500, 502, 503, 504} {
+		if !dashboardIsTransientLLMError(&httpError{Status: status}) {
+			t.Fatalf("status %d should be retryable", status)
+		}
+	}
+	for _, status := range []int{400, 401, 403, 404, 422} {
+		if dashboardIsTransientLLMError(&httpError{Status: status}) {
+			t.Fatalf("status %d should not be retryable", status)
+		}
+	}
+}
+
+func TestDashboardToolProgressFingerprintCanonicalizesArguments(t *testing.T) {
+	a := dashboardToolProgressFingerprint(llmToolCall{Name: "read_project_file", Arguments: `{"path":"README.md","startLine":1}`}, `{"ok":true}`)
+	b := dashboardToolProgressFingerprint(llmToolCall{Name: "read_project_file", Arguments: `{"startLine":1,"path":"README.md"}`}, `{"ok":true}`)
+	if a != b {
+		t.Fatalf("equivalent tool arguments produced different fingerprints: %q != %q", a, b)
+	}
+}
+
+func TestDashboardFinalSynthesisDisablesMoreToolWork(t *testing.T) {
+	messages := dashboardFinalSynthesisMessages([]map[string]any{{"role": "user", "content": "fix it"}}, "repeated tool calls")
+	last := messages[len(messages)-1]
+	content, _ := last["content"].(string)
+	for _, token := range []string{"Do not call any more tools", "Never expose internal orchestration limits", "repeated tool calls"} {
+		if !strings.Contains(content, token) {
+			t.Fatalf("final synthesis prompt missing %q: %s", token, content)
+		}
+	}
+}
+
+func TestDashboardFallbackReplyNeverExposesHTTP508(t *testing.T) {
+	reply := dashboardFallbackReply([]dashboardToolCall{{Name: "read_project_file", Status: "done"}})
+	if strings.Contains(reply, "508") || strings.Contains(strings.ToLower(reply), "tool loop") {
+		t.Fatalf("fallback leaked internal orchestration error: %s", reply)
+	}
+}

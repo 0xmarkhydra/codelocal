@@ -486,7 +486,8 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("dashboard chat stream save user failed", "error", err)
 		}
 		if err := proxyLLMStream(w, flusher, baseURL, apiKey, model, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
-			writeSSE("error", map[string]string{"error": err.Error()})
+			slog.Warn("dashboard chat stream failed after retry", "error", err, "user", identity.User.ID)
+			writeSSE("error", map[string]string{"error": dashboardFriendlyStreamError(err)})
 		}
 		return
 	}
@@ -869,13 +870,18 @@ func writeDashboardTextDeltas(w http.ResponseWriter, flusher http.Flusher, conte
 
 func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {
 	follow := append([]map[string]any{}, messages...)
-	allResults := make([]dashboardToolCall, 0, 8)
-	const maxToolRounds = 8
+	allResults := make([]dashboardToolCall, 0, 12)
+	seenProgress := map[string]int{}
+	stopReason := ""
 
-	for round := 0; round < maxToolRounds; round++ {
-		toolCalls, content, err := callResponsesWithTools(baseURL, apiKey, model, follow, tools)
+	for round := 0; round < dashboardMaxToolRounds && len(allResults) < dashboardMaxToolCalls; round++ {
+		toolCalls, content, err := dashboardCallResponsesWithRetry(r.Context(), baseURL, apiKey, model, follow, tools)
 		if err != nil {
-			return err
+			if len(allResults) == 0 {
+				return err
+			}
+			stopReason = "model connection interrupted after completed tool work"
+			break
 		}
 		if len(toolCalls) == 0 {
 			writeDashboardTextDeltas(w, flusher, content)
@@ -887,23 +893,54 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 
 		results := make([]dashboardToolCall, 0, len(toolCalls))
 		toolCallsAny := make([]map[string]any, 0, len(toolCalls))
+		noProgress := false
 		for _, tc := range toolCalls {
+			if len(allResults) >= dashboardMaxToolCalls {
+				stopReason = "tool budget reached"
+				break
+			}
 			t0 := time.Now()
 			argsMap := map[string]any{}
 			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
 			resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
-			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"}
+			status := dashboardToolResultStatus(resStr)
+			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: status}
 			results = append(results, result)
 			allResults = append(allResults, result)
 			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+
+			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
+			seenProgress[fingerprint]++
+			if seenProgress[fingerprint] >= dashboardDuplicateResultLimit {
+				noProgress = true
+			}
 		}
-		writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
+		if len(results) > 0 {
+			writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
+		}
 		follow = append(follow, map[string]any{"role": "assistant", "content": content, "tool_calls": toolCallsAny})
 		for _, result := range results {
 			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
 		}
+		if noProgress {
+			stopReason = "repeated tool calls produced no new result"
+			break
+		}
 	}
-	return &httpError{Status: http.StatusLoopDetected, Body: "dashboard tool loop exceeded 8 rounds"}
+
+	if stopReason == "" {
+		stopReason = "tool execution budget reached"
+	}
+	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
+	_, finalContent, err := dashboardCallResponsesWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil)
+	if err != nil || strings.TrimSpace(finalContent) == "" {
+		finalContent = dashboardFallbackReply(allResults)
+	}
+	writeDashboardTextDeltas(w, flusher, finalContent)
+	tcsJSON, _ := json.Marshal(allResults)
+	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true})
+	return nil
 }
 
 func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {

@@ -46,8 +46,26 @@ function toolLabel(name: string) {
     case "list_devices": return "Đang kiểm tra thiết bị";
     case "search_project_brain": return "Đang truy vấn Brain";
     case "get_workspace_detail": return "Đang đọc dự án";
+    case "list_project_files": return "Đang xem mã nguồn";
+    case "read_project_file": return "Đang đọc file";
+    case "search_project_code": return "Đang tìm trong code";
+    case "edit_project_file": return "Đang sửa code";
+    case "write_project_file": return "Đang cập nhật file";
+    case "apply_project_patch": return "Đang áp dụng thay đổi";
+    case "run_project_command": return "Đang chạy lệnh";
+    case "verify_project_changes": return "Đang kiểm tra thay đổi";
     default: return name.replaceAll("_", " ");
   }
+}
+
+function friendlyChatFailure(message: string) {
+  if (/508|tool loop|loop exceeded/i.test(message)) {
+    return "Luồng xử lý vừa quá dài. Thánh Gióng đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
+  }
+  if (/timeout|429|502|503|504|network|fetch/i.test(message)) {
+    return "Kết nối xử lý vừa gián đoạn. Thánh Gióng đã thử lại tự động; gửi “tiếp tục” nếu bạn muốn nối tiếp.";
+  }
+  return message.startsWith("Thánh Gióng") || message.startsWith("Kết nối") ? message : `Có lỗi khi xử lý yêu cầu: ${message}`;
 }
 
 export function DashboardChat() {
@@ -173,6 +191,8 @@ export function DashboardChat() {
     setLoading(true);
     if (fileRef.current) fileRef.current.value = "";
 
+    let streamedContent = "";
+    let streamedToolCalls: ToolCall[] = [];
     try {
       const history = next.slice(-12).map((message) => ({ role: message.role, content: message.content, image: message.image }));
       const response = await fetch("/api/v1/dashboard/chat?stream=1", {
@@ -216,6 +236,8 @@ export function DashboardChat() {
       let buffer = "";
       let content = "";
       let toolCalls: ToolCall[] = [];
+      streamedContent = content;
+      streamedToolCalls = toolCalls;
 
       while (true) {
         const chunk = await reader.read();
@@ -243,11 +265,13 @@ export function DashboardChat() {
           if (eventName === "error") throw new Error(data.error || "Model trả về lỗi stream");
           if (eventName === "delta" && typeof data.delta === "string") {
             content += data.delta;
+            streamedContent = content;
             updateAssistant(placeholderIndex, content, toolCalls);
             continue;
           }
           if (eventName === "tool_calls" && Array.isArray(data.tool_calls)) {
             toolCalls = data.tool_calls as ToolCall[];
+            streamedToolCalls = toolCalls;
             updateAssistant(placeholderIndex, content, toolCalls);
             continue;
           }
@@ -262,19 +286,24 @@ export function DashboardChat() {
                 arguments: delta.arguments ?? existing.arguments,
               };
             }
+            streamedToolCalls = toolCalls;
             updateAssistant(placeholderIndex, content, toolCalls);
             continue;
           }
           if (eventName === "done") {
             if (typeof data.reply === "string") content = data.reply;
             if (Array.isArray(data.tool_calls)) toolCalls = data.tool_calls as ToolCall[];
+            streamedContent = content;
+            streamedToolCalls = toolCalls;
             updateAssistant(placeholderIndex, content, toolCalls);
           }
         }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      updateAssistant(placeholderIndex, `Không thể trả lời: ${message}`, []);
+      const failure = friendlyChatFailure(message);
+      const content = streamedContent ? `${streamedContent}\n\n${failure}` : failure;
+      updateAssistant(placeholderIndex, content, streamedToolCalls);
     } finally {
       setLoading(false);
     }
