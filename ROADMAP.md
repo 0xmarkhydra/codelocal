@@ -356,9 +356,13 @@ git_push
 
 ---
 
-# V0.8 — Approval and strong sandboxing
+# V0.8 — Approval and strong sandboxing — Partially implemented (approval done, OS sandbox pending)
 
-Current regex shell policy is a guardrail, not a real operating-system sandbox.
+Guarded shell + workspace filesystem checks are implemented; true OS-level sandbox not yet.
+
+## Implementation status
+- **Done:** Guarded shell with risk levels SAFE/REVIEW/HIGH/CRITICAL, local approval prompt, audit console (`internal/process` + `server-v2.ts`), sensitive-path policy.
+- **Pending:** True OS-level sandbox containment (macOS/Linux/Windows) — currently only application-level guardrails.
 
 ## Action classification
 
@@ -416,13 +420,13 @@ Network policy should eventually be independently controllable from filesystem p
 
 ---
 
-# V0.9 — Terminal and process parity
+# V0.9 — Terminal and process parity — Partially implemented (Unix done, Windows pending)
 
-## PTY support
+## PTY support — Implemented on Unix, stubbed on Windows
 
-Current stdio pipes cover many commands but not all interactive tools.
+**Implemented:** Unix PTY (`internal/process/pty_unix.go` via `github.com/creack/pty`, exposed as `pty_start/poll/write/resize/signal` in `server-v2.ts` with Resize/Signal). Windows (`pty_windows.go`) still reports `not available`. **Remaining:** Windows PTY implementation and full terminal emulation coverage.
 
-Add PTY support for:
+Original scope (now largely covered on Unix):
 
 - interactive CLIs
 - dev servers
@@ -430,16 +434,18 @@ Add PTY support for:
 - package manager prompts
 - migration tools
 
-Tools:
+Tools (now implemented on Unix as `pty_*`):
 
 ```text
-process_start
-process_poll
-process_write
-process_resize
-process_signal
-process_kill
+process_start  -> pty_start (Unix PTY) / run_command fallback
+process_poll   -> pty_poll
+process_write  -> pty_write
+process_resize -> pty_resize
+process_signal -> pty_signal
+process_kill   -> pty_kill / process_kill
 ```
+
+> On Unix these map to `pty_*` tools; on Windows they still fall back to stdio pipes.
 
 ## Process lifecycle
 
@@ -452,9 +458,13 @@ process_kill
 
 ---
 
-# V1.0 — Multi-project, multi-device production architecture
+# V1.0 — Multi-project, multi-device production architecture — Partially implemented (primitives done, pairing UX pending)
 
 After single-user coding quality is stable.
+
+**Implementation status:**
+- **Done:** Multi-device/workspace registry (`list_devices`, `list_workspaces`, `select_workspace`, `workspace_info`), auto-routing when single workspace online, heartbeat/pong liveness, durable primitives (`internal/deviceauth/signing.go` ed25519 90s skew, `internal/cloud/device_nonce.go` Redis Lua `ZADD` nonce TTL 3m, `internal/cloud/store_runtime.go` usage/outbox/retention/knowledgeHealth workers).
+- **Pending:** Full per-device pairing/revocation UX migration away from shared `DEVICE_TOKEN` bootstrap and durable persistence validation for all connection state.
 
 ## Device model
 
@@ -475,17 +485,17 @@ Mong
       -> Agent_X
 ```
 
-## Pairing
+## Pairing — Primitives implemented, UX migration pending
 
-Replace one shared `DEVICE_TOKEN` with per-device credentials.
+Shared `DEVICE_TOKEN` bootstrap still in use; per-device primitives now exist (`deviceauth/signing.go` ed25519, `device_nonce.go` Redis nonce). Remaining: full migration to per-device credentials.
 
-Flow:
+Target flow (partially done):
 
 ```text
 user creates pairing code
 -> local client exchanges it for device credential
--> server stores device identity
--> token can be revoked/rotated independently
+-> server stores device identity (store_runtime.go workers)
+-> token can be revoked/rotated independently [PENDING]
 ```
 
 ## Workspace selection
@@ -576,16 +586,18 @@ Log path/tool metadata only when safe.
 
 ---
 
-# Reliability plan
+# Reliability plan — Partially implemented
 
-## Request cancellation
+## Request cancellation — Timeouts/kill done, MCP propagation pending
 
-Add MCP/tool cancellation propagation:
+Timeouts and `process_kill`/`pty_signal` exist. Remaining: full MCP cancellation propagation end-to-end.
+
+Target:
 
 ```text
 ChatGPT cancel
 -> Railway cancels request
--> client stops operation/process where possible
+-> client stops operation/process where possible [PARTIAL]
 ```
 
 ## Disconnect handling
@@ -598,9 +610,9 @@ ChatGPT cancel
 
 Add ping/pong and device health state.
 
-## Idempotency
+## Idempotency — Journal implemented, validation pending
 
-For write operations, include request identifiers and safeguards against accidental duplicate execution after reconnect/retry.
+Implemented: `internal/idempotency/journal.go` persisted as `journals/*.json` with `Started/Completed/Failed/Abandon` (approval tokens intentionally not persisted), replay safeguards for write operations. Remaining: formal validation under reconnect/retry and MCP replay handling.
 
 ---
 
