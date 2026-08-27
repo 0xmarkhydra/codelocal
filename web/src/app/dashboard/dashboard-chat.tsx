@@ -59,6 +59,16 @@ type MediaPrepareResponse = ChatImageMeta & {
 
 const suggestions = ["Tóm tắt dự án hiện tại", "Tìm file liên quan", "Kiểm tra workspace đang online"];
 
+function modelLabel(model: string) {
+  switch (model) {
+    case "auto": return "Auto";
+    case "glm-5.3-flash": return "GLM-5.3-Flash";
+    case "qwen3.8-flash": return "Qwen3.8-Flash";
+    case "muse-spark-1.2-contributor-free": return "Muse Spark 1.2";
+    default: return model;
+  }
+}
+
 function workspaceKey(workspace: WorkspaceItem) {
   return `${workspace.deviceId}::${workspace.workspaceId}`;
 }
@@ -100,6 +110,8 @@ export function DashboardChat() {
   const [image, setImage] = useState<PreparedChatImage | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [models, setModels] = useState<string[]>(["auto"]);
+  const [selectedModel, setSelectedModel] = useState("auto");
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState(() => {
     const deviceId = searchParams.get("deviceId");
     const workspaceId = searchParams.get("workspaceId");
@@ -154,6 +166,23 @@ export function DashboardChat() {
       })
       .catch(() => setNotice("Không tải được lịch sử chat"));
   }, [router]);
+
+  useEffect(() => {
+    fetch("/api/v1/dashboard/models", { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json() as Promise<{ models?: string[]; default_model?: string }>;
+      })
+      .then((data) => {
+        const available = Array.isArray(data.models) && data.models.length ? data.models : ["auto"];
+        setModels(available);
+        setSelectedModel(data.default_model && available.includes(data.default_model) ? data.default_model : available[0]);
+      })
+      .catch(() => {
+        setModels(["auto"]);
+        setSelectedModel("auto");
+      });
+  }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -323,6 +352,7 @@ export function DashboardChat() {
       const payload = {
         message: text || "Phân tích ảnh này",
         history,
+        model: selectedModel,
         imageMeta: sendImage ? {
           imageRef: sendImage.imageRef,
           sha256: sendImage.sha256,
@@ -477,6 +507,11 @@ export function DashboardChat() {
           <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
         </div>
         <div className={styles.chatActions}>
+          <label className={`${styles.projectPicker} ${styles.modelPicker}`}>
+            <select value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} aria-label="Chọn model">
+              {models.map((model) => <option key={model} value={model}>{modelLabel(model)}</option>)}
+            </select>
+          </label>
           <label className={styles.projectPicker}>
             <span className={styles.projectPickerIcon} aria-hidden="true">
               <AppIcon name="folder" size={17} />

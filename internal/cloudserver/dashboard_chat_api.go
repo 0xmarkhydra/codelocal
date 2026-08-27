@@ -467,7 +467,10 @@ func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authenticatedAPIIdentity(w, r); !ok {
 		return
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"models": []string{dashboardPublicModelName}, "default_model": dashboardPublicModelName})
+	webutil.JSON(w, http.StatusOK, map[string]any{
+		"models":        dashboardSelectableModels(),
+		"default_model": dashboardModelAuto,
+	})
 }
 
 func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
@@ -567,7 +570,10 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		accessLabel = label
 	}
 
-	apiKey, baseURL, model := dashboardLLMConfig()
+	selection := dashboardNormalizeModelSelection(req.Model)
+	allowCommunity := dashboardCommunityEligible(req) && promptWorkspace == nil
+	route := dashboardLLMRoute(selection, allowCommunity)
+	model := selection
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -580,8 +586,8 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		if accessRequested {
 			writeSSE("access_mode", dashboardAccessEvent(accessChoice, accessLabel, executionWorkspace))
 		}
-		// Mock stream when no key — still shows func call streaming like ChatGPT
-		if apiKey == "" {
+		// Mock stream when no configured route is available.
+		if len(route) == 0 {
 			lower2 := strings.ToLower(msg)
 			var tcs []dashboardToolCall
 			var reply string
@@ -641,14 +647,14 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: time.Now().UnixMilli()}); err != nil {
 			slog.Warn("dashboard chat stream save user failed", "error", err)
 		}
-		if err := proxyLLMStream(w, flusher, baseURL, apiKey, model, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
+		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, allowCommunity, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
 			slog.Warn("dashboard chat stream failed after retry", "error", err, "user", identity.User.ID)
 			writeSSE("error", map[string]string{"error": dashboardFriendlyStreamError(err)})
 		}
 		return
 	}
 	lower := strings.ToLower(msg)
-	if apiKey == "" {
+	if len(route) == 0 {
 		var tcs []dashboardToolCall
 		var reply string
 		if req.Image != "" {
@@ -699,7 +705,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	} else {
 		messages = append(messages, map[string]any{"role": "user", "content": msg})
 	}
-	toolCalls, content, err := callLLMWithTools(baseURL, apiKey, model, messages, dashboardChatTools)
+	target, toolCalls, content, err := callDashboardLLMWithTools(selection, allowCommunity, messages, dashboardChatTools)
 	if err != nil {
 		webutil.JSON(w, http.StatusBadGateway, map[string]string{"error": "upstream: " + err.Error()})
 		return
@@ -712,7 +718,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1}); err != nil {
 			slog.Warn("dashboard chat save no-tool assistant failed", "error", err)
 		}
-		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": dashboardPublicModelName, "tool_calls": []dashboardToolCall{}})
+		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": target.Model, "tool_calls": []dashboardToolCall{}})
 		return
 	}
 	var results []dashboardToolCall
@@ -732,7 +738,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	for _, tr := range results {
 		follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
 	}
-	_, finalContent, err2 := callLLMWithTools(baseURL, apiKey, model, follow, nil)
+	finalTarget, _, finalContent, err2 := callDashboardLLMWithTools(target.Model, false, follow, nil)
 	if err2 != nil {
 		webutil.JSON(w, http.StatusBadGateway, map[string]any{"error": "upstream2: " + err2.Error(), "tool_calls": results})
 		return
@@ -748,7 +754,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
 		slog.Warn("dashboard chat save final assistant failed", "error", err)
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": dashboardPublicModelName, "tool_calls": results})
+	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": finalTarget.Model, "tool_calls": results})
 }
 
 func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request) {
@@ -1296,6 +1302,9 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 				tcs = append(tcs, *tc)
 			}
 		}
+		if err := dashboardValidateToolCalls(tcs); err != nil {
+			return err
+		}
 		// execute tools and stream final answer like opencode second call
 		var results []dashboardToolCall
 		for _, tc := range tcs {
@@ -1320,49 +1329,13 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		for _, tr := range results {
 			follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
 		}
-		body2 := map[string]any{"model": model, "messages": follow, "temperature": 0.7, "stream": true, "stream_options": map[string]any{"include_usage": true}}
-		b2, _ := json.Marshal(body2)
-		req2, _ := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(b2))
-		req2.Header.Set("Content-Type", "application/json")
-		req2.Header.Set("Authorization", "Bearer "+apiKey)
-		resp2, err := client.Do(req2)
+		_, _, secondContent, err := callDashboardLLMWithTools(model, false, follow, nil)
 		if err != nil {
 			return err
 		}
-		defer resp2.Body.Close()
-		var secondContent strings.Builder
-		scanner2 := bufio.NewScanner(resp2.Body)
-		scanner2.Buffer(buf, 2*1024*1024)
-		for scanner2.Scan() {
-			select {
-			case <-r.Context().Done():
-				return r.Context().Err()
-			default:
-			}
-			line := strings.TrimSpace(scanner2.Text())
-			if line == "" || !strings.HasPrefix(line, "data:") {
-				continue
-			}
-			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if payload == "[DONE]" {
-				break
-			}
-			var ch struct {
-				Choices []struct {
-					Delta struct {
-						Content *string `json:"content"`
-					} `json:"delta"`
-				} `json:"choices"`
-			}
-			_ = json.Unmarshal([]byte(payload), &ch)
-			if len(ch.Choices) > 0 && ch.Choices[0].Delta.Content != nil {
-				secondContent.WriteString(*ch.Choices[0].Delta.Content)
-				b3, _ := json.Marshal(map[string]any{"delta": *ch.Choices[0].Delta.Content})
-				writeRaw(string(b3))
-			}
-		}
+		writeDashboardTextDeltas(w, flusher, secondContent)
 		tcsJSON, _ := json.Marshal(results)
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: secondContent.String(), ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: secondContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
 	}
 	// persist assistant for non-tool stream
 	if len(toolCallsByIndex) == 0 {

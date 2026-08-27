@@ -125,6 +125,10 @@
   stroke-width: 1.7;
 }
 
+.modelPicker {
+  min-width: 150px;
+}
+
 .projectPicker select {
   width: 100%;
   appearance: none;
