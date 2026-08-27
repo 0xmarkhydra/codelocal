@@ -41,12 +41,12 @@ func executeSkillsTool(_ context.Context, _ *Service, _ string, args map[string]
 	}
 	task := skills.TaskContext{
 		Query:         query,
-		Intents:       stringSliceArg(args["intents"]),
-		Stack:         stringSliceArg(args["stack"]),
-		Signals:       stringSliceArg(args["signals"]),
-		Trivial:       boolArg(args["trivial"]),
-		MaxSelections: intArg(args["maxSelections"]),
-		Affinity:      floatMapArg(args["affinity"]),
+		Intents:       skillStringSliceArg(args["intents"]),
+		Stack:         skillStringSliceArg(args["stack"]),
+		Signals:       skillStringSliceArg(args["signals"]),
+		Trivial:       skillBoolArg(args["trivial"]),
+		MaxSelections: skillIntArg(args["maxSelections"]),
+		Affinity:      skillFloatMapArg(args["affinity"]),
 	}
 	switch action {
 	case "route":
@@ -58,7 +58,7 @@ func executeSkillsTool(_ context.Context, _ *Service, _ string, args map[string]
 	}
 }
 
-func stringSliceArg(value any) []string {
+func skillStringSliceArg(value any) []string {
 	values, ok := value.([]any)
 	if !ok {
 		return nil
@@ -72,12 +72,12 @@ func stringSliceArg(value any) []string {
 	return out
 }
 
-func boolArg(value any) bool {
+func skillBoolArg(value any) bool {
 	result, _ := value.(bool)
 	return result
 }
 
-func intArg(value any) int {
+func skillIntArg(value any) int {
 	switch value := value.(type) {
 	case float64:
 		return int(value)
@@ -88,7 +88,7 @@ func intArg(value any) int {
 	}
 }
 
-func floatMapArg(value any) map[string]float64 {
+func skillFloatMapArg(value any) map[string]float64 {
 	values, ok := value.(map[string]any)
 	if !ok {
 		return nil
