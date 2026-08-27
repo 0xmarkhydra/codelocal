@@ -1,0 +1,257 @@
+.page {
+  min-height: 100%;
+  padding: 26px;
+  overflow: auto;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.header h1 {
+  margin: 3px 0 5px;
+  font-size: clamp(26px, 4vw, 38px);
+  letter-spacing: -0.04em;
+}
+
+.eyebrow,
+.lede,
+.skillHeading p,
+.description,
+.sectionIntro p,
+.emptyState span {
+  color: var(--muted);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lede {
+  max-width: 560px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  max-width: 980px;
+  margin: 24px auto 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 76%, transparent);
+  width: fit-content;
+}
+
+.tabs button {
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+.tabs button:hover,
+.tabs button:focus-visible {
+  color: var(--foreground);
+}
+
+.tabs button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.tabs .activeTab {
+  background: var(--panel);
+  color: var(--foreground);
+  box-shadow: 0 1px 8px rgb(0 0 0 / 8%);
+}
+
+.content {
+  max-width: 980px;
+  margin: 24px auto 0;
+}
+
+.sectionIntro {
+  margin-bottom: 12px;
+}
+
+.sectionIntro h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.sectionIntro p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.skillCard {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 5%);
+}
+
+.skillIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--background);
+}
+
+.skillHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.skillHeading h2,
+.skillHeading p,
+.description {
+  margin: 0;
+}
+
+.skillHeading h2 {
+  font-size: 16px;
+}
+
+.skillHeading p {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.autoBadge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.description {
+  margin-top: 10px;
+  max-width: 720px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.tags span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  font-size: 11px;
+}
+
+.permissionLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.emptyState {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  min-height: 230px;
+  padding: 28px;
+  border: 1px dashed var(--border);
+  border-radius: 18px;
+  text-align: center;
+}
+
+.emptyState strong {
+  font-size: 14px;
+}
+
+.emptyState span {
+  max-width: 560px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 18px;
+  }
+
+  .header {
+    flex-direction: column;
+  }
+
+  .tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .tabs button {
+    flex: 1 0 auto;
+  }
+
+  .skillCard {
+    grid-template-columns: 1fr;
+  }
+
+  .skillHeading {
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs button {
+    scroll-behavior: auto;
+  }
+}
