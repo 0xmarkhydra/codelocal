@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -50,6 +51,18 @@ func (p *OpenSandboxRuntimeProvider) Acquire(ctx context.Context, request Runtim
 	// Railway replica. The alias is refreshed before returning the binding.
 	if workspace, ok := p.activeCloudWorkspace(ctx, request.UserID, request.WorkspaceKey, targetKey); ok {
 		return workspace, nil
+	}
+
+	repositories, err := p.Workspaces.Store.WorkspaceRepositorySources(ctx, request.UserID, source.DeviceID, source.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("load cloud workspace sources: %w", err)
+	}
+	if len(repositories) == 0 {
+		return nil, fmt.Errorf("%w: workspace has no credential-free durable Git source for cloud hydration", ErrRuntimeProviderUnavailable)
+	}
+	repositoriesJSON, err := json.Marshal(repositories)
+	if err != nil {
+		return nil, err
 	}
 
 	lease, err := p.Leases.Acquire(ctx, RuntimeLeaseScope{
@@ -100,13 +113,14 @@ func (p *OpenSandboxRuntimeProvider) Acquire(ctx context.Context, request Runtim
 		NetworkPolicy:  p.NetworkPolicy,
 		TTL:            p.SandboxTTL,
 		Env: map[string]string{
-			"CODELOCAL_CLOUD_SERVER":              p.ServerURL,
-			"CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN":   bootstrapToken,
-			"CODELOCAL_RUNTIME_SESSION_ID":        runtimeSessionID,
-			"CODELOCAL_RUNTIME_DEVICE_ID":          deviceID,
-			"CODELOCAL_RUNTIME_DEVICE_NAME":        "CodeLocal Cloud",
-			"CODELOCAL_RUNTIME_WORKSPACE_NAME":     source.WorkspaceName,
-			"CODELOCAL_WORKSPACE_PATH":             "/workspace",
+			"CODELOCAL_CLOUD_SERVER":            p.ServerURL,
+			"CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN": bootstrapToken,
+			"CODELOCAL_RUNTIME_SESSION_ID":      runtimeSessionID,
+			"CODELOCAL_RUNTIME_DEVICE_ID":        deviceID,
+			"CODELOCAL_RUNTIME_DEVICE_NAME":      "CodeLocal Cloud",
+			"CODELOCAL_RUNTIME_WORKSPACE_NAME":   source.WorkspaceName,
+			"CODELOCAL_RUNTIME_REPOSITORIES_JSON": string(repositoriesJSON),
+			"CODELOCAL_WORKSPACE_PATH":           "/workspace",
 		},
 	})
 	if err != nil {
@@ -131,7 +145,7 @@ func (p *OpenSandboxRuntimeProvider) Call(ctx context.Context, request RuntimeCa
 }
 
 func (p *OpenSandboxRuntimeProvider) validate() error {
-	if p == nil || p.Provisioner == nil || p.Workspaces == nil || p.Hub == nil || p.Coordinator == nil || p.Leases == nil || p.Bootstrap == nil {
+	if p == nil || p.Provisioner == nil || p.Workspaces == nil || p.Workspaces.Store == nil || p.Hub == nil || p.Coordinator == nil || p.Leases == nil || p.Bootstrap == nil {
 		return errors.New("OpenSandbox runtime provider is not fully configured")
 	}
 	if strings.TrimSpace(p.ServerURL) == "" || strings.TrimSpace(p.Image) == "" || strings.TrimSpace(p.Profile) == "" {
