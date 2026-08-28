@@ -22,6 +22,32 @@ func TestRouterSelectsUIUXForFrontendTask(t *testing.T) {
 	}
 }
 
+func TestPlanRetrievesBoundedRelevantKnowledge(t *testing.T) {
+	plan := DefaultEngine().Plan(TaskContext{
+		Query:   "redesign this responsive dashboard and improve accessibility",
+		Signals: []string{"frontend", "visual", "dashboard", "accessibility"},
+		Stack:   []string{"nextjs"},
+	})
+	if len(plan.Selections) != 1 || plan.Selections[0].Skill.ID != "ui-ux-pro" {
+		t.Fatalf("expected ui-ux-pro selection, got %#v", plan.Selections)
+	}
+	if len(plan.Knowledge) == 0 || len(plan.Knowledge) > 4 {
+		t.Fatalf("expected bounded knowledge matches, got %d", len(plan.Knowledge))
+	}
+	foundAccessibility := false
+	for _, match := range plan.Knowledge {
+		if match.Chunk.ID == "uiux:a11y" {
+			foundAccessibility = true
+		}
+		if match.Chunk.SkillID != "ui-ux-pro" {
+			t.Fatalf("unexpected cross-skill knowledge %#v", match)
+		}
+	}
+	if !foundAccessibility {
+		t.Fatalf("expected accessibility knowledge, got %#v", plan.Knowledge)
+	}
+}
+
 func TestRouterDoesNotSelectUIUXForBackendTask(t *testing.T) {
 	engine := DefaultEngine()
 	selected := engine.Route(TaskContext{Query: "fix Redis reconnect and backoff in Node backend", Stack: []string{"node"}})
