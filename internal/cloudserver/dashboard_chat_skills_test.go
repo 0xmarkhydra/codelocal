@@ -52,7 +52,7 @@ func TestDashboardImageAloneDoesNotForceUIUX(t *testing.T) {
 	}
 }
 
-func TestDashboardSkillHeaderUsesRealSelections(t *testing.T) {
+func TestDashboardSkillHeaderUsesRealVersionedSelections(t *testing.T) {
 	plan := dashboardSkillPlan([]map[string]any{{"role": "user", "content": "redesign dashboard responsive"}})
 	raw := dashboardSkillHeaderValue(plan)
 	if raw == "" {
@@ -62,8 +62,11 @@ func TestDashboardSkillHeaderUsesRealSelections(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &badges); err != nil {
 		t.Fatalf("invalid skill header: %v", err)
 	}
-	if len(badges) != 1 || badges[0].ID != "ui-ux-pro" || badges[0].Name != "UI/UX Pro" {
+	if len(badges) != 1 || badges[0].ID != "ui-ux-pro" || badges[0].Name != "UI/UX Pro" || badges[0].Version != "1.0.0" {
 		t.Fatalf("unexpected badges %#v", badges)
+	}
+	if metadata := dashboardSkillMetadata(plan); string(metadata) != raw {
+		t.Fatalf("header and persisted metadata must share one contract: header=%s metadata=%s", raw, string(metadata))
 	}
 }
 
