@@ -83,15 +83,15 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 				t.Fatalf("migration %d missing dependency/contract token %q", migration.version, token)
 			}
 		}
-	}
+}
 }
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 9 {
+	if len(migrations) != 11 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -123,6 +123,18 @@ func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	if !strings.Contains(strings.ToLower(migrations[8].sql), "skills jsonb") {
 		t.Fatal("skill migration 49 must persist versioned chat skill metadata")
 	}
+	registry := strings.ToLower(migrations[9].sql)
+	for _, token := range []string{"codelocal_skill_versions", "codelocal_skill_channels", "package_hash", "artifact_uri", "tenant_user_id"} {
+		if !strings.Contains(registry, token) {
+			t.Fatalf("skill migration 50 missing registry token %q", token)
+		}
+	}
+	userState := strings.ToLower(migrations[10].sql)
+	for _, token := range []string{"codelocal_skill_user_states", "pinned_version", "disabled", "prefer"} {
+		if !strings.Contains(userState, token) {
+			t.Fatalf("skill migration 51 missing user-state token %q", token)
+		}
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
@@ -135,11 +147,11 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 49 {
-		t.Fatalf("latest schema version=%d want 49", got)
+	if got := LatestSchemaMigrationVersion(); got != 51 {
+		t.Fatalf("latest schema version=%d want 51", got)
 	}
-	ready := schemaMigrationStatus(49, 49)
-	if !ready.UpToDate || ready.TargetVersion != 49 || ready.AppliedCount != 49 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(51, 51)
+	if !ready.UpToDate || ready.TargetVersion != 51 || ready.AppliedCount != 51 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
@@ -155,7 +167,9 @@ func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
 		{current: 46, count: 46},
 		{current: 47, count: 47},
 		{current: 48, count: 48},
-		{current: 49, count: 48},
+		{current: 49, count: 49},
+		{current: 50, count: 50},
+		{current: 51, count: 50},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)
@@ -195,6 +209,5 @@ func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {
 				t.Fatalf("invalid database schema history accepted: current=%d count=%d target=%d", tc.current, tc.count, tc.target)
 			}
-		})
 	}
 }
