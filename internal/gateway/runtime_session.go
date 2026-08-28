@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	cloudRuntimeSessionPrefix = "codelocal:cloud-runtime-session:v1:"
-	cloudRuntimeIdleIndex     = "codelocal:cloud-runtime-session:v1:idle"
-	cloudRuntimeReapPrefix    = "codelocal:cloud-runtime-reap:v1:"
+	cloudRuntimeSessionPrefix  = "codelocal:cloud-runtime-session:v1:"
+	cloudRuntimeIdleIndex      = "codelocal:cloud-runtime-session:v1:idle"
+	cloudRuntimeReapPrefix     = "codelocal:cloud-runtime-reap:v1:"
 	cloudRuntimeInFlightPrefix = "codelocal:cloud-runtime-inflight:v1:"
 )
 
@@ -226,7 +226,8 @@ func (s *CloudRuntimeSessionStore) ReapHeld(ctx context.Context, workspaceKey, p
 	if s == nil || s.Redis == nil {
 		return false, nil
 	}
-	return s.Redis.Exists(ctx, cloudRuntimeReapPrefix+cloudRuntimeSessionID(workspaceKey, profile)).Result()
+	count, err := s.Redis.Exists(ctx, cloudRuntimeReapPrefix+cloudRuntimeSessionID(workspaceKey, profile)).Result()
+	return count > 0, err
 }
 
 func (s *CloudRuntimeSessionStore) WaitReapClear(ctx context.Context, workspaceKey, profile string) error {
