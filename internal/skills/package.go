@@ -65,7 +65,10 @@ func BuildPackage(manifest Manifest, artifact Artifact) (Package, error) {
 	return pkg, nil
 }
 
-func ValidatePackageForImport(pkg Package, policy ImportPolicy) error {
+// ValidatePackageIntegrity verifies the immutable package independent of who is
+// allowed to import it. Cloud artifact stores and desktop caches call this on
+// every trust-boundary read before routing can consume the package.
+func ValidatePackageIntegrity(pkg Package) error {
 	if pkg.FormatVersion != SkillPackageFormatVersion {
 		return fmt.Errorf("unsupported skill package format %d", pkg.FormatVersion)
 	}
@@ -86,7 +89,11 @@ func ValidatePackageForImport(pkg Package, policy ImportPolicy) error {
 	if err != nil {
 		return err
 	}
-	if err := ValidateArtifact(pkg.Artifact, registry); err != nil {
+	return ValidateArtifact(pkg.Artifact, registry)
+}
+
+func ValidatePackageForImport(pkg Package, policy ImportPolicy) error {
+	if err := ValidatePackageIntegrity(pkg); err != nil {
 		return err
 	}
 	if err := validateImportScope(pkg.Manifest.Scope, policy); err != nil {
