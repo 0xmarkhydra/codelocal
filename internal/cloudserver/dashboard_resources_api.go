@@ -107,7 +107,7 @@ func (s *Server) devicesResourceAPI(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	devices, err := s.Store.ListDevices(r.Context(), identity.User.ID)
+	devices, err := s.Store.ListProductDevices(r.Context(), identity.User.ID)
 	if err != nil {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "devices_unavailable"})
 		return
