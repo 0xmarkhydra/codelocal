@@ -1,0 +1,182 @@
+name: Skill Intelligence Guarded Patch
+
+on:
+  push:
+    branches:
+      - feat/skill-intelligence
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/skill-intelligence
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Apply exact guarded patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: exact replacement count={count}, want 1")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "internal/cloud/store.go",
+              '''func accountSchemaMigrations() []schemaMigration {
+          \treturn []schemaMigration{
+          \t\t{41, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS password_changed_at BIGINT NOT NULL DEFAULT 0;`},
+          \t\t{42, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS security_version BIGINT NOT NULL DEFAULT 1;`},
+          \t\t{43, `ALTER TABLE codelocal_devices ADD COLUMN IF NOT EXISTS public_key TEXT;`},
+          \t\t{44, dashboardChatMigrationSQL},
+          \t\t{45, dashboardChatImageMigrationSQL},
+          \t\t{46, runtimeConfigMigrationSQL},
+          \t\t{47, runtimeSecretsMigrationSQL},
+          \t}
+          }''',
+              '''func accountSchemaMigrations() []schemaMigration {
+          \tmigrations := []schemaMigration{
+          \t\t{41, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS password_changed_at BIGINT NOT NULL DEFAULT 0;`},
+          \t\t{42, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS security_version BIGINT NOT NULL DEFAULT 1;`},
+          \t\t{43, `ALTER TABLE codelocal_devices ADD COLUMN IF NOT EXISTS public_key TEXT;`},
+          \t\t{44, dashboardChatMigrationSQL},
+          \t\t{45, dashboardChatImageMigrationSQL},
+          \t\t{46, runtimeConfigMigrationSQL},
+          \t\t{47, runtimeSecretsMigrationSQL},
+          \t}
+          \treturn append(migrations, skillIntelligenceSchemaMigrations()...)
+          }'''
+          )
+
+          replace_once(
+              "internal/cloud/dashboard_chat.go",
+              '''\tToolCalls json.RawMessage `json:"tool_calls,omitempty"`
+          \tImage     string          `json:"image,omitempty"`
+          \tCreatedAt int64           `json:"createdAt"`''',
+              '''\tToolCalls json.RawMessage `json:"tool_calls,omitempty"`
+          \tSkills    json.RawMessage `json:"skills,omitempty"`
+          \tImage     string          `json:"image,omitempty"`
+          \tCreatedAt int64           `json:"createdAt"`'''
+          )
+
+          replace_once(
+              "internal/cloud/dashboard_chat.go",
+              '''\ttoolCalls := string(msg.ToolCalls)
+          \tif toolCalls == "" {
+          \t\ttoolCalls = "[]"
+          \t}
+          \t_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_dashboard_chat(id, user_id, role, content, tool_calls, image, created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, msg.ID, msg.UserID, msg.Role, msg.Content, toolCalls, img, msg.CreatedAt)''',
+              '''\ttoolCalls := string(msg.ToolCalls)
+          \tif toolCalls == "" {
+          \t\ttoolCalls = "[]"
+          \t}
+          \tskills := msg.Skills
+          \tif len(skills) == 0 && msg.Role == "assistant" {
+          \t\tskills = dashboardChatSkillsFromContext(ctx)
+          \t}
+          \tif len(skills) == 0 || !json.Valid(skills) {
+          \t\tskills = json.RawMessage(`[]`)
+          \t}
+          \t_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_dashboard_chat(id, user_id, role, content, tool_calls, skills, image, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, msg.ID, msg.UserID, msg.Role, msg.Content, toolCalls, string(skills), img, msg.CreatedAt)'''
+          )
+
+          replace_once(
+              "internal/cloud/dashboard_chat.go",
+              '''\trows, err := s.DB.Query(ctx, `SELECT id, user_id, role, content, tool_calls, image, created_at FROM codelocal_dashboard_chat WHERE user_id=$1 ORDER BY created_at ASC LIMIT $2`, userID, limit)''',
+              '''\trows, err := s.DB.Query(ctx, `SELECT id, user_id, role, content, tool_calls, skills, image, created_at FROM codelocal_dashboard_chat WHERE user_id=$1 ORDER BY created_at ASC LIMIT $2`, userID, limit)'''
+          )
+
+          replace_once(
+              "internal/cloud/dashboard_chat.go",
+              '''\t\tvar toolCalls string
+          \t\tvar img *string
+          \t\tif err := rows.Scan(&m.ID, &m.UserID, &m.Role, &m.Content, &toolCalls, &img, &m.CreatedAt); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tm.ToolCalls = json.RawMessage(toolCalls)''',
+              '''\t\tvar toolCalls string
+          \t\tvar skills string
+          \t\tvar img *string
+          \t\tif err := rows.Scan(&m.ID, &m.UserID, &m.Role, &m.Content, &toolCalls, &skills, &img, &m.CreatedAt); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tm.ToolCalls = json.RawMessage(toolCalls)
+          \t\tm.Skills = json.RawMessage(skills)'''
+          )
+
+          replace_once(
+              "internal/cloud/store_migrations_test.go",
+              '''\tif len(migrations) != 7 {
+          \t\tt.Fatalf("unexpected account migration train: %#v", migrations)
+          \t}
+          \tfor index, version := range []int{41, 42, 43, 44, 45, 46, 47} {''',
+              '''\tif len(migrations) != 9 {
+          \t\tt.Fatalf("unexpected account migration train: %#v", migrations)
+          \t}
+          \tfor index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49} {'''
+          )
+
+          replace_once(
+              "internal/cloud/store_migrations_test.go",
+              '''\tif !strings.Contains(strings.ToLower(migrations[6].sql), "codelocal_runtime_secrets") {
+          \t\tt.Fatal("runtime migration 47 must create encrypted secret storage")
+          \t}
+          }''',
+              '''\tif !strings.Contains(strings.ToLower(migrations[6].sql), "codelocal_runtime_secrets") {
+          \t\tt.Fatal("runtime migration 47 must create encrypted secret storage")
+          \t}
+          \tif !strings.Contains(strings.ToLower(migrations[7].sql), "skill_affinity") || !strings.Contains(strings.ToLower(migrations[7].sql), "skill_id") {
+          \t\tt.Fatal("skill migration 48 must index tenant-private affinity evidence")
+          \t}
+          \tif !strings.Contains(strings.ToLower(migrations[8].sql), "skills jsonb") {
+          \t\tt.Fatal("skill migration 49 must persist versioned chat skill metadata")
+          \t}
+          }'''
+          )
+
+          replace_once(
+              "internal/cloud/store_migrations_test.go",
+              '''\tif got := LatestSchemaMigrationVersion(); got != 47 {
+          \t\tt.Fatalf("latest schema version=%d want 47", got)
+          \t}
+          \tready := schemaMigrationStatus(47, 47)
+          \tif !ready.UpToDate || ready.TargetVersion != 47 || ready.AppliedCount != 47 || len(ready.ProjectBrainPlanHash) != 64 {''',
+              '''\tif got := LatestSchemaMigrationVersion(); got != 49 {
+          \t\tt.Fatalf("latest schema version=%d want 49", got)
+          \t}
+          \tready := schemaMigrationStatus(49, 49)
+          \tif !ready.UpToDate || ready.TargetVersion != 49 || ready.AppliedCount != 49 || len(ready.ProjectBrainPlanHash) != 64 {'''
+          )
+
+          replace_once(
+              "internal/cloud/store_migrations_test.go",
+              '''\t\t{current: 47, count: 46},
+          \t\t{current: 48, count: 48},''',
+              '''\t\t{current: 47, count: 47},
+          \t\t{current: 48, count: 48},
+          \t\t{current: 49, count: 48},'''
+          )
+      - name: Format and test affected packages
+        run: |
+          gofmt -w internal/cloud/store.go internal/cloud/dashboard_chat.go internal/cloud/skill_intelligence_migrations.go
+          go test ./internal/cloud ./internal/cloudserver ./internal/skills
+      - name: Commit guarded patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/cloud/store.go internal/cloud/dashboard_chat.go internal/cloud/store_migrations_test.go internal/cloud/skill_intelligence_migrations.go
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(skills): persist versioned chat metadata [skip ci]"
+          git push origin HEAD:feat/skill-intelligence
