@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -19,12 +22,82 @@ import (
 
 const defaultWorkspacePath = "/workspace"
 
+type repositorySeed struct {
+	RepositoryID string `json:"repositoryId"`
+	Remote       string `json:"remote"`
+	RelativePath string `json:"relativePath"`
+}
+
 func requiredEnv(name string) (string, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
 		return "", fmt.Errorf("%s is required", name)
 	}
 	return value, nil
+}
+
+func safeSeedRemote(value string) string {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.User != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return ""
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func safeSeedPath(value string) string {
+	value = filepath.ToSlash(strings.TrimSpace(value))
+	if value == "" || value == "." {
+		return "."
+	}
+	clean := filepath.ToSlash(filepath.Clean(value))
+	if clean == "." {
+		return "."
+	}
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") || len(clean) > 500 {
+		return ""
+	}
+	return clean
+}
+
+func hydrateWorkspace(ctx context.Context, root, raw string) error {
+	var seeds []repositorySeed
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &seeds); err != nil || len(seeds) == 0 {
+		return errors.New("cloud runtime has no valid repository hydration sources")
+	}
+	if len(seeds) > 64 {
+		return errors.New("cloud runtime repository hydration source limit exceeded")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	for _, seed := range seeds {
+		remote := safeSeedRemote(seed.Remote)
+		relative := safeSeedPath(seed.RelativePath)
+		if remote == "" || relative == "" {
+			return fmt.Errorf("invalid cloud repository source %q", seed.RepositoryID)
+		}
+		target := root
+		if relative != "." {
+			target = filepath.Join(root, filepath.FromSlash(relative))
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+		}
+		if _, err := os.Stat(filepath.Join(target, ".git")); err == nil {
+			continue
+		}
+		if entries, err := os.ReadDir(target); err == nil && len(entries) > 0 {
+			return fmt.Errorf("cloud repository target is not empty: %s", relative)
+		}
+		cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--no-tags", "--", remote, target)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("hydrate repository %q: %w: %s", seed.RepositoryID, err, strings.TrimSpace(string(output)))
+		}
+	}
+	return nil
 }
 
 func run(ctx context.Context) error {
@@ -41,6 +114,10 @@ func run(ctx context.Context) error {
 		return err
 	}
 	deviceID, err := requiredEnv("CODELOCAL_RUNTIME_DEVICE_ID")
+	if err != nil {
+		return err
+	}
+	repositoriesJSON, err := requiredEnv("CODELOCAL_RUNTIME_REPOSITORIES_JSON")
 	if err != nil {
 		return err
 	}
@@ -75,6 +152,10 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := hydrateWorkspace(ctx, workspacePath, repositoriesJSON); err != nil {
+		return err
+	}
+	_ = os.Unsetenv("CODELOCAL_RUNTIME_REPOSITORIES_JSON")
 
 	if _, err := workspace.New().GrantManaged(workspaceID, workspacePath, workspaceName); err != nil {
 		return fmt.Errorf("authorize managed cloud workspace: %w", err)
