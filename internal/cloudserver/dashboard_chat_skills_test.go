@@ -25,6 +25,33 @@ func TestDashboardSkillContextAutoSelectsUIUX(t *testing.T) {
 	}
 }
 
+func TestDashboardSkillContextUnderstandsMultimodalUIMessage(t *testing.T) {
+	messages := []map[string]any{{
+		"role": "user",
+		"content": []map[string]any{
+			{"type": "text", "text": "Nhìn màn này khó chịu quá, làm đẹp hơn"},
+			{"type": "image_url", "image_url": map[string]any{"url": "https://example.invalid/screenshot.png"}},
+		},
+	}}
+	plan := dashboardSkillPlan(messages)
+	if len(plan.Selections) != 1 || plan.Selections[0].Skill.ID != "ui-ux-pro" {
+		t.Fatalf("expected ui-ux-pro for screenshot UI task, got %#v", plan.Selections)
+	}
+}
+
+func TestDashboardImageAloneDoesNotForceUIUX(t *testing.T) {
+	messages := []map[string]any{{
+		"role": "user",
+		"content": []map[string]any{
+			{"type": "text", "text": "Phân tích hóa đơn trong ảnh này"},
+			{"type": "image_url", "image_url": map[string]any{"url": "https://example.invalid/receipt.png"}},
+		},
+	}}
+	if plan := dashboardSkillPlan(messages); len(plan.Selections) != 0 {
+		t.Fatalf("non-UI image must not force UI skill: %#v", plan.Selections)
+	}
+}
+
 func TestDashboardSkillHeaderUsesRealSelections(t *testing.T) {
 	plan := dashboardSkillPlan([]map[string]any{{"role": "user", "content": "redesign dashboard responsive"}})
 	raw := dashboardSkillHeaderValue(plan)
