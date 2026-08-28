@@ -87,6 +87,9 @@ func ValidateArtifact(artifact Artifact, registry *Registry) error {
 	if err != nil {
 		return err
 	}
+	if len(normalized) != len(artifact.Chunks) {
+		return fmt.Errorf("artifact contains duplicate knowledge chunks")
+	}
 	hash, err := artifactContentHash(normalized)
 	if err != nil {
 		return err
@@ -103,8 +106,8 @@ func ValidateArtifact(artifact Artifact, registry *Registry) error {
 }
 
 func normalizeArtifactChunks(manifest Manifest, chunks []KnowledgeChunk) ([]KnowledgeChunk, error) {
-	out := make([]KnowledgeChunk, 0, len(chunks))
-	seen := map[string]struct{}{}
+	canonical := make([]KnowledgeChunk, 0, len(chunks))
+	seenIDs := map[string]struct{}{}
 	for _, input := range chunks {
 		chunk := input
 		chunk.ID = strings.TrimSpace(chunk.ID)
@@ -119,10 +122,10 @@ func normalizeArtifactChunks(manifest Manifest, chunks []KnowledgeChunk) ([]Know
 		if chunk.ID == "" || chunk.Content == "" {
 			return nil, fmt.Errorf("skill artifact chunks require id and content")
 		}
-		if _, duplicate := seen[chunk.ID]; duplicate {
+		if _, duplicate := seenIDs[chunk.ID]; duplicate {
 			return nil, fmt.Errorf("duplicate skill artifact chunk %q", chunk.ID)
 		}
-		seen[chunk.ID] = struct{}{}
+		seenIDs[chunk.ID] = struct{}{}
 		if chunk.SkillID != manifest.ID || chunk.SkillVersion != manifest.Version {
 			return nil, fmt.Errorf("chunk %s belongs to %s@%s, expected %s@%s", chunk.ID, chunk.SkillID, chunk.SkillVersion, manifest.ID, manifest.Version)
 		}
@@ -132,10 +135,24 @@ func normalizeArtifactChunks(manifest Manifest, chunks []KnowledgeChunk) ([]Know
 			}
 		}
 		chunk.Tags = normalizedStrings(chunk.Tags)
-		out = append(out, chunk)
+		canonical = append(canonical, chunk)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
+
+	// Sort before content dedupe so the canonical representative is stable even
+	// when scanners enumerate the same upstream adapters in different orders.
+	sort.Slice(canonical, func(i, j int) bool { return canonical[i].ID < canonical[j].ID })
+	deduplicated := make([]KnowledgeChunk, 0, len(canonical))
+	byContent := make(map[string]int, len(canonical))
+	for _, chunk := range canonical {
+		if index, duplicate := byContent[chunk.Content]; duplicate {
+			existing := &deduplicated[index]
+			existing.Tags = normalizedStrings(append(existing.Tags, chunk.Tags...))
+			continue
+		}
+		byContent[chunk.Content] = len(deduplicated)
+		deduplicated = append(deduplicated, chunk)
+	}
+	return deduplicated, nil
 }
 
 func normalizedStrings(values []string) []string {
