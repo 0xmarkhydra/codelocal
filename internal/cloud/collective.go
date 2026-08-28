@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	skillintel "github.com/0xmarkhydra/codelocal/internal/skills"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -77,6 +78,7 @@ type CollectiveFingerprint struct {
 	ExecutionTool   string   `json:"executionTool"`
 	QualityBucket   string   `json:"qualityBucket"`
 	SkillUsed       bool     `json:"skillUsed"`
+	SkillID         string   `json:"skillId,omitempty"`
 	DiffObserved    bool     `json:"diffObserved"`
 }
 
@@ -197,12 +199,30 @@ func collectiveQualityBucket(metadata map[string]any) string {
 	}
 }
 
+// collectiveSkillID only exposes canonical reusable Skill IDs. Arbitrary
+// local/project learned-skill IDs can still contribute the coarse SkillUsed
+// signal but never cross the collective privacy boundary by name.
+func collectiveSkillID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	manifest, ok := skillintel.DefaultRegistry().Get(value)
+	if !ok {
+		return ""
+	}
+	if manifest.Scope != skillintel.ScopeSystem && manifest.Scope != skillintel.ScopeCommunity {
+		return ""
+	}
+	return manifest.ID
+}
+
 func collectiveFingerprintForExperience(experience Experience) (CollectiveFingerprint, bool) {
 	if experience.Outcome != "succeeded" && experience.Outcome != "failed" {
 		return CollectiveFingerprint{}, false
 	}
 	fingerprint := CollectiveFingerprint{
-		SchemaVersion:   1,
+		SchemaVersion:   2,
 		TaskKind:        collectiveTaskKind(experience.TaskKind),
 		CheckProfile:    collectiveCheckProfile(experience.Checks),
 		FileCountBucket: collectiveCountBucket(len(experience.Files)),
@@ -210,6 +230,7 @@ func collectiveFingerprintForExperience(experience Experience) (CollectiveFinger
 		ExecutionTool:   collectiveExecutionTool(experience.Metadata),
 		QualityBucket:   collectiveQualityBucket(experience.Metadata),
 		SkillUsed:       strings.TrimSpace(experience.SkillID) != "",
+		SkillID:         collectiveSkillID(experience.SkillID),
 	}
 	if value, ok := experience.Metadata["diffObserved"].(bool); ok {
 		fingerprint.DiffObserved = value
