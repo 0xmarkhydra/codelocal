@@ -1,13 +1,22 @@
 package cloudserver
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	skillintel "github.com/0xmarkhydra/codelocal/internal/skills"
 )
 
-const dashboardSkillContextMarker = "[CodeLocal Skills]"
+const (
+	dashboardSkillContextMarker = "[CodeLocal Skills]"
+	dashboardSkillHeader        = "X-CodeLocal-Skills"
+)
+
+type dashboardSkillBadge struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
 
 func dashboardLatestUserMessage(messages []map[string]any) string {
 	for index := len(messages) - 1; index >= 0; index-- {
@@ -73,6 +82,26 @@ func dashboardSkillPlan(messages []map[string]any) skillintel.Plan {
 	return skillintel.DefaultEngine().Plan(dashboardSkillTask(message))
 }
 
+func dashboardSkillBadges(plan skillintel.Plan) []dashboardSkillBadge {
+	badges := make([]dashboardSkillBadge, 0, len(plan.Selections))
+	for _, selection := range plan.Selections {
+		badges = append(badges, dashboardSkillBadge{ID: selection.Skill.ID, Name: selection.Skill.Name})
+	}
+	return badges
+}
+
+func dashboardSkillHeaderValue(plan skillintel.Plan) string {
+	badges := dashboardSkillBadges(plan)
+	if len(badges) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(badges)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
 func dashboardSkillSystemMessage(plan skillintel.Plan) string {
 	if len(plan.Selections) == 0 {
 		return ""
@@ -92,11 +121,11 @@ func dashboardSkillSystemMessage(plan skillintel.Plan) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func dashboardWithSkillContext(messages []map[string]any) []map[string]any {
+func dashboardWithSkillPlan(messages []map[string]any, plan skillintel.Plan) []map[string]any {
 	if len(messages) == 0 || dashboardHasSkillContext(messages) {
 		return messages
 	}
-	context := dashboardSkillSystemMessage(dashboardSkillPlan(messages))
+	context := dashboardSkillSystemMessage(plan)
 	if context == "" {
 		return messages
 	}
@@ -104,4 +133,8 @@ func dashboardWithSkillContext(messages []map[string]any) []map[string]any {
 	out = append(out, messages...)
 	out = append(out, map[string]any{"role": "system", "content": context})
 	return out
+}
+
+func dashboardWithSkillContext(messages []map[string]any) []map[string]any {
+	return dashboardWithSkillPlan(messages, dashboardSkillPlan(messages))
 }
