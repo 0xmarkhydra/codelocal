@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -18,10 +19,11 @@ func TestDirectoryPackageCacheRoundTrip(t *testing.T) {
 	}
 	pkg := testCachePackage(t, manifest)
 	cache := DirectoryPackageCache{Root: t.TempDir()}
-	if err := cache.Put(pkg); err != nil {
+	ctx := context.Background()
+	if err := cache.Put(ctx, pkg); err != nil {
 		t.Fatal(err)
 	}
-	loaded, ok, err := cache.Get(pkg.PackageHash)
+	loaded, ok, err := cache.Get(ctx, pkg.PackageHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +44,8 @@ func TestDirectoryPackageCacheRejectsTamperedFile(t *testing.T) {
 	}
 	pkg := testCachePackage(t, manifest)
 	cache := DirectoryPackageCache{Root: t.TempDir()}
-	if err := cache.Put(pkg); err != nil {
+	ctx := context.Background()
+	if err := cache.Put(ctx, pkg); err != nil {
 		t.Fatal(err)
 	}
 	path, err := cache.packagePath(pkg.PackageHash)
@@ -57,15 +60,24 @@ func TestDirectoryPackageCacheRejectsTamperedFile(t *testing.T) {
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := cache.Get(pkg.PackageHash); err == nil {
+	if _, _, err := cache.Get(ctx, pkg.PackageHash); err == nil {
 		t.Fatal("tampered cached package must be rejected")
 	}
 }
 
 func TestDirectoryPackageCacheRejectsUntrustedAddress(t *testing.T) {
 	cache := DirectoryPackageCache{Root: t.TempDir()}
-	if _, _, err := cache.Get("../../outside"); err == nil {
+	if _, _, err := cache.Get(context.Background(), "../../outside"); err == nil {
 		t.Fatal("untrusted package address must be rejected")
+	}
+}
+
+func TestDirectoryPackageCacheHonorsCancelledContext(t *testing.T) {
+	cache := DirectoryPackageCache{Root: t.TempDir()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := cache.Get(ctx, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); err == nil {
+		t.Fatal("cancelled cache read must fail")
 	}
 }
 
