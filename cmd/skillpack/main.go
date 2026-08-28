@@ -39,11 +39,12 @@ func run(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	documents, err := readSourceDocuments(*root)
+	policy := skillpackIngestPolicy()
+	documents, err := readSourceDocuments(*root, policy, skills.DefaultSkillpackTotalBytes)
 	if err != nil {
 		return err
 	}
-	artifact, err := skills.BuildArtifactFromDocuments(manifest, documents, skills.DefaultKnowledgeIngestPolicy())
+	artifact, err := skills.BuildArtifactFromDocumentsBudgeted(manifest, documents, policy, skills.DefaultSkillpackTotalBytes)
 	if err != nil {
 		return err
 	}
@@ -62,6 +63,12 @@ func run(args []string, stdout io.Writer) error {
 	return writeAtomic(*output, append(payload, '\n'))
 }
 
+func skillpackIngestPolicy() skills.IngestPolicy {
+	policy := skills.DefaultKnowledgeIngestPolicy()
+	policy.MaxDocumentBytes = skills.DefaultSkillpackDocumentBytes
+	return policy
+}
+
 func readManifest(manifestPath string) (skills.Manifest, error) {
 	payload, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -77,7 +84,7 @@ func readManifest(manifestPath string) (skills.Manifest, error) {
 	return manifest, nil
 }
 
-func readSourceDocuments(root string) ([]skills.SourceDocument, error) {
+func readSourceDocuments(root string, policy skills.IngestPolicy, maxTotalBytes int) ([]skills.SourceDocument, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -89,8 +96,14 @@ func readSourceDocuments(root string) ([]skills.SourceDocument, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("source root is not a directory")
 	}
+	if maxTotalBytes <= 0 {
+		maxTotalBytes = skills.DefaultSkillpackTotalBytes
+	}
 
+	allowedExtensions := lowerSet(policy.AllowedExtensions)
+	excludedSegments := lowerSet(policy.ExcludedPathSegments)
 	documents := []skills.SourceDocument{}
+	var totalBytes int64
 	err = filepath.WalkDir(root, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -99,13 +112,30 @@ func readSourceDocuments(root string) ([]skills.SourceDocument, error) {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			if entry.IsDir() {
+			return nil
+		}
+		if entry.IsDir() {
+			if _, blocked := excludedSegments[strings.ToLower(entry.Name())]; blocked {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if entry.IsDir() {
+		if _, allowed := allowedExtensions[strings.ToLower(filepath.Ext(entry.Name()))]; !allowed {
 			return nil
+		}
+		fileInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if fileInfo.Size() > int64(policy.MaxDocumentBytes) {
+			return fmt.Errorf("skill source document %q exceeds %d bytes", filePath, policy.MaxDocumentBytes)
+		}
+		totalBytes += fileInfo.Size()
+		if totalBytes > int64(maxTotalBytes) {
+			return fmt.Errorf("skill source snapshot exceeds %d bytes of allowed text", maxTotalBytes)
+		}
+		if len(documents) >= policy.MaxDocuments {
+			return fmt.Errorf("skill source snapshot exceeds %d documents", policy.MaxDocuments)
 		}
 		relative, err := filepath.Rel(root, filePath)
 		if err != nil {
@@ -125,6 +155,17 @@ func readSourceDocuments(root string) ([]skills.SourceDocument, error) {
 		return nil, fmt.Errorf("scan source snapshot: %w", err)
 	}
 	return documents, nil
+}
+
+func lowerSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value != "" {
+			out[value] = struct{}{}
+		}
+	}
+	return out
 }
 
 func marshalPackage(pkg skills.Package, pretty bool) ([]byte, error) {
