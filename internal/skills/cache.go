@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,20 +10,23 @@ import (
 	"strings"
 )
 
-type PackageCache interface {
-	Put(pkg Package) error
-	Get(packageHash string) (Package, bool, error)
+type PackageStore interface {
+	Put(ctx context.Context, pkg Package) error
+	Get(ctx context.Context, packageHash string) (Package, bool, error)
 }
 
-// DirectoryPackageCache is a content-addressed cache suitable for CodeLocal
-// desktop/local runtime. Cloud can implement the same interface over object
-// storage. Files are addressed only by validated SHA-256 package hashes, never
-// by user-controlled skill IDs or paths.
+// DirectoryPackageCache is a content-addressed PackageStore suitable for
+// CodeLocal desktop/local runtime. Cloud implements the same interface over
+// durable object storage. Files are addressed only by validated SHA-256 package
+// hashes, never by user-controlled skill IDs or paths.
 type DirectoryPackageCache struct {
 	Root string
 }
 
-func (c DirectoryPackageCache) Put(pkg Package) error {
+func (c DirectoryPackageCache) Put(ctx context.Context, pkg Package) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := ValidatePackageIntegrity(pkg); err != nil {
 		return err
 	}
@@ -30,7 +34,7 @@ func (c DirectoryPackageCache) Put(pkg Package) error {
 	if err != nil {
 		return err
 	}
-	if existing, ok, err := c.Get(pkg.PackageHash); err != nil {
+	if existing, ok, err := c.Get(ctx, pkg.PackageHash); err != nil {
 		return err
 	} else if ok {
 		if existing.PackageHash != pkg.PackageHash {
@@ -62,9 +66,12 @@ func (c DirectoryPackageCache) Put(pkg Package) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.Rename(tempPath, path); err != nil {
 		// Another process may have populated the same content-addressed entry.
-		if _, ok, getErr := c.Get(pkg.PackageHash); getErr == nil && ok {
+		if _, ok, getErr := c.Get(ctx, pkg.PackageHash); getErr == nil && ok {
 			return nil
 		}
 		return err
@@ -72,7 +79,10 @@ func (c DirectoryPackageCache) Put(pkg Package) error {
 	return nil
 }
 
-func (c DirectoryPackageCache) Get(packageHash string) (Package, bool, error) {
+func (c DirectoryPackageCache) Get(ctx context.Context, packageHash string) (Package, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return Package{}, false, err
+	}
 	path, err := c.packagePath(packageHash)
 	if err != nil {
 		return Package{}, false, err
@@ -82,6 +92,9 @@ func (c DirectoryPackageCache) Get(packageHash string) (Package, bool, error) {
 		return Package{}, false, nil
 	}
 	if err != nil {
+		return Package{}, false, err
+	}
+	if err := ctx.Err(); err != nil {
 		return Package{}, false, err
 	}
 	var pkg Package
@@ -102,7 +115,11 @@ func (c DirectoryPackageCache) packagePath(packageHash string) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("skill package cache root is required")
 	}
-	digest := strings.TrimPrefix(strings.TrimSpace(packageHash), "sha256:")
+	packageHash = strings.TrimSpace(packageHash)
+	if !strings.HasPrefix(packageHash, "sha256:") {
+		return "", fmt.Errorf("invalid skill package hash")
+	}
+	digest := strings.TrimPrefix(packageHash, "sha256:")
 	if len(digest) != sha256HexLength {
 		return "", fmt.Errorf("invalid skill package hash")
 	}
