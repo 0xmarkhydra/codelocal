@@ -25,13 +25,13 @@ func TestCreateSandboxUsesOfficialLifecyclePathAndAuthHeader(t *testing.T) {
 	var received CreateSandboxRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/sandboxes" {
-			t.Fatalf("path = %q", r.URL.Path)
+			t.Errorf("path = %q", r.URL.Path)
 		}
 		if got := r.Header.Get(defaultAuthHeader); got != "secret-key" {
-			t.Fatalf("auth header = %q", got)
+			t.Errorf("auth header = %q", got)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
-			t.Fatalf("decode request: %v", err)
+			t.Errorf("decode request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
@@ -66,14 +66,14 @@ func TestCreateSandboxUsesOfficialLifecyclePathAndAuthHeader(t *testing.T) {
 func TestListSandboxesEncodesMetadataLikeOfficialSDK(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/sandboxes" {
-			t.Fatalf("path = %q", r.URL.Path)
+			t.Errorf("path = %q", r.URL.Path)
 		}
 		if got := r.URL.Query()["state"]; len(got) != 2 || got[0] != "Running" || got[1] != "Paused" {
-			t.Fatalf("state query = %#v", got)
+			t.Errorf("state query = %#v", got)
 		}
 		metadata := r.URL.Query().Get("metadata")
 		if !strings.Contains(metadata, "tenant=t-1") || !strings.Contains(metadata, "workspace=ws-1") {
-			t.Fatalf("metadata query = %q", metadata)
+			t.Errorf("metadata query = %q", metadata)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"items":[],"pagination":{"page":1,"pageSize":20,"totalItems":0,"totalPages":0,"hasNextPage":false}}`))
@@ -113,23 +113,23 @@ func TestLifecycleActionsAndRenewExpiration(t *testing.T) {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 	ctx := context.Background()
-	if err := client.PauseSandbox(ctx, "sb/1"); err != nil {
+	if err := client.PauseSandbox(ctx, "sb-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.ResumeSandbox(ctx, "sb/1"); err != nil {
+	if err := client.ResumeSandbox(ctx, "sb-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.RenewExpiration(ctx, "sb/1", time.Date(2026, 8, 29, 2, 0, 0, 0, time.UTC)); err != nil {
+	if _, err := client.RenewExpiration(ctx, "sb-1", time.Date(2026, 8, 29, 2, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.DeleteSandbox(ctx, "sb/1"); err != nil {
+	if err := client.DeleteSandbox(ctx, "sb-1"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		"POST /v1/sandboxes/sb%2F1/pause",
-		"POST /v1/sandboxes/sb%2F1/resume",
-		"POST /v1/sandboxes/sb%2F1/renew-expiration",
-		"DELETE /v1/sandboxes/sb%2F1",
+		"POST /v1/sandboxes/sb-1/pause",
+		"POST /v1/sandboxes/sb-1/resume",
+		"POST /v1/sandboxes/sb-1/renew-expiration",
+		"DELETE /v1/sandboxes/sb-1",
 	}
 	if len(calls) != len(want) {
 		t.Fatalf("calls = %#v", calls)
