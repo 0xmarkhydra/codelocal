@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -24,10 +25,28 @@ func TestDashboardSkillContextAutoSelectsUIUX(t *testing.T) {
 	}
 }
 
+func TestDashboardSkillHeaderUsesRealSelections(t *testing.T) {
+	plan := dashboardSkillPlan([]map[string]any{{"role": "user", "content": "redesign dashboard responsive"}})
+	raw := dashboardSkillHeaderValue(plan)
+	if raw == "" {
+		t.Fatal("expected skill metadata header")
+	}
+	var badges []dashboardSkillBadge
+	if err := json.Unmarshal([]byte(raw), &badges); err != nil {
+		t.Fatalf("invalid skill header: %v", err)
+	}
+	if len(badges) != 1 || badges[0].ID != "ui-ux-pro" || badges[0].Name != "UI/UX Pro" {
+		t.Fatalf("unexpected badges %#v", badges)
+	}
+}
+
 func TestDashboardSkillContextSkipsBackendTask(t *testing.T) {
 	messages := []map[string]any{{"role": "user", "content": "fix Redis reconnect and exponential backoff"}}
 	if got := dashboardWithSkillContext(messages); len(got) != len(messages) {
 		t.Fatalf("backend task should not receive UI skill context: %#v", got)
+	}
+	if header := dashboardSkillHeaderValue(dashboardSkillPlan(messages)); header != "" {
+		t.Fatalf("backend task must not advertise a UI skill: %s", header)
 	}
 }
 
