@@ -103,6 +103,9 @@ func isNextPresentationMethod(method string) bool {
 }
 
 func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
+	// Runtime nodes are backend transports, not browser presentation. Keep them
+	// reachable regardless of whether the Next.js frontend proxy is configured.
+	next = s.runtimeTransportMiddleware(next)
 	if s.WebFrontend == nil {
 		return next
 	}
