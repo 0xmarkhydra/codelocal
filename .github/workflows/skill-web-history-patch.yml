@@ -1,0 +1,142 @@
+name: Skill Web History Guarded Patch
+
+on:
+  push:
+    branches:
+      - feat/skill-intelligence
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/skill-intelligence
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Apply exact guarded patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("web/src/app/dashboard/dashboard-chat.tsx")
+          text = path.read_text()
+
+          def replace_once(old, new):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"exact replacement count={count}, want 1 for:\n{old[:160]}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '''type SkillBadge = {
+            id: string;
+            name: string;
+          };''',
+              '''type SkillBadge = {
+            id: string;
+            name: string;
+            version: string;
+          };'''
+          )
+
+          replace_once(
+              '''function parseSkillHeader(raw: string | null): SkillBadge[] {
+            if (!raw) return [];
+            try {
+              const value = JSON.parse(raw) as unknown;
+              if (!Array.isArray(value)) return [];
+              return value.flatMap((item) => {
+                if (!item || typeof item !== "object") return [];
+                const record = item as Record<string, unknown>;
+                const id = typeof record.id === "string" ? record.id.trim() : "";
+                const name = typeof record.name === "string" ? record.name.trim() : "";
+                return id && name ? [{ id, name }] : [];
+              }).slice(0, 3);
+            } catch {
+              return [];
+            }
+          }''',
+              '''function parseSkillBadges(value: unknown): SkillBadge[] {
+            if (!Array.isArray(value)) return [];
+            return value.flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const record = item as Record<string, unknown>;
+              const id = typeof record.id === "string" ? record.id.trim() : "";
+              const name = typeof record.name === "string" ? record.name.trim() : "";
+              const version = typeof record.version === "string" ? record.version.trim() : "";
+              return id && name && version ? [{ id, name, version }] : [];
+            }).slice(0, 3);
+          }
+
+          function parseSkillHeader(raw: string | null): SkillBadge[] {
+            if (!raw) return [];
+            try {
+              return parseSkillBadges(JSON.parse(raw) as unknown);
+            } catch {
+              return [];
+            }
+          }
+
+          function parseHistorySkills(raw: string | SkillBadge[] | undefined): SkillBadge[] {
+            if (Array.isArray(raw)) return parseSkillBadges(raw);
+            return parseSkillHeader(raw ?? null);
+          }'''
+          )
+
+          replace_once(
+              '''.then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; image?: string }> } | null) => {''',
+              '''.then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; skills?: string | SkillBadge[]; image?: string }> } | null) => {'''
+          )
+
+          replace_once(
+              '''          return {
+            role: message.role as ChatMsg["role"],
+            content: message.content,
+            tool_calls: toolCalls,
+            image: message.image,
+          };''',
+              '''          const skills = parseHistorySkills(message.skills);
+              return {
+            role: message.role as ChatMsg["role"],
+            content: message.content,
+            tool_calls: toolCalls,
+                skills: skills.length ? skills : undefined,
+            image: message.image,
+          };'''
+          )
+
+          replace_once(
+              '''                    <span className={skillStyles.pill} key={skill.id} title="CodeLocal tự chọn Skill này cho task hiện tại">
+                      <AppIcon name="skill" size={13} />
+                      {skill.name}
+                    </span>''',
+              '''                    <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>
+                      <AppIcon name="skill" size={13} />
+                      {skill.name}
+                    </span>'''
+          )
+
+          path.write_text(text)
+      - name: Check web
+        working-directory: web
+        run: |
+          npm ci
+          npm run check
+      - name: Commit guarded patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/src/app/dashboard/dashboard-chat.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(skills): restore versioned badges from chat history [skip ci]"
+          git push origin HEAD:feat/skill-intelligence
