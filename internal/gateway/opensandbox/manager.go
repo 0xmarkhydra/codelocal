@@ -95,7 +95,14 @@ func (m *Manager) Acquire(ctx context.Context, spec AcquireSpec) (*SandboxInfo, 
 		Metadata:       metadata,
 		NetworkPolicy:  spec.NetworkPolicy,
 	}
-	if snapshot := m.newestReadySnapshot(ctx, strings.TrimSpace(spec.SnapshotName)); snapshot != nil {
+	snapshot, err := m.newestReadySnapshot(ctx, strings.TrimSpace(spec.SnapshotName))
+	if err != nil {
+		// A failed snapshot lookup is not equivalent to "no snapshot". Falling
+		// back to a fresh image here can hide persisted, uncommitted workspace
+		// state, so restoration is deliberately fail-closed.
+		return nil, err
+	}
+	if snapshot != nil {
 		request.SnapshotID = snapshot.ID
 	} else {
 		request.Image = &ImageSpec{URI: spec.Image}
@@ -201,22 +208,25 @@ func (m *Manager) renew(ctx context.Context, sandbox SandboxInfo, ttl time.Durat
 	return &sandbox, nil
 }
 
-func (m *Manager) newestReadySnapshot(ctx context.Context, name string) *SnapshotInfo {
+func (m *Manager) newestReadySnapshot(ctx context.Context, name string) (*SnapshotInfo, error) {
 	if name == "" {
-		return nil
+		return nil, nil
 	}
 	lifecycle, ok := m.Lifecycle.(SnapshotLifecycle)
 	if !ok {
-		return nil
+		return nil, errors.New("opensandbox snapshot lifecycle unavailable")
 	}
 	listed, err := lifecycle.ListSnapshots(ctx, SnapshotListOptions{Name: name, States: []string{"Ready"}, PageSize: 20})
-	if err != nil || listed == nil || len(listed.Items) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if listed == nil || len(listed.Items) == 0 {
+		return nil, nil
 	}
 	items := append([]SnapshotInfo(nil), listed.Items...)
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
 	item := items[0]
-	return &item
+	return &item, nil
 }
 
 // SnapshotAndDelete persists a Running sandbox, waits for a Ready snapshot,
