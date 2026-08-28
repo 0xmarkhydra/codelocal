@@ -51,12 +51,13 @@ type Engine struct {
 }
 
 // NewEngine accepts an optional KnowledgeStore so Cloud/Desktop can provide a
-// persistent indexed store while tests and the first built-in use memory.
+// persistent indexed store. Without an override, built-in knowledge is still
+// hydrated through the immutable Skill artifact contract used by those clients.
 func NewEngine(registry *Registry, stores ...KnowledgeStore) *Engine {
 	if registry == nil {
 		registry = DefaultRegistry()
 	}
-	knowledge := DefaultKnowledgeStore()
+	knowledge := DefaultArtifactKnowledgeStore(registry)
 	if len(stores) > 0 && stores[0] != nil {
 		knowledge = stores[0]
 	}
@@ -71,7 +72,7 @@ var (
 
 func DefaultEngine() *Engine {
 	defaultEngineOnce.Do(func() {
-		defaultEngine = NewEngine(DefaultRegistry(), DefaultKnowledgeStore())
+		defaultEngine = NewEngine(DefaultRegistry())
 	})
 	return defaultEngine
 }
