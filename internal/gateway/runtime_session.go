@@ -21,6 +21,8 @@ const (
 	cloudRuntimeInFlightPrefix = "codelocal:cloud-runtime-inflight:v1:"
 )
 
+var ErrCloudRuntimeReapInProgress = errors.New("cloud runtime checkpoint in progress")
+
 type CloudRuntimeSession struct {
 	ID           string `json:"id"`
 	UserID       string `json:"userId"`
@@ -112,9 +114,12 @@ func (s *CloudRuntimeSessionStore) TouchExisting(ctx context.Context, workspaceK
 	return s.Touch(ctx, *state)
 }
 
-// BeginCall marks a cloud workspace as in-flight only when a managed runtime
-// session already exists. The in-flight counter prevents the idle snapshot
-// reaper from capturing/deleting compute while a tool call is executing.
+// BeginCall marks a cloud workspace in-flight without racing the idle reaper.
+// Touch first makes already-selected idle candidates observe fresh activity;
+// then a Redis script atomically refuses a new call if a reaper claim already
+// exists, otherwise increments the in-flight counter. Therefore either the call
+// starts first (and the reaper sees InFlight) or the reaper starts first (and
+// the call waits/rebinds) — never both mutate compute concurrently.
 func (s *CloudRuntimeSessionStore) BeginCall(ctx context.Context, workspaceKey, profile string) (func(), error) {
 	state, err := s.Get(ctx, workspaceKey, profile)
 	if err != nil || state == nil {
@@ -123,13 +128,15 @@ func (s *CloudRuntimeSessionStore) BeginCall(ctx context.Context, workspaceKey, 
 	if err := s.Touch(ctx, *state); err != nil {
 		return func() {}, err
 	}
-	key := cloudRuntimeInFlightPrefix + state.ID
-	if _, err := s.Redis.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-		pipe.Incr(ctx, key)
-		pipe.Expire(ctx, key, 2*time.Hour)
-		return nil
-	}); err != nil {
+	inFlightKey := cloudRuntimeInFlightPrefix + state.ID
+	reapKey := cloudRuntimeReapPrefix + state.ID
+	const begin = `if redis.call('EXISTS',KEYS[1])==1 then return 0 end; local n=redis.call('INCR',KEYS[2]); redis.call('PEXPIRE',KEYS[2],ARGV[1]); return n`
+	value, err := s.Redis.Eval(ctx, begin, []string{reapKey, inFlightKey}, (2 * time.Hour).Milliseconds()).Int64()
+	if err != nil {
 		return func() {}, err
+	}
+	if value == 0 {
+		return func() {}, ErrCloudRuntimeReapInProgress
 	}
 	var done bool
 	return func() {
@@ -140,7 +147,7 @@ func (s *CloudRuntimeSessionStore) BeginCall(ctx context.Context, workspaceKey, 
 		finishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		const decrement = `local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n<=1 then redis.call('DEL',KEYS[1]); return 0 end; return redis.call('DECR',KEYS[1])`
-		_ = s.Redis.Eval(finishCtx, decrement, []string{key}).Err()
+		_ = s.Redis.Eval(finishCtx, decrement, []string{inFlightKey}).Err()
 		_ = s.TouchExisting(finishCtx, workspaceKey, profile)
 	}, nil
 }
