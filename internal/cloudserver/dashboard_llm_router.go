@@ -281,6 +281,7 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 			if !dashboardRetryableLLMError(err) || attempt == 1 {
 				break
 			}
+		}
 		dashboardMarkTargetFailed(target)
 	}
 	return dashboardLLMTarget{}, lastErr
