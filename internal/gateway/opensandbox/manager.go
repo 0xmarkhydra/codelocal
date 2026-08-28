@@ -28,6 +28,7 @@ type Lifecycle interface {
 
 type AcquireSpec struct {
 	OwnerID        string
+	WorkspaceKey   string
 	WorkspaceID    string
 	Profile        string
 	Image          string
@@ -164,6 +165,9 @@ func validateAcquireSpec(spec AcquireSpec) error {
 	if strings.TrimSpace(spec.OwnerID) == "" {
 		return errors.New("opensandbox owner ID required")
 	}
+	if strings.TrimSpace(spec.WorkspaceKey) == "" {
+		return errors.New("opensandbox workspace key required")
+	}
 	if strings.TrimSpace(spec.WorkspaceID) == "" {
 		return errors.New("opensandbox workspace ID required")
 	}
@@ -184,15 +188,15 @@ func validateAcquireSpec(spec AcquireSpec) error {
 
 func workspaceMetadata(spec AcquireSpec) map[string]string {
 	return map[string]string{
-		metadataOwnerKey:     stableOwnerHash(spec.OwnerID),
-		metadataWorkspaceKey: spec.WorkspaceID,
+		metadataOwnerKey:     stableScopeHash(spec.OwnerID),
+		metadataWorkspaceKey: stableScopeHash(spec.WorkspaceKey),
 		metadataProfileKey:   spec.Profile,
 		metadataImageKey:     spec.Image,
 	}
 }
 
-func stableOwnerHash(ownerID string) string {
-	digest := sha256.Sum256([]byte(strings.TrimSpace(ownerID)))
+func stableScopeHash(value string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(value)))
 	return hex.EncodeToString(digest[:16])
 }
 
