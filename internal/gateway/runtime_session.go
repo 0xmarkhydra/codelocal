@@ -21,8 +21,6 @@ const (
 	cloudRuntimeInFlightPrefix = "codelocal:cloud-runtime-inflight:v1:"
 )
 
-var ErrCloudRuntimeReapInProgress = errors.New("cloud runtime checkpoint in progress")
-
 type CloudRuntimeSession struct {
 	ID           string `json:"id"`
 	UserID       string `json:"userId"`
@@ -115,41 +113,55 @@ func (s *CloudRuntimeSessionStore) TouchExisting(ctx context.Context, workspaceK
 }
 
 // BeginCall marks a cloud workspace in-flight without racing the idle reaper.
-// Touch first makes already-selected idle candidates observe fresh activity;
-// then a Redis script atomically refuses a new call if a reaper claim already
-// exists, otherwise increments the in-flight counter. Therefore either the call
-// starts first (and the reaper sees InFlight) or the reaper starts first (and
-// the call waits/rebinds) — never both mutate compute concurrently.
+// If checkpointing already won the atomic Redis race, wait for it to finish.
+// A completed checkpoint returns the existing "workspace is offline" signal so
+// MCP/Dashboard route retry can re-acquire and restore the sandbox. If the
+// checkpoint was aborted, retry the atomic claim against the still-live sandbox.
 func (s *CloudRuntimeSessionStore) BeginCall(ctx context.Context, workspaceKey, profile string) (func(), error) {
-	state, err := s.Get(ctx, workspaceKey, profile)
-	if err != nil || state == nil {
-		return func() {}, err
-	}
-	if err := s.Touch(ctx, *state); err != nil {
-		return func() {}, err
-	}
-	inFlightKey := cloudRuntimeInFlightPrefix + state.ID
-	reapKey := cloudRuntimeReapPrefix + state.ID
-	const begin = `if redis.call('EXISTS',KEYS[1])==1 then return 0 end; local n=redis.call('INCR',KEYS[2]); redis.call('PEXPIRE',KEYS[2],ARGV[1]); return n`
-	value, err := s.Redis.Eval(ctx, begin, []string{reapKey, inFlightKey}, (2 * time.Hour).Milliseconds()).Int64()
-	if err != nil {
-		return func() {}, err
-	}
-	if value == 0 {
-		return func() {}, ErrCloudRuntimeReapInProgress
-	}
-	var done bool
-	return func() {
-		if done {
-			return
+	for {
+		state, err := s.Get(ctx, workspaceKey, profile)
+		if err != nil || state == nil {
+			return func() {}, err
 		}
-		done = true
-		finishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		const decrement = `local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n<=1 then redis.call('DEL',KEYS[1]); return 0 end; return redis.call('DECR',KEYS[1])`
-		_ = s.Redis.Eval(finishCtx, decrement, []string{inFlightKey}).Err()
-		_ = s.TouchExisting(finishCtx, workspaceKey, profile)
-	}, nil
+		if strings.TrimSpace(state.SandboxID) == "" {
+			return func() {}, errors.New("cloud runtime workspace is offline after checkpoint")
+		}
+		if err := s.Touch(ctx, *state); err != nil {
+			return func() {}, err
+		}
+		inFlightKey := cloudRuntimeInFlightPrefix + state.ID
+		reapKey := cloudRuntimeReapPrefix + state.ID
+		const begin = `if redis.call('EXISTS',KEYS[1])==1 then return 0 end; local n=redis.call('INCR',KEYS[2]); redis.call('PEXPIRE',KEYS[2],ARGV[1]); return n`
+		value, err := s.Redis.Eval(ctx, begin, []string{reapKey, inFlightKey}, (2 * time.Hour).Milliseconds()).Int64()
+		if err != nil {
+			return func() {}, err
+		}
+		if value == 0 {
+			if err := s.WaitReapClear(ctx, workspaceKey, profile); err != nil {
+				return func() {}, err
+			}
+			refreshed, err := s.Get(ctx, workspaceKey, profile)
+			if err != nil {
+				return func() {}, err
+			}
+			if refreshed == nil || strings.TrimSpace(refreshed.SandboxID) == "" {
+				return func() {}, errors.New("cloud runtime workspace is offline after checkpoint")
+			}
+			continue
+		}
+		var done bool
+		return func() {
+			if done {
+				return
+			}
+			done = true
+			finishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			const decrement = `local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n<=1 then redis.call('DEL',KEYS[1]); return 0 end; return redis.call('DECR',KEYS[1])`
+			_ = s.Redis.Eval(finishCtx, decrement, []string{inFlightKey}).Err()
+			_ = s.TouchExisting(finishCtx, workspaceKey, profile)
+		}, nil
+	}
 }
 
 func (s *CloudRuntimeSessionStore) InFlight(ctx context.Context, sessionID string) (bool, error) {
