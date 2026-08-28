@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -79,13 +80,43 @@ func dashboardHasSkillContext(messages []map[string]any) bool {
 	return false
 }
 
-func dashboardSkillPlan(messages []map[string]any) skillintel.Plan {
+func dashboardSkillTask(messages []map[string]any, affinity map[string]float64) skillintel.TaskContext {
 	message, hasImage := dashboardLatestUserEvidence(messages)
 	if message == "" && !hasImage {
+		return skillintel.TaskContext{}
+	}
+	return skillintel.ClassifyTask(skillintel.TaskEvidence{Query: message, HasImage: hasImage, Affinity: affinity})
+}
+
+func dashboardSkillPlanWithAffinity(messages []map[string]any, affinity map[string]float64) skillintel.Plan {
+	task := dashboardSkillTask(messages, affinity)
+	if strings.TrimSpace(task.Query) == "" && len(task.Intents) == 0 && len(task.Signals) == 0 {
 		return skillintel.Plan{}
 	}
-	task := skillintel.ClassifyTask(skillintel.TaskEvidence{Query: message, HasImage: hasImage})
 	return skillintel.DefaultEngine().Plan(task)
+}
+
+func dashboardSkillPlan(messages []map[string]any) skillintel.Plan {
+	return dashboardSkillPlanWithAffinity(messages, nil)
+}
+
+// dashboardSkillPlanForUser derives tenant-private preference from verified
+// experience. Failure to read affinity is deliberately fail-open to neutral
+// routing; chat must never fail because personalization is unavailable.
+func dashboardSkillPlanForUser(ctx context.Context, s *Server, userID string, messages []map[string]any) skillintel.Plan {
+	if s == nil || s.Store == nil || strings.TrimSpace(userID) == "" {
+		return dashboardSkillPlan(messages)
+	}
+	catalog := skillintel.DefaultEngine().Catalog()
+	ids := make([]string, 0, len(catalog))
+	for _, manifest := range catalog {
+		ids = append(ids, manifest.ID)
+	}
+	affinity, err := s.Store.SkillAffinity(ctx, userID, ids)
+	if err != nil {
+		return dashboardSkillPlan(messages)
+	}
+	return dashboardSkillPlanWithAffinity(messages, affinity)
 }
 
 func dashboardSkillBadges(plan skillintel.Plan) []dashboardSkillBadge {
