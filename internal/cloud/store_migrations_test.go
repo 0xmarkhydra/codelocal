@@ -83,7 +83,7 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 				t.Fatalf("migration %d missing dependency/contract token %q", migration.version, token)
 			}
 		}
-}
+	}
 }
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
@@ -209,5 +209,6 @@ func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {
 				t.Fatalf("invalid database schema history accepted: current=%d count=%d target=%d", tc.current, tc.count, tc.target)
 			}
+		})
 	}
 }
