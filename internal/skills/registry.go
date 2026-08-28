@@ -133,11 +133,13 @@ func BuiltinManifests() []Manifest {
 			Tags: []string{
 				"ui", "ux", "frontend", "design", "dashboard", "landing", "accessibility", "typography", "responsive", "visual",
 			},
-			Stacks:    []string{"react", "nextjs", "vue", "svelte", "flutter", "swiftui", "react-native", "html", "tailwind"},
-			Quality:   0.90,
-			Verified:  true,
-			SourceURL: "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
-			License:   "MIT",
+			Stacks:     []string{"react", "nextjs", "vue", "svelte", "flutter", "swiftui", "react-native", "html", "tailwind"},
+			Quality:    0.90,
+			Verified:   true,
+			SourceURL:  "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+			SourceRef:  "8bd29e775453ebcae52b6e6514fbf134df0c5770",
+			SourceHash: "49e14e670dee9c587d47cd9e78935eb6182a0466",
+			License:    "MIT",
 		},
 	}
 }
