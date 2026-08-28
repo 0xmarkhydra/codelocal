@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+const MaxStoredSkillPackageBytes = 64 * 1024 * 1024
+const sha256HexLength = 64
+
 type PackageStore interface {
 	Put(ctx context.Context, pkg Package) error
 	Get(ctx context.Context, packageHash string) (Package, bool, error)
@@ -42,11 +45,14 @@ func (c DirectoryPackageCache) Put(ctx context.Context, pkg Package) error {
 		}
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	payload, err := json.Marshal(pkg)
 	if err != nil {
+		return err
+	}
+	if len(payload) > MaxStoredSkillPackageBytes {
+		return fmt.Errorf("skill package exceeds %d stored bytes", MaxStoredSkillPackageBytes)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	temp, err := os.CreateTemp(filepath.Dir(path), ".skill-package-*")
@@ -87,10 +93,17 @@ func (c DirectoryPackageCache) Get(ctx context.Context, packageHash string) (Pac
 	if err != nil {
 		return Package{}, false, err
 	}
-	payload, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return Package{}, false, nil
 	}
+	if err != nil {
+		return Package{}, false, err
+	}
+	if info.Size() > MaxStoredSkillPackageBytes {
+		return Package{}, false, fmt.Errorf("cached skill package exceeds %d stored bytes", MaxStoredSkillPackageBytes)
+	}
+	payload, err := os.ReadFile(path)
 	if err != nil {
 		return Package{}, false, err
 	}
@@ -115,6 +128,16 @@ func (c DirectoryPackageCache) packagePath(packageHash string) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("skill package cache root is required")
 	}
+	digest, err := PackageHashDigest(packageHash)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, digest[:2], digest+".skill.json"), nil
+}
+
+// PackageHashDigest validates a content-addressed package hash and returns its
+// lowercase hexadecimal digest for storage-key construction.
+func PackageHashDigest(packageHash string) (string, error) {
 	packageHash = strings.TrimSpace(packageHash)
 	if !strings.HasPrefix(packageHash, "sha256:") {
 		return "", fmt.Errorf("invalid skill package hash")
@@ -126,7 +149,5 @@ func (c DirectoryPackageCache) packagePath(packageHash string) (string, error) {
 	if _, err := hex.DecodeString(digest); err != nil {
 		return "", fmt.Errorf("invalid skill package hash")
 	}
-	return filepath.Join(root, digest[:2], digest+".skill.json"), nil
+	return strings.ToLower(digest), nil
 }
-
-const sha256HexLength = 64
