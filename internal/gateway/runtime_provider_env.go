@@ -1,0 +1,105 @@
+package gateway
+
+import (
+	"errors"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/0xmarkhydra/codelocal/internal/gateway/opensandbox"
+)
+
+func (s *WorkspaceService) ensureRuntimeRouter() (*RuntimeRouter, error) {
+	if s == nil {
+		return nil, errors.New("workspace service unavailable")
+	}
+	s.runtimeRouterMu.Lock()
+	defer s.runtimeRouterMu.Unlock()
+	if s.RuntimeRouter != nil {
+		return s.RuntimeRouter, nil
+	}
+	if s.runtimeRouterInitialized {
+		return nil, s.runtimeRouterErr
+	}
+	s.runtimeRouterInitialized = true
+
+	providers := []RuntimeProvider{NewLocalRuntimeProvider(s, s.Hub)}
+	if cloudRuntimeEnabled() {
+		provider, err := newOpenSandboxRuntimeProviderFromEnv(s)
+		if err != nil {
+			s.runtimeRouterErr = err
+			return nil, err
+		}
+		providers = append(providers, provider)
+	}
+	s.RuntimeRouter = NewRuntimeRouter(providers...)
+	return s.RuntimeRouter, nil
+}
+
+func cloudRuntimeEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_CLOUD_RUNTIME_ENABLED"))) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	default:
+		return false
+	}
+}
+
+func newOpenSandboxRuntimeProviderFromEnv(workspaces *WorkspaceService) (*OpenSandboxRuntimeProvider, error) {
+	baseURL := firstRuntimeEnv("CODELOCAL_OPENSANDBOX_URL", "OPEN_SANDBOX_BASE_URL", "OPENSANDBOX_BASE_URL")
+	apiKey := firstRuntimeEnv("CODELOCAL_OPENSANDBOX_API_KEY", "OPEN_SANDBOX_API_KEY", "OPENSANDBOX_API_KEY")
+	image := strings.TrimSpace(os.Getenv("CODELOCAL_CLOUD_RUNTIME_IMAGE"))
+	serverURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/")
+	if baseURL == "" {
+		return nil, errors.New("CODELOCAL_OPENSANDBOX_URL is required when cloud runtime is enabled")
+	}
+	if image == "" {
+		return nil, errors.New("CODELOCAL_CLOUD_RUNTIME_IMAGE is required when cloud runtime is enabled")
+	}
+	if serverURL == "" {
+		return nil, errors.New("PUBLIC_BASE_URL is required when cloud runtime is enabled")
+	}
+	client, err := opensandbox.NewClient(opensandbox.Config{BaseURL: baseURL, APIKey: apiKey})
+	if err != nil {
+		return nil, err
+	}
+	profile := strings.TrimSpace(os.Getenv("CODELOCAL_CLOUD_RUNTIME_PROFILE"))
+	if profile == "" {
+		profile = "general-small"
+	}
+	cpu := strings.TrimSpace(os.Getenv("CODELOCAL_CLOUD_RUNTIME_CPU"))
+	if cpu == "" {
+		cpu = "2"
+	}
+	memory := strings.TrimSpace(os.Getenv("CODELOCAL_CLOUD_RUNTIME_MEMORY"))
+	if memory == "" {
+		memory = "4Gi"
+	}
+	if workspaces == nil || workspaces.Store == nil || workspaces.Store.Redis == nil || workspaces.Coordinator == nil || workspaces.Hub == nil {
+		return nil, errors.New("cloud runtime requires shared store, coordinator and gateway hub")
+	}
+	return &OpenSandboxRuntimeProvider{
+		Provisioner:    opensandbox.NewManager(client),
+		Workspaces:     workspaces,
+		Hub:            workspaces.Hub,
+		Coordinator:    workspaces.Coordinator,
+		Leases:         NewRuntimeLeaseCoordinator(NewRedisRuntimeLeaseBackend(workspaces.Store.Redis), 3*time.Minute),
+		Bootstrap:      NewRuntimeBootstrapStore(NewRedisRuntimeBootstrapBackend(workspaces.Store.Redis), 2*time.Minute),
+		ServerURL:      serverURL,
+		Image:          image,
+		Profile:        profile,
+		ResourceLimits: map[string]string{"cpu": cpu, "memory": memory},
+		SandboxTTL:     30 * time.Minute,
+		ReadyTimeout:   75 * time.Second,
+		AliasTTL:       35 * time.Minute,
+	}, nil
+}
+
+func firstRuntimeEnv(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
