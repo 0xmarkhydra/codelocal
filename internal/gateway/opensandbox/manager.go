@@ -76,14 +76,14 @@ func (m *Manager) Acquire(ctx context.Context, spec AcquireSpec) (*SandboxInfo, 
 
 	timeoutSeconds := int(spec.TTL.Seconds())
 	request := CreateSandboxRequest{
-		Image:            &ImageSpec{URI: spec.Image},
-		Entrypoint:       append([]string(nil), spec.Entrypoint...),
-		Platform:         spec.Platform,
-		Timeout:          &timeoutSeconds,
-		ResourceLimits:   cloneStringMap(spec.ResourceLimits),
-		Env:              cloneStringMap(spec.Env),
-		Metadata:         metadata,
-		NetworkPolicy:    spec.NetworkPolicy,
+		Image:          &ImageSpec{URI: spec.Image},
+		Entrypoint:     append([]string(nil), spec.Entrypoint...),
+		Platform:       spec.Platform,
+		Timeout:        &timeoutSeconds,
+		ResourceLimits: cloneStringMap(spec.ResourceLimits),
+		Env:            cloneStringMap(spec.Env),
+		Metadata:       metadata,
+		NetworkPolicy:  spec.NetworkPolicy,
 	}
 	created, err := m.Lifecycle.CreateSandbox(ctx, request)
 	if err != nil {
@@ -216,11 +216,13 @@ func bestReusableSandbox(items []SandboxInfo) *SandboxInfo {
 		}
 		return copyItems[i].CreatedAt.After(copyItems[j].CreatedAt)
 	})
-	if priority[strings.ToLower(copyItems[0].Status.State)] == 0 || strings.EqualFold(copyItems[0].Status.State, "Paused") || strings.EqualFold(copyItems[0].Status.State, "Resuming") || strings.EqualFold(copyItems[0].Status.State, "Creating") {
+	switch strings.ToLower(copyItems[0].Status.State) {
+	case "running", "paused", "resuming", "creating":
 		item := copyItems[0]
 		return &item
+	default:
+		return nil
 	}
-	return nil
 }
 
 func cloneStringMap(input map[string]string) map[string]string {
