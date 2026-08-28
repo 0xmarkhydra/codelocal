@@ -11,16 +11,40 @@ const (
 	minimumUtility       = 0.18
 )
 
+// CandidateSource is the scale boundary for routing. Registry implements the
+// simple in-memory source today; Marketplace/Cloud can later prefilter by
+// intent, stack, trust and visibility before the router does final utility
+// scoring. This prevents the long-term design from requiring O(all skills)
+// scans for every chat request.
+type CandidateSource interface {
+	Candidates(TaskContext) []Manifest
+}
+
+type RegistryCandidates struct {
+	Registry *Registry
+}
+
+func (s RegistryCandidates) Candidates(TaskContext) []Manifest {
+	if s.Registry == nil {
+		return nil
+	}
+	return s.Registry.List()
+}
+
 type Router struct {
-	registry *Registry
+	candidates CandidateSource
 }
 
 func NewRouter(registry *Registry) *Router {
-	return &Router{registry: registry}
+	return NewRouterWithCandidates(RegistryCandidates{Registry: registry})
+}
+
+func NewRouterWithCandidates(source CandidateSource) *Router {
+	return &Router{candidates: source}
 }
 
 func (r *Router) Route(task TaskContext) []Selection {
-	if r == nil || r.registry == nil || task.Trivial {
+	if r == nil || r.candidates == nil || task.Trivial {
 		return nil
 	}
 	maxSelections := task.MaxSelections
@@ -29,7 +53,7 @@ func (r *Router) Route(task TaskContext) []Selection {
 	}
 
 	selections := make([]Selection, 0, maxSelections)
-	for _, manifest := range r.registry.List() {
+	for _, manifest := range r.candidates.Candidates(task) {
 		relevance := relevanceScore(manifest, task)
 		if relevance == 0 {
 			continue
