@@ -92,6 +92,7 @@ type AgentPlan struct {
 	Version           int               `json:"version"`
 	TaskKind          TaskKind          `json:"taskKind"`
 	Route             Decision          `json:"route"`
+	Skills            SkillPlan         `json:"skills,omitempty"`
 	Phase             string            `json:"phase"`
 	NextAction        string            `json:"nextAction"`
 	Steps             []PlanStep        `json:"steps"`
@@ -776,6 +777,7 @@ func decomposeTask(kind TaskKind, route Decision) []PlanStep {
 func BuildPlan(input PlanInput) AgentPlan {
 	kind := taskKind(input.Task, input)
 	route := evidenceRoute(input, kind)
+	skillPlan := buildSkillPlan(input)
 	phase := currentPhase(input)
 	verification := BuildVerificationPlan(input)
 	quality := EvaluateQuality(input, verification)
@@ -800,6 +802,7 @@ func BuildPlan(input PlanInput) AgentPlan {
 		Version:           1,
 		TaskKind:          kind,
 		Route:             route,
+		Skills:            skillPlan,
 		Phase:             phase,
 		NextAction:        next,
 		Steps:             steps,
@@ -807,6 +810,7 @@ func BuildPlan(input PlanInput) AgentPlan {
 		Quality:           quality,
 		MaxRepairAttempts: 2,
 		Principles: []string{
+			"Project Brain and current repository evidence remain authoritative over reusable skill recommendations",
 			"capabilities and repository evidence outrank generic keyword hints",
 			"act on the cheapest structured surface, then observe fresh evidence",
 			"never mark work ready while required checks or diagnostic regressions remain",
