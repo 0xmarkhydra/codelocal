@@ -1,6 +1,9 @@
 package skills
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -11,6 +14,7 @@ type Package struct {
 	FormatVersion int      `json:"formatVersion"`
 	Manifest      Manifest `json:"manifest"`
 	Artifact      Artifact `json:"artifact"`
+	PackageHash   string   `json:"packageHash"`
 }
 
 type ImportPolicy struct {
@@ -49,11 +53,16 @@ func BuildPackage(manifest Manifest, artifact Artifact) (Package, error) {
 	if err := ValidateArtifact(artifact, registry); err != nil {
 		return Package{}, err
 	}
-	return Package{
+	pkg := Package{
 		FormatVersion: SkillPackageFormatVersion,
 		Manifest:      manifest,
 		Artifact:      artifact,
-	}, nil
+	}
+	pkg.PackageHash, err = packageContentHash(pkg)
+	if err != nil {
+		return Package{}, err
+	}
+	return pkg, nil
 }
 
 func ValidatePackageForImport(pkg Package, policy ImportPolicy) error {
@@ -65,6 +74,13 @@ func ValidatePackageForImport(pkg Package, policy ImportPolicy) error {
 	}
 	if pkg.Artifact.Manifest.SkillID != pkg.Manifest.ID || pkg.Artifact.Manifest.SkillVersion != pkg.Manifest.Version {
 		return fmt.Errorf("skill package manifest/artifact identity mismatch")
+	}
+	expectedHash, err := packageContentHash(pkg)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(pkg.PackageHash) == "" || pkg.PackageHash != expectedHash {
+		return fmt.Errorf("skill package hash mismatch")
 	}
 	registry, err := NewRegistry(pkg.Manifest)
 	if err != nil {
@@ -83,6 +99,23 @@ func ValidatePackageForImport(pkg Package, policy ImportPolicy) error {
 		return fmt.Errorf("import policy does not allow runtime-capable skills")
 	}
 	return nil
+}
+
+func packageContentHash(pkg Package) (string, error) {
+	payload, err := json.Marshal(struct {
+		FormatVersion int      `json:"formatVersion"`
+		Manifest      Manifest `json:"manifest"`
+		Artifact      Artifact `json:"artifact"`
+	}{
+		FormatVersion: pkg.FormatVersion,
+		Manifest:      pkg.Manifest,
+		Artifact:      pkg.Artifact,
+	})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func validateImportScope(scope Scope, policy ImportPolicy) error {
