@@ -108,6 +108,10 @@ func newOpenSandboxRuntimeProviderFromEnv(workspaces *WorkspaceService) (*OpenSa
 		IdleTimeout:    idleTimeout,
 		ReaperOwner:    workspaces.Coordinator.InstanceID,
 	}
+	// Product callers already route through Coordinator.Call after the cloud
+	// alias is resolved. Track activity there so every MCP/Dashboard call blocks
+	// idle checkpoint/delete for its full lifetime, regardless of caller shape.
+	workspaces.Coordinator.SetRuntimeCallTracking(provider.Sessions, provider.Profile)
 	// The reaper is safe to start on every Railway replica: each due session is
 	// guarded by a Redis ownership token before any snapshot/delete operation.
 	provider.StartIdleReaper(context.Background(), reapInterval)
