@@ -9,12 +9,13 @@ import (
 
 type snapshotLifecycleFake struct {
 	*fakeLifecycle
-	snapshots       []SnapshotInfo
-	createdSnapshot *SnapshotInfo
-	snapshotStates  []SnapshotInfo
-	deletedSandbox  []string
-	deletedSnapshot []string
-	snapshotGets    int
+	snapshots        []SnapshotInfo
+	listSnapshotErr  error
+	createdSnapshot  *SnapshotInfo
+	snapshotStates   []SnapshotInfo
+	deletedSandbox   []string
+	deletedSnapshot  []string
+	snapshotGets     int
 }
 
 func (f *snapshotLifecycleFake) CreateSnapshot(context.Context, string, string) (*SnapshotInfo, error) {
@@ -39,6 +40,9 @@ func (f *snapshotLifecycleFake) GetSnapshot(context.Context, string) (*SnapshotI
 }
 
 func (f *snapshotLifecycleFake) ListSnapshots(context.Context, SnapshotListOptions) (*ListSnapshotsResponse, error) {
+	if f.listSnapshotErr != nil {
+		return nil, f.listSnapshotErr
+	}
 	return &ListSnapshotsResponse{Items: append([]SnapshotInfo(nil), f.snapshots...)}, nil
 }
 
@@ -81,6 +85,20 @@ func TestManagerAcquireRestoresNewestReadySnapshot(t *testing.T) {
 	}
 	if fake.createRequest.Image != nil {
 		t.Fatalf("snapshot restore must not also send image: %#v", fake.createRequest.Image)
+	}
+}
+
+func TestManagerSnapshotLookupFailureDoesNotCreateFreshSandbox(t *testing.T) {
+	base := &fakeLifecycle{created: &SandboxInfo{ID: "must-not-create", Status: SandboxStatus{State: "Running"}}}
+	fake := &snapshotLifecycleFake{fakeLifecycle: base, listSnapshotErr: errors.New("snapshot backend unavailable")}
+	manager := NewManager(fake)
+	spec := testAcquireSpec()
+	spec.SnapshotName = "workspace-snapshot"
+	if _, err := manager.Acquire(context.Background(), spec); err == nil {
+		t.Fatal("Acquire() error=nil, want snapshot lookup failure")
+	}
+	if base.createCount != 0 {
+		t.Fatalf("fresh sandbox created after snapshot lookup failure: createCount=%d", base.createCount)
 	}
 }
 
