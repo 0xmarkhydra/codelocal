@@ -52,17 +52,29 @@ func DefaultKnowledgeStore() KnowledgeStore {
 // important boundary is that Planner talks to KnowledgeStore, not this literal
 // slice, so upstream ingestion can replace it without touching execution code.
 func BuiltinKnowledge() []KnowledgeChunk {
-	const source = "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill"
-	const version = "1.0.0"
+	const (
+		skillID    = "ui-ux-pro"
+		version    = "1.0.0"
+		source     = "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill"
+		sourceRef  = "8bd29e775453ebcae52b6e6514fbf134df0c5770"
+		sourceHash = "49e14e670dee9c587d47cd9e78935eb6182a0466"
+	)
+	chunk := func(id, domain, title, content string, priority int, tags ...string) KnowledgeChunk {
+		return KnowledgeChunk{
+			ID: id, SkillID: skillID, SkillVersion: version, Domain: domain,
+			Title: title, Content: content, Priority: priority, Tags: tags,
+			Source: source, SourceRef: sourceRef, SourceHash: sourceHash,
+		}
+	}
 	return []KnowledgeChunk{
-		{ID: "uiux:a11y", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "accessibility", Title: "Accessibility baseline", Priority: 100, Source: source, Tags: []string{"accessibility", "a11y", "focus", "contrast", "keyboard", "aria"}, Content: "Keep normal text contrast at least 4.5:1; provide visible focus, semantic labels for icon-only controls, logical keyboard order, non-color-only status cues, reduced-motion support, and do not let sticky UI obscure focused controls."},
-		{ID: "uiux:hierarchy", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "layout", Title: "Visual hierarchy and spacing", Priority: 95, Source: source, Tags: []string{"dashboard", "layout", "spacing", "hierarchy", "responsive"}, Content: "Create hierarchy with size, spacing and contrast rather than color alone. Use a consistent 4/8 spacing rhythm, predictable content widths, adaptive gutters, readable line lengths, and prevent fixed/sticky UI from covering content."},
-		{ID: "uiux:icons", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "visual", Title: "Professional icon system", Priority: 90, Source: source, Tags: []string{"icons", "visual", "navigation", "polish"}, Content: "Use a consistent vector icon family and stroke style; do not use emoji as structural/navigation icons. Keep icon sizing tokenized, align icons with text, and give meaningful or interactive icons appropriate accessible names/state."},
-		{ID: "uiux:responsive", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "responsive", Title: "Responsive layout", Priority: 90, Source: source, Tags: []string{"responsive", "mobile", "breakpoint", "viewport", "layout"}, Content: "Design mobile-first, keep systematic breakpoints and gutters, avoid horizontal scroll, prefer min-height dynamic viewport units on mobile, preserve landscape usability, and surface core content before secondary content on narrow screens."},
-		{ID: "uiux:interaction", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "interaction", Title: "Interaction quality", Priority: 90, Source: source, Tags: []string{"interaction", "button", "feedback", "loading", "state"}, Content: "Every interactive element needs clear hover/press/focus/disabled/loading feedback without layout shift. Do not rely on hover or gesture-only interaction for essential actions; keep async actions from being double-submitted."},
-		{ID: "uiux:motion", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "motion", Title: "Purposeful motion", Priority: 75, Source: source, Tags: []string{"animation", "motion", "performance", "reduced-motion"}, Content: "Use motion to explain state change, not decoration. Prefer transform/opacity, keep transitions interruptible, avoid layout reflow, limit simultaneous decorative motion, and respect reduced-motion preferences."},
-		{ID: "uiux:forms", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "forms", Title: "Forms and feedback", Priority: 80, Source: source, Tags: []string{"form", "input", "error", "validation", "empty-state"}, Content: "Use visible labels, specific inline errors connected to fields, clear submit loading/success/error states, semantic input types, helpful empty states, and confirmation before destructive actions."},
-		{ID: "uiux:performance", SkillID: "ui-ux-pro", SkillVersion: version, Domain: "performance", Title: "Perceived UI performance", Priority: 70, Source: source, Tags: []string{"performance", "image", "font", "loading", "cls"}, Content: "Reserve image/media dimensions to prevent layout shift, lazy-load noncritical content, split heavy routes/features, minimize blocking third-party scripts, and choose feedback that matches expected wait time."},
+		chunk("uiux:a11y", "accessibility", "Accessibility baseline", "Keep normal text contrast at least 4.5:1; provide visible focus, semantic labels for icon-only controls, logical keyboard order, non-color-only status cues, reduced-motion support, and do not let sticky UI obscure focused controls.", 100, "accessibility", "a11y", "focus", "contrast", "keyboard", "aria"),
+		chunk("uiux:hierarchy", "layout", "Visual hierarchy and spacing", "Create hierarchy with size, spacing and contrast rather than color alone. Use a consistent 4/8 spacing rhythm, predictable content widths, adaptive gutters, readable line lengths, and prevent fixed/sticky UI from covering content.", 95, "dashboard", "layout", "spacing", "hierarchy", "responsive"),
+		chunk("uiux:icons", "visual", "Professional icon system", "Use a consistent vector icon family and stroke style; do not use emoji as structural/navigation icons. Keep icon sizing tokenized, align icons with text, and give meaningful or interactive icons appropriate accessible names/state.", 90, "icons", "visual", "navigation", "polish"),
+		chunk("uiux:responsive", "responsive", "Responsive layout", "Design mobile-first, keep systematic breakpoints and gutters, avoid horizontal scroll, prefer min-height dynamic viewport units on mobile, preserve landscape usability, and surface core content before secondary content on narrow screens.", 90, "responsive", "mobile", "breakpoint", "viewport", "layout"),
+		chunk("uiux:interaction", "interaction", "Interaction quality", "Every interactive element needs clear hover/press/focus/disabled/loading feedback without layout shift. Do not rely on hover or gesture-only interaction for essential actions; keep async actions from being double-submitted.", 90, "interaction", "button", "feedback", "loading", "state"),
+		chunk("uiux:motion", "motion", "Purposeful motion", "Use motion to explain state change, not decoration. Prefer transform/opacity, keep transitions interruptible, avoid layout reflow, limit simultaneous decorative motion, and respect reduced-motion preferences.", 75, "animation", "motion", "performance", "reduced-motion"),
+		chunk("uiux:forms", "forms", "Forms and feedback", "Use visible labels, specific inline errors connected to fields, clear submit loading/success/error states, semantic input types, helpful empty states, and confirmation before destructive actions.", 80, "form", "input", "error", "validation", "empty-state"),
+		chunk("uiux:performance", "performance", "Perceived UI performance", "Reserve image/media dimensions to prevent layout shift, lazy-load noncritical content, split heavy routes/features, minimize blocking third-party scripts, and choose feedback that matches expected wait time.", 70, "performance", "image", "font", "loading", "cls"),
 	}
 }
 
