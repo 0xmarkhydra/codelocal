@@ -21,7 +21,8 @@ type TaskEvidence struct {
 func ClassifyTask(e TaskEvidence) TaskContext {
 	stack := normalizeStack(e.Stack)
 	text := taskEvidenceText(e)
-	uiIntent := hasUIIntent(text) || e.HasImage
+	imageUIHint := e.HasImage && containsAny(text, "nhìn", "look", "screen", "page", "màn", "giao diện", "layout", "design", "xấu", "đẹp", "khó chịu")
+	uiIntent := hasUIIntent(text) || imageUIHint
 	frontendEvidence := e.HasImage || hasFrontendFile(e.TouchedFiles) || hasFrontendFramework(stack)
 
 	intents := []string{}
@@ -55,7 +56,7 @@ func ClassifyTask(e TaskEvidence) TaskContext {
 		signals = appendUnique(signals, "accessibility")
 	}
 
-	// Technology evidence alone must never activate a UI skill for a backend task.
+	// Technology/image evidence alone must never activate a UI skill.
 	if !uiIntent {
 		intents = nil
 		signals = nil
