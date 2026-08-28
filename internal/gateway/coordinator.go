@@ -289,6 +289,11 @@ func (c *Coordinator) WaitOwner(ctx context.Context, clientKey string) (string, 
 }
 
 func (c *Coordinator) Call(ctx context.Context, call RoutedCall) (RoutedResult, error) {
+	resolvedKey, err := c.ResolveRuntimeAlias(ctx, call.ClientKey)
+	if err != nil {
+		return RoutedResult{}, err
+	}
+	call.ClientKey = resolvedKey
 	owner, err := c.Owner(ctx, call.ClientKey)
 	if err != nil {
 		return RoutedResult{}, err
