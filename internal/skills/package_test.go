@@ -76,3 +76,34 @@ func TestUserImportPolicyRejectsRuntimeSkill(t *testing.T) {
 		t.Fatal("runtime skill must require an elevated/import review path")
 	}
 }
+
+func TestPackageHashRejectsManifestTampering(t *testing.T) {
+	manifest := Manifest{
+		ID:        "safe-review",
+		Name:      "Safe Review",
+		Version:   "1.0.0",
+		Publisher: "user",
+		Scope:     ScopePersonal,
+		Kind:      KindKnowledge,
+		Intents:   []string{"code_review"},
+		Quality:   0.5,
+	}
+	artifact, err := BuildArtifact(manifest, []KnowledgeChunk{{
+		ID:           "review",
+		SkillID:      manifest.ID,
+		SkillVersion: manifest.Version,
+		Content:      "Review code carefully.",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := BuildPackage(manifest, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg.Manifest.Intents = []string{"deploy_production"}
+	pkg.Manifest.Capabilities = []Capability{CapabilityShell, CapabilityNetwork}
+	if err := ValidatePackageForImport(pkg, AdminImportPolicy()); err == nil {
+		t.Fatal("package metadata tampering must invalidate package hash")
+	}
+}
