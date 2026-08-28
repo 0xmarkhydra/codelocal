@@ -57,7 +57,9 @@ func (b *RuntimeBinding) Call(ctx context.Context, request RuntimeCallRequest) (
 	if b == nil || b.provider == nil {
 		return RoutedResult{}, errors.New("runtime binding unavailable")
 	}
-	if strings.TrimSpace(request.WorkspaceKey) == "" && b.Workspace != nil {
+	// A provider may bind the product workspace to a different execution key
+	// (for example a managed cloud runtime device). The binding is authoritative.
+	if b.Workspace != nil && strings.TrimSpace(b.Workspace.Key) != "" {
 		request.WorkspaceKey = b.Workspace.Key
 	}
 	return b.provider.Call(ctx, request)
@@ -149,7 +151,22 @@ func (p *LocalRuntimeProvider) Acquire(ctx context.Context, request RuntimeAcqui
 	if p == nil || p.Workspaces == nil {
 		return nil, errors.New("local runtime workspace service unavailable")
 	}
-	return p.Workspaces.Activate(ctx, request.UserID, request.WorkspaceKey)
+	workspace, err := p.Workspaces.ActivateLocal(ctx, request.UserID, request.WorkspaceKey)
+	if err != nil && localRuntimeUnavailable(err) {
+		return nil, fmt.Errorf("%w: %v", ErrRuntimeProviderUnavailable, err)
+	}
+	return workspace, err
+}
+
+func localRuntimeUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, " is offline; run `codelocal`") ||
+		strings.Contains(message, "workspace activation timed out") ||
+		strings.Contains(message, "workspace is offline") ||
+		strings.Contains(message, "device_offline")
 }
 
 func (p *LocalRuntimeProvider) Call(ctx context.Context, request RuntimeCallRequest) (RoutedResult, error) {
