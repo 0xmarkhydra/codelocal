@@ -248,7 +248,7 @@ func (w *dashboardCountingWriter) Write(data []byte) (int, error) {
 }
 
 func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, selection string, allowCommunity bool, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) (dashboardLLMTarget, error) {
-	skillPlan := dashboardSkillPlan(messages)
+	skillPlan := dashboardSkillPlanForUser(r.Context(), s, userID, messages)
 	if value := dashboardSkillHeaderValue(skillPlan); value != "" {
 		w.Header().Set(dashboardSkillHeader, value)
 	} else {
