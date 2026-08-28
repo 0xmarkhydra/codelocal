@@ -53,6 +53,8 @@ type Coordinator struct {
 	pending                map[string]chan RoutedResult
 	active                 map[string]context.CancelFunc
 	ownerWaiters           map[string]map[chan struct{}]struct{}
+	runtimeSessions        *CloudRuntimeSessionStore
+	runtimeProfile         string
 }
 
 func NewCoordinator(ctx context.Context, rdb *redis.Client, instanceID string, handler Handler, onCredentialDisconnect CredentialDisconnectHandler) *Coordinator {
@@ -71,6 +73,35 @@ func NewCoordinator(ctx context.Context, rdb *redis.Client, instanceID string, h
 	c.pubsub = rdb.Subscribe(child, c.requestChannel(), c.responseChannel(), c.cancelChannel(), "codelocal:gateway:owner-signal", credentialDisconnectChannel)
 	go c.listen()
 	return c
+}
+
+// SetRuntimeCallTracking attaches cloud-session activity tracking to the one
+// routing boundary every product caller already uses. This prevents the idle
+// reaper from checkpointing/deleting compute while MCP/Dashboard calls are
+// active even when those callers invoke Hub.Call directly rather than a
+// RuntimeBinding.
+func (c *Coordinator) SetRuntimeCallTracking(sessions *CloudRuntimeSessionStore, profile string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.runtimeSessions = sessions
+	c.runtimeProfile = profile
+	c.mu.Unlock()
+}
+
+func (c *Coordinator) beginRuntimeCall(ctx context.Context, sourceKey, resolvedKey string) (func(), error) {
+	if c == nil || sourceKey == "" || sourceKey == resolvedKey {
+		return func() {}, nil
+	}
+	c.mu.Lock()
+	sessions := c.runtimeSessions
+	profile := c.runtimeProfile
+	c.mu.Unlock()
+	if sessions == nil || profile == "" {
+		return func() {}, nil
+	}
+	return sessions.BeginCall(ctx, sourceKey, profile)
 }
 
 func safe(value string) string { return url.QueryEscape(value) }
@@ -94,7 +125,7 @@ func (c *Coordinator) listen() {
 		case message, ok := <-ch:
 			if !ok {
 				return
-			}
+		}
 			switch message.Channel {
 			case c.requestChannel():
 				var call RoutedCall
@@ -289,10 +320,16 @@ func (c *Coordinator) WaitOwner(ctx context.Context, clientKey string) (string, 
 }
 
 func (c *Coordinator) Call(ctx context.Context, call RoutedCall) (RoutedResult, error) {
-	resolvedKey, err := c.ResolveRuntimeAlias(ctx, call.ClientKey)
+	sourceKey := call.ClientKey
+	resolvedKey, err := c.ResolveRuntimeAlias(ctx, sourceKey)
 	if err != nil {
 		return RoutedResult{}, err
 	}
+	finish, err := c.beginRuntimeCall(ctx, sourceKey, resolvedKey)
+	if err != nil {
+		return RoutedResult{}, fmt.Errorf("mark cloud runtime call active: %w", err)
+	}
+	defer finish()
 	call.ClientKey = resolvedKey
 	owner, err := c.Owner(ctx, call.ClientKey)
 	if err != nil {
