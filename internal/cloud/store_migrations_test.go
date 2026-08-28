@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 7 {
+	if len(migrations) != 9 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -117,6 +117,12 @@ func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	if !strings.Contains(strings.ToLower(migrations[6].sql), "codelocal_runtime_secrets") {
 		t.Fatal("runtime migration 47 must create encrypted secret storage")
 	}
+	if !strings.Contains(strings.ToLower(migrations[7].sql), "skill_affinity") || !strings.Contains(strings.ToLower(migrations[7].sql), "skill_id") {
+		t.Fatal("skill migration 48 must index tenant-private affinity evidence")
+	}
+	if !strings.Contains(strings.ToLower(migrations[8].sql), "skills jsonb") {
+		t.Fatal("skill migration 49 must persist versioned chat skill metadata")
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
@@ -129,11 +135,11 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 47 {
-		t.Fatalf("latest schema version=%d want 47", got)
+	if got := LatestSchemaMigrationVersion(); got != 49 {
+		t.Fatalf("latest schema version=%d want 49", got)
 	}
-	ready := schemaMigrationStatus(47, 47)
-	if !ready.UpToDate || ready.TargetVersion != 47 || ready.AppliedCount != 47 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(49, 49)
+	if !ready.UpToDate || ready.TargetVersion != 49 || ready.AppliedCount != 49 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
@@ -147,8 +153,9 @@ func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
 		{current: 44, count: 44},
 		{current: 45, count: 45},
 		{current: 46, count: 46},
-		{current: 47, count: 46},
+		{current: 47, count: 47},
 		{current: 48, count: 48},
+		{current: 49, count: 48},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)

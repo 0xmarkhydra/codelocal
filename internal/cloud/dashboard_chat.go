@@ -11,6 +11,7 @@ type DashboardChatMessage struct {
 	Role      string          `json:"role"`
 	Content   string          `json:"content"`
 	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
+	Skills    json.RawMessage `json:"skills,omitempty"`
 	Image     string          `json:"image,omitempty"`
 	CreatedAt int64           `json:"createdAt"`
 }
@@ -40,7 +41,14 @@ func (s *Store) SaveDashboardChatMessage(ctx context.Context, msg DashboardChatM
 	if toolCalls == "" {
 		toolCalls = "[]"
 	}
-	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_dashboard_chat(id, user_id, role, content, tool_calls, image, created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, msg.ID, msg.UserID, msg.Role, msg.Content, toolCalls, img, msg.CreatedAt)
+	skills := msg.Skills
+	if len(skills) == 0 && msg.Role == "assistant" {
+		skills = dashboardChatSkillsFromContext(ctx)
+	}
+	if len(skills) == 0 || !json.Valid(skills) {
+		skills = json.RawMessage(`[]`)
+	}
+	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_dashboard_chat(id, user_id, role, content, tool_calls, skills, image, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, msg.ID, msg.UserID, msg.Role, msg.Content, toolCalls, string(skills), img, msg.CreatedAt)
 	return err
 }
 
@@ -48,7 +56,7 @@ func (s *Store) ListDashboardChatHistory(ctx context.Context, userID string, lim
 	if limit <= 0 || limit > 100 {
 		limit = 30
 	}
-	rows, err := s.DB.Query(ctx, `SELECT id, user_id, role, content, tool_calls, image, created_at FROM codelocal_dashboard_chat WHERE user_id=$1 ORDER BY created_at ASC LIMIT $2`, userID, limit)
+	rows, err := s.DB.Query(ctx, `SELECT id, user_id, role, content, tool_calls, skills, image, created_at FROM codelocal_dashboard_chat WHERE user_id=$1 ORDER BY created_at ASC LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +65,13 @@ func (s *Store) ListDashboardChatHistory(ctx context.Context, userID string, lim
 	for rows.Next() {
 		var m DashboardChatMessage
 		var toolCalls string
+		var skills string
 		var img *string
-		if err := rows.Scan(&m.ID, &m.UserID, &m.Role, &m.Content, &toolCalls, &img, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.UserID, &m.Role, &m.Content, &toolCalls, &skills, &img, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		m.ToolCalls = json.RawMessage(toolCalls)
+		m.Skills = json.RawMessage(skills)
 		if img != nil {
 			m.Image = *img
 		}
