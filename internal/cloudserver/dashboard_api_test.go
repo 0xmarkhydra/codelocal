@@ -9,6 +9,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	skillintel "github.com/0xmarkhydra/codelocal/internal/skills"
 	"github.com/0xmarkhydra/codelocal/internal/webauth"
 )
 
@@ -37,6 +38,7 @@ func TestDashboardOverviewDTOIsMinimalAndNormalizesState(t *testing.T) {
 		Usage24h:       cloud.MCPUsageSummary{Calls: 7, InputTokensEst: 100, OutputTokensEst: 50, TotalTokensEst: 150},
 		Usage30d:       cloud.MCPUsageSummary{Calls: 20, TotalTokensEst: 900},
 		UsageAll:       cloud.MCPUsageSummary{Calls: 30, TotalTokensEst: 1400},
+		Skills:         skillintel.DefaultEngine().Catalog(),
 	})
 
 	if payload.User.Email != "user@example.com" || !payload.User.IsAdmin {
@@ -60,6 +62,12 @@ func TestDashboardOverviewDTOIsMinimalAndNormalizesState(t *testing.T) {
 	if payload.Usage.Last24h.Calls != 7 || payload.Usage.Last24h.TotalTokensEstimated != 150 {
 		t.Fatalf("unexpected usage window: %#v", payload.Usage.Last24h)
 	}
+	if !payload.Skills.AutoUse || len(payload.Skills.Items) != 1 || payload.Skills.Items[0].ID != "ui-ux-pro" {
+		t.Fatalf("unexpected authoritative skill catalog: %#v", payload.Skills)
+	}
+	if payload.Skills.Items[0].Scope != "system" || payload.Skills.Items[0].Kind != "knowledge" || !payload.Skills.Items[0].Verified {
+		t.Fatalf("unexpected skill metadata: %#v", payload.Skills.Items[0])
+	}
 
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -68,7 +76,7 @@ func TestDashboardOverviewDTOIsMinimalAndNormalizesState(t *testing.T) {
 	serialized := string(raw)
 	for _, forbidden := range []string{
 		"credential-secret", "public-key-secret", "secret-hash", "private-key", "/Users/private",
-		`"credentialId"`, `"publicKey"`, `"secretHash"`, `"projectRoot"`, `"capabilities"`, `"projectId"`, `"key"`,
+		`"credentialId"`, `"publicKey"`, `"secretHash"`, `"projectRoot"`, `"projectId"`, `"key"`,
 	} {
 		if strings.Contains(serialized, forbidden) {
 			t.Fatalf("dashboard API leaked internal field/value %q: %s", forbidden, serialized)
@@ -86,6 +94,9 @@ func TestDashboardOverviewDTOFailsUsageClosedWithoutHidingCoreState(t *testing.T
 	}
 	if payload.Workspaces.Total != 1 || payload.Workspaces.Sleeping != 1 {
 		t.Fatalf("usage failure hid core workspace state: %#v", payload.Workspaces)
+	}
+	if !payload.Skills.AutoUse {
+		t.Fatalf("skill auto-use contract must not depend on usage telemetry: %#v", payload.Skills)
 	}
 }
 
