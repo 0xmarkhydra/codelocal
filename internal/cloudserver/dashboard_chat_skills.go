@@ -15,8 +15,9 @@ const (
 )
 
 type dashboardSkillBadge struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 func dashboardMessageTextAndImage(content any) (string, bool) {
@@ -122,18 +123,28 @@ func dashboardSkillPlanForUser(ctx context.Context, s *Server, userID string, me
 func dashboardSkillBadges(plan skillintel.Plan) []dashboardSkillBadge {
 	badges := make([]dashboardSkillBadge, 0, len(plan.Selections))
 	for _, selection := range plan.Selections {
-		badges = append(badges, dashboardSkillBadge{ID: selection.Skill.ID, Name: selection.Skill.Name})
+		badges = append(badges, dashboardSkillBadge{
+			ID: selection.Skill.ID, Name: selection.Skill.Name, Version: selection.Skill.Version,
+		})
 	}
 	return badges
 }
 
-func dashboardSkillHeaderValue(plan skillintel.Plan) string {
+func dashboardSkillMetadata(plan skillintel.Plan) json.RawMessage {
 	badges := dashboardSkillBadges(plan)
 	if len(badges) == 0 {
-		return ""
+		return json.RawMessage(`[]`)
 	}
 	raw, err := json.Marshal(badges)
 	if err != nil {
+		return json.RawMessage(`[]`)
+	}
+	return json.RawMessage(raw)
+}
+
+func dashboardSkillHeaderValue(plan skillintel.Plan) string {
+	raw := dashboardSkillMetadata(plan)
+	if string(raw) == "[]" {
 		return ""
 	}
 	return string(raw)
