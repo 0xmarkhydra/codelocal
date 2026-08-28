@@ -153,7 +153,7 @@ func (s *Store) AuthenticateDevice(ctx context.Context, credentialID, secretHash
 	return &d, nil
 }
 
-func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error) {
+func (s *Store) listAllDevices(ctx context.Context, userID string) ([]Device, error) {
 	rows, err := s.DB.Query(ctx, `SELECT credential_id,user_id,device_id,device_name,COALESCE(public_key,''),secret_hash,created_at,last_seen_at,revoked_at FROM codelocal_devices WHERE user_id=$1 ORDER BY last_seen_at DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -172,6 +172,22 @@ func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// ListAllDevices is for execution/control-plane internals that must see
+// CodeLocal-managed runtime credentials in addition to real user devices.
+func (s *Store) ListAllDevices(ctx context.Context, userID string) ([]Device, error) {
+	return s.listAllDevices(ctx, userID)
+}
+
+// ListDevices is the product-facing device list. Managed cloud compute is an
+// execution detail and must not appear as a paired user machine in MCP/UI.
+func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error) {
+	devices, err := s.listAllDevices(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return ProductDevices(devices), nil
 }
 
 func (s *Store) ActiveCredentialIDs(ctx context.Context, credentialIDs []string) (map[string]bool, error) {
