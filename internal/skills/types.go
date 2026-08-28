@@ -68,13 +68,13 @@ func (m Manifest) Validate() error {
 }
 
 type TaskContext struct {
-	Query          string             `json:"query"`
-	Intents        []string           `json:"intents,omitempty"`
-	Stack          []string           `json:"stack,omitempty"`
-	Signals        []string           `json:"signals,omitempty"`
-	Trivial        bool               `json:"trivial,omitempty"`
-	Affinity       map[string]float64 `json:"affinity,omitempty"`
-	MaxSelections  int                `json:"maxSelections,omitempty"`
+	Query         string             `json:"query"`
+	Intents       []string           `json:"intents,omitempty"`
+	Stack         []string           `json:"stack,omitempty"`
+	Signals       []string           `json:"signals,omitempty"`
+	Trivial       bool               `json:"trivial,omitempty"`
+	Affinity      map[string]float64 `json:"affinity,omitempty"`
+	MaxSelections int                `json:"maxSelections,omitempty"`
 }
 
 type Selection struct {
@@ -95,6 +95,7 @@ type PlanStep struct {
 }
 
 type Plan struct {
-	Selections []Selection `json:"selections"`
-	Steps      []PlanStep  `json:"steps"`
+	Selections []Selection      `json:"selections"`
+	Steps      []PlanStep       `json:"steps"`
+	Knowledge  []KnowledgeMatch `json:"knowledge,omitempty"`
 }
