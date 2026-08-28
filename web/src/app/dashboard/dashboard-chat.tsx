@@ -22,6 +22,7 @@ type ToolCall = {
 type SkillBadge = {
   id: string;
   name: string;
+  version: string;
 };
 
 type ChatMsg = {
@@ -98,21 +99,30 @@ function toolLabel(name: string) {
   }
 }
 
+function parseSkillBadges(value: unknown): SkillBadge[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    const version = typeof record.version === "string" ? record.version.trim() : "";
+    return id && name && version ? [{ id, name, version }] : [];
+  }).slice(0, 3);
+}
+
 function parseSkillHeader(raw: string | null): SkillBadge[] {
   if (!raw) return [];
   try {
-    const value = JSON.parse(raw) as unknown;
-    if (!Array.isArray(value)) return [];
-    return value.flatMap((item) => {
-      if (!item || typeof item !== "object") return [];
-      const record = item as Record<string, unknown>;
-      const id = typeof record.id === "string" ? record.id.trim() : "";
-      const name = typeof record.name === "string" ? record.name.trim() : "";
-      return id && name ? [{ id, name }] : [];
-    }).slice(0, 3);
+    return parseSkillBadges(JSON.parse(raw) as unknown);
   } catch {
     return [];
   }
+}
+
+function parseHistorySkills(raw: string | SkillBadge[] | undefined): SkillBadge[] {
+  if (Array.isArray(raw)) return parseSkillBadges(raw);
+  return parseSkillHeader(raw ?? null);
 }
 
 function friendlyChatFailure(message: string) {
@@ -166,7 +176,7 @@ export function DashboardChat() {
         if (!response.ok) throw new Error(`history ${response.status}`);
         return response.json();
       })
-      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; image?: string }> } | null) => {
+      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; skills?: string | SkillBadge[]; image?: string }> } | null) => {
         if (!data?.messages) return;
         const mapped: ChatMsg[] = data.messages.map((message) => {
           let toolCalls: ToolCall[] | undefined;
@@ -179,10 +189,12 @@ export function DashboardChat() {
           } else if (Array.isArray(message.tool_calls)) {
             toolCalls = message.tool_calls;
           }
+          const skills = parseHistorySkills(message.skills);
           return {
             role: message.role as ChatMsg["role"],
             content: message.content,
             tool_calls: toolCalls,
+            skills: skills.length ? skills : undefined,
             image: message.image,
           };
         });
@@ -576,7 +588,7 @@ export function DashboardChat() {
               {message.skills?.length ? (
                 <div className={skillStyles.list} aria-label="Skills đang được CodeLocal sử dụng">
                   {message.skills.map((skill) => (
-                    <span className={skillStyles.pill} key={skill.id} title="CodeLocal tự chọn Skill này cho task hiện tại">
+                    <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>
                       <AppIcon name="skill" size={13} />
                       {skill.name}
                     </span>
