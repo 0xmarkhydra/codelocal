@@ -10,7 +10,7 @@ import (
 var publicSocialService = social.New()
 
 func compactSocialToolDefinitions() []compactToolDef {
-	serverSideTools := []compactToolDef{
+	return []compactToolDef{
 		{
 			Name:        "social",
 			Title:       "Read public social content",
@@ -31,8 +31,4 @@ func compactSocialToolDefinitions() []compactToolDef {
 			},
 		},
 	}
-	// compactToolDefinitions already appends this server-side group. Keep the
-	// skill implementation in skills_tool.go while composing it here so central
-	// skills are exposed without routing through a local workspace runtime.
-	return append(serverSideTools, compactSkillToolDefinitions()...)
 }
