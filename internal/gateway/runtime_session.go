@@ -18,6 +18,7 @@ const (
 	cloudRuntimeSessionPrefix = "codelocal:cloud-runtime-session:v1:"
 	cloudRuntimeIdleIndex     = "codelocal:cloud-runtime-session:v1:idle"
 	cloudRuntimeReapPrefix    = "codelocal:cloud-runtime-reap:v1:"
+	cloudRuntimeInFlightPrefix = "codelocal:cloud-runtime-inflight:v1:"
 )
 
 type CloudRuntimeSession struct {
@@ -85,7 +86,10 @@ func (s *CloudRuntimeSessionStore) Get(ctx context.Context, workspaceKey, profil
 	if s == nil || s.Redis == nil {
 		return nil, errors.New("cloud runtime session Redis unavailable")
 	}
-	id := cloudRuntimeSessionID(workspaceKey, profile)
+	return s.getByID(ctx, cloudRuntimeSessionID(workspaceKey, profile))
+}
+
+func (s *CloudRuntimeSessionStore) getByID(ctx context.Context, id string) (*CloudRuntimeSession, error) {
 	raw, err := s.Redis.Get(ctx, cloudRuntimeSessionKey(id)).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
@@ -98,6 +102,58 @@ func (s *CloudRuntimeSessionStore) Get(ctx context.Context, workspaceKey, profil
 		return nil, errors.New("invalid cloud runtime session state")
 	}
 	return &state, nil
+}
+
+func (s *CloudRuntimeSessionStore) TouchExisting(ctx context.Context, workspaceKey, profile string) error {
+	state, err := s.Get(ctx, workspaceKey, profile)
+	if err != nil || state == nil {
+		return err
+	}
+	return s.Touch(ctx, *state)
+}
+
+// BeginCall marks a cloud workspace as in-flight only when a managed runtime
+// session already exists. The in-flight counter prevents the idle snapshot
+// reaper from capturing/deleting compute while a tool call is executing.
+func (s *CloudRuntimeSessionStore) BeginCall(ctx context.Context, workspaceKey, profile string) (func(), error) {
+	state, err := s.Get(ctx, workspaceKey, profile)
+	if err != nil || state == nil {
+		return func() {}, err
+	}
+	if err := s.Touch(ctx, *state); err != nil {
+		return func() {}, err
+	}
+	key := cloudRuntimeInFlightPrefix + state.ID
+	if _, err := s.Redis.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Incr(ctx, key)
+		pipe.Expire(ctx, key, 2*time.Hour)
+		return nil
+	}); err != nil {
+		return func() {}, err
+	}
+	var done bool
+	return func() {
+		if done {
+			return
+		}
+		done = true
+		finishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		const decrement = `local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n<=1 then redis.call('DEL',KEYS[1]); return 0 end; return redis.call('DECR',KEYS[1])`
+		_ = s.Redis.Eval(finishCtx, decrement, []string{key}).Err()
+		_ = s.TouchExisting(finishCtx, workspaceKey, profile)
+	}, nil
+}
+
+func (s *CloudRuntimeSessionStore) InFlight(ctx context.Context, sessionID string) (bool, error) {
+	if s == nil || s.Redis == nil || sessionID == "" {
+		return false, nil
+	}
+	value, err := s.Redis.Get(ctx, cloudRuntimeInFlightPrefix+sessionID).Int64()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+	return value > 0, err
 }
 
 func (s *CloudRuntimeSessionStore) Due(ctx context.Context, before time.Time, limit int64) ([]CloudRuntimeSession, error) {
@@ -150,6 +206,7 @@ func (s *CloudRuntimeSessionStore) MarkSnapshotted(ctx context.Context, state Cl
 	_, err = s.Redis.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 		pipe.Set(ctx, cloudRuntimeSessionKey(state.ID), raw, s.TTL)
 		pipe.ZRem(ctx, cloudRuntimeIdleIndex, state.ID)
+		pipe.Del(ctx, cloudRuntimeInFlightPrefix+state.ID)
 		return nil
 	})
 	return err
@@ -163,6 +220,35 @@ func (s *CloudRuntimeSessionStore) ClaimReap(ctx context.Context, sessionID, own
 		ttl = 3 * time.Minute
 	}
 	return s.Redis.SetNX(ctx, cloudRuntimeReapPrefix+sessionID, owner, ttl).Result()
+}
+
+func (s *CloudRuntimeSessionStore) ReapHeld(ctx context.Context, workspaceKey, profile string) (bool, error) {
+	if s == nil || s.Redis == nil {
+		return false, nil
+	}
+	return s.Redis.Exists(ctx, cloudRuntimeReapPrefix+cloudRuntimeSessionID(workspaceKey, profile)).Result()
+}
+
+func (s *CloudRuntimeSessionStore) WaitReapClear(ctx context.Context, workspaceKey, profile string) error {
+	if s == nil || s.Redis == nil {
+		return nil
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		held, err := s.ReapHeld(ctx, workspaceKey, profile)
+		if err != nil {
+			return err
+		}
+		if !held {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *CloudRuntimeSessionStore) ReleaseReap(ctx context.Context, sessionID, owner string) error {
