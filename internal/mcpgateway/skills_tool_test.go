@@ -7,19 +7,11 @@ import (
 	"testing"
 )
 
-func TestCompactToolSurfaceIncludesSkills(t *testing.T) {
-	found := false
+func TestSkillsStayInternalToPreservePublicToolSurface(t *testing.T) {
 	for _, definition := range compactToolDefinitions() {
 		if definition.Name == "skills" {
-			found = true
-			if definition.Execute == nil {
-				t.Fatal("skills must execute server-side")
-			}
-			break
+			t.Fatal("skills must stay internal; automatic skill routing should not expand the public MCP surface")
 		}
-	}
-	if !found {
-		t.Fatal("expected skills in compact tool surface")
 	}
 }
 
