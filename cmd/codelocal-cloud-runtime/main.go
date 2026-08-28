@@ -100,12 +100,51 @@ func hydrateWorkspace(ctx context.Context, root, raw string) error {
 	return nil
 }
 
+func runtimeCredential(ctx context.Context, serverURL, workspaceID, runtimeSessionID, deviceID, deviceName string) (identity.Credential, error) {
+	if saved, err := identity.Load(serverURL); err != nil {
+		return identity.Credential{}, err
+	} else if saved != nil {
+		if strings.TrimSpace(saved.DeviceID) != strings.TrimSpace(deviceID) {
+			return identity.Credential{}, errors.New("restored cloud runtime credential belongs to a different managed device")
+		}
+		_ = os.Unsetenv("CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN")
+		return *saved, nil
+	}
+
+	bootstrapToken, err := requiredEnv("CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN")
+	if err != nil {
+		return identity.Credential{}, err
+	}
+	credential, exchangedWorkspaceID, _, err := identity.ExchangeRuntimeBootstrap(ctx, identity.RuntimeBootstrapConfig{
+		ServerURL:        serverURL,
+		Token:            bootstrapToken,
+		RuntimeSessionID: runtimeSessionID,
+		DeviceID:         deviceID,
+		DeviceName:       deviceName,
+	})
+	_ = os.Unsetenv("CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN")
+	if err != nil {
+		return identity.Credential{}, err
+	}
+	if exchangedWorkspaceID != workspaceID {
+		return identity.Credential{}, errors.New("runtime bootstrap workspace binding mismatch")
+	}
+	// The identity file lives under CODELOCAL_STATE_DIR, outside /workspace.
+	// It is captured by OpenSandbox rootfs snapshots so a restored sandbox can
+	// reconnect without replaying a consumed bootstrap token. It is never copied
+	// into the user's project tree.
+	if err := identity.Save(credential); err != nil {
+		return identity.Credential{}, fmt.Errorf("persist managed runtime credential: %w", err)
+	}
+	return credential, nil
+}
+
 func run(ctx context.Context) error {
 	serverURL, err := requiredEnv("CODELOCAL_CLOUD_SERVER")
 	if err != nil {
 		return err
 	}
-	bootstrapToken, err := requiredEnv("CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN")
+	workspaceID, err := requiredEnv("CODELOCAL_RUNTIME_WORKSPACE_ID")
 	if err != nil {
 		return err
 	}
@@ -138,17 +177,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	credential, workspaceID, _, err := identity.ExchangeRuntimeBootstrap(ctx, identity.RuntimeBootstrapConfig{
-		ServerURL:        serverURL,
-		Token:            bootstrapToken,
-		RuntimeSessionID: runtimeSessionID,
-		DeviceID:         deviceID,
-		DeviceName:       deviceName,
-	})
-	// Bootstrap credentials are one-shot. Remove the token from the process
-	// environment as soon as the exchange is complete so child processes cannot
-	// inherit it accidentally.
-	_ = os.Unsetenv("CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN")
+	credential, err := runtimeCredential(ctx, serverURL, workspaceID, runtimeSessionID, deviceID, deviceName)
 	if err != nil {
 		return err
 	}
