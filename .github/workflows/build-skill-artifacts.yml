@@ -1,0 +1,73 @@
+name: Build Skill Artifacts
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cmd/skillpack/**"
+      - "internal/skills/**"
+      - "skillpacks/**"
+      - ".github/workflows/build-skill-artifacts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ui-ux-pro:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CodeLocal
+        uses: actions/checkout@v4
+
+      - name: Read pinned source metadata
+        id: source
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          with open("skillpacks/ui-ux-pro/manifest.json", "r", encoding="utf-8") as f:
+              manifest = json.load(f)
+          print(f"ref={manifest['sourceRef']}")
+          print(f"tree={manifest['sourceHash']}")
+          PY
+
+      - name: Checkout pinned UIUX Pro snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: nextlevelbuilder/ui-ux-pro-max-skill
+          ref: ${{ steps.source.outputs.ref }}
+          path: .skill-source/ui-ux-pro
+          fetch-depth: 1
+
+      - name: Verify pinned commit and tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_ref="$(git -C .skill-source/ui-ux-pro rev-parse HEAD)"
+          actual_tree="$(git -C .skill-source/ui-ux-pro rev-parse 'HEAD^{tree}')"
+          test "$actual_ref" = "${{ steps.source.outputs.ref }}"
+          test "$actual_tree" = "${{ steps.source.outputs.tree }}"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test Skill packaging core
+        run: go test ./cmd/skillpack ./internal/skills
+
+      - name: Build immutable Skill package
+        run: |
+          mkdir -p dist/skills
+          go run ./cmd/skillpack \
+            -manifest skillpacks/ui-ux-pro/manifest.json \
+            -root .skill-source/ui-ux-pro \
+            -out dist/skills/ui-ux-pro-1.0.0.skill.json
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-ux-pro-1.0.0
+          path: dist/skills/ui-ux-pro-1.0.0.skill.json
+          if-no-files-found: error
