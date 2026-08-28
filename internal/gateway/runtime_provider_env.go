@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
@@ -45,6 +46,15 @@ func cloudRuntimeEnabled() bool {
 	}
 }
 
+func runtimeDurationEnv(name string, fallback time.Duration) time.Duration {
+	if raw := strings.TrimSpace(os.Getenv(name)); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return fallback
+}
+
 func newOpenSandboxRuntimeProviderFromEnv(workspaces *WorkspaceService) (*OpenSandboxRuntimeProvider, error) {
 	baseURL := firstRuntimeEnv("CODELOCAL_OPENSANDBOX_URL", "OPEN_SANDBOX_BASE_URL", "OPENSANDBOX_BASE_URL")
 	apiKey := firstRuntimeEnv("CODELOCAL_OPENSANDBOX_API_KEY", "OPEN_SANDBOX_API_KEY", "OPENSANDBOX_API_KEY")
@@ -78,21 +88,30 @@ func newOpenSandboxRuntimeProviderFromEnv(workspaces *WorkspaceService) (*OpenSa
 	if workspaces == nil || workspaces.Store == nil || workspaces.Store.Redis == nil || workspaces.Coordinator == nil || workspaces.Hub == nil {
 		return nil, errors.New("cloud runtime requires shared store, coordinator and gateway hub")
 	}
-	return &OpenSandboxRuntimeProvider{
+	idleTimeout := runtimeDurationEnv("CODELOCAL_CLOUD_RUNTIME_IDLE_TIMEOUT", 20*time.Minute)
+	reapInterval := runtimeDurationEnv("CODELOCAL_CLOUD_RUNTIME_REAP_INTERVAL", time.Minute)
+	provider := &OpenSandboxRuntimeProvider{
 		Provisioner:    opensandbox.NewManager(client),
 		Workspaces:     workspaces,
 		Hub:            workspaces.Hub,
 		Coordinator:    workspaces.Coordinator,
 		Leases:         NewRuntimeLeaseCoordinator(NewRedisRuntimeLeaseBackend(workspaces.Store.Redis), 3*time.Minute),
 		Bootstrap:      NewRuntimeBootstrapStore(NewRedisRuntimeBootstrapBackend(workspaces.Store.Redis), 2*time.Minute),
+		Sessions:       NewCloudRuntimeSessionStore(workspaces.Store.Redis, 30*24*time.Hour),
 		ServerURL:      serverURL,
 		Image:          image,
 		Profile:        profile,
 		ResourceLimits: map[string]string{"cpu": cpu, "memory": memory},
-		SandboxTTL:     30 * time.Minute,
-		ReadyTimeout:   75 * time.Second,
-		AliasTTL:       35 * time.Minute,
-	}, nil
+		SandboxTTL:     runtimeDurationEnv("CODELOCAL_CLOUD_RUNTIME_SANDBOX_TTL", 30*time.Minute),
+		ReadyTimeout:   runtimeDurationEnv("CODELOCAL_CLOUD_RUNTIME_READY_TIMEOUT", 75*time.Second),
+		AliasTTL:       runtimeDurationEnv("CODELOCAL_CLOUD_RUNTIME_ALIAS_TTL", 35*time.Minute),
+		IdleTimeout:    idleTimeout,
+		ReaperOwner:    workspaces.Coordinator.InstanceID,
+	}
+	// The reaper is safe to start on every Railway replica: each due session is
+	// guarded by a Redis ownership token before any snapshot/delete operation.
+	provider.StartIdleReaper(context.Background(), reapInterval)
+	return provider, nil
 }
 
 func firstRuntimeEnv(names ...string) string {
