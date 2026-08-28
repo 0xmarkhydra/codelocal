@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 
 type OpenSandboxProvisioner interface {
 	Acquire(context.Context, opensandbox.AcquireSpec) (*opensandbox.SandboxInfo, error)
+	EnsureExisting(context.Context, opensandbox.AcquireSpec) (*opensandbox.SandboxInfo, bool, error)
+	SnapshotAndDelete(context.Context, string, string, time.Duration) (*opensandbox.SnapshotInfo, error)
 }
 
 type OpenSandboxRuntimeProvider struct {
@@ -24,6 +27,7 @@ type OpenSandboxRuntimeProvider struct {
 	Coordinator    *Coordinator
 	Leases         *RuntimeLeaseCoordinator
 	Bootstrap      *RuntimeBootstrapStore
+	Sessions       *CloudRuntimeSessionStore
 	ServerURL      string
 	Image          string
 	Profile        string
@@ -32,6 +36,8 @@ type OpenSandboxRuntimeProvider struct {
 	SandboxTTL     time.Duration
 	ReadyTimeout   time.Duration
 	AliasTTL       time.Duration
+	IdleTimeout    time.Duration
+	ReaperOwner    string
 }
 
 func (p *OpenSandboxRuntimeProvider) Kind() RuntimeProviderKind { return RuntimeProviderCloud }
@@ -40,17 +46,40 @@ func (p *OpenSandboxRuntimeProvider) Acquire(ctx context.Context, request Runtim
 	if err := p.validate(); err != nil {
 		return nil, err
 	}
+	if err := p.Sessions.WaitReapClear(ctx, request.WorkspaceKey, p.Profile); err != nil {
+		return nil, fmt.Errorf("wait for cloud workspace checkpoint: %w", err)
+	}
 	source, err := p.sourceWorkspace(ctx, request.UserID, request.WorkspaceKey)
 	if err != nil {
 		return nil, err
 	}
 	runtimeSessionID, deviceID := managedRuntimeIdentity(request.UserID, request.WorkspaceKey, p.Profile)
 	targetKey := ClientKey(request.UserID, deviceID, source.WorkspaceID)
+	snapshotName := managedSnapshotName(request.UserID, request.WorkspaceKey, p.Profile, p.Image)
 
-	// Fast path for a live managed runtime, including a runtime owned by another
-	// Railway replica. The alias is refreshed before returning the binding.
-	if runtimeWorkspace, ok := p.activeCloudWorkspace(ctx, request.UserID, request.WorkspaceKey, targetKey); ok {
-		return projectCloudWorkspace(source, runtimeWorkspace), nil
+	// Existing compute is renewed/resumed before consulting its runtime owner.
+	// EnsureExisting is create-free, so a stale Redis session can never spawn a
+	// sandbox with incomplete bootstrap data.
+	baseSpec := p.acquireSpec(request, source, snapshotName, nil)
+	if sandbox, found, existingErr := p.Provisioner.EnsureExisting(ctx, baseSpec); existingErr != nil {
+		if opensandbox.IsUnavailable(existingErr) {
+			return nil, fmt.Errorf("%w: OpenSandbox: %v", ErrRuntimeProviderUnavailable, existingErr)
+		}
+		return nil, existingErr
+	} else if found {
+		state := p.sessionState(request, targetKey, sandbox.ID, snapshotName)
+		if err := p.Sessions.Touch(ctx, state); err != nil {
+			return nil, err
+		}
+		if runtimeWorkspace, ok := p.activeCloudWorkspace(ctx, request.UserID, request.WorkspaceKey, targetKey); ok {
+			return projectCloudWorkspace(source, runtimeWorkspace), nil
+		}
+		runtimeWorkspace, waitErr := p.waitCloudWorkspace(ctx, request.UserID, request.WorkspaceKey, targetKey)
+		if waitErr == nil {
+			_ = p.Sessions.Touch(ctx, state)
+			return projectCloudWorkspace(source, runtimeWorkspace), nil
+		}
+		return nil, waitErr
 	}
 
 	repositories, err := p.Workspaces.Store.WorkspaceRepositorySources(ctx, request.UserID, source.DeviceID, source.WorkspaceID)
@@ -65,12 +94,7 @@ func (p *OpenSandboxRuntimeProvider) Acquire(ctx context.Context, request Runtim
 		return nil, err
 	}
 
-	lease, err := p.Leases.Acquire(ctx, RuntimeLeaseScope{
-		UserID:       request.UserID,
-		WorkspaceKey: request.WorkspaceKey,
-		Provider:     RuntimeProviderCloud,
-		Profile:      p.Profile,
-	})
+	lease, err := p.Leases.Acquire(ctx, RuntimeLeaseScope{UserID: request.UserID, WorkspaceKey: request.WorkspaceKey, Provider: RuntimeProviderCloud, Profile: p.Profile})
 	if errors.Is(err, ErrRuntimeLeaseHeld) {
 		return p.waitForPeerProvision(ctx, request.UserID, request.WorkspaceKey, source)
 	}
@@ -83,53 +107,43 @@ func (p *OpenSandboxRuntimeProvider) Acquire(ctx context.Context, request Runtim
 		_ = lease.Release(releaseCtx)
 	}()
 
-	// Re-check after acquiring the lease. A previous owner may have completed
-	// provisioning just before its lease expired.
-	if runtimeWorkspace, ok := p.activeCloudWorkspace(ctx, request.UserID, request.WorkspaceKey, targetKey); ok {
+	// Another replica may have completed while this replica waited for lease.
+	if sandbox, found, existingErr := p.Provisioner.EnsureExisting(ctx, baseSpec); existingErr == nil && found {
+		state := p.sessionState(request, targetKey, sandbox.ID, snapshotName)
+		_ = p.Sessions.Touch(ctx, state)
+		runtimeWorkspace, waitErr := p.waitCloudWorkspace(ctx, request.UserID, request.WorkspaceKey, targetKey)
+		if waitErr != nil {
+			return nil, waitErr
+		}
 		return projectCloudWorkspace(source, runtimeWorkspace), nil
 	}
 
-	bootstrapToken, err := p.Bootstrap.Issue(ctx, RuntimeBootstrapState{
-		UserID:           request.UserID,
-		WorkspaceKey:     request.WorkspaceKey,
-		WorkspaceID:      source.WorkspaceID,
-		Profile:          p.Profile,
-		RuntimeSessionID: runtimeSessionID,
-		DeviceID:         deviceID,
-		DeviceName:       "CodeLocal Cloud",
-	})
+	bootstrapToken, err := p.Bootstrap.Issue(ctx, RuntimeBootstrapState{UserID: request.UserID, WorkspaceKey: request.WorkspaceKey, WorkspaceID: source.WorkspaceID, Profile: p.Profile, RuntimeSessionID: runtimeSessionID, DeviceID: deviceID, DeviceName: "CodeLocal Cloud"})
 	if err != nil {
 		return nil, fmt.Errorf("issue cloud runtime bootstrap: %w", err)
 	}
-
-	_, err = p.Provisioner.Acquire(ctx, opensandbox.AcquireSpec{
-		OwnerID:        request.UserID,
-		WorkspaceKey:   request.WorkspaceKey,
-		WorkspaceID:    source.WorkspaceID,
-		Profile:        p.Profile,
-		Image:          p.Image,
-		Entrypoint:     []string{"/usr/local/bin/codelocal-cloud-runtime"},
-		ResourceLimits: cloneRuntimeStrings(p.ResourceLimits),
-		NetworkPolicy:  p.NetworkPolicy,
-		TTL:            p.SandboxTTL,
-		Env: map[string]string{
-			"CODELOCAL_CLOUD_SERVER":              p.ServerURL,
-			"CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN":   bootstrapToken,
-			"CODELOCAL_RUNTIME_SESSION_ID":        runtimeSessionID,
-			"CODELOCAL_RUNTIME_DEVICE_ID":         deviceID,
-			"CODELOCAL_RUNTIME_DEVICE_NAME":       "CodeLocal Cloud",
-			"CODELOCAL_RUNTIME_WORKSPACE_NAME":    source.WorkspaceName,
-			"CODELOCAL_RUNTIME_REPOSITORIES_JSON": string(repositoriesJSON),
-			"CODELOCAL_WORKSPACE_PATH":            "/workspace",
-		},
-	})
+	env := map[string]string{
+		"CODELOCAL_CLOUD_SERVER":              p.ServerURL,
+		"CODELOCAL_RUNTIME_BOOTSTRAP_TOKEN":   bootstrapToken,
+		"CODELOCAL_RUNTIME_SESSION_ID":        runtimeSessionID,
+		"CODELOCAL_RUNTIME_DEVICE_ID":         deviceID,
+		"CODELOCAL_RUNTIME_DEVICE_NAME":       "CodeLocal Cloud",
+		"CODELOCAL_RUNTIME_WORKSPACE_ID":      source.WorkspaceID,
+		"CODELOCAL_RUNTIME_WORKSPACE_NAME":    source.WorkspaceName,
+		"CODELOCAL_RUNTIME_REPOSITORIES_JSON": string(repositoriesJSON),
+		"CODELOCAL_WORKSPACE_PATH":            "/workspace",
+	}
+	sandbox, err := p.Provisioner.Acquire(ctx, p.acquireSpec(request, source, snapshotName, env))
 	if err != nil {
 		if opensandbox.IsUnavailable(err) {
 			return nil, fmt.Errorf("%w: OpenSandbox: %v", ErrRuntimeProviderUnavailable, err)
 		}
 		return nil, fmt.Errorf("provision OpenSandbox runtime: %w", err)
 	}
-
+	state := p.sessionState(request, targetKey, sandbox.ID, snapshotName)
+	if err := p.Sessions.Touch(ctx, state); err != nil {
+		return nil, err
+	}
 	runtimeWorkspace, err := p.waitCloudWorkspace(ctx, request.UserID, request.WorkspaceKey, targetKey)
 	if err != nil {
 		return nil, err
@@ -144,8 +158,16 @@ func (p *OpenSandboxRuntimeProvider) Call(ctx context.Context, request RuntimeCa
 	return p.Hub.Call(ctx, request.UserID, request.WorkspaceKey, request.SessionID, request.Tool, request.Args, request.SideEffect, request.RequestID)
 }
 
+func (p *OpenSandboxRuntimeProvider) acquireSpec(request RuntimeAcquireRequest, source *WorkspaceView, snapshotName string, env map[string]string) opensandbox.AcquireSpec {
+	return opensandbox.AcquireSpec{OwnerID: request.UserID, WorkspaceKey: request.WorkspaceKey, WorkspaceID: source.WorkspaceID, Profile: p.Profile, Image: p.Image, SnapshotName: snapshotName, Entrypoint: []string{"/usr/local/bin/codelocal-cloud-runtime"}, ResourceLimits: cloneRuntimeStrings(p.ResourceLimits), NetworkPolicy: p.NetworkPolicy, TTL: p.SandboxTTL, Env: env}
+}
+
+func (p *OpenSandboxRuntimeProvider) sessionState(request RuntimeAcquireRequest, targetKey, sandboxID, snapshotName string) CloudRuntimeSession {
+	return CloudRuntimeSession{ID: cloudRuntimeSessionID(request.WorkspaceKey, p.Profile), UserID: request.UserID, WorkspaceKey: request.WorkspaceKey, TargetKey: targetKey, SandboxID: sandboxID, SnapshotName: snapshotName, Profile: p.Profile}
+}
+
 func (p *OpenSandboxRuntimeProvider) validate() error {
-	if p == nil || p.Provisioner == nil || p.Workspaces == nil || p.Workspaces.Store == nil || p.Hub == nil || p.Coordinator == nil || p.Leases == nil || p.Bootstrap == nil {
+	if p == nil || p.Provisioner == nil || p.Workspaces == nil || p.Workspaces.Store == nil || p.Hub == nil || p.Coordinator == nil || p.Leases == nil || p.Bootstrap == nil || p.Sessions == nil {
 		return errors.New("OpenSandbox runtime provider is not fully configured")
 	}
 	if strings.TrimSpace(p.ServerURL) == "" || strings.TrimSpace(p.Image) == "" || strings.TrimSpace(p.Profile) == "" {
@@ -171,8 +193,6 @@ func (p *OpenSandboxRuntimeProvider) sourceWorkspace(ctx context.Context, userID
 			return &copy, nil
 		}
 	}
-	// Missing/unauthorized workspaces are hard failures. Auto must not provision
-	// a fresh cloud copy when the product workspace no longer belongs to user.
 	return nil, fmt.Errorf("workspace is not available or no longer authorized: %s", key)
 }
 
@@ -257,6 +277,70 @@ func (p *OpenSandboxRuntimeProvider) waitCloudWorkspace(ctx context.Context, use
 	}
 }
 
+func (p *OpenSandboxRuntimeProvider) StartIdleReaper(ctx context.Context, interval time.Duration) {
+	if p == nil || p.Sessions == nil || p.Provisioner == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	if p.IdleTimeout <= 0 {
+		p.IdleTimeout = 20 * time.Minute
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				p.reapIdle(ctx)
+			}
+		}
+	}()
+}
+
+func (p *OpenSandboxRuntimeProvider) reapIdle(ctx context.Context) {
+	before := time.Now().Add(-p.IdleTimeout)
+	due, err := p.Sessions.Due(ctx, before, 64)
+	if err != nil {
+		slog.Warn("cloud runtime idle scan failed", "error", err)
+		return
+	}
+	for _, candidate := range due {
+		claimed, claimErr := p.Sessions.ClaimReap(ctx, candidate.ID, p.ReaperOwner, 4*time.Minute)
+		if claimErr != nil || !claimed {
+			continue
+		}
+		func(state CloudRuntimeSession) {
+			defer func() {
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = p.Sessions.ReleaseReap(releaseCtx, state.ID, p.ReaperOwner)
+			}()
+			fresh, readErr := p.Sessions.Get(ctx, state.WorkspaceKey, state.Profile)
+			if readErr != nil || fresh == nil || fresh.SandboxID == "" || fresh.LastActiveAt > before.UnixMilli() {
+				return
+			}
+			busy, busyErr := p.Sessions.InFlight(ctx, fresh.ID)
+			if busyErr != nil || busy {
+				return
+			}
+			snapshot, snapshotErr := p.Provisioner.SnapshotAndDelete(ctx, fresh.SandboxID, fresh.SnapshotName, 3*time.Minute)
+			if snapshotErr != nil {
+				slog.Warn("cloud runtime checkpoint failed; compute retained", "sandboxId", fresh.SandboxID, "error", snapshotErr)
+				return
+			}
+			_ = snapshot
+			_ = p.Coordinator.ReleaseRuntimeAlias(ctx, fresh.WorkspaceKey)
+			if err := p.Sessions.MarkSnapshotted(ctx, *fresh); err != nil {
+				slog.Warn("cloud runtime checkpoint metadata update failed", "sandboxId", fresh.SandboxID, "error", err)
+			}
+		} (candidate)
+	}
+}
+
 func (p *OpenSandboxRuntimeProvider) readyTimeout() time.Duration {
 	if p.ReadyTimeout > 0 {
 		return p.ReadyTimeout
@@ -280,6 +364,11 @@ func managedRuntimeIdentity(userID, workspaceKey, profile string) (sessionID, de
 	return "crs_" + hexID[:32], "cloud-" + hexID[:24]
 }
 
+func managedSnapshotName(userID, workspaceKey, profile, image string) string {
+	digest := sha256.Sum256([]byte(strings.Join([]string{strings.TrimSpace(userID), strings.TrimSpace(workspaceKey), strings.TrimSpace(profile), strings.TrimSpace(image)}, "\x00")))
+	return "codelocal-" + hex.EncodeToString(digest[:16])
+}
+
 func managedRuntimeDeviceID(value string) bool {
 	value = strings.TrimSpace(value)
 	const prefix = "cloud-"
@@ -290,10 +379,6 @@ func managedRuntimeDeviceID(value string) bool {
 	return err == nil
 }
 
-// projectCloudWorkspace keeps the durable product identity selected by the
-// user while borrowing only execution capabilities from the managed runtime.
-// Internal cloud device IDs, client keys and /workspace paths must never leak
-// into MCP/Dashboard workspace handles.
 func projectCloudWorkspace(source, runtimeWorkspace *WorkspaceView) *WorkspaceView {
 	if source == nil || runtimeWorkspace == nil {
 		return nil
