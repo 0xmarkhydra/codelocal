@@ -155,7 +155,19 @@ func (p *LocalRuntimeProvider) Acquire(ctx context.Context, request RuntimeAcqui
 	if err != nil && localRuntimeUnavailable(err) {
 		return nil, fmt.Errorf("%w: %v", ErrRuntimeProviderUnavailable, err)
 	}
-	return workspace, err
+	if err != nil {
+		return nil, err
+	}
+	// Auto prefers Local. A previous Cloud session may still have a shared route
+	// alias for this product key, so remove it before any caller reaches Hub.Call.
+	// Failing closed here is safer than claiming Local won while routing the tool
+	// into stale Cloud compute.
+	if p.Workspaces.Coordinator != nil {
+		if aliasErr := p.Workspaces.Coordinator.ReleaseRuntimeAlias(ctx, request.WorkspaceKey); aliasErr != nil {
+			return nil, fmt.Errorf("clear stale cloud runtime route: %w", aliasErr)
+		}
+	}
+	return workspace, nil
 }
 
 func localRuntimeUnavailable(err error) bool {
