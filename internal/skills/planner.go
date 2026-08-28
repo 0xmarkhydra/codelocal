@@ -1,11 +1,14 @@
 package skills
 
+import "sync"
+
 type Planner struct {
-	router *Router
+	router    *Router
+	knowledge KnowledgeStore
 }
 
-func NewPlanner(router *Router) *Planner {
-	return &Planner{router: router}
+func NewPlanner(router *Router, knowledge KnowledgeStore) *Planner {
+	return &Planner{router: router, knowledge: knowledge}
 }
 
 func (p *Planner) Plan(task TaskContext) Plan {
@@ -14,7 +17,6 @@ func (p *Planner) Plan(task TaskContext) Plan {
 	}
 	selections := p.router.Route(task)
 	steps := make([]PlanStep, 0, len(selections))
-	skillIDs := make([]string, 0, len(selections))
 	for index, selection := range selections {
 		phase := "advise"
 		switch selection.Skill.Kind {
@@ -25,38 +27,53 @@ func (p *Planner) Plan(task TaskContext) Plan {
 		case KindHybrid:
 			phase = "advise_then_execute"
 		}
-		skillIDs = append(skillIDs, selection.Skill.ID)
 		steps = append(steps, PlanStep{
 			Order:        index + 1,
 			SkillID:      selection.Skill.ID,
+			SkillVersion: selection.Skill.Version,
 			Phase:        phase,
 			Reason:       selection.Reason,
 			Capabilities: append([]Capability(nil), selection.Skill.Capabilities...),
 		})
 	}
-	return Plan{
-		Selections: selections,
-		Steps:      steps,
-		Knowledge:  RetrieveKnowledge(task, skillIDs, 4),
+	knowledge := []KnowledgeMatch(nil)
+	if p.knowledge != nil {
+		knowledge = p.knowledge.Search(task, selections, 4)
 	}
+	return Plan{Selections: selections, Steps: steps, Knowledge: knowledge}
 }
 
 type Engine struct {
-	registry *Registry
-	router   *Router
-	planner  *Planner
+	registry  *Registry
+	router    *Router
+	planner   *Planner
+	knowledge KnowledgeStore
 }
 
-func NewEngine(registry *Registry) *Engine {
+// NewEngine accepts an optional KnowledgeStore so Cloud/Desktop can provide a
+// persistent indexed store while tests and the first built-in use memory.
+func NewEngine(registry *Registry, stores ...KnowledgeStore) *Engine {
 	if registry == nil {
 		registry = DefaultRegistry()
 	}
+	knowledge := DefaultKnowledgeStore()
+	if len(stores) > 0 && stores[0] != nil {
+		knowledge = stores[0]
+	}
 	router := NewRouter(registry)
-	return &Engine{registry: registry, router: router, planner: NewPlanner(router)}
+	return &Engine{registry: registry, router: router, planner: NewPlanner(router, knowledge), knowledge: knowledge}
 }
 
+var (
+	defaultEngineOnce sync.Once
+	defaultEngine     *Engine
+)
+
 func DefaultEngine() *Engine {
-	return NewEngine(DefaultRegistry())
+	defaultEngineOnce.Do(func() {
+		defaultEngine = NewEngine(DefaultRegistry(), DefaultKnowledgeStore())
+	})
+	return defaultEngine
 }
 
 func (e *Engine) Catalog() []Manifest {
