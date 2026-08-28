@@ -44,6 +44,8 @@ type Manifest struct {
 	Quality      float64      `json:"quality"`
 	Verified     bool         `json:"verified"`
 	SourceURL    string       `json:"sourceUrl,omitempty"`
+	SourceRef    string       `json:"sourceRef,omitempty"`
+	SourceHash   string       `json:"sourceHash,omitempty"`
 	License      string       `json:"license,omitempty"`
 }
 
@@ -89,6 +91,7 @@ type Selection struct {
 type PlanStep struct {
 	Order        int          `json:"order"`
 	SkillID      string       `json:"skillId"`
+	SkillVersion string       `json:"skillVersion"`
 	Phase        string       `json:"phase"`
 	Reason       string       `json:"reason"`
 	Capabilities []Capability `json:"capabilities,omitempty"`
