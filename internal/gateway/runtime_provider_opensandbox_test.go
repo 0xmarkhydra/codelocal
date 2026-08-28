@@ -20,6 +20,23 @@ func TestManagedRuntimeDeviceID(t *testing.T) {
 	}
 }
 
+func TestManagedSnapshotNameIsStableAndScoped(t *testing.T) {
+	first := managedSnapshotName("user", "workspace-key", "general-small", "runtime:v1")
+	second := managedSnapshotName("user", "workspace-key", "general-small", "runtime:v1")
+	if first == "" || first != second {
+		t.Fatalf("snapshot name is unstable: %q %q", first, second)
+	}
+	if first == managedSnapshotName("user", "workspace-key", "video-cpu", "runtime:v1") {
+		t.Fatal("runtime profile must scope snapshot identity")
+	}
+	if first == managedSnapshotName("user", "workspace-key", "general-small", "runtime:v2") {
+		t.Fatal("runtime image version must scope snapshot identity")
+	}
+	if first == managedSnapshotName("other-user", "workspace-key", "general-small", "runtime:v1") {
+		t.Fatal("user must scope snapshot identity")
+	}
+}
+
 func TestProjectCloudWorkspacePreservesProductIdentity(t *testing.T) {
 	source := &WorkspaceView{
 		Key:             "user::mac::workspace",
