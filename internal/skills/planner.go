@@ -14,6 +14,7 @@ func (p *Planner) Plan(task TaskContext) Plan {
 	}
 	selections := p.router.Route(task)
 	steps := make([]PlanStep, 0, len(selections))
+	skillIDs := make([]string, 0, len(selections))
 	for index, selection := range selections {
 		phase := "advise"
 		switch selection.Skill.Kind {
@@ -24,6 +25,7 @@ func (p *Planner) Plan(task TaskContext) Plan {
 		case KindHybrid:
 			phase = "advise_then_execute"
 		}
+		skillIDs = append(skillIDs, selection.Skill.ID)
 		steps = append(steps, PlanStep{
 			Order:        index + 1,
 			SkillID:      selection.Skill.ID,
@@ -32,7 +34,11 @@ func (p *Planner) Plan(task TaskContext) Plan {
 			Capabilities: append([]Capability(nil), selection.Skill.Capabilities...),
 		})
 	}
-	return Plan{Selections: selections, Steps: steps}
+	return Plan{
+		Selections: selections,
+		Steps:      steps,
+		Knowledge:  RetrieveKnowledge(task, skillIDs, 4),
+	}
 }
 
 type Engine struct {
