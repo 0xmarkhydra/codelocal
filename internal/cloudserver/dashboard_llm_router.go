@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
 )
 
 const (
@@ -254,6 +256,7 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 	} else {
 		w.Header().Del(dashboardSkillHeader)
 	}
+	r = r.WithContext(cloud.WithDashboardChatSkills(r.Context(), dashboardSkillMetadata(skillPlan)))
 	messages = dashboardWithSkillPlan(messages, skillPlan)
 	route := dashboardLLMRoute(selection, allowCommunity)
 	if len(route) == 0 {
@@ -278,7 +281,6 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 			if !dashboardRetryableLLMError(err) || attempt == 1 {
 				break
 			}
-		}
 		dashboardMarkTargetFailed(target)
 	}
 	return dashboardLLMTarget{}, lastErr
