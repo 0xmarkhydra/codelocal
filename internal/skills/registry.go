@@ -26,10 +26,21 @@ func NewRegistry(manifests ...Manifest) (*Registry, error) {
 	return r, nil
 }
 
-// Put stores an immutable skill version. Adding a newer version never silently
-// changes the stable/current version; rollout/promotion must call
-// SetCurrentVersion explicitly.
+// Put stores an immutable skill version. The first version becomes current for
+// compatibility with built-in/personal registries; newer versions never
+// silently change the current version.
 func (r *Registry) Put(manifest Manifest) error {
+	return r.put(manifest, true)
+}
+
+// PutCandidate stores an immutable version without making it routable. Public
+// community submissions and staged system updates use this path until review,
+// eval and promotion explicitly move the current pointer.
+func (r *Registry) PutCandidate(manifest Manifest) error {
+	return r.put(manifest, false)
+}
+
+func (r *Registry) put(manifest Manifest, setCurrentIfMissing bool) error {
 	if err := manifest.Validate(); err != nil {
 		return err
 	}
@@ -44,8 +55,10 @@ func (r *Registry) Put(manifest Manifest) error {
 		return fmt.Errorf("skill %s@%s already exists", id, version)
 	}
 	r.versions[id][version] = manifest
-	if _, exists := r.current[id]; !exists {
-		r.current[id] = version
+	if setCurrentIfMissing {
+		if _, exists := r.current[id]; !exists {
+			r.current[id] = version
+		}
 	}
 	return nil
 }
