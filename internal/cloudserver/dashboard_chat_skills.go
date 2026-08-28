@@ -18,18 +18,54 @@ type dashboardSkillBadge struct {
 	Name string `json:"name"`
 }
 
-func dashboardLatestUserMessage(messages []map[string]any) string {
+func dashboardMessageTextAndImage(content any) (string, bool) {
+	switch value := content.(type) {
+	case string:
+		return strings.TrimSpace(value), false
+	case []map[string]any:
+		return dashboardContentParts(value)
+	case []any:
+		parts := make([]map[string]any, 0, len(value))
+		for _, item := range value {
+			if part, ok := item.(map[string]any); ok {
+				parts = append(parts, part)
+			}
+		}
+		return dashboardContentParts(parts)
+	default:
+		return "", false
+	}
+}
+
+func dashboardContentParts(parts []map[string]any) (string, bool) {
+	texts := []string{}
+	hasImage := false
+	for _, part := range parts {
+		kind, _ := part["type"].(string)
+		switch kind {
+		case "text":
+			if text, _ := part["text"].(string); strings.TrimSpace(text) != "" {
+				texts = append(texts, strings.TrimSpace(text))
+			}
+		case "image_url", "input_image", "image":
+			hasImage = true
+		}
+	}
+	return strings.TrimSpace(strings.Join(texts, " ")), hasImage
+}
+
+func dashboardLatestUserEvidence(messages []map[string]any) (string, bool) {
 	for index := len(messages) - 1; index >= 0; index-- {
 		role, _ := messages[index]["role"].(string)
 		if role != "user" {
 			continue
 		}
-		content, _ := messages[index]["content"].(string)
-		if strings.TrimSpace(content) != "" {
-			return strings.TrimSpace(content)
+		text, hasImage := dashboardMessageTextAndImage(messages[index]["content"])
+		if text != "" || hasImage {
+			return text, hasImage
 		}
 	}
-	return ""
+	return "", false
 }
 
 func dashboardHasSkillContext(messages []map[string]any) bool {
@@ -43,43 +79,13 @@ func dashboardHasSkillContext(messages []map[string]any) bool {
 	return false
 }
 
-func dashboardSkillTask(message string) skillintel.TaskContext {
-	lower := " " + strings.ToLower(strings.TrimSpace(message)) + " "
-	signals := []string{}
-	intents := []string{}
-	ui := false
-	for _, token := range []string{" ui ", "ux", "dashboard", "landing", "layout", "responsive", "accessibility", "design", "redesign", "visual", "screen", "page", "giao diện", "màn hình", "màn này", "trang này", "thiết kế", "bố cục", "đẹp", "xấu", "khó chịu", "dễ nhìn", "font", "màu"} {
-		if strings.Contains(lower, token) {
-			ui = true
-			break
-		}
-	}
-	if ui {
-		signals = append(signals, "ui", "visual")
-		intents = append(intents, "design_ui")
-	}
-	if strings.Contains(lower, "dashboard") {
-		signals = append(signals, "dashboard")
-	}
-	if strings.Contains(lower, "responsive") || strings.Contains(lower, "mobile") || strings.Contains(lower, "điện thoại") {
-		signals = append(signals, "responsive")
-	}
-	if strings.Contains(lower, "accessibility") || strings.Contains(lower, "a11y") || strings.Contains(lower, "aria") {
-		signals = append(signals, "accessibility")
-		intents = append(intents, "audit_ux")
-	}
-	if strings.Contains(lower, "redesign") || strings.Contains(lower, "refactor") || strings.Contains(lower, "đẹp hơn") || strings.Contains(lower, "xấu") || strings.Contains(lower, "khó chịu") || strings.Contains(lower, "làm lại") {
-		intents = append(intents, "refactor_ui")
-	}
-	return skillintel.TaskContext{Query: message, Intents: intents, Signals: signals, MaxSelections: 3}
-}
-
 func dashboardSkillPlan(messages []map[string]any) skillintel.Plan {
-	message := dashboardLatestUserMessage(messages)
-	if message == "" {
+	message, hasImage := dashboardLatestUserEvidence(messages)
+	if message == "" && !hasImage {
 		return skillintel.Plan{}
 	}
-	return skillintel.DefaultEngine().Plan(dashboardSkillTask(message))
+	task := skillintel.ClassifyTask(skillintel.TaskEvidence{Query: message, HasImage: hasImage})
+	return skillintel.DefaultEngine().Plan(task)
 }
 
 func dashboardSkillBadges(plan skillintel.Plan) []dashboardSkillBadge {
