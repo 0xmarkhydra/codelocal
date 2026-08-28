@@ -6,6 +6,7 @@ import (
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	skillintel "github.com/0xmarkhydra/codelocal/internal/skills"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
@@ -48,11 +49,31 @@ type dashboardUsageDTO struct {
 	AllTime   usageWindowDTO `json:"allTime"`
 }
 
+type dashboardSkillDTO struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version"`
+	Publisher    string   `json:"publisher"`
+	Scope        string   `json:"scope"`
+	Kind         string   `json:"kind"`
+	Tags         []string `json:"tags,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Quality      float64  `json:"quality"`
+	Verified     bool     `json:"verified"`
+	License      string   `json:"license,omitempty"`
+}
+
+type dashboardSkillsDTO struct {
+	AutoUse bool                `json:"autoUse"`
+	Items   []dashboardSkillDTO `json:"items"`
+}
+
 type dashboardOverviewDTO struct {
 	User       dashboardOverviewUserDTO     `json:"user"`
 	Devices    dashboardDeviceSummaryDTO    `json:"devices"`
 	Workspaces dashboardWorkspaceSummaryDTO `json:"workspaces"`
 	Usage      dashboardUsageDTO            `json:"usage"`
+	Skills     dashboardSkillsDTO           `json:"skills"`
 }
 
 func dashboardWorkspaceStatus(status string) string {
@@ -66,6 +87,23 @@ func dashboardWorkspaceStatus(status string) string {
 	}
 }
 
+func dashboardSkillCatalogDTO(manifests []skillintel.Manifest) dashboardSkillsDTO {
+	items := make([]dashboardSkillDTO, 0, len(manifests))
+	for _, manifest := range manifests {
+		capabilities := make([]string, 0, len(manifest.Capabilities))
+		for _, capability := range manifest.Capabilities {
+			capabilities = append(capabilities, string(capability))
+		}
+		items = append(items, dashboardSkillDTO{
+			ID: manifest.ID, Name: manifest.Name, Version: manifest.Version,
+			Publisher: manifest.Publisher, Scope: string(manifest.Scope), Kind: string(manifest.Kind),
+			Tags: append([]string(nil), manifest.Tags...), Capabilities: capabilities,
+			Quality: manifest.Quality, Verified: manifest.Verified, License: manifest.License,
+		})
+	}
+	return dashboardSkillsDTO{AutoUse: true, Items: items}
+}
+
 type dashboardOverviewSource struct {
 	Email          string
 	IsAdmin        bool
@@ -76,6 +114,7 @@ type dashboardOverviewSource struct {
 	Usage24h       cloud.MCPUsageSummary
 	Usage30d       cloud.MCPUsageSummary
 	UsageAll       cloud.MCPUsageSummary
+	Skills         []skillintel.Manifest
 }
 
 func buildDashboardOverviewDTO(source dashboardOverviewSource) dashboardOverviewDTO {
@@ -130,6 +169,7 @@ func buildDashboardOverviewDTO(source dashboardOverviewSource) dashboardOverview
 			Last30d:   usageWindow(source.Usage30d),
 			AllTime:   usageWindow(source.UsageAll),
 		},
+		Skills: dashboardSkillCatalogDTO(source.Skills),
 	}
 }
 
@@ -182,5 +222,6 @@ func (s *Server) dashboardOverviewAPI(w http.ResponseWriter, r *http.Request) {
 		Usage24h:       usage24h,
 		Usage30d:       usage30d,
 		UsageAll:       usageAll,
+		Skills:         skillintel.DefaultEngine().Catalog(),
 	}))
 }
