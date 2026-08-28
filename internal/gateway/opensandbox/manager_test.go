@@ -71,6 +71,7 @@ func (f *fakeLifecycle) RenewExpiration(_ context.Context, id string, expiresAt 
 func testAcquireSpec() AcquireSpec {
 	return AcquireSpec{
 		OwnerID:        "user-1",
+		WorkspaceKey:   "user-1::device-1::workspace-1",
 		WorkspaceID:    "workspace-1",
 		Profile:        "general-small",
 		Image:          "codelocal/runtime:v1",
@@ -89,7 +90,8 @@ func TestManagerAcquireReusesRunningSandbox(t *testing.T) {
 	manager := NewManager(fake)
 	manager.Now = func() time.Time { return now }
 
-	result, err := manager.Acquire(context.Background(), testAcquireSpec())
+	spec := testAcquireSpec()
+	result, err := manager.Acquire(context.Background(), spec)
 	if err != nil {
 		t.Fatalf("Acquire() error = %v", err)
 	}
@@ -102,8 +104,11 @@ func TestManagerAcquireReusesRunningSandbox(t *testing.T) {
 	if len(fake.renewIDs) != 1 || fake.renewIDs[0] != "sb-running" {
 		t.Fatalf("renewIDs = %#v", fake.renewIDs)
 	}
-	if fake.listOptions.Metadata[metadataWorkspaceKey] != "workspace-1" {
-		t.Fatalf("metadata = %#v", fake.listOptions.Metadata)
+	if got := fake.listOptions.Metadata[metadataWorkspaceKey]; got != stableScopeHash(spec.WorkspaceKey) {
+		t.Fatalf("workspace metadata = %q, want key hash", got)
+	}
+	if fake.listOptions.Metadata[metadataWorkspaceKey] == spec.WorkspaceKey {
+		t.Fatal("workspace metadata must not expose raw workspace key")
 	}
 	if fake.listOptions.Metadata[metadataOwnerKey] == "user-1" {
 		t.Fatal("owner metadata must be hashed, not raw user identity")
@@ -164,5 +169,14 @@ func TestManagerAcquireRejectsMissingIsolationLimits(t *testing.T) {
 	manager := NewManager(&fakeLifecycle{})
 	if _, err := manager.Acquire(context.Background(), spec); err == nil {
 		t.Fatal("Acquire() error = nil, want resource limit validation")
+	}
+}
+
+func TestManagerAcquireRejectsMissingWorkspaceKey(t *testing.T) {
+	spec := testAcquireSpec()
+	spec.WorkspaceKey = ""
+	manager := NewManager(&fakeLifecycle{})
+	if _, err := manager.Acquire(context.Background(), spec); err == nil {
+		t.Fatal("Acquire() error = nil, want workspace key validation")
 	}
 }
