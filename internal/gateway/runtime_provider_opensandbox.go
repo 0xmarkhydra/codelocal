@@ -152,9 +152,14 @@ func (p *OpenSandboxRuntimeProvider) Acquire(ctx context.Context, request Runtim
 }
 
 func (p *OpenSandboxRuntimeProvider) Call(ctx context.Context, request RuntimeCallRequest) (RoutedResult, error) {
-	if p == nil || p.Hub == nil {
+	if p == nil || p.Hub == nil || p.Sessions == nil {
 		return RoutedResult{}, errors.New("cloud runtime gateway unavailable")
 	}
+	finish, err := p.Sessions.BeginCall(ctx, request.WorkspaceKey, p.Profile)
+	if err != nil {
+		return RoutedResult{}, fmt.Errorf("mark cloud runtime call active: %w", err)
+	}
+	defer finish()
 	return p.Hub.Call(ctx, request.UserID, request.WorkspaceKey, request.SessionID, request.Tool, request.Args, request.SideEffect, request.RequestID)
 }
 
@@ -337,7 +342,7 @@ func (p *OpenSandboxRuntimeProvider) reapIdle(ctx context.Context) {
 			if err := p.Sessions.MarkSnapshotted(ctx, *fresh); err != nil {
 				slog.Warn("cloud runtime checkpoint metadata update failed", "sandboxId", fresh.SandboxID, "error", err)
 			}
-		} (candidate)
+		}(candidate)
 	}
 }
 
