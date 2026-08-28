@@ -248,7 +248,13 @@ func (w *dashboardCountingWriter) Write(data []byte) (int, error) {
 }
 
 func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, selection string, allowCommunity bool, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) (dashboardLLMTarget, error) {
-	messages = dashboardWithSkillContext(messages)
+	skillPlan := dashboardSkillPlan(messages)
+	if value := dashboardSkillHeaderValue(skillPlan); value != "" {
+		w.Header().Set(dashboardSkillHeader, value)
+	} else {
+		w.Header().Del(dashboardSkillHeader)
+	}
+	messages = dashboardWithSkillPlan(messages, skillPlan)
 	route := dashboardLLMRoute(selection, allowCommunity)
 	if len(route) == 0 {
 		return dashboardLLMTarget{}, errors.New("no configured LLM route")
