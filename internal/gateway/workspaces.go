@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
@@ -35,6 +36,11 @@ type WorkspaceService struct {
 	Activation  *cloud.ActivationStore
 	Hub         *Hub
 	Coordinator *Coordinator
+
+	runtimeRouterMu          sync.Mutex
+	runtimeRouterInitialized bool
+	runtimeRouterErr         error
+	RuntimeRouter            *RuntimeRouter
 }
 
 func activeWorkspaceView(client *Client) *WorkspaceView {
@@ -146,7 +152,22 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 	return out, nil
 }
 
+// Activate routes a product workspace through the configured runtime provider
+// set. The original Local Runtime activation path remains in ActivateLocal so
+// provider orchestration cannot recursively call itself.
 func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*WorkspaceView, error) {
+	router, err := s.ensureRuntimeRouter()
+	if err != nil {
+		return nil, err
+	}
+	binding, err := router.Acquire(ctx, RuntimeAcquireRequest{UserID: userID, WorkspaceKey: key, Mode: RuntimeProviderAuto})
+	if err != nil {
+		return nil, err
+	}
+	return binding.Workspace, nil
+}
+
+func (s *WorkspaceService) ActivateLocal(ctx context.Context, userID, key string) (*WorkspaceView, error) {
 	// The connected client is the freshest source of workspace capabilities and
 	// authorization. Avoid rebuilding the durable catalog (DB + several Redis
 	// lookups) on every tool call when this gateway already owns the connection.
