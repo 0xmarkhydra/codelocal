@@ -99,31 +99,16 @@ jobs:
           )
 
           replace_once(
-              '''          return {
-            role: message.role as ChatMsg["role"],
-            content: message.content,
-            tool_calls: toolCalls,
-            image: message.image,
-          };''',
-              '''          const skills = parseHistorySkills(message.skills);
-              return {
-            role: message.role as ChatMsg["role"],
-            content: message.content,
-            tool_calls: toolCalls,
-                skills: skills.length ? skills : undefined,
-            image: message.image,
-          };'''
+              '          return {\n            role: message.role as ChatMsg["role"],',
+              '          const skills = parseHistorySkills(message.skills);\n          return {\n            role: message.role as ChatMsg["role"],'
           )
-
           replace_once(
-              '''                    <span className={skillStyles.pill} key={skill.id} title="CodeLocal tự chọn Skill này cho task hiện tại">
-                      <AppIcon name="skill" size={13} />
-                      {skill.name}
-                    </span>''',
-              '''                    <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>
-                      <AppIcon name="skill" size={13} />
-                      {skill.name}
-                    </span>'''
+              '            tool_calls: toolCalls,\n            image: message.image,',
+              '            tool_calls: toolCalls,\n            skills: skills.length ? skills : undefined,\n            image: message.image,'
+          )
+          replace_once(
+              '<span className={skillStyles.pill} key={skill.id} title="CodeLocal tự chọn Skill này cho task hiện tại">',
+              '<span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>'
           )
 
           path.write_text(text)
