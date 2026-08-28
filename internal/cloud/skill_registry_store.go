@@ -31,6 +31,7 @@ type SkillVersionRecord struct {
 	RecordID      string            `json:"recordId"`
 	TenantUserID  string            `json:"tenantUserId,omitempty"`
 	CreatorUserID string            `json:"creatorUserId,omitempty"`
+	Publisher     string            `json:"publisher"`
 	Manifest      skills.Manifest   `json:"manifest"`
 	State         SkillVersionState `json:"state"`
 	PackageHash   string            `json:"packageHash"`
@@ -65,6 +66,10 @@ func NewSkillVersionRecord(tenantUserID, creatorUserID string, pkg skills.Packag
 	if pkg.Manifest.Scope != skills.ScopePersonal && tenantUserID != "" {
 		return SkillVersionRecord{}, fmt.Errorf("shared skill cannot be tenant-scoped")
 	}
+	publisher, err := authoritativeSkillPublisher(pkg.Manifest, creatorUserID)
+	if err != nil {
+		return SkillVersionRecord{}, err
+	}
 	if !validSkillVersionState(state) {
 		return SkillVersionRecord{}, fmt.Errorf("invalid skill version state %q", state)
 	}
@@ -73,6 +78,7 @@ func NewSkillVersionRecord(tenantUserID, creatorUserID string, pkg skills.Packag
 		RecordID:      skillRegistryID("version", tenantUserID, pkg.Manifest.ID, pkg.Manifest.Version),
 		TenantUserID:  tenantUserID,
 		CreatorUserID: creatorUserID,
+		Publisher:     publisher,
 		Manifest:      pkg.Manifest,
 		State:         state,
 		PackageHash:   pkg.PackageHash,
@@ -83,11 +89,33 @@ func NewSkillVersionRecord(tenantUserID, creatorUserID string, pkg skills.Packag
 	}, nil
 }
 
+func authoritativeSkillPublisher(manifest skills.Manifest, creatorUserID string) (string, error) {
+	creatorUserID = strings.TrimSpace(creatorUserID)
+	switch manifest.Scope {
+	case skills.ScopePersonal, skills.ScopeCommunity:
+		if creatorUserID == "" {
+			return "", fmt.Errorf("%s skill requires authenticated creator", manifest.Scope)
+		}
+		// Never trust a user-supplied manifest publisher as account identity. The
+		// package keeps the claimed publisher under its signed hash for provenance,
+		// while catalog/market authority comes from the authenticated creator.
+		return creatorUserID, nil
+	case skills.ScopeSystem:
+		publisher := strings.TrimSpace(manifest.Publisher)
+		if publisher == "" {
+			return "", fmt.Errorf("system skill publisher is required")
+		}
+		return publisher, nil
+	default:
+		return "", fmt.Errorf("unsupported skill scope %q", manifest.Scope)
+	}
+}
+
 func (s *Store) CreateSkillVersion(ctx context.Context, record SkillVersionRecord) (bool, error) {
 	if s == nil || s.DB == nil {
 		return false, fmt.Errorf("cloud store is unavailable")
 	}
-	if strings.TrimSpace(record.RecordID) == "" || strings.TrimSpace(record.Manifest.ID) == "" || strings.TrimSpace(record.Manifest.Version) == "" {
+	if strings.TrimSpace(record.RecordID) == "" || strings.TrimSpace(record.Manifest.ID) == "" || strings.TrimSpace(record.Manifest.Version) == "" || strings.TrimSpace(record.Publisher) == "" {
 		return false, fmt.Errorf("skill version identity is required")
 	}
 	manifestJSON, err := json.Marshal(record.Manifest)
@@ -105,7 +133,7 @@ INSERT INTO codelocal_skill_versions (
 )
 ON CONFLICT (record_id) DO NOTHING`,
 		record.RecordID, record.Manifest.ID, record.Manifest.Version, record.TenantUserID,
-		record.CreatorUserID, record.Manifest.Scope, record.Manifest.Kind, record.Manifest.Publisher,
+		record.CreatorUserID, record.Manifest.Scope, record.Manifest.Kind, record.Publisher,
 		record.State, record.Manifest.Verified, string(manifestJSON), record.PackageHash,
 		record.ArtifactHash, record.ArtifactURI, record.CreatedAt, record.UpdatedAt, record.PromotedAt,
 	)
@@ -115,16 +143,21 @@ ON CONFLICT (record_id) DO NOTHING`,
 	if tag.RowsAffected() == 1 {
 		return true, nil
 	}
-	var packageHash, artifactHash, artifactURI string
+	var packageHash, artifactHash, artifactURI, publisher string
+	var creatorUserID *string
 	err = s.DB.QueryRow(ctx, `
-SELECT package_hash, artifact_hash, artifact_uri
+SELECT package_hash, artifact_hash, artifact_uri, publisher, creator_user_id
 FROM codelocal_skill_versions
-WHERE record_id = $1`, record.RecordID).Scan(&packageHash, &artifactHash, &artifactURI)
+WHERE record_id = $1`, record.RecordID).Scan(&packageHash, &artifactHash, &artifactURI, &publisher, &creatorUserID)
 	if err != nil {
 		return false, err
 	}
-	if packageHash != record.PackageHash || artifactHash != record.ArtifactHash || artifactURI != record.ArtifactURI {
-		return false, fmt.Errorf("immutable skill version %s@%s already exists with different content", record.Manifest.ID, record.Manifest.Version)
+	existingCreator := ""
+	if creatorUserID != nil {
+		existingCreator = *creatorUserID
+	}
+	if packageHash != record.PackageHash || artifactHash != record.ArtifactHash || artifactURI != record.ArtifactURI || publisher != record.Publisher || existingCreator != record.CreatorUserID {
+		return false, fmt.Errorf("immutable skill version %s@%s already exists with different content or authority", record.Manifest.ID, record.Manifest.Version)
 	}
 	return false, nil
 }
