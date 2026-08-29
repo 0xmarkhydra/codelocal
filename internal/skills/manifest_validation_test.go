@@ -35,3 +35,20 @@ func TestManifestRejectsUnknownAndDuplicateCapabilities(t *testing.T) {
 		t.Fatal("duplicate capabilities must be rejected")
 	}
 }
+
+func TestManifestAcceptsEveryDeclaredCapability(t *testing.T) {
+	base := BuiltinManifests()[0]
+	base.Kind = KindHybrid
+	base.Capabilities = []Capability{
+		CapabilityProjectRead,
+		CapabilityProjectWrite,
+		CapabilityShell,
+		CapabilityNetwork,
+		CapabilityBrowser,
+		CapabilityCredentials,
+		CapabilityDestructive,
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("declared capability allowlist drifted from manifest validation: %v", err)
+	}
+}
