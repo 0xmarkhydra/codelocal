@@ -397,7 +397,7 @@ export function SkillsHub() {
           <h1>Skills</h1>
           <p className={styles.lede}>Chat normally. CodeLocal finds and combines useful expertise automatically.</p>
         </div>
-        <div className={styles.status}>
+        <div className={styles.status} data-active={resource.autoUse || undefined}>
           <span className={styles.statusDot} aria-hidden="true" />
           {resource.autoUse ? "Auto-use on" : "Auto-use off"}
         </div>
