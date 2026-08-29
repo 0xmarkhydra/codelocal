@@ -102,10 +102,14 @@ func ValidatePackageForImport(pkg Package, policy ImportPolicy) error {
 	if pkg.Manifest.Verified && !policy.AllowVerified {
 		return fmt.Errorf("import policy cannot grant verified status")
 	}
-	if (pkg.Manifest.Kind == KindRuntime || pkg.Manifest.Kind == KindHybrid) && !policy.AllowRuntime {
-		return fmt.Errorf("import policy does not allow runtime-capable skills")
+	if !policy.AllowRuntime && packageRequiresRuntimeReview(pkg.Manifest) {
+		return fmt.Errorf("import policy does not allow execution-capable skills")
 	}
 	return nil
+}
+
+func packageRequiresRuntimeReview(manifest Manifest) bool {
+	return manifest.Kind == KindRuntime || manifest.Kind == KindHybrid || len(manifest.Capabilities) > 0
 }
 
 func packageContentHash(pkg Package) (string, error) {
