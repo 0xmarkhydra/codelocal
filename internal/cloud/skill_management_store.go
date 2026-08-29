@@ -3,8 +3,6 @@ package cloud
 import (
 	"context"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // ListSharedSkillVersions returns global System/Community versions for creator
@@ -55,14 +53,40 @@ ORDER BY skill_id, created_at DESC`, strings.TrimSpace(userID))
 	return out, rows.Err()
 }
 
-func (s *Store) GetSkillRating(ctx context.Context, userID, skillID string) (int, bool, error) {
-	var rating int
-	err := s.DB.QueryRow(ctx, `SELECT rating FROM codelocal_skill_ratings WHERE user_id=$1 AND skill_id=$2`, strings.TrimSpace(userID), strings.TrimSpace(skillID)).Scan(&rating)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return 0, false, nil
+func (s *Store) SkillRatingsForUser(ctx context.Context, userID string, skillIDs []string) (map[string]int, error) {
+	out := map[string]int{}
+	userID = strings.TrimSpace(userID)
+	seen := map[string]struct{}{}
+	ids := make([]string, 0, len(skillIDs))
+	for _, skillID := range skillIDs {
+		skillID = strings.TrimSpace(skillID)
+		if skillID == "" {
+			continue
 		}
-		return 0, false, err
+		if _, duplicate := seen[skillID]; duplicate {
+			continue
+		}
+		seen[skillID] = struct{}{}
+		ids = append(ids, skillID)
 	}
-	return rating, true, nil
+	if userID == "" || len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.DB.Query(ctx, `
+SELECT skill_id, rating
+FROM codelocal_skill_ratings
+WHERE user_id=$1 AND skill_id=ANY($2::text[])`, userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var skillID string
+		var rating int
+		if err := rows.Scan(&skillID, &rating); err != nil {
+			return nil, err
+		}
+		out[skillID] = rating
+	}
+	return out, rows.Err()
 }
