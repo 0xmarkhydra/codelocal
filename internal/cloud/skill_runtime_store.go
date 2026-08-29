@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type skillVersionScanner interface {
@@ -53,7 +55,7 @@ WHERE skill_id = $1 AND version = $2
 		strings.TrimSpace(skillID), strings.TrimSpace(version), strings.TrimSpace(tenantUserID))
 	record, err := scanSkillVersionRecord(row)
 	if err != nil {
-		if isNoRows(err) {
+		if err == pgx.ErrNoRows {
 			return SkillVersionRecord{}, false, nil
 		}
 		return SkillVersionRecord{}, false, err
