@@ -3,6 +3,8 @@ package cloud
 import (
 	"context"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // ListSharedSkillVersions returns global System/Community versions for creator
@@ -57,7 +59,7 @@ func (s *Store) GetSkillRating(ctx context.Context, userID, skillID string) (int
 	var rating int
 	err := s.DB.QueryRow(ctx, `SELECT rating FROM codelocal_skill_ratings WHERE user_id=$1 AND skill_id=$2`, strings.TrimSpace(userID), strings.TrimSpace(skillID)).Scan(&rating)
 	if err != nil {
-		if isPGXNoRows(err) {
+		if err == pgx.ErrNoRows {
 			return 0, false, nil
 		}
 		return 0, false, err
