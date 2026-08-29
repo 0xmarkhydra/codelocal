@@ -21,7 +21,8 @@ type PackageStore interface {
 // DirectoryPackageCache is a content-addressed PackageStore suitable for
 // CodeLocal desktop/local runtime. Cloud implements the same interface over
 // durable object storage. Files are addressed only by validated SHA-256 package
-// hashes, never by user-controlled skill IDs or paths.
+// hashes, never by user-controlled skill IDs or paths. Cache entries are private
+// because Personal Skills may contain user-authored reusable knowledge.
 type DirectoryPackageCache struct {
 	Root string
 }
@@ -52,10 +53,14 @@ func (c DirectoryPackageCache) Put(ctx context.Context, pkg Package) error {
 	if len(payload) > MaxStoredSkillPackageBytes {
 		return fmt.Errorf("skill package exceeds %d stored bytes", MaxStoredSkillPackageBytes)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".skill-package-*")
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, ".skill-package-*")
 	if err != nil {
 		return err
 	}
@@ -65,7 +70,7 @@ func (c DirectoryPackageCache) Put(ctx context.Context, pkg Package) error {
 		temp.Close()
 		return err
 	}
-	if err := temp.Chmod(0o644); err != nil {
+	if err := temp.Chmod(0o600); err != nil {
 		temp.Close()
 		return err
 	}
