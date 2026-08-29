@@ -16,6 +16,7 @@ type SkillRuntimeCatalog interface {
 	StableSkillVersionRecords(ctx context.Context, userID string) ([]SkillVersionRecord, error)
 	SkillVersionRecordByIdentity(ctx context.Context, tenantUserID, skillID, version string) (SkillVersionRecord, bool, error)
 	ListSkillUserStates(ctx context.Context, userID string) ([]SkillUserState, error)
+	SkillQualitySignals(ctx context.Context, refs []SkillVersionRef) (map[string]SkillQualitySignal, error)
 }
 
 type SkillRuntime struct {
@@ -156,6 +157,48 @@ func (r *SkillRuntime) Snapshot(ctx context.Context, userID string) (SkillRuntim
 		}
 		copy := pinnedRecord
 		selected[skillID] = effectiveSkillSource{manifest: pinnedRecord.Manifest, record: &copy}
+	}
+
+	// Community quality is authoritative only when backed by passed evaluation
+	// evidence. Creator-supplied Manifest.Quality is never trusted globally.
+	communityRefs := make([]SkillVersionRef, 0)
+	for _, source := range selected {
+		if source.manifest.Scope == skills.ScopeCommunity {
+			communityRefs = append(communityRefs, SkillVersionRef{SkillID: source.manifest.ID, Version: source.manifest.Version})
+		}
+	}
+	if len(communityRefs) > 0 {
+		if r == nil || r.catalog == nil {
+			for _, ref := range communityRefs {
+				delete(selected, ref.SkillID)
+			}
+			warnings = append(warnings, "community skills suppressed because trusted quality evidence is unavailable")
+		} else {
+			signals, qualityErr := r.catalog.SkillQualitySignals(ctx, communityRefs)
+			if qualityErr != nil {
+				for _, ref := range communityRefs {
+					delete(selected, ref.SkillID)
+				}
+				warnings = append(warnings, "community skills suppressed because quality evidence lookup failed")
+			} else {
+				for _, ref := range communityRefs {
+					signal, ok := signals[skillQualityKey(ref.SkillID, ref.Version)]
+					if !ok || signal.EvaluationScore < MinSkillEvaluationScore {
+						delete(selected, ref.SkillID)
+						warnings = append(warnings, "community skill "+ref.SkillID+" suppressed without passed evaluation evidence")
+						continue
+					}
+					source := selected[ref.SkillID]
+					source.manifest.Quality = signal.Quality
+					if source.record != nil {
+						copy := *source.record
+						copy.Manifest = source.manifest
+						source.record = &copy
+					}
+					selected[ref.SkillID] = source
+				}
+			}
+		}
 	}
 
 	ids := make([]string, 0, len(selected))
