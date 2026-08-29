@@ -8,6 +8,7 @@ import { AppIcon } from "./app-icon";
 import { ChatRichMessage } from "./chat-rich-message";
 import { useDashboardResource } from "./use-dashboard-resource";
 import styles from "./dashboard-chat.module.css";
+import skillStyles from "./skill-indicator.module.css";
 
 type ToolCall = {
   id: string;
@@ -18,11 +19,18 @@ type ToolCall = {
   status: "done" | "error" | "approval_required";
 };
 
+type SkillBadge = {
+  id: string;
+  name: string;
+  version: string;
+};
+
 type ChatMsg = {
   role: "user" | "assistant";
   content: string;
   tool_calls?: ToolCall[];
   image?: string;
+  skills?: SkillBadge[];
 };
 
 type StreamData = {
@@ -91,6 +99,32 @@ function toolLabel(name: string) {
   }
 }
 
+function parseSkillBadges(value: unknown): SkillBadge[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    const version = typeof record.version === "string" ? record.version.trim() : "";
+    return id && name && version ? [{ id, name, version }] : [];
+  }).slice(0, 3);
+}
+
+function parseSkillHeader(raw: string | null): SkillBadge[] {
+  if (!raw) return [];
+  try {
+    return parseSkillBadges(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
+  }
+}
+
+function parseHistorySkills(raw: string | SkillBadge[] | undefined): SkillBadge[] {
+  if (Array.isArray(raw)) return parseSkillBadges(raw);
+  return parseSkillHeader(raw ?? null);
+}
+
 function friendlyChatFailure(message: string) {
   if (/508|tool loop|loop exceeded/i.test(message)) {
     return "Luồng xử lý vừa quá dài. Thánh Gióng đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
@@ -142,7 +176,7 @@ export function DashboardChat() {
         if (!response.ok) throw new Error(`history ${response.status}`);
         return response.json();
       })
-      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; image?: string }> } | null) => {
+      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; skills?: string | SkillBadge[]; image?: string }> } | null) => {
         if (!data?.messages) return;
         const mapped: ChatMsg[] = data.messages.map((message) => {
           let toolCalls: ToolCall[] | undefined;
@@ -155,10 +189,12 @@ export function DashboardChat() {
           } else if (Array.isArray(message.tool_calls)) {
             toolCalls = message.tool_calls;
           }
+          const skills = parseHistorySkills(message.skills);
           return {
             role: message.role as ChatMsg["role"],
             content: message.content,
             tool_calls: toolCalls,
+            skills: skills.length ? skills : undefined,
             image: message.image,
           };
         });
@@ -298,10 +334,16 @@ export function DashboardChat() {
     formRef.current?.requestSubmit();
   }
 
-  function updateAssistant(index: number, content: string, toolCalls: ToolCall[]) {
+  function updateAssistant(index: number, content: string, toolCalls: ToolCall[], skills?: SkillBadge[]) {
     setMessages((current) => {
       const copy = [...current];
-      copy[index] = { role: "assistant", content, tool_calls: [...toolCalls] };
+      const preservedSkills = skills ?? copy[index]?.skills;
+      copy[index] = {
+        role: "assistant",
+        content,
+        tool_calls: [...toolCalls],
+        skills: preservedSkills?.length ? [...preservedSkills] : undefined,
+      };
       return copy;
     });
   }
@@ -395,12 +437,16 @@ export function DashboardChat() {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error || `HTTP ${response.status}`);
       }
+      const activeSkills = parseSkillHeader(response.headers.get("x-codelocal-skills"));
+      if (activeSkills.length) {
+        updateAssistant(placeholderIndex, "", [], activeSkills);
+      }
       setNotice("");
 
       if (!(response.headers.get("content-type") || "").includes("text/event-stream")) {
         const data = (await response.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string };
         if (data.error) throw new Error(data.error);
-        updateAssistant(placeholderIndex, data.reply || "", data.tool_calls || []);
+        updateAssistant(placeholderIndex, data.reply || "", data.tool_calls || [], activeSkills);
         return;
       }
 
@@ -539,6 +585,16 @@ export function DashboardChat() {
         ) : messages.map((message, index) => (
           <div key={`${message.role}-${index}`} className={`${styles.msgBlock} ${message.role === "user" ? styles.userBlock : styles.assistantBlock}`}>
             <div className={styles.messageBody}>
+              {message.skills?.length ? (
+                <div className={skillStyles.list} aria-label="Skills đang được CodeLocal sử dụng">
+                  {message.skills.map((skill) => (
+                    <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>
+                      <AppIcon name="skill" size={13} />
+                      {skill.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {message.tool_calls?.length ? (
                 <div className={styles.toolList}>
                   {message.tool_calls.map((tool) => (

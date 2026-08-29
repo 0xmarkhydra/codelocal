@@ -1,0 +1,43 @@
+{
+  "id": "ui-ux-pro",
+  "name": "UI/UX Pro",
+  "version": "1.0.0",
+  "publisher": "CodeLocal",
+  "scope": "system",
+  "kind": "knowledge",
+  "intents": [
+    "design_ui",
+    "refactor_ui",
+    "audit_ux",
+    "frontend_visual_review"
+  ],
+  "tags": [
+    "ui",
+    "ux",
+    "frontend",
+    "design",
+    "dashboard",
+    "landing",
+    "accessibility",
+    "typography",
+    "responsive",
+    "visual"
+  ],
+  "stacks": [
+    "react",
+    "nextjs",
+    "vue",
+    "svelte",
+    "flutter",
+    "swiftui",
+    "react-native",
+    "html",
+    "tailwind"
+  ],
+  "quality": 0.9,
+  "verified": true,
+  "sourceUrl": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+  "sourceRef": "8bd29e775453ebcae52b6e6514fbf134df0c5770",
+  "sourceHash": "49e14e670dee9c587d47cd9e78935eb6182a0466",
+  "license": "MIT"
+}

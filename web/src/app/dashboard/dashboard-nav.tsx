@@ -14,6 +14,7 @@ type NavigationItem = { label: string; href: string; icon: AppIconName };
 const navigation: NavigationItem[] = [
   { label: "Chat", href: "/dashboard", icon: "chat" },
   { label: "Brain", href: "/dashboard/knowledge", icon: "brain" },
+  { label: "Skills", href: "/dashboard/skills", icon: "skill" },
   { label: "Connections", href: "/dashboard/connect", icon: "connection" },
   { label: "Workspaces", href: "/dashboard/workspaces", icon: "folder" },
   { label: "Devices", href: "/dashboard/devices", icon: "device" },
