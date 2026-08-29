@@ -4,13 +4,23 @@
   overflow: auto;
 }
 
+.header,
+.toolbar,
+.tabs,
+.content,
+.adminPanel,
+.noticeError,
+.noticeSuccess {
+  max-width: 980px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  max-width: 980px;
-  margin: 0 auto;
 }
 
 .header h1 {
@@ -24,7 +34,11 @@
 .skillHeading p,
 .description,
 .sectionIntro p,
-.emptyState span {
+.emptyState span,
+.toolbar span,
+.skillMeta,
+.adminRow span,
+.muted {
   color: var(--muted);
 }
 
@@ -62,11 +76,89 @@
   opacity: 0.8;
 }
 
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 22px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+
+.toolbar > div {
+  display: flex;
+  gap: 8px;
+}
+
+.toolbar button,
+.skillControls button,
+.rating button,
+.adminPanel button {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 82%, var(--background));
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
+.toolbar button:hover:not(:disabled),
+.skillControls button:hover:not(:disabled),
+.rating button:hover:not(:disabled),
+.adminPanel button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 8%, var(--panel));
+}
+
+.toolbar button:focus-visible,
+.skillControls button:focus-visible,
+.rating button:focus-visible,
+.adminPanel button:focus-visible,
+.adminPanel input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.toolbar button:disabled,
+.skillControls button:disabled,
+.rating button:disabled,
+.adminPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.primaryButton {
+  background: var(--foreground) !important;
+  color: var(--background) !important;
+  border-color: transparent !important;
+}
+
+.noticeError,
+.noticeSuccess {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.noticeError {
+  background: color-mix(in srgb, #d33 9%, var(--panel));
+}
+
+.noticeSuccess {
+  background: color-mix(in srgb, #2a8f52 10%, var(--panel));
+}
+
 .tabs {
   display: flex;
   gap: 4px;
-  max-width: 980px;
-  margin: 24px auto 0;
+  margin-top: 24px;
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -103,8 +195,7 @@
 }
 
 .content {
-  max-width: 980px;
-  margin: 24px auto 0;
+  margin-top: 24px;
 }
 
 .sectionIntro {
@@ -125,6 +216,7 @@
   display: grid;
   grid-template-columns: 42px 1fr;
   gap: 14px;
+  margin-top: 10px;
   padding: 18px;
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -170,6 +262,7 @@
   padding: 5px 8px;
   font-size: 11px;
   font-weight: 700;
+  text-transform: capitalize;
 }
 
 .description {
@@ -179,10 +272,18 @@
   line-height: 1.55;
 }
 
-.tags {
+.tags,
+.skillMeta,
+.skillControls,
+.rating,
+.adminActions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+
+.tags {
   margin-top: 12px;
 }
 
@@ -193,6 +294,11 @@
   font-size: 11px;
 }
 
+.skillMeta {
+  margin-top: 10px;
+  font-size: 11px;
+}
+
 .permissionLine {
   display: flex;
   align-items: center;
@@ -200,6 +306,33 @@
   margin-top: 13px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.skillControls {
+  margin-top: 12px;
+}
+
+.skillControls .controlActive {
+  border-color: color-mix(in srgb, var(--foreground) 40%, var(--border));
+  background: color-mix(in srgb, var(--foreground) 10%, var(--panel));
+  font-weight: 700;
+}
+
+.rating {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rating button {
+  min-width: 28px;
+  padding: 5px 6px;
+  color: var(--muted);
+}
+
+.rating .ratingActive {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 10%, var(--panel));
 }
 
 .emptyState {
@@ -223,35 +356,79 @@
   line-height: 1.5;
 }
 
+.adminPanel {
+  margin-top: 28px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+.adminHeader,
+.adminRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.adminHeader h2 {
+  margin: 3px 0 0;
+  font-size: 16px;
+}
+
+.adminRow {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.adminRow > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.adminRow strong {
+  font-size: 13px;
+}
+
+.adminRow span,
+.muted {
+  font-size: 12px;
+}
+
+.adminActions {
+  justify-content: flex-end;
+}
+
+.adminActions input {
+  min-width: 92px;
+  max-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+
 @media (max-width: 720px) {
-  .page {
-    padding: 18px;
-  }
-
-  .header {
-    flex-direction: column;
-  }
-
-  .tabs {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  .tabs button {
-    flex: 1 0 auto;
-  }
-
-  .skillCard {
-    grid-template-columns: 1fr;
-  }
-
-  .skillHeading {
-    align-items: center;
-  }
+  .page { padding: 18px; }
+  .header,
+  .toolbar,
+  .adminHeader,
+  .adminRow { align-items: stretch; flex-direction: column; }
+  .toolbar > div { width: 100%; }
+  .toolbar button { flex: 1; }
+  .tabs { width: 100%; overflow-x: auto; }
+  .tabs button { flex: 1 0 auto; }
+  .skillCard { grid-template-columns: 1fr; }
+  .skillHeading { align-items: center; }
+  .adminActions { justify-content: flex-start; }
+  .adminActions input { max-width: none; flex: 1 1 130px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tabs button {
-    scroll-behavior: auto;
-  }
+  .tabs button { scroll-behavior: auto; }
 }
