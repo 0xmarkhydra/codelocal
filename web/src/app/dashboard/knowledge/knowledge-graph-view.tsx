@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { KnowledgeGraphNode, KnowledgeGraphResource } from "@/lib/contracts/knowledge";
+import type { AppIconName } from "../app-icon";
+import { AppIcon } from "../app-icon";
 import { formatDashboardTime } from "../dashboard-format";
 import { NeuralGraphStage, NeuralStageNode } from "../neural-graph-stage";
 import viewStyles from "../graph-view.module.css";
@@ -10,13 +12,13 @@ import viewStyles from "../graph-view.module.css";
 type GraphGroup = "center" | "project" | "structure" | "skill" | "knowledge" | "experience" | "memory";
 
 const colors: Record<GraphGroup, string> = {
-  center: "#eef5ff",
-  project: "#9b7cff",
-  structure: "#58a6ff",
-  skill: "#f4a45f",
-  knowledge: "#53d6cf",
-  experience: "#ff8f76",
-  memory: "#d98cff",
+  center: "#dce8f7",
+  project: "#8da3e8",
+  structure: "#72a4d2",
+  skill: "#d0a06c",
+  knowledge: "#69b2ac",
+  experience: "#cf8f7c",
+  memory: "#a792c5",
 };
 
 function graphGroup(kind: string): GraphGroup {
@@ -41,8 +43,21 @@ function nodeMatches(node: KnowledgeGraphNode, query: string) {
   return `${node.name} ${node.kind} ${node.scope ?? ""} ${node.summary ?? ""}`.toLowerCase().includes(query);
 }
 
-function InspectorIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h6l2 2h8v9H4z" /></svg>;
+function inspectorIconName(kind: string): AppIconName {
+  switch (kind) {
+    case "project":
+    case "repository":
+    case "workspace": return "folder";
+    case "device": return "device";
+    case "skill": return "skill";
+    case "knowledge_source":
+    case "knowledge_revision":
+    case "canonical_knowledge":
+    case "conflict": return "database";
+    case "experience": return "code";
+    case "user": return "brain";
+    default: return "memory";
+  }
 }
 
 export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource }) {
@@ -94,8 +109,8 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource })
     <div className={`${viewStyles.shell} ${viewStyles.viewportShell}`} data-inspector={selected ? "true" : undefined}>
       <div className={viewStyles.main}>
         <div className={viewStyles.toolbar}>
-          <svg className={viewStyles.searchIcon} viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></svg>
-          <label className="sr-only" htmlFor="knowledge-graph-search">Search Knowledge Graph</label>
+          <AppIcon className={viewStyles.searchIcon} name="search" size={14} />
+          <label className="sr-only" htmlFor="knowledge-graph-search">Search Brain</label>
           <input
             id="knowledge-graph-search"
             className={viewStyles.search}
@@ -111,7 +126,7 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource })
           edges={edges}
           selectedId={selectedID}
           onSelect={setSelectedID}
-          ariaLabel={`Knowledge Graph with ${graph.nodes.length} nodes and ${graph.edges.length} relationships`}
+          ariaLabel={`Brain graph with ${graph.nodes.length} nodes and ${graph.edges.length} relationships`}
           emptyLabel="No knowledge yet"
           legend={[
             { label: "Project", color: colors.project },
@@ -126,10 +141,10 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource })
         <aside className={viewStyles.inspector} aria-label="Knowledge node details">
           <div className={viewStyles.inspectorHead}>
             <div className={viewStyles.identity}>
-              <span className={viewStyles.avatar} style={{ "--node-color": colors[graphGroup(selected.kind)] } as CSSProperties}><InspectorIcon /></span>
+              <span className={viewStyles.avatar} style={{ "--node-color": colors[graphGroup(selected.kind)] } as CSSProperties}><AppIcon name={inspectorIconName(selected.kind)} size={17} /></span>
               <div><small>{selected.kind.replaceAll("_", " ")}</small><h3>{selected.name}</h3></div>
             </div>
-            <button className={viewStyles.close} type="button" aria-label="Close inspector" onClick={() => setSelectedID(null)}>×</button>
+            <button className={viewStyles.close} type="button" aria-label="Close inspector" onClick={() => setSelectedID(null)}><AppIcon name="close" size={15} /></button>
           </div>
           <div className={viewStyles.chips}>
             {selected.scope && <span>{selected.scope}</span>}

@@ -220,13 +220,16 @@ func knowledgeV2SchemaMigrations() []schemaMigration {
 }
 
 func accountSchemaMigrations() []schemaMigration {
-	return []schemaMigration{
+	migrations := []schemaMigration{
 		{41, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS password_changed_at BIGINT NOT NULL DEFAULT 0;`},
 		{42, `ALTER TABLE codelocal_users ADD COLUMN IF NOT EXISTS security_version BIGINT NOT NULL DEFAULT 1;`},
 		{43, `ALTER TABLE codelocal_devices ADD COLUMN IF NOT EXISTS public_key TEXT;`},
 		{44, dashboardChatMigrationSQL},
 		{45, dashboardChatImageMigrationSQL},
+		{46, runtimeConfigMigrationSQL},
+		{47, runtimeSecretsMigrationSQL},
 	}
+	return append(migrations, skillIntelligenceSchemaMigrations()...)
 }
 
 func validateSchemaMigrationPlan(migrations []schemaMigration) error {

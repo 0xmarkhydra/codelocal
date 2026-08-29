@@ -1,0 +1,43 @@
+name: CodeLocal Web CI
+
+on:
+  push:
+    branches: [main, dev, go-migration]
+    paths:
+      - 'web/**'
+      - 'Dockerfile.web'
+      - 'railway.web.json'
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'Dockerfile.web'
+      - 'railway.web.json'
+  workflow_dispatch:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        run: npm ci --prefix web
+      - name: Check Next.js web
+        run: npm run check --prefix web
+
+  web-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Next.js web image
+        run: >-
+          docker build
+          --file Dockerfile.web
+          --build-arg CODELOCAL_BACKEND_URL=http://codelocal-backend.railway.internal:3333
+          --tag codelocal-web:ci
+          .

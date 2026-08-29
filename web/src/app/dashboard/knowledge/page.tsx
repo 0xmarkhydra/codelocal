@@ -1,13 +1,19 @@
-import { LiveKnowledgeHealth } from "./knowledge-health-live";
+import Link from "next/link";
 import { LiveKnowledgeGraph } from "./knowledge-live";
 import styles from "../dashboard.module.css";
 
 export default function KnowledgePage() {
   return (
-    <section className={styles.content}>
-      <header className={styles.header}><div><h1>Knowledge</h1></div></header>
-      <LiveKnowledgeGraph />
-      <LiveKnowledgeHealth />
+    <section className={`${styles.content} ${styles.brainContent}`}>
+      <div className={styles.brainTopbar}>
+        <nav className={styles.segmentedNav} aria-label="Brain views">
+          <span aria-current="page">Knowledge</span>
+          <Link href="/dashboard/code-graph">Code</Link>
+        </nav>
+      </div>
+      <div className={styles.brainStage}>
+        <LiveKnowledgeGraph />
+      </div>
     </section>
   );
 }

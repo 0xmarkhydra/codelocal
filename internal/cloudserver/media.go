@@ -1,11 +1,13 @@
 package cloudserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -365,4 +367,107 @@ func (s *Server) mediaPresign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	webutil.JSON(w, http.StatusOK, response)
+}
+
+func (s *Server) dashboardMediaPresign(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.authenticatedAPIIdentity(w, r)
+	if !ok {
+		return
+	}
+	if s.Media == nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "media_not_configured"})
+		return
+	}
+	if allowed, _, retry, _ := s.Store.RateLimit(r.Context(), "dashboard-media-presign", identity.User.ID, 120, 60); !allowed {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retry))
+		webutil.JSON(w, http.StatusTooManyRequests, map[string]any{"error": "rate_limited", "retry_after": retry})
+		return
+	}
+	var input mediaPrepareRequest
+	if webutil.DecodeJSON(r, 16<<10, &input) != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
+		return
+	}
+	response, err := s.Media.prepare(r.Context(), identity.User.ID, input)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid image") || strings.Contains(err.Error(), "unsupported image") || strings.Contains(err.Error(), "image size") {
+			webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_media", "message": err.Error()})
+			return
+		}
+		slog.Warn("dashboard visual presign failed", "error", err, "userId", identity.User.ID)
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "media_unavailable"})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, response)
+}
+
+func (s *Server) dashboardMediaUpload(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.authenticatedAPIIdentity(w, r)
+	if !ok {
+		return
+	}
+	if s.Media == nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "media_not_configured"})
+		return
+	}
+	if allowed, _, retry, _ := s.Store.RateLimit(r.Context(), "dashboard-media-upload", identity.User.ID, 60, 60); !allowed {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retry))
+		webutil.JSON(w, http.StatusTooManyRequests, map[string]any{"error": "rate_limited", "retry_after": retry})
+		return
+	}
+
+	hash := strings.ToLower(strings.TrimSpace(r.Header.Get("X-CodeLocal-Media-SHA256")))
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	size := r.ContentLength
+	if rawSize := strings.TrimSpace(r.Header.Get("X-CodeLocal-Media-Size")); rawSize != "" {
+		parsedSize, err := strconv.ParseInt(rawSize, 10, 64)
+		if err != nil {
+			webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_media_size"})
+			return
+		}
+		size = parsedSize
+	}
+	input := mediaPrepareRequest{SHA256: hash, ContentType: contentType, Size: size}
+	if err := validateMediaPrepare(input, s.Media.maxBytes); err != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_media", "message": err.Error()})
+		return
+	}
+
+	prepared, err := s.Media.prepare(r.Context(), identity.User.ID, input)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "media_unavailable"})
+		return
+	}
+	if prepared.Deduplicated {
+		webutil.JSON(w, http.StatusOK, prepared)
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r.Body, s.Media.maxBytes+1))
+	if err != nil || int64(len(data)) != size {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_media_size"})
+		return
+	}
+	digest := sha256.Sum256(data)
+	if hex.EncodeToString(digest[:]) != hash {
+		webutil.JSON(w, http.StatusBadRequest, map[string]any{"error": "media_hash_mismatch"})
+		return
+	}
+
+	_, err = s.Media.client.PutObject(r.Context(), &s3.PutObjectInput{
+		Bucket: aws.String(s.Media.bucket), Key: aws.String(prepared.Key), Body: bytes.NewReader(data),
+		ContentType: aws.String(contentType), CacheControl: aws.String("private, no-store"),
+		Metadata: map[string]string{"content-sha256": hash, "source": "codelocal-dashboard"},
+	})
+	if err != nil {
+		slog.Warn("dashboard visual proxy upload failed", "error", err, "userId", identity.User.ID)
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "media_upload_failed"})
+		return
+	}
+	prepared, err = s.Media.prepare(r.Context(), identity.User.ID, input)
+	if err != nil || !prepared.Deduplicated {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "media_upload_unavailable"})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, prepared)
 }

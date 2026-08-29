@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 5 {
+	if len(migrations) != 13 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -111,6 +111,42 @@ func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	if !strings.Contains(strings.ToLower(migrations[4].sql), "image") {
 		t.Fatal("dashboard migration 45 must preserve the image column")
 	}
+	if !strings.Contains(strings.ToLower(migrations[5].sql), "codelocal_runtime_config") {
+		t.Fatal("runtime migration 46 must create config storage")
+	}
+	if !strings.Contains(strings.ToLower(migrations[6].sql), "codelocal_runtime_secrets") {
+		t.Fatal("runtime migration 47 must create encrypted secret storage")
+	}
+	if !strings.Contains(strings.ToLower(migrations[7].sql), "skill_affinity") || !strings.Contains(strings.ToLower(migrations[7].sql), "skill_id") {
+		t.Fatal("skill migration 48 must index tenant-private affinity evidence")
+	}
+	if !strings.Contains(strings.ToLower(migrations[8].sql), "skills jsonb") {
+		t.Fatal("skill migration 49 must persist versioned chat skill metadata")
+	}
+	registry := strings.ToLower(migrations[9].sql)
+	for _, token := range []string{"codelocal_skill_versions", "codelocal_skill_channels", "package_hash", "artifact_uri", "tenant_user_id"} {
+		if !strings.Contains(registry, token) {
+			t.Fatalf("skill migration 50 missing registry token %q", token)
+		}
+	}
+	userState := strings.ToLower(migrations[10].sql)
+	for _, token := range []string{"codelocal_skill_user_states", "pinned_version", "disabled", "prefer"} {
+		if !strings.Contains(userState, token) {
+			t.Fatalf("skill migration 51 missing user-state token %q", token)
+		}
+	}
+	evaluations := strings.ToLower(migrations[11].sql)
+	for _, token := range []string{"codelocal_skill_evaluations", "decision", "score", "checks"} {
+		if !strings.Contains(evaluations, token) {
+			t.Fatalf("skill migration 52 missing evaluation token %q", token)
+		}
+	}
+	ratings := strings.ToLower(migrations[12].sql)
+	for _, token := range []string{"codelocal_skill_ratings", "rating", "user_id", "skill_id"} {
+		if !strings.Contains(ratings, token) {
+			t.Fatalf("skill migration 53 missing rating token %q", token)
+		}
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
@@ -123,11 +159,11 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 45 {
-		t.Fatalf("latest schema version=%d want 45", got)
+	if got := LatestSchemaMigrationVersion(); got != 53 {
+		t.Fatalf("latest schema version=%d want 53", got)
 	}
-	ready := schemaMigrationStatus(45, 45)
-	if !ready.UpToDate || ready.TargetVersion != 45 || ready.AppliedCount != 45 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(53, 53)
+	if !ready.UpToDate || ready.TargetVersion != 53 || ready.AppliedCount != 53 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
@@ -139,8 +175,15 @@ func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
 		{current: 42, count: 42},
 		{current: 43, count: 43},
 		{current: 44, count: 44},
-		{current: 45, count: 44},
+		{current: 45, count: 45},
 		{current: 46, count: 46},
+		{current: 47, count: 47},
+		{current: 48, count: 48},
+		{current: 49, count: 49},
+		{current: 50, count: 50},
+		{current: 51, count: 51},
+		{current: 52, count: 52},
+		{current: 53, count: 52},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)

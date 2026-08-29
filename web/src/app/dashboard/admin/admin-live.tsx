@@ -2,8 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { AppIcon } from "../app-icon";
 import dashboard from "../dashboard.module.css";
 import surface from "../dashboard-surfaces.module.css";
+import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
 
 type User = {
   id: string; email: string; referralCode: string; referredByCode: string; createdAt: number; inviteCount: number;
@@ -16,8 +18,8 @@ function isAdmin(value: unknown): value is Admin {
   const v = value as Record<string, unknown>;
   return typeof v.totalUsers === "number" && typeof v.activeUsers === "number" && typeof v.runtimeOnline === "number" && typeof v.usingMcpNow === "number" && Array.isArray(v.users);
 }
-function status(user: User) { return user.mcpActive ? "Using MCP now" : user.runtimeActive ? "Runtime online" : "Offline"; }
-function when(value: number) { return value > 0 ? new Date(value).toLocaleString() : "Never"; }
+function status(user: User) { return user.mcpActive ? "Đang dùng MCP" : user.runtimeActive ? "Runtime online" : "Offline"; }
+function when(value: number) { return value > 0 ? new Date(value).toLocaleString() : "Chưa có"; }
 
 export function AdminLive() {
   const router = useRouter();
@@ -25,6 +27,7 @@ export function AdminLive() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+
   useEffect(() => {
     fetch("/api/v1/admin", { cache: "no-store", credentials: "same-origin" })
       .then(async (response) => {
@@ -47,35 +50,51 @@ export function AdminLive() {
   const safePage = Math.min(page, totalPages);
   const visible = filtered.slice((safePage - 1) * 12, safePage * 12);
 
-  if (error === "forbidden") return <section className={dashboard.livePanel}><h2>Admin only</h2></section>;
-  if (error) return <section className={dashboard.livePanel}><h2>Unavailable</h2></section>;
-  if (!data) return <section className={dashboard.livePanel}><h2>Loading…</h2></section>;
+  if (error === "forbidden") return <DashboardResourceFeedback kind="error" label="Admin" message="Tài khoản hiện tại không có quyền quản trị" onRetry={() => window.location.reload()} />;
+  if (error) return <DashboardResourceFeedback kind="error" label="Admin" message="Admin dashboard tạm thời không khả dụng" onRetry={() => window.location.reload()} />;
+  if (!data) return <DashboardResourceFeedback kind="loading" label="Admin" />;
 
-  return <div className={surface.grid}>
-    <div className={surface.metrics}>
-      <div className={surface.metric}><span>Total users</span><strong>{data.totalUsers}</strong></div>
-      <div className={surface.metric}><span>Active users</span><strong>{data.activeUsers}</strong></div>
-      <div className={surface.metric}><span>Runtime online / MCP now</span><strong>{data.runtimeOnline} / {data.usingMcpNow}</strong></div>
+  return (
+    <div className={surface.adminLayout}>
+      <section className={surface.adminMetrics} aria-label="Admin summary">
+        <article><span>Users</span><strong>{data.totalUsers}</strong><small>{data.activeUsers} active</small></article>
+        <article><span>Runtime online</span><strong>{data.runtimeOnline}</strong><small>thiết bị đang hoạt động</small></article>
+        <article><span>MCP now</span><strong>{data.usingMcpNow}</strong><small>đang dùng ngay lúc này</small></article>
+      </section>
+
+      <section className={surface.adminUsersPanel}>
+        <div className={surface.adminUsersHead}>
+          <div><span className={dashboard.eyebrow}>Users</span><h2>Người dùng CodeLocal</h2></div>
+          <label className={surface.adminSearch}>
+            <AppIcon name="search" size={17} />
+            <input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Tìm email hoặc referral code" />
+          </label>
+        </div>
+
+        <div className={surface.adminTableModern} role="table" aria-label="Users">
+          <div className={surface.adminTableHeader} role="row">
+            <span>User</span><span>Status</span><span>Referral</span><span>Activity</span>
+          </div>
+          {visible.map((user) => (
+            <div className={surface.adminTableRow} role="row" key={user.id}>
+              <div><span className={surface.userAvatar} aria-hidden="true">{user.email.slice(0, 1).toUpperCase()}</span><span><strong>{user.email}</strong><small>Joined {when(user.createdAt)}</small></span></div>
+              <div><span className={surface.adminState} data-active={user.mcpActive || user.runtimeActive || undefined}><i />{status(user)}</span></div>
+              <div><strong>{user.referralCode}</strong><small>{user.referredByCode ? `Invited by ${user.referredByCode}` : "Direct account"} · {user.inviteCount} invites</small></div>
+              <div><strong>MCP {when(user.lastMcpUsedAt)}</strong><small>Device {when(user.lastDeviceSeenAt)}</small></div>
+            </div>
+          ))}
+        </div>
+
+        <div className={surface.paginationBar}>
+          <button type="button" disabled={safePage <= 1} aria-label="Previous page" onClick={() => setPage((p) => Math.max(1, p - 1))}><AppIcon name="chevron-left" size={14} /></button>
+          <span>{safePage} / {totalPages}</span>
+          <button type="button" disabled={safePage >= totalPages} aria-label="Next page" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}><AppIcon name="chevron-right" size={14} /></button>
+        </div>
+      </section>
+
+      <ReferralTree users={data.users} />
     </div>
-    <section className={surface.card}>
-      <h2 className={surface.title}>Users</h2>
-      <input className={surface.search} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search email or referral code" />
-      <div className={surface.adminTable}>
-        {visible.map((user) => <div className={surface.adminRow} key={user.id}>
-          <div className={surface.identity}><strong>{user.email}</strong><span>Joined {when(user.createdAt)}</span></div>
-          <div><strong>{status(user)}</strong><span>{user.runtimeActive ? "runtime live" : "runtime offline"}</span></div>
-          <div><strong>{user.referralCode}</strong><span>Invited by {user.referredByCode || "—"} · {user.inviteCount} direct</span></div>
-          <div><strong>MCP {when(user.lastMcpUsedAt)}</strong><span>Device {when(user.lastDeviceSeenAt)}</span></div>
-        </div>)}
-      </div>
-      <div className={dashboard.previewActions}>
-        <button className={dashboard.liveAction} type="button" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Previous</button>
-        <span className={surface.badge}>Page {safePage} of {totalPages}</span>
-        <button className={dashboard.liveAction} type="button" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</button>
-      </div>
-    </section>
-    <ReferralTree users={data.users} />
-  </div>;
+  );
 }
 
 function ReferralTree({ users }: { users: User[] }) {
@@ -106,9 +125,12 @@ function ReferralTree({ users }: { users: User[] }) {
   roots.forEach((user) => walk(user, 0));
   users.forEach((user) => walk(user, 0));
 
-  return <section className={surface.card}>
-    <span className={dashboard.eyebrow}>Referral network</span>
-    <h2 className={surface.title}>Who invited whom</h2>
-    <div className={surface.tree}>{rows.map(({ user, depth }) => <div className={surface.treeNode} key={user.id} style={{ marginLeft: Math.min(depth, 8) * 18 }}><strong>{user.email} · {user.referralCode}</strong><span>{user.referredByCode ? `Invited by ${user.referredByCode}` : "Root / direct account"} · {user.inviteCount} direct · {status(user)}</span></div>)}</div>
-  </section>;
+  return (
+    <details className={surface.referralDisclosure}>
+      <summary><span><strong>Referral network</strong><small>Who invited whom</small></span><AppIcon name="chevron-down" size={16} /></summary>
+      <div className={surface.tree}>
+        {rows.map(({ user, depth }) => <div className={surface.treeNode} key={user.id} style={{ marginLeft: Math.min(depth, 8) * 18 }}><strong>{user.email} · {user.referralCode}</strong><span>{user.referredByCode ? `Invited by ${user.referredByCode}` : "Root / direct account"} · {user.inviteCount} direct · {status(user)}</span></div>)}
+      </div>
+    </details>
+  );
 }

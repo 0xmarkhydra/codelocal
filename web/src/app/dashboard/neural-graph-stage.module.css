@@ -2,131 +2,67 @@
   position: relative;
   height: 100%;
   min-width: 0;
-  min-height: 540px;
+  min-height: 0;
   overflow: hidden;
-  border: 1px solid #1a2a42;
-  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.075);
+  border-radius: 18px;
   background:
-    radial-gradient(circle at 50% 42%, rgba(32, 72, 145, .13), transparent 40%),
-    radial-gradient(circle at 18% 80%, rgba(104, 61, 190, .07), transparent 30%),
-    linear-gradient(rgba(82, 116, 170, .035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(82, 116, 170, .035) 1px, transparent 1px),
-    #050912;
-  background-size: auto, auto, 34px 34px, 34px 34px, auto;
-  box-shadow: 0 22px 64px rgba(0, 0, 0, .22);
+    radial-gradient(circle at 50% 44%, rgba(87, 107, 153, .075), transparent 40%),
+    linear-gradient(rgba(130, 147, 178, .018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(130, 147, 178, .018) 1px, transparent 1px),
+    #080b10;
+  background-size: auto, 44px 44px, 44px 44px, auto;
+  box-shadow: 0 22px 58px rgba(0, 0, 0, .2), inset 0 1px rgba(255,255,255,.022);
 }
 
-.compact {
-  min-height: 318px;
-  height: 100%;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
+.compact { min-height: 318px; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+.canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; user-select: none; }
 .dragging,
-.canvas:active {
-  cursor: grabbing;
-}
+.canvas:active { cursor: grabbing; }
 
 .controls {
   position: absolute;
   z-index: 3;
-  left: 12px;
-  top: 12px;
+  left: 14px;
+  top: 14px;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   padding: 4px;
-  border: 1px solid #1d2e49;
-  border-radius: 9px;
-  background: rgba(6, 12, 22, .82);
+  border: 1px solid rgba(255,255,255,.075);
+  border-radius: 12px;
+  background: rgba(13,19,29,.72);
+  box-shadow: 0 10px 28px rgba(0,0,0,.17), inset 0 1px rgba(255,255,255,.025);
+  backdrop-filter: blur(20px);
 }
-
-.controls button {
-  width: 29px;
-  height: 29px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 7px;
-  color: #71849e;
-  background: transparent;
-  font: 600 14px/1 var(--font-geist-sans), sans-serif;
-  cursor: pointer;
-}
-
+.controls button { width: 31px; height: 31px; display: grid; place-items: center; border: 0; border-radius: 9px; color: rgba(211,223,241,.4); background: transparent; font: 600 14px/1 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; cursor: pointer; }
 .controls button:hover,
-.controls button:focus-visible {
-  outline: 0;
-  color: #eef5ff;
-  background: rgba(91, 129, 196, .12);
-}
+.controls button:focus-visible { outline: 0; color: rgba(255,255,255,.88); background: rgba(255,255,255,.055); }
 
 .legend {
   position: absolute;
   z-index: 3;
-  top: 12px;
-  right: 12px;
-  max-width: min(46%, 430px);
+  right: 14px;
+  bottom: 14px;
+  max-width: min(58%, 520px);
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px 10px;
-  padding: 6px 8px;
-  border: 1px solid #1a2940;
-  border-radius: 9px;
-  color: #71849e;
-  background: rgba(6, 12, 22, .76);
-  font-size: 8px;
+  gap: 7px 11px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255,255,255,.065);
+  border-radius: 11px;
+  color: rgba(207,219,237,.35);
+  background: rgba(13,19,29,.62);
+  box-shadow: 0 9px 24px rgba(0,0,0,.14);
+  backdrop-filter: blur(18px);
+  font-size: 8.5px;
 }
-
-.legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.legend i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.empty {
-  position: absolute;
-  z-index: 4;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: #71839c;
-  font-size: 10px;
-  pointer-events: none;
-}
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 6px; height: 6px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.06); }
+.empty { position: absolute; z-index: 4; inset: 0; display: grid; place-items: center; color: rgba(211,223,241,.38); font-size: 11px; pointer-events: none; }
 
 @media (max-width: 760px) {
-  .stage {
-    min-height: 450px;
-    border-radius: 14px;
-  }
-
-  .compact {
-    min-height: 260px;
-  }
-
-  .legend {
-    top: auto;
-    bottom: 10px;
-    max-width: calc(100% - 65px);
-  }
+  .stage { min-height: 470px; border-radius: 20px; }
+  .compact { min-height: 260px; }
+  .legend { right: 10px; bottom: 10px; max-width: calc(100% - 20px); }
 }

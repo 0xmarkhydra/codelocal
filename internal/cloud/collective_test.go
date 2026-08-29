@@ -36,11 +36,33 @@ func TestCollectiveFingerprintExcludesRawPrivateExperienceContent(t *testing.T) 
 			t.Fatalf("collective fingerprint leaked private content %q: %s", forbidden, text)
 		}
 	}
-	if fingerprint.TaskKind != "bugfix" || len(fingerprint.CheckProfile) != 2 || fingerprint.CheckProfile[0] != "diff-check" || fingerprint.CheckProfile[1] != "test" {
+	if fingerprint.SchemaVersion != 2 || fingerprint.TaskKind != "bugfix" || len(fingerprint.CheckProfile) != 2 || fingerprint.CheckProfile[0] != "diff-check" || fingerprint.CheckProfile[1] != "test" {
 		t.Fatalf("unexpected safe fingerprint: %#v", fingerprint)
 	}
-	if fingerprint.FileCountBucket != "2-3" || fingerprint.SymbolBucket != "2-3" || fingerprint.QualityBucket != "95-100" || !fingerprint.SkillUsed || !fingerprint.DiffObserved {
-		t.Fatalf("structured buckets missing: %#v", fingerprint)
+	if fingerprint.FileCountBucket != "2-3" || fingerprint.SymbolBucket != "2-3" || fingerprint.QualityBucket != "95-100" || !fingerprint.SkillUsed || fingerprint.SkillID != "" || !fingerprint.DiffObserved {
+		t.Fatalf("structured buckets missing or private skill id escaped: %#v", fingerprint)
+	}
+}
+
+func TestCollectiveFingerprintIncludesOnlyCanonicalGlobalSkillID(t *testing.T) {
+	experience := collectiveExperienceFixture()
+	experience.SkillID = "ui-ux-pro"
+	fingerprint, ok := collectiveFingerprintForExperience(experience)
+	if !ok {
+		t.Fatal("experience was not fingerprintable")
+	}
+	if fingerprint.SchemaVersion != 2 || fingerprint.SkillID != "ui-ux-pro" || !fingerprint.SkillUsed {
+		t.Fatalf("expected canonical reusable skill identity, got %#v", fingerprint)
+	}
+
+	private := experience
+	private.SkillID = "project-secret-workflow"
+	privateFingerprint, _ := collectiveFingerprintForExperience(private)
+	if privateFingerprint.SkillID != "" || !privateFingerprint.SkillUsed {
+		t.Fatalf("private/local skill name crossed collective boundary: %#v", privateFingerprint)
+	}
+	if collectivePatternKey(fingerprint) == collectivePatternKey(privateFingerprint) {
+		t.Fatal("canonical global skill identity must affect collective pattern ranking")
 	}
 }
 

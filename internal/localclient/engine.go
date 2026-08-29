@@ -60,6 +60,9 @@ type Engine struct {
 	Skills         *learnedskills.Store
 	mu             sync.Mutex
 	baselines      map[string][]map[string]any
+	runtimeEnv     map[string]string
+	runtimeSecrets map[string]string
+	runtimeRedact  []string
 }
 
 type HandleOptions struct{ RequestID, SessionID, IdempotencyKey string }
@@ -75,7 +78,7 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	shellEnabled := os.Getenv("CODELOCAL_ALLOW_SHELL") != "0"
 	approvalMode := string(approval.ResolveMode(workspaceID))
 	repositories := repository.New(fs.Root, workspaceName)
-	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.NewWithRepositories(fs, repositories), Repositories: repositories, TaskExecutions: taskexecution.NewManager(nil, nil), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}}
+	engine := &Engine{Root: fs.Root, WorkspaceID: workspaceID, WorkspaceName: workspaceName, WorkspaceKey: workspaceKey, DeviceID: deviceID, ShellEnabled: shellEnabled, ApprovalMode: approvalMode, FS: fs, Project: project.NewWithRepositories(fs, repositories), Repositories: repositories, TaskExecutions: taskexecution.NewManager(nil, nil), Editing: editing.New(fs), Approvals: approvals, Broker: broker, History: terminalHistory, Journal: idempotency.New(workspaceKey), Skills: learnedskills.New(), baselines: map[string][]map[string]any{}, runtimeEnv: map[string]string{}, runtimeSecrets: map[string]string{}}
 	engine.Processes = processmgr.NewManager(fs.Root, workspaceKey, func(record *processmgr.Record, stream, value string) {}, func(record *processmgr.Record) {
 		_, _ = terminalHistory.Finished(record)
 		engine.Project.Invalidate()
@@ -89,6 +92,62 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	}
 	engine.MCP = mcpHub
 	return engine, nil
+}
+
+func (e *Engine) SetRuntimeEnvironment(values, secrets map[string]string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.runtimeEnv = make(map[string]string, len(values))
+	for key, value := range values {
+		e.runtimeEnv[key] = value
+	}
+	e.runtimeSecrets = make(map[string]string, len(secrets))
+	secretNames := make([]string, 0, len(secrets))
+	for key, value := range secrets {
+		e.runtimeSecrets[key] = value
+		secretNames = append(secretNames, key)
+	}
+	sort.Strings(secretNames)
+	e.runtimeRedact = e.runtimeRedact[:0]
+	for _, key := range secretNames {
+		if value := strings.TrimSpace(e.runtimeSecrets[key]); value != "" {
+			e.runtimeRedact = append(e.runtimeRedact, value)
+		}
+	}
+}
+
+func (e *Engine) runtimeEnvironment(requestedSecrets []string) (map[string]string, []string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make(map[string]string, len(e.runtimeEnv)+len(requestedSecrets))
+	for key, value := range e.runtimeEnv {
+		out[key] = value
+	}
+	redact := append([]string(nil), e.runtimeRedact...)
+	seenRedact := map[string]struct{}{}
+	for _, value := range redact {
+		seenRedact[value] = struct{}{}
+	}
+	for _, name := range requestedSecrets {
+		if !processmgr.CanInjectEnvKey(name) {
+			return nil, nil, fmt.Errorf("runtime secret %s cannot be injected into a child process", name)
+		}
+		value, ok := e.runtimeSecrets[name]
+		if !ok {
+			value, ok = os.LookupEnv(name)
+		}
+		if !ok {
+			return nil, nil, fmt.Errorf("runtime secret %s is not configured", name)
+		}
+		out[name] = value
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			if _, exists := seenRedact[trimmed]; !exists {
+				redact = append(redact, trimmed)
+				seenRedact[trimmed] = struct{}{}
+			}
+		}
+	}
+	return out, redact, nil
 }
 
 func (e *Engine) SemanticProviders() []string {
@@ -268,6 +327,10 @@ func (e *Engine) authorizeDecisionWithDisplay(command, executionCWD, displayCWD,
 
 func (e *Engine) preflightAt(command, securityRoot, executionCWD, displayCWD, sessionID string) (map[string]any, error) {
 	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: securityRoot, CWD: executionCWD})
+	_, decision, secretErr := e.prepareOpaqueSecretExecution(map[string]any{}, command, securityRoot, executionCWD, decision)
+	if secretErr != nil {
+		return nil, secretErr
+	}
 	mode := approval.ResolveMode(e.WorkspaceID)
 	e.ApprovalMode = string(mode)
 	if approval.FullAllows(mode, decision) {
@@ -321,6 +384,10 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 		securityRoot = target.FS.Root
 	}
 	decision := security.Classify(command, networkPolicy(), security.Context{WorkspaceRoot: securityRoot, CWD: cwd})
+	requestedSecrets, decision, secretErr := e.prepareOpaqueSecretExecution(args, command, securityRoot, cwd, decision)
+	if secretErr != nil {
+		return nil, secretErr
+	}
 	approved, approvalState, decision, authErr := e.authorizeDecisionWithDisplay(command, cwd, logicalCWD, asString(args["approvalToken"]), opts.SessionID, decision)
 	if authErr != nil && decision.Blocked {
 		return approvalState, nil
@@ -332,7 +399,11 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 		return approvalState, nil
 	}
 	timeoutMs := asInt(args["timeoutMs"], 0)
-	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, DisplayCWD: logicalCWD, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36)})
+	runtimeEnv, redactValues, secretErr := e.runtimeEnvironment(requestedSecrets)
+	if secretErr != nil {
+		return nil, secretErr
+	}
+	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, DisplayCWD: logicalCWD, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36), Env: runtimeEnv, RedactValues: redactValues})
 	if err != nil {
 		return nil, err
 	}

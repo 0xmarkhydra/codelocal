@@ -1,0 +1,434 @@
+.page {
+  min-height: 100%;
+  padding: 26px;
+  overflow: auto;
+}
+
+.header,
+.toolbar,
+.tabs,
+.content,
+.adminPanel,
+.noticeError,
+.noticeSuccess {
+  max-width: 980px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.header h1 {
+  margin: 3px 0 5px;
+  font-size: clamp(26px, 4vw, 38px);
+  letter-spacing: -0.04em;
+}
+
+.eyebrow,
+.lede,
+.skillHeading p,
+.description,
+.sectionIntro p,
+.emptyState span,
+.toolbar span,
+.skillMeta,
+.adminRow span,
+.muted {
+  color: var(--muted);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lede {
+  max-width: 560px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 22px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+
+.toolbar > div {
+  display: flex;
+  gap: 8px;
+}
+
+.toolbar button,
+.skillControls button,
+.rating button,
+.adminPanel button {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 82%, var(--background));
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 10px;
+}
+
+.toolbar button:hover:not(:disabled),
+.skillControls button:hover:not(:disabled),
+.rating button:hover:not(:disabled),
+.adminPanel button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 8%, var(--panel));
+}
+
+.toolbar button:focus-visible,
+.skillControls button:focus-visible,
+.rating button:focus-visible,
+.adminPanel button:focus-visible,
+.adminPanel input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.toolbar button:disabled,
+.skillControls button:disabled,
+.rating button:disabled,
+.adminPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.primaryButton {
+  background: var(--foreground) !important;
+  color: var(--background) !important;
+  border-color: transparent !important;
+}
+
+.noticeError,
+.noticeSuccess {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.noticeError {
+  background: color-mix(in srgb, #d33 9%, var(--panel));
+}
+
+.noticeSuccess {
+  background: color-mix(in srgb, #2a8f52 10%, var(--panel));
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 24px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 76%, transparent);
+  width: fit-content;
+}
+
+.tabs button {
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+.tabs button:hover,
+.tabs button:focus-visible {
+  color: var(--foreground);
+}
+
+.tabs button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.tabs .activeTab {
+  background: var(--panel);
+  color: var(--foreground);
+  box-shadow: 0 1px 8px rgb(0 0 0 / 8%);
+}
+
+.content {
+  margin-top: 24px;
+}
+
+.sectionIntro {
+  margin-bottom: 12px;
+}
+
+.sectionIntro h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.sectionIntro p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.skillCard {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 5%);
+}
+
+.skillIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--background);
+}
+
+.skillHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.skillHeading h2,
+.skillHeading p,
+.description {
+  margin: 0;
+}
+
+.skillHeading h2 {
+  font-size: 16px;
+}
+
+.skillHeading p {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.autoBadge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.description {
+  margin-top: 10px;
+  max-width: 720px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.tags,
+.skillMeta,
+.skillControls,
+.rating,
+.adminActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tags {
+  margin-top: 12px;
+}
+
+.tags span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  font-size: 11px;
+}
+
+.skillMeta {
+  margin-top: 10px;
+  font-size: 11px;
+}
+
+.permissionLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.skillControls {
+  margin-top: 12px;
+}
+
+.skillControls .controlActive {
+  border-color: color-mix(in srgb, var(--foreground) 40%, var(--border));
+  background: color-mix(in srgb, var(--foreground) 10%, var(--panel));
+  font-weight: 700;
+}
+
+.rating {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rating button {
+  min-width: 28px;
+  padding: 5px 6px;
+  color: var(--muted);
+}
+
+.rating .ratingActive {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 10%, var(--panel));
+}
+
+.emptyState {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  min-height: 230px;
+  padding: 28px;
+  border: 1px dashed var(--border);
+  border-radius: 18px;
+  text-align: center;
+}
+
+.emptyState strong {
+  font-size: 14px;
+}
+
+.emptyState span {
+  max-width: 560px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.adminPanel {
+  margin-top: 28px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+.adminHeader,
+.adminRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.adminHeader h2 {
+  margin: 3px 0 0;
+  font-size: 16px;
+}
+
+.adminRow {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.adminRow > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.adminRow strong {
+  font-size: 13px;
+}
+
+.adminRow span,
+.muted {
+  font-size: 12px;
+}
+
+.adminActions {
+  justify-content: flex-end;
+}
+
+.adminActions input {
+  min-width: 92px;
+  max-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+
+@media (max-width: 720px) {
+  .page { padding: 18px; }
+  .header,
+  .toolbar,
+  .adminHeader,
+  .adminRow { align-items: stretch; flex-direction: column; }
+  .toolbar > div { width: 100%; }
+  .toolbar button { flex: 1; }
+  .tabs { width: 100%; overflow-x: auto; }
+  .tabs button { flex: 1 0 auto; }
+  .skillCard { grid-template-columns: 1fr; }
+  .skillHeading { align-items: center; }
+  .adminActions { justify-content: flex-start; }
+  .adminActions input { max-width: none; flex: 1 1 130px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs button { scroll-behavior: auto; }
+}

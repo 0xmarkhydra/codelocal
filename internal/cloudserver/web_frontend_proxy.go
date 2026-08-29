@@ -58,7 +58,9 @@ var nextDashboardPaths = map[string]struct{}{
 	"/dashboard/invite":      {},
 	"/dashboard/leaderboard": {},
 	"/dashboard/security":    {},
+	"/dashboard/settings":    {},
 	"/dashboard/account":     {},
+	"/dashboard/skills":      {},
 	"/dashboard/admin":       {},
 }
 
@@ -82,18 +84,29 @@ var nextFreshSecurityPaths = map[string]struct{}{
 	"/pair/approve": {},
 }
 
+// canonicalNextPresentationPath accepts the common single trailing slash
+// variant without widening the presentation surface to arbitrary nested paths.
+// Keeping normalization centralized is also important for the admin guard: the
+// routing decision and authorization decision must always inspect the same path.
+func canonicalNextPresentationPath(path string) string {
+	if len(path) > 1 && strings.HasSuffix(path, "/") && !strings.HasSuffix(path, "//") {
+		return strings.TrimSuffix(path, "/")
+	}
+	return path
+}
+
 func isNextDashboardPath(path string) bool {
-	_, ok := nextDashboardPaths[path]
+	_, ok := nextDashboardPaths[canonicalNextPresentationPath(path)]
 	return ok
 }
 
 func isNextPublicPagePath(path string) bool {
-	_, ok := nextPublicPagePaths[path]
+	_, ok := nextPublicPagePaths[canonicalNextPresentationPath(path)]
 	return ok
 }
 
 func isNextFreshSecurityPath(path string) bool {
-	_, ok := nextFreshSecurityPaths[path]
+	_, ok := nextFreshSecurityPaths[canonicalNextPresentationPath(path)]
 	return ok
 }
 
@@ -116,7 +129,7 @@ func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(nextPath), http.StatusFound)
 			return
 		}
-		if r.URL.Path == "/dashboard/admin" && !cloud.IsAdminEmail(identity.User.Email) {
+		if canonicalNextPresentationPath(r.URL.Path) == "/dashboard/admin" && !cloud.IsAdminEmail(identity.User.Email) {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -148,7 +161,7 @@ func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
 			protected.ServeHTTP(w, r)
 		case isNextFreshSecurityPath(r.URL.Path):
 			protectedFresh.ServeHTTP(w, r)
-		case r.URL.Path == "/login" || r.URL.Path == "/signup":
+		case canonicalNextPresentationPath(r.URL.Path) == "/login" || canonicalNextPresentationPath(r.URL.Path) == "/signup":
 			identity, err := s.WebAuth.Identity(r)
 			if err != nil {
 				http.Error(w, "Internal error", http.StatusInternalServerError)

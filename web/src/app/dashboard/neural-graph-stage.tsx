@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { AppIcon } from "./app-icon";
 import styles from "./neural-graph-stage.module.css";
 
 export type NeuralStageNode = {
@@ -443,9 +444,9 @@ export function NeuralGraphStage({
 
       {controls && nodes.length > 0 && (
         <div className={styles.controls} aria-label="Graph controls">
-          <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => zoomBy(1.18)}>+</button>
-          <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.18)}>−</button>
-          <button type="button" title="Reset view" aria-label="Reset view" onClick={resetView}>⌾</button>
+          <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => zoomBy(1.18)}><AppIcon name="plus" size={15} /></button>
+          <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.18)}><AppIcon name="minus" size={15} /></button>
+          <button type="button" title="Reset view" aria-label="Reset view" onClick={resetView}><AppIcon name="target" size={15} /></button>
         </div>
       )}
 

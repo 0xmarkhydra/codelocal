@@ -19,6 +19,7 @@ func TestNextDashboardRoutingUsesCompletePresentationWhitelist(t *testing.T) {
 		"/dashboard/invite",
 		"/dashboard/leaderboard",
 		"/dashboard/security",
+		"/dashboard/settings",
 		"/dashboard/account",
 		"/dashboard/admin",
 	} {
