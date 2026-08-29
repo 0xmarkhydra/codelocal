@@ -1,5 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import styles from "./page.module.css";
 
 const aiClients = ["ChatGPT / Codex", "Claude", "Kimi", "DeepSeek"] as const;
@@ -98,7 +101,42 @@ function NeuralGraph() {
       <span className={styles.neuralTag}>Git</span>
       <span className={styles.neuralTag}>LSP</span>
       <span className={styles.neuralTag}>Decisions</span>
-      <span className={styles.neuralCaption}>Illustrative project intelligence map</span>
+      <span className={styles.neuralCaption}>Living project intelligence</span>
+    </div>
+  );
+}
+
+function CopyCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function copy() {
+    navigator.clipboard.writeText(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
+      <code className={styles.setupCommand}>{command}</code>
+      <button
+        type="button"
+        onClick={copy}
+        style={{
+          minHeight: "28px",
+          padding: "0 10px",
+          border: "1px solid rgba(120,160,255,0.25)",
+          borderRadius: "7px",
+          background: "rgba(83,128,239,0.12)",
+          color: "#e2ecfa",
+          fontSize: "11px",
+          cursor: "pointer",
+          fontWeight: 550,
+          transition: "all 140ms ease"
+        }}
+      >
+        {copied ? "Copied ✓" : "Copy"}
+      </button>
     </div>
   );
 }
@@ -195,7 +233,7 @@ export default function Home() {
     <main className={styles.page}>
       <header className={styles.nav}>
         <Link className={styles.brand} href="/" aria-label="CodeLocal home">
-          <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
+          <Image src="/codelocal-icon.png" alt="" width={30} height={30} priority />
           <span>CodeLocal</span>
         </Link>
 
@@ -217,7 +255,7 @@ export default function Home() {
         <div className={styles.heroCopy}>
           <span className={styles.heroPill}>Local-first AI infrastructure</span>
           <h1>Your project has a brain.<br /><span>Every AI can plug into it.</span></h1>
-          <p>Knowledge, code relationships, skills and verified experience stay connected while approved actions run on your machine.</p>
+          <p>Knowledge, code relationships, skills and verified experience stay connected while approved actions run safely on your machine.</p>
           <div className={styles.actions}>
             <Link className={styles.primaryButton} href="/dashboard">Open CodeLocal</Link>
             <a className={styles.secondaryButton} href="#system">See the architecture</a>
@@ -258,7 +296,7 @@ export default function Home() {
               <div>
                 <strong>{step.title}</strong>
                 <p>{step.description}</p>
-                {"command" in step && <code className={styles.setupCommand}>{step.command}</code>}
+                {"command" in step && <CopyCommand command={step.command} />}
               </div>
             </li>
           ))}

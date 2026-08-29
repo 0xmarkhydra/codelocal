@@ -1,46 +1,67 @@
 :root {
-  --canvas: #07080a;
-  --canvas-soft: #090b0f;
-  --surface: #0c1017;
-  --surface-raised: #101620;
-  --surface-sunken: #070b11;
-  --line: rgba(151, 172, 211, 0.09);
-  --line-strong: rgba(167, 187, 224, 0.16);
-  --text: #f3f4f2;
-  --text-secondary: #a4a9b4;
-  --text-tertiary: #676d78;
+  /* Canvas & Background Surfaces */
+  --canvas: #06080d;
+  --canvas-soft: #090d14;
+  --surface: #0d121c;
+  --surface-raised: #121926;
+  --surface-sunken: #070b12;
+  --surface-glass: rgba(13, 18, 28, 0.72);
+  --surface-glass-raised: rgba(18, 25, 38, 0.85);
+
+  /* Lines & Borders */
+  --line: rgba(151, 172, 211, 0.08);
+  --line-strong: rgba(167, 187, 224, 0.15);
+  --line-highlight: rgba(120, 160, 255, 0.28);
+
+  /* Text & Typography */
+  --text: #f3f5f8;
+  --text-secondary: #9aa4b5;
+  --text-tertiary: #6b778a;
+
+  /* Accents & Signals */
   --accent: #78a0ff;
   --accent-strong: #5f86ef;
   --accent-soft: rgba(83, 128, 239, 0.12);
-  --cyan: #72c9e8;
-  --green: #69ddb0;
-  --warning: #e5b96c;
-  --danger: #ec788a;
-  --project: #9a82ff;
-  --memory: #68d6b2;
-  --skill: #e4ae68;
-  --experience: #88a5ff;
+  --accent-glow: rgba(120, 160, 255, 0.25);
+  --cyan: #52c5ea;
+  --green: #4ade80;
+  --warning: #f59e0b;
+  --danger: #f43f5e;
+  --project: #a855f7;
+  --memory: #2dd4bf;
+  --skill: #fbbf24;
+  --experience: #818cf8;
 
+  /* Aliases */
   --bg: var(--canvas);
   --bg-elevated: var(--canvas-soft);
   --surface-strong: var(--surface-raised);
   --muted: var(--text-secondary);
   --muted-2: var(--text-tertiary);
 
+  /* Standardized Radiuses */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
   --radius-control: 10px;
+  --radius-md: 12px;
   --radius-panel: 16px;
-  --radius-stage: 28px;
-  --radius-pill: 999px;
-  --radius-sm: var(--radius-control);
-  --radius-md: var(--radius-panel);
+  --radius-stage: 22px;
+  --radius-pill: 9999px;
   --radius-lg: var(--radius-stage);
 
-  --shadow-panel: 0 22px 70px rgba(0, 0, 0, 0.22);
-  --shadow-stage: 0 34px 110px rgba(0, 0, 0, 0.3);
-  --content: 1180px;
+  /* Shadows & Depth */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.16);
+  --shadow-panel: 0 16px 48px rgba(0, 0, 0, 0.28);
+  --shadow-stage: 0 28px 80px rgba(0, 0, 0, 0.4);
+  --shadow-glow-accent: 0 0 24px rgba(120, 160, 255, 0.22);
+  --shadow-glow-green: 0 0 20px rgba(74, 222, 128, 0.25);
+
+  --content: 1240px;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 html {
   min-height: 100%;
@@ -54,27 +75,62 @@ body {
   margin: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at 50% -20%, rgba(74, 91, 128, 0.08), transparent 32rem),
+    radial-gradient(circle at 50% -10%, rgba(74, 98, 168, 0.08), transparent 36rem),
+    radial-gradient(circle at 85% 20%, rgba(139, 92, 246, 0.04), transparent 28rem),
     var(--canvas);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-a { color: inherit; text-decoration: none; }
-button, input, textarea, select { font: inherit; }
-button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+a {
+  color: inherit;
+  text-decoration: none;
+}
 
-button, input, textarea, select { color-scheme: dark; }
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color-scheme: dark;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
 
 :focus-visible {
-  outline: 2px solid rgba(129, 164, 255, 0.86);
-  outline-offset: 3px;
+  outline: 2px solid rgba(120, 160, 255, 0.85);
+  outline-offset: 2px;
 }
 
 ::selection {
   color: #fff;
-  background: rgba(89, 126, 232, 0.42);
+  background: rgba(89, 126, 232, 0.45);
+}
+
+/* Custom modern scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .sr-only {
@@ -104,8 +160,12 @@ button, input, textarea, select { color-scheme: dark; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

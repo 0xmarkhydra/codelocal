@@ -26,7 +26,109 @@ type StreamData = {
   tool_calls?: ToolCall[] | Array<{ index: number; name?: string; arguments?: string; id?: string }>;
 };
 
-const suggestions = ["Liệt kê workspaces", "Máy nào đang online?", "Tìm trong Project Brain"];
+const suggestions = ["Liệt kê workspaces", "Máy nào đang online?", "Tìm trong Project Brain", "Kiểm tra kết nối MCP"];
+
+function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function copy() {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div style={{ margin: "10px 0", borderRadius: "10px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <div className={styles.codeBlockHeader}>
+        <span>{lang || "code"}</span>
+        <button type="button" className={styles.copyCodeBtn} onClick={copy}>
+          {copied ? "Đã copy ✓" : "Copy"}
+        </button>
+      </div>
+      <pre style={{ margin: 0, padding: "12px 14px", background: "rgba(4, 7, 12, 0.85)", overflowX: "auto" }}>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  const parts = content.split(/(```[\s\S]*?```)/g);
+
+  return (
+    <div>
+      {parts.map((part, index) => {
+        if (part.startsWith("```") && part.endsWith("```")) {
+          const firstLineEnd = part.indexOf("\n");
+          let lang = "";
+          let code = "";
+          if (firstLineEnd !== -1) {
+            lang = part.slice(3, firstLineEnd).trim();
+            code = part.slice(firstLineEnd + 1, -3);
+          } else {
+            code = part.slice(3, -3);
+          }
+          return <CodeBlock key={index} code={code} lang={lang} />;
+        }
+
+        // Simple inline markdown rendering
+        const lines = part.split("\n");
+        return (
+          <span key={index}>
+            {lines.map((line, lineIdx) => {
+              if (line.startsWith("# ")) {
+                return <h3 key={lineIdx} style={{ margin: "10px 0 6px", fontSize: "16px", color: "#f1f5f9" }}>{line.slice(2)}</h3>;
+              }
+              if (line.startsWith("## ")) {
+                return <h4 key={lineIdx} style={{ margin: "8px 0 4px", fontSize: "14.5px", color: "#e2e8f0" }}>{line.slice(3)}</h4>;
+              }
+              if (line.startsWith("- ") || line.startsWith("* ")) {
+                return (
+                  <div key={lineIdx} style={{ display: "flex", gap: "8px", margin: "3px 0", paddingLeft: "4px" }}>
+                    <span style={{ color: "var(--accent)" }}>•</span>
+                    <span>{renderInline(line.slice(2))}</span>
+                  </div>
+                );
+              }
+              return (
+                <span key={lineIdx}>
+                  {renderInline(line)}
+                  {lineIdx < lines.length - 1 && <br />}
+                </span>
+              );
+            })}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderInline(text: string): React.ReactNode {
+  // Render inline code `code` and bold **bold**
+  const tokens = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  return tokens.map((token, idx) => {
+    if (token.startsWith("`") && token.endsWith("`") && token.length > 2) {
+      return (
+        <code key={idx} style={{
+          fontFamily: "var(--font-geist-mono), monospace",
+          fontSize: "12px",
+          padding: "2px 5px",
+          borderRadius: "5px",
+          background: "rgba(255,255,255,0.08)",
+          color: "#93c5fd"
+        }}>
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    if (token.startsWith("**") && token.endsWith("**") && token.length > 4) {
+      return <strong key={idx} style={{ fontWeight: 650, color: "#f8fafc" }}>{token.slice(2, -2)}</strong>;
+    }
+    return token;
+  });
+}
 
 export function DashboardChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -97,7 +199,6 @@ export function DashboardChat() {
 
   function readImage(file: File) {
     const mime = (file.type || "").toLowerCase();
-    // Bê logic KidGPT (clipboard_image_paste_web.dart): chỉ nhận PNG/JPG/WebP, báo lỗi rõ ràng
     if (mime && mime.startsWith("image/") && !SUPPORTED_MIME.has(mime)) {
       setNotice(`Ảnh dán vào cần là PNG, JPG hoặc WebP (bạn dán ${mime})`);
       return;
@@ -122,7 +223,6 @@ export function DashboardChat() {
 
   function extractImageFromClipboard(clipboardData: DataTransfer | null): File | null {
     if (!clipboardData) return null;
-    // Bê y nguyên KidGPT: duyệt DataTransferItem kind=='file' && type.startsWith('image/')
     for (const item of Array.from(clipboardData.items)) {
       if (item.kind === "file" && item.type.startsWith("image/")) {
         const f = item.getAsFile();
@@ -142,14 +242,11 @@ export function DashboardChat() {
     readImage(file);
   }
 
-  // Fix bug hiện tại: onPaste chỉ gắn ở chatMessages nên dán khi focus trong input không được.
-  // Bê logic KidGPT document.addEventListener('paste') sang React.
   useEffect(() => {
     function onDocumentPaste(event: globalThis.ClipboardEvent) {
       const dt = event.clipboardData as unknown as DataTransfer | null;
       const file = extractImageFromClipboard(dt);
       if (!file) return;
-      // Chỉ xử lý khi focus trong chat để tránh bắt paste全局
       const ae = document.activeElement as HTMLElement | null;
       const shell = document.querySelector(`.${styles.chatShell}`);
       const insideShell = !!shell?.contains(ae);
@@ -304,8 +401,8 @@ export function DashboardChat() {
         <div className={styles.brandBlock}>
           <span className={styles.brandMark} aria-hidden="true" />
           <div>
-            <h3>CodeLocal</h3>
-            <span>Project Brain · local tools</span>
+            <h3>CodeLocal Copilot</h3>
+            <span>Project Brain · local execution</span>
           </div>
         </div>
         <div className={styles.chatActions}>
@@ -333,7 +430,7 @@ export function DashboardChat() {
           <div className={styles.emptyState}>
             <div className={styles.emptyMark}><span /></div>
             <strong>Hỏi CodeLocal</strong>
-            <p>Workspace, thiết bị và Project Brain trong một cuộc trò chuyện.</p>
+            <p>Khám phá Workspace, quản lý thiết bị và tra cứu Project Brain bằng ngôn ngữ tự nhiên.</p>
             <div className={styles.suggestions}>
               {suggestions.map((suggestion) => (
                 <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>
@@ -361,7 +458,9 @@ export function DashboardChat() {
               ) : null}
               {message.image ? <img src={message.image} alt="Ảnh đã gửi" className={styles.msgImage} /> : null}
               {message.content ? (
-                <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant}`}>{message.content}</div>
+                <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant}`}>
+                  {message.role === "assistant" ? <MarkdownContent content={message.content} /> : message.content}
+                </div>
               ) : loading && index === messages.length - 1 ? (
                 <div className={styles.thinking} aria-label="CodeLocal đang trả lời"><i /><i /><i /></div>
               ) : null}
@@ -380,16 +479,16 @@ export function DashboardChat() {
 
       <form className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
         <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
-        <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh">
+        <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" title="Đính kèm ảnh">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5 14.7 5.8a3 3 0 0 1 4.2 4.2l-8.2 8.2a5 5 0 0 1-7.1-7.1l8-8" /></svg>
         </button>
-        <input value={input} onChange={(event) => setInput(event.target.value)} onPaste={onPaste} placeholder="Nhắn cho CodeLocal" aria-label="Nội dung chat" autoComplete="off" />
+        <input value={input} onChange={(event) => setInput(event.target.value)} onPaste={onPaste} placeholder="Nhắn cho CodeLocal hoặc dán ảnh..." aria-label="Nội dung chat" autoComplete="off" />
         <button className={styles.sendBtn} type="submit" disabled={loading || (!input.trim() && !image)} aria-label="Gửi">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14" /></svg>
         </button>
       </form>
 
-      <div className={styles.chatHint}>{notice || "Enter để gửi · Dán ảnh trực tiếp"}</div>
+      <div className={styles.chatHint}>{notice || "Enter để gửi · Dán ảnh trực tiếp từ clipboard"}</div>
     </section>
   );
 }
