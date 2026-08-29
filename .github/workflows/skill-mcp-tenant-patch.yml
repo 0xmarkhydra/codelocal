@@ -1,0 +1,69 @@
+name: Skill MCP tenant patch
+
+on:
+  push:
+    branches:
+      - feat/skill-intelligence-production
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/skill-intelligence-production
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Apply guarded MCP tenant Skill wiring
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          task_path = Path('internal/mcpgateway/task_memory.go')
+          task_text = task_path.read_text()
+          old_task = 'plan := orchestration.BuildPlan(planInputFromState(state, caps, projectProfileFromResult(result)))'
+          new_task = 'plan := s.tenantAgentPlan(ctx, userID, planInputFromState(state, caps, projectProfileFromResult(result)))'
+          if task_text.count(old_task) != 1:
+              raise SystemExit(f'guard failed: expected one context plan call, found {task_text.count(old_task)}')
+          task_path.write_text(task_text.replace(old_task, new_task, 1))
+
+          agent_path = Path('internal/mcpgateway/agent_tool.go')
+          agent_text = agent_path.read_text()
+          old_agent = 'plan = agentPlanFromState('
+          count = agent_text.count(old_agent)
+          if count < 1:
+              raise SystemExit('guard failed: no bounded-agent replan call sites found')
+          agent_text = agent_text.replace(old_agent, 'plan = s.tenantAgentPlanFromState(ctx, userID, ')
+          if old_agent in agent_text:
+              raise SystemExit('guard failed: stale bounded-agent replan call remains')
+          agent_path.write_text(agent_text)
+          print(f'patched {count} bounded-agent replan call sites')
+          PY
+
+          gofmt -w internal/mcpgateway/task_memory.go internal/mcpgateway/agent_tool.go internal/mcpgateway/skill_runtime.go internal/orchestration/skills.go
+
+      - name: Run targeted Skill and MCP tests
+        run: go test ./internal/orchestration ./internal/mcpgateway ./internal/cloud ./internal/skills
+
+      - name: Commit guarded patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No patch required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/mcpgateway/task_memory.go internal/mcpgateway/agent_tool.go internal/mcpgateway/skill_runtime.go internal/orchestration/skills.go
+          git commit -m 'feat(skills): wire tenant runtime into MCP planning [skip ci]'
+          git push origin HEAD:feat/skill-intelligence-production
