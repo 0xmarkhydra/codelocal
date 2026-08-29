@@ -269,6 +269,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/v1/dashboard/media/upload", s.dashboardMediaUpload)
 	mux.HandleFunc("GET /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
 	mux.HandleFunc("DELETE /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
+	s.registerSkillRoutes(mux)
 	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspacesResourceAPI)
 	mux.HandleFunc("GET /api/v1/runtime/settings", s.runtimeSettingsResourceAPI)
