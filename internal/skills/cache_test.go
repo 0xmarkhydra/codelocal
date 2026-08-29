@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -32,6 +34,38 @@ func TestDirectoryPackageCacheRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDirectoryPackageCacheUsesPrivatePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not authoritative on Windows")
+	}
+	pkg := testCachePackage(t, Manifest{
+		ID: "private-cache", Name: "Private Cache", Version: "1.0.0", Publisher: "user",
+		Scope: ScopePersonal, Kind: KindKnowledge, Quality: 0.5,
+	})
+	cache := DirectoryPackageCache{Root: t.TempDir()}
+	if err := cache.Put(context.Background(), pkg); err != nil {
+		t.Fatal(err)
+	}
+	path, err := cache.packagePath(pkg.PackageHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileInfo.Mode().Perm(); got&0o077 != 0 {
+		t.Fatalf("cached Personal Skill must not be group/world-readable: mode=%#o", got)
+	}
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirInfo.Mode().Perm(); got&0o077 != 0 {
+		t.Fatalf("cached Personal Skill directory must stay private: mode=%#o", got)
+	}
+}
+
 func TestDirectoryPackageCacheRejectsTamperedFile(t *testing.T) {
 	manifest := Manifest{
 		ID:        "tamper-cache",
@@ -57,7 +91,7 @@ func TestDirectoryPackageCacheRejectsTamperedFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := cache.Get(ctx, pkg.PackageHash); err == nil {
