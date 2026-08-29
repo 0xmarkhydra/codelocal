@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 11 {
+	if len(migrations) != 13 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -135,6 +135,18 @@ func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 			t.Fatalf("skill migration 51 missing user-state token %q", token)
 		}
 	}
+	evaluations := strings.ToLower(migrations[11].sql)
+	for _, token := range []string{"codelocal_skill_evaluations", "decision", "score", "checks"} {
+		if !strings.Contains(evaluations, token) {
+			t.Fatalf("skill migration 52 missing evaluation token %q", token)
+		}
+	}
+	ratings := strings.ToLower(migrations[12].sql)
+	for _, token := range []string{"codelocal_skill_ratings", "rating", "user_id", "skill_id"} {
+		if !strings.Contains(ratings, token) {
+			t.Fatalf("skill migration 53 missing rating token %q", token)
+		}
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
@@ -147,11 +159,11 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 51 {
-		t.Fatalf("latest schema version=%d want 51", got)
+	if got := LatestSchemaMigrationVersion(); got != 53 {
+		t.Fatalf("latest schema version=%d want 53", got)
 	}
-	ready := schemaMigrationStatus(51, 51)
-	if !ready.UpToDate || ready.TargetVersion != 51 || ready.AppliedCount != 51 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(53, 53)
+	if !ready.UpToDate || ready.TargetVersion != 53 || ready.AppliedCount != 53 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
@@ -169,7 +181,9 @@ func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
 		{current: 48, count: 48},
 		{current: 49, count: 49},
 		{current: 50, count: 50},
-		{current: 51, count: 50},
+		{current: 51, count: 51},
+		{current: 52, count: 52},
+		{current: 53, count: 52},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)
