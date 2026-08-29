@@ -1466,7 +1466,7 @@ func (s *Service) callOperationRemembering(ctx context.Context, userID, publicTo
 		if workspace != nil {
 			caps = executionCapabilities(workspace)
 		}
-		plan := orchestration.BuildPlan(planInputFromState(state, caps, projectProfileFromResult(result)))
+		plan := s.tenantAgentPlan(ctx, userID, planInputFromState(state, caps, projectProfileFromResult(result)))
 		state = workingMemory.Update(userID, session, workspaceKey, taskstate.Patch{
 			AgentPhase:            plan.Phase,
 			NextAction:            plan.NextAction,

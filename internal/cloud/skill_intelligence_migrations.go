@@ -76,6 +76,33 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_skill_user_states_mode
  ON codelocal_skill_user_states(user_id, mode, updated_at DESC);
 `
 
+const skillEvaluationMigrationSQL = `
+CREATE TABLE IF NOT EXISTS codelocal_skill_evaluations (
+  evaluation_id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  version TEXT NOT NULL,
+  evaluator_user_id TEXT REFERENCES codelocal_users(id) ON DELETE SET NULL,
+  decision TEXT NOT NULL CHECK (decision IN ('passed', 'failed')),
+  score DOUBLE PRECISION NOT NULL CHECK (score >= 0 AND score <= 1),
+  checks JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_skill_evaluations_version
+ ON codelocal_skill_evaluations(skill_id, version, created_at DESC);
+`
+
+const skillRatingMigrationSQL = `
+CREATE TABLE IF NOT EXISTS codelocal_skill_ratings (
+  user_id TEXT NOT NULL REFERENCES codelocal_users(id) ON DELETE CASCADE,
+  skill_id TEXT NOT NULL,
+  rating SMALLINT NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY (user_id, skill_id)
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_skill_ratings_skill
+ ON codelocal_skill_ratings(skill_id, updated_at DESC);
+`
+
 // skillIntelligenceSchemaMigrations is intentionally forward-only. Existing
 // schema versions are immutable because Cloud/Desktop binaries can overlap
 // during rolling releases.
@@ -85,5 +112,7 @@ func skillIntelligenceSchemaMigrations() []schemaMigration {
 		{49, dashboardChatSkillsMigrationSQL},
 		{50, skillRegistryMigrationSQL},
 		{51, skillUserStateMigrationSQL},
+		{52, skillEvaluationMigrationSQL},
+		{53, skillRatingMigrationSQL},
 	}
 }

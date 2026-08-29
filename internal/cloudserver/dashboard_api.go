@@ -212,6 +212,14 @@ func (s *Server) dashboardOverviewAPI(w http.ResponseWriter, r *http.Request) {
 		usageAll = cloud.MCPUsageSummary{}
 	}
 
+	skillCatalog := skillintel.DefaultEngine().Catalog()
+	services := skillServicesForServer(s)
+	if services.Runtime != nil {
+		if snapshot, skillErr := services.Runtime.Snapshot(r.Context(), identity.User.ID); skillErr == nil && snapshot.Engine != nil {
+			skillCatalog = snapshot.Engine.Catalog()
+		}
+	}
+
 	webutil.JSON(w, http.StatusOK, buildDashboardOverviewDTO(dashboardOverviewSource{
 		Email:          identity.User.Email,
 		IsAdmin:        cloud.IsAdminEmail(identity.User.Email),
@@ -222,6 +230,6 @@ func (s *Server) dashboardOverviewAPI(w http.ResponseWriter, r *http.Request) {
 		Usage24h:       usage24h,
 		Usage30d:       usage30d,
 		UsageAll:       usageAll,
-		Skills:         skillintel.DefaultEngine().Catalog(),
+		Skills:         skillCatalog,
 	}))
 }

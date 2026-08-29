@@ -522,7 +522,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	project := projectProfileFromResult(contextResult)
 	plan, ok := agentPlanFromResult(contextResult)
 	if !ok {
-		plan = agentPlanFromState(currentAgentState(userID, session, workspaceKey), caps, project)
+		plan = s.tenantAgentPlanFromState(ctx, userID, currentAgentState(userID, session, workspaceKey), caps, project)
 	}
 	initialPlan := plan
 	dirtySinceVerify := false
@@ -604,12 +604,12 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 			trace = append(trace, item)
 			haltReason = reason
 			state := currentAgentState(userID, session, workspaceKey)
-			plan = agentPlanFromState(state, caps, project)
+			plan = s.tenantAgentPlanFromState(ctx, userID, state, caps, project)
 			return false
 		}
 		item.Status = "succeeded"
 		state := currentAgentState(userID, session, workspaceKey)
-		plan = agentPlanFromState(state, caps, project)
+		plan = s.tenantAgentPlanFromState(ctx, userID, state, caps, project)
 		if reason := replanReason(before, plan); reason != "" {
 			item.Replanned = true
 			item.ReplanReason = strings.TrimSpace(strings.TrimSpace(item.ReplanReason + "; " + reason))
@@ -655,7 +655,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 			seenMutations = map[string]struct{}{}
 			mutationEpoch = 0
 			state := currentAgentState(userID, session, workspaceKey)
-			plan = agentPlanFromState(state, caps, project)
+			plan = s.tenantAgentPlanFromState(ctx, userID, state, caps, project)
 		}
 	}
 
@@ -676,7 +676,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 		verifyStep := boundedAgentStep{Tool: "verify", Args: map[string]any{"action": "changes", "paths": append([]string(nil), state.TouchedFiles...)}}
 		if execute("auto-verify", verifyStep) {
 			state = currentAgentState(userID, session, workspaceKey)
-			plan = agentPlanFromState(state, caps, project)
+			plan = s.tenantAgentPlanFromState(ctx, userID, state, caps, project)
 			for _, check := range verificationChecks(plan, state) {
 				if ops >= maxBoundedAgentOps || haltReason != "" {
 					break
@@ -690,7 +690,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 					break
 				}
 				state = currentAgentState(userID, session, workspaceKey)
-				plan = agentPlanFromState(state, caps, project)
+				plan = s.tenantAgentPlanFromState(ctx, userID, state, caps, project)
 				if stopWhenReady && state.AgentPhase == "finalize" && state.QualityStatus == "ready" {
 					break
 				}
@@ -710,7 +710,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	}
 
 	state := currentAgentState(userID, session, workspaceKey)
-	plan = agentPlanFromState(state, caps, project)
+	plan = s.tenantAgentPlanFromState(ctx, userID, state, caps, project)
 	status := "completed"
 	if haltReason != "" {
 		status = "halted"
