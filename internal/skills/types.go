@@ -50,8 +50,12 @@ type Manifest struct {
 }
 
 func (m Manifest) Validate() error {
-	if strings.TrimSpace(m.ID) == "" || strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Version) == "" {
-		return fmt.Errorf("skill id, name and version are required")
+	for field, value := range map[string]string{
+		"id": m.ID, "name": m.Name, "version": m.Version,
+	} {
+		if err := validateCanonicalManifestField(field, value); err != nil {
+			return err
+		}
 	}
 	switch m.Scope {
 	case ScopeSystem, ScopePersonal, ScopeCommunity:
@@ -66,7 +70,37 @@ func (m Manifest) Validate() error {
 	if m.Quality < 0 || m.Quality > 1 {
 		return fmt.Errorf("skill quality must be between 0 and 1")
 	}
+	seenCapabilities := make(map[Capability]struct{}, len(m.Capabilities))
+	for _, capability := range m.Capabilities {
+		if !validCapability(capability) {
+			return fmt.Errorf("unsupported skill capability %q", capability)
+		}
+		if _, duplicate := seenCapabilities[capability]; duplicate {
+			return fmt.Errorf("duplicate skill capability %q", capability)
+		}
+		seenCapabilities[capability] = struct{}{}
+	}
 	return nil
+}
+
+func validateCanonicalManifestField(field, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("skill %s is required", field)
+	}
+	if value != strings.TrimSpace(value) || strings.ContainsAny(value, "\x00\r\n") {
+		return fmt.Errorf("skill %s must be canonical", field)
+	}
+	return nil
+}
+
+func validCapability(capability Capability) bool {
+	switch capability {
+	case CapabilityProjectRead, CapabilityProjectWrite, CapabilityShell, CapabilityNetwork,
+		CapabilityBrowser, CapabilityCredentials, CapabilityDestructive:
+		return true
+	default:
+		return false
+	}
 }
 
 type TaskContext struct {
