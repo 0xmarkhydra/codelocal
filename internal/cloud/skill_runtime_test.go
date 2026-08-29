@@ -9,9 +9,10 @@ import (
 )
 
 type fakeSkillRuntimeCatalog struct {
-	stable []SkillVersionRecord
-	states []SkillUserState
-	byKey  map[string]SkillVersionRecord
+	stable  []SkillVersionRecord
+	states  []SkillUserState
+	byKey   map[string]SkillVersionRecord
+	quality map[string]SkillQualitySignal
 }
 
 func (f *fakeSkillRuntimeCatalog) StableSkillVersionRecords(context.Context, string) ([]SkillVersionRecord, error) {
@@ -25,6 +26,16 @@ func (f *fakeSkillRuntimeCatalog) SkillVersionRecordByIdentity(_ context.Context
 
 func (f *fakeSkillRuntimeCatalog) ListSkillUserStates(context.Context, string) ([]SkillUserState, error) {
 	return append([]SkillUserState(nil), f.states...), nil
+}
+
+func (f *fakeSkillRuntimeCatalog) SkillQualitySignals(_ context.Context, refs []SkillVersionRef) (map[string]SkillQualitySignal, error) {
+	out := map[string]SkillQualitySignal{}
+	for _, ref := range refs {
+		if signal, ok := f.quality[skillQualityKey(ref.SkillID, ref.Version)]; ok {
+			out[skillQualityKey(ref.SkillID, ref.Version)] = signal
+		}
+	}
+	return out, nil
 }
 
 type fakeSkillRuntimePackageStore struct {
@@ -126,6 +137,53 @@ func TestSkillRuntimePersonalOverridesCommunityAndPreferBoosts(t *testing.T) {
 	}
 	if snapshot.PreferenceAffinity["review-pro"] != preferredSkillAffinityBoost {
 		t.Fatalf("expected prefer affinity boost, got %#v", snapshot.PreferenceAffinity)
+	}
+}
+
+func TestSkillRuntimeCommunityUsesTrustedQuality(t *testing.T) {
+	pkg := runtimeTestPackage(t, skills.Manifest{
+		ID: "community-only", Name: "Community Only", Version: "1.0.0", Publisher: "creator",
+		Scope: skills.ScopeCommunity, Kind: skills.KindKnowledge, Intents: []string{"code_review"}, Quality: 1.0,
+		SourceURL: "https://github.com/example/community", SourceRef: "abc", SourceHash: "tree", License: "MIT",
+	})
+	record, _ := NewSkillVersionRecord("", "creator", pkg, "s3://skills/community-only", SkillVersionPromoted)
+	catalog := &fakeSkillRuntimeCatalog{
+		stable: []SkillVersionRecord{record},
+		quality: map[string]SkillQualitySignal{
+			skillQualityKey("community-only", "1.0.0"): {SkillID: "community-only", Version: "1.0.0", EvaluationScore: 0.9, Quality: 0.82},
+		},
+	}
+	store := &fakeSkillRuntimePackageStore{packages: map[string]skills.Package{pkg.PackageHash: pkg}}
+	snapshot, err := NewSkillRuntime(catalog, store).Snapshot(context.Background(), "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, manifest := range snapshot.Engine.Catalog() {
+		if manifest.ID == "community-only" {
+			if manifest.Quality != 0.82 {
+				t.Fatalf("creator quality must be replaced by trusted quality, got %.2f", manifest.Quality)
+			}
+			return
+		}
+	}
+	t.Fatal("trusted Community skill should be routable")
+}
+
+func TestSkillRuntimeCommunityWithoutEvaluationIsSuppressed(t *testing.T) {
+	pkg := runtimeTestPackage(t, skills.Manifest{
+		ID: "untrusted-community", Name: "Untrusted", Version: "1.0.0", Publisher: "creator",
+		Scope: skills.ScopeCommunity, Kind: skills.KindKnowledge, Quality: 1.0,
+		SourceURL: "https://github.com/example/untrusted", SourceRef: "abc", SourceHash: "tree", License: "MIT",
+	})
+	record, _ := NewSkillVersionRecord("", "creator", pkg, "s3://skills/untrusted", SkillVersionPromoted)
+	snapshot, err := NewSkillRuntime(&fakeSkillRuntimeCatalog{stable: []SkillVersionRecord{record}}, &fakeSkillRuntimePackageStore{packages: map[string]skills.Package{pkg.PackageHash: pkg}}).Snapshot(context.Background(), "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, manifest := range snapshot.Engine.Catalog() {
+		if manifest.ID == "untrusted-community" {
+			t.Fatal("Community skill without trusted evaluation must not be routable")
+		}
 	}
 }
 
