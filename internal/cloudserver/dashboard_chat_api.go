@@ -105,13 +105,15 @@ const dashboardPublicModelName = "Thánh Gióng"
 
 func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace, autoResolved bool) string {
 	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never tell the user to navigate to another dashboard page to approve an action. If the user explicitly chooses one of CodeLocal's access modes in chat, the server applies that mode directly; resume the previously blocked task instead of only acknowledging the choice. For Git pushes, if the branch is behind or diverged from the remote, inspect Git state, fetch/rebase onto the remote branch, and retry the push; stop only when an actual merge/rebase conflict requires the user. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. While tools are running, do not narrate access mode, tool status, or repeatedly say what you are about to do; the dashboard activity UI already communicates progress. Give one concise final summary after execution. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
+	base := ""
 	if workspace == nil || strings.TrimSpace(workspace.WorkspaceID) == "" {
-		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results. If a project is needed, call get_workspace_detail; it activates the workspace automatically."
+		base = prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results. If a project is needed, call get_workspace_detail; it activates the workspace automatically."
+	} else if autoResolved {
+		base = fmt.Sprintf("%s Auto routing resolved the current project to %q (workspaceId=%q, deviceId=%q), and CodeLocal already activated it. Continue in this project without discussing wake/sleep state unless activation itself failed.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
+	} else {
+		base = fmt.Sprintf("%s The user manually selected workspace %q (workspaceId=%q, deviceId=%q). CodeLocal already activated it. Treat this workspace as the primary project context unless the user explicitly asks to switch projects, and do not ask about wake/sleep state.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
 	}
-	if autoResolved {
-		return fmt.Sprintf("%s Auto routing resolved the current project to %q (workspaceId=%q, deviceId=%q), and CodeLocal already activated it. Continue in this project without discussing wake/sleep state unless activation itself failed.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
-	}
-	return fmt.Sprintf("%s The user manually selected workspace %q (workspaceId=%q, deviceId=%q). CodeLocal already activated it. Treat this workspace as the primary project context unless the user explicitly asks to switch projects, and do not ask about wake/sleep state.", prompt, workspace.WorkspaceName, workspace.WorkspaceID, workspace.DeviceID)
+	return base + dashboardEmployeeAddon()
 }
 
 func dashboardChatNormalizeWorkspaceText(value string) string {
@@ -636,6 +638,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			msgs = append(msgs, m)
 		}
+		if plan := dashboardEmployeePlanMessage(msg); plan != nil {
+			msgs = append(msgs, plan)
+		}
 		if accessRequested {
 			msgs = append(msgs, dashboardAccessResumeInstruction(accessChoice, accessLabel, executionWorkspace))
 		}
@@ -696,6 +701,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			m["name"] = h.Name
 		}
 		messages = append(messages, m)
+	}
+	if plan := dashboardEmployeePlanMessage(msg); plan != nil {
+		messages = append(messages, plan)
 	}
 	if accessRequested {
 		messages = append(messages, dashboardAccessResumeInstruction(accessChoice, accessLabel, executionWorkspace))
