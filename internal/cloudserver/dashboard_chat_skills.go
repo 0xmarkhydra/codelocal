@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	skillintel "github.com/0xmarkhydra/codelocal/internal/skills"
@@ -89,35 +90,78 @@ func dashboardSkillTask(messages []map[string]any, affinity map[string]float64) 
 	return skillintel.ClassifyTask(skillintel.TaskEvidence{Query: message, HasImage: hasImage, Affinity: affinity})
 }
 
-func dashboardSkillPlanWithAffinity(messages []map[string]any, affinity map[string]float64) skillintel.Plan {
+func dashboardSkillPlanWithEngine(messages []map[string]any, affinity map[string]float64, engine *skillintel.Engine) skillintel.Plan {
 	task := dashboardSkillTask(messages, affinity)
 	if strings.TrimSpace(task.Query) == "" && len(task.Intents) == 0 && len(task.Signals) == 0 {
 		return skillintel.Plan{}
 	}
-	return skillintel.DefaultEngine().Plan(task)
+	if engine == nil {
+		engine = skillintel.DefaultEngine()
+	}
+	return engine.Plan(task)
+}
+
+func dashboardSkillPlanWithAffinity(messages []map[string]any, affinity map[string]float64) skillintel.Plan {
+	return dashboardSkillPlanWithEngine(messages, affinity, skillintel.DefaultEngine())
 }
 
 func dashboardSkillPlan(messages []map[string]any) skillintel.Plan {
 	return dashboardSkillPlanWithAffinity(messages, nil)
 }
 
-// dashboardSkillPlanForUser derives tenant-private preference from verified
-// experience. Failure to read affinity is deliberately fail-open to neutral
-// routing; chat must never fail because personalization is unavailable.
+// dashboardSkillPlanForUser combines the tenant-effective Cloud Skill runtime,
+// explicit prefer/disable/pin state and verified historical affinity. Any Cloud
+// lookup failure fails open to the bounded built-in engine so chat remains
+// available without silently granting additional capability.
 func dashboardSkillPlanForUser(ctx context.Context, s *Server, userID string, messages []map[string]any) skillintel.Plan {
 	if s == nil || s.Store == nil || strings.TrimSpace(userID) == "" {
 		return dashboardSkillPlan(messages)
 	}
-	catalog := skillintel.DefaultEngine().Catalog()
+	engine := skillintel.DefaultEngine()
+	preferenceAffinity := map[string]float64{}
+	services := skillServicesForServer(s)
+	if services.Runtime != nil {
+		snapshot, err := services.Runtime.Snapshot(ctx, userID)
+		if err != nil {
+			slog.Warn("skill runtime snapshot failed; using bounded built-in fallback", "error", err)
+		} else {
+			if snapshot.Engine != nil {
+				engine = snapshot.Engine
+			}
+			preferenceAffinity = snapshot.PreferenceAffinity
+			for _, warning := range snapshot.Warnings {
+				slog.Warn("skill runtime degraded", "warning", warning)
+			}
+		}
+	}
+
+	catalog := engine.Catalog()
 	ids := make([]string, 0, len(catalog))
 	for _, manifest := range catalog {
 		ids = append(ids, manifest.ID)
 	}
-	affinity, err := s.Store.SkillAffinity(ctx, userID, ids)
+	historicalAffinity, err := s.Store.SkillAffinity(ctx, userID, ids)
 	if err != nil {
-		return dashboardSkillPlan(messages)
+		historicalAffinity = nil
 	}
-	return dashboardSkillPlanWithAffinity(messages, affinity)
+	affinity := mergeDashboardSkillAffinity(historicalAffinity, preferenceAffinity)
+	return dashboardSkillPlanWithEngine(messages, affinity, engine)
+}
+
+func mergeDashboardSkillAffinity(values ...map[string]float64) map[string]float64 {
+	out := map[string]float64{}
+	for _, value := range values {
+		for skillID, score := range value {
+			out[skillID] += score
+			if out[skillID] > 0.25 {
+				out[skillID] = 0.25
+			}
+			if out[skillID] < -0.25 {
+				out[skillID] = -0.25
+			}
+		}
+	}
+	return out
 }
 
 func dashboardSkillBadges(plan skillintel.Plan) []dashboardSkillBadge {
