@@ -1,0 +1,55 @@
+name: Skill Production Guarded Gate
+
+on:
+  push:
+    branches: [feat/skill-intelligence-production]
+
+permissions:
+  contents: write
+
+jobs:
+  wire-and-test:
+    if: ${{ !contains(github.event.head_commit.message, 'wire production skill routes') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/skill-intelligence-production
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Wire route hook with exact-match guard
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('internal/cloudserver/server.go')
+          text = path.read_text()
+          if 's.registerSkillRoutes(mux)' in text:
+              print('skill routes already wired')
+          else:
+              needle = '''\tmux.HandleFunc("GET /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)\n\tmux.HandleFunc("DELETE /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)\n\tmux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)'''
+              replacement = '''\tmux.HandleFunc("GET /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)\n\tmux.HandleFunc("DELETE /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)\n\ts.registerSkillRoutes(mux)\n\tmux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)'''
+              if text.count(needle) != 1:
+                  raise SystemExit(f'exact route anchor count={text.count(needle)}; refusing blind patch')
+              path.write_text(text.replace(needle, replacement, 1))
+          PY
+      - name: Format
+        run: gofmt -w internal/skills internal/cloud internal/cloudserver
+      - name: Focused tests
+        run: go test ./internal/skills ./internal/cloud ./internal/cloudserver ./internal/orchestration
+      - name: Vet affected packages
+        run: go vet ./internal/skills ./internal/cloud ./internal/cloudserver ./internal/orchestration
+      - name: Commit route wiring
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No guarded changes to commit'
+            exit 0
+          fi
+          git config user.name 'CodeLocal CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add internal/cloudserver/server.go internal/skills internal/cloud internal/cloudserver
+          git commit -m 'feat(skills): wire production skill routes'
+          git push origin HEAD:feat/skill-intelligence-production
