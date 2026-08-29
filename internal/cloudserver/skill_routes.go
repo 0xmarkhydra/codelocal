@@ -42,7 +42,7 @@ func (s *Server) registerSkillRoutes(mux *http.ServeMux) {
 	adminImport := skillJSONCSRF(http.HandlerFunc(s.adminSkillImportAPI))
 	mux.Handle("POST /api/v1/admin/skills/import", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "skill-admin-import-ip", Limit: 30, Window: 10 * time.Minute}, adminImport))
 	mux.Handle("POST /api/v1/admin/skills/{skillID}/versions/{version}/evaluate/start", skillJSONCSRF(http.HandlerFunc(s.adminSkillEvaluationStartAPI)))
-	mux.Handle("POST /api/v1/admin/skills/{skillID}/versions/{version}/evaluate", skillJSONCSRF(http.HandlerFunc(s.adminSkillEvaluationCompleteAPI)))
+	mux.Handle("POST /api/v1/admin/skills/{skillID}/versions/{version}/evaluate", skillJSONCSRF(http.HandlerFunc(s.adminSkillEvaluationCompleteV2API)))
 	mux.Handle("POST /api/v1/admin/skills/{skillID}/versions/{version}/promote", skillJSONCSRF(http.HandlerFunc(s.adminSkillPromoteAPI)))
 	mux.Handle("POST /api/v1/admin/skills/{skillID}/versions/{version}/rollback", skillJSONCSRF(http.HandlerFunc(s.adminSkillRollbackAPI)))
 }
