@@ -173,18 +173,22 @@ func (s *Store) SetSkillChannel(ctx context.Context, tenantUserID, skillID, chan
 	if skillID == "" || version == "" || (channel != "stable" && channel != "canary") {
 		return fmt.Errorf("invalid skill channel update")
 	}
-	var exists bool
+	var state SkillVersionState
 	err := s.DB.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1 FROM codelocal_skill_versions
-  WHERE skill_id = $1 AND version = $2
-    AND tenant_user_id IS NOT DISTINCT FROM NULLIF($3, '')
-)`, skillID, version, tenantUserID).Scan(&exists)
+SELECT state
+FROM codelocal_skill_versions
+WHERE skill_id = $1 AND version = $2
+  AND tenant_user_id IS NOT DISTINCT FROM NULLIF($3, '')`,
+		skillID, version, tenantUserID,
+	).Scan(&state)
+	if err == pgx.ErrNoRows {
+		return fmt.Errorf("skill %s@%s does not exist for channel", skillID, version)
+	}
 	if err != nil {
 		return err
 	}
-	if !exists {
-		return fmt.Errorf("skill %s@%s does not exist for channel", skillID, version)
+	if !skillChannelAllowsState(channel, state) {
+		return fmt.Errorf("skill %s@%s state %q cannot become %s", skillID, version, state, channel)
 	}
 	now := time.Now().UnixMilli()
 	channelID := skillRegistryID("channel", tenantUserID, skillID, channel)
@@ -197,6 +201,17 @@ ON CONFLICT (channel_id) DO UPDATE SET
 		channelID, skillID, tenantUserID, channel, version, now,
 	)
 	return err
+}
+
+func skillChannelAllowsState(channel string, state SkillVersionState) bool {
+	switch channel {
+	case "stable":
+		return state == SkillVersionActive || state == SkillVersionPromoted
+	case "canary":
+		return state == SkillVersionCanary
+	default:
+		return false
+	}
 }
 
 func (s *Store) SkillChannelVersion(ctx context.Context, tenantUserID, skillID, channel string) (string, bool, error) {
