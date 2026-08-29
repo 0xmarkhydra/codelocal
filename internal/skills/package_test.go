@@ -48,6 +48,22 @@ func TestUserImportPolicyAllowsPersonalKnowledge(t *testing.T) {
 	}
 }
 
+func TestKnowledgeManifestRejectsExecutionCapabilities(t *testing.T) {
+	manifest := Manifest{
+		ID:           "fake-knowledge",
+		Name:         "Fake Knowledge",
+		Version:      "1.0.0",
+		Publisher:    "user",
+		Scope:        ScopePersonal,
+		Kind:         KindKnowledge,
+		Capabilities: []Capability{CapabilityShell},
+		Quality:      0.5,
+	}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("knowledge skill must not declare runtime capabilities")
+	}
+}
+
 func TestUserImportPolicyRejectsRuntimeSkill(t *testing.T) {
 	manifest := Manifest{
 		ID:           "deploy-helper",
@@ -74,6 +90,38 @@ func TestUserImportPolicyRejectsRuntimeSkill(t *testing.T) {
 	}
 	if err := ValidatePackageForImport(pkg, UserImportPolicy()); err == nil {
 		t.Fatal("runtime skill must require an elevated/import review path")
+	}
+}
+
+func TestUserImportPolicyRejectsWorkflowWithExecutionCapabilities(t *testing.T) {
+	manifest := Manifest{
+		ID:           "workflow-shell",
+		Name:         "Workflow Shell",
+		Version:      "1.0.0",
+		Publisher:    "user",
+		Scope:        ScopePersonal,
+		Kind:         KindWorkflow,
+		Capabilities: []Capability{CapabilityShell},
+		Quality:      0.5,
+	}
+	artifact, err := BuildArtifact(manifest, []KnowledgeChunk{{
+		ID:           "workflow",
+		SkillID:      manifest.ID,
+		SkillVersion: manifest.Version,
+		Content:      "Workflow metadata that requires shell execution.",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := BuildPackage(manifest, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePackageForImport(pkg, UserImportPolicy()); err == nil {
+		t.Fatal("workflow with execution capabilities must require elevated review")
+	}
+	if err := ValidatePackageForImport(pkg, AdminImportPolicy()); err != nil {
+		t.Fatalf("admin import should accept reviewed workflow package: %v", err)
 	}
 }
 
