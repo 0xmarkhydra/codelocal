@@ -70,6 +70,9 @@ func (m Manifest) Validate() error {
 	if m.Quality < 0 || m.Quality > 1 {
 		return fmt.Errorf("skill quality must be between 0 and 1")
 	}
+	if m.Kind == KindKnowledge && len(m.Capabilities) > 0 {
+		return fmt.Errorf("knowledge skill cannot declare runtime capabilities")
+	}
 	seenCapabilities := make(map[Capability]struct{}, len(m.Capabilities))
 	for _, capability := range m.Capabilities {
 		if !validCapability(capability) {
