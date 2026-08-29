@@ -80,6 +80,28 @@ func TestNewSkillVersionRecordRejectsInvalidStorageAndState(t *testing.T) {
 	}
 }
 
+func TestSkillChannelLifecycleCannotBypassPromotion(t *testing.T) {
+	for _, state := range []SkillVersionState{
+		SkillVersionCandidate, SkillVersionEvaluating, SkillVersionCanary,
+		SkillVersionRejected, SkillVersionRolledBack, SkillVersionDeprecated, SkillVersionBlocked,
+	} {
+		if skillChannelAllowsState("stable", state) {
+			t.Fatalf("state %q must not be directly routable as stable", state)
+		}
+	}
+	for _, state := range []SkillVersionState{SkillVersionActive, SkillVersionPromoted} {
+		if !skillChannelAllowsState("stable", state) {
+			t.Fatalf("state %q should be eligible for stable channel", state)
+		}
+	}
+	if !skillChannelAllowsState("canary", SkillVersionCanary) {
+		t.Fatal("canary state must be eligible for canary channel")
+	}
+	if skillChannelAllowsState("canary", SkillVersionCandidate) || skillChannelAllowsState("canary", SkillVersionPromoted) {
+		t.Fatal("canary channel must require the explicit canary state")
+	}
+}
+
 func registryTestPackage(t *testing.T, manifest skills.Manifest) skills.Package {
 	t.Helper()
 	artifact, err := skills.BuildArtifact(manifest, []skills.KnowledgeChunk{{
