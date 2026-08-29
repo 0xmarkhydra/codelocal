@@ -90,3 +90,12 @@ WHERE user_id=$1 AND skill_id=ANY($2::text[])`, userID, ids)
 	}
 	return out, rows.Err()
 }
+
+func (s *Store) GetSkillRating(ctx context.Context, userID, skillID string) (int, bool, error) {
+	ratings, err := s.SkillRatingsForUser(ctx, userID, []string{skillID})
+	if err != nil {
+		return 0, false, err
+	}
+	rating, ok := ratings[strings.TrimSpace(skillID)]
+	return rating, ok, nil
+}
