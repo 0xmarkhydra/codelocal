@@ -44,6 +44,10 @@ export type BlogPostsResource = {
   isAdmin: boolean;
 };
 
+export type PublicBlogPostsResource = {
+  posts: BlogPostSummary[];
+};
+
 export type BlogPostResource = {
   post: BlogPost;
   official?: boolean;
@@ -52,6 +56,10 @@ export type BlogPostResource = {
 export type BlogSeriesCollectionResource = {
   series: BlogSeries[];
   isAdmin: boolean;
+};
+
+export type PublicBlogSeriesCollectionResource = {
+  series: BlogSeries[];
 };
 
 export type BlogSeriesResource = {
@@ -112,6 +120,10 @@ export function isBlogPostsResource(value: unknown): value is BlogPostsResource 
   return value.posts.every(isBlogPostSummary);
 }
 
+export function isPublicBlogPostsResource(value: unknown): value is PublicBlogPostsResource {
+  return isRecord(value) && Array.isArray(value.posts) && value.posts.every(isBlogPostSummary);
+}
+
 export function isBlogPostResource(value: unknown): value is BlogPostResource {
   if (!isRecord(value) || !isRecord(value.post)) return false;
   const post = value.post;
@@ -121,6 +133,10 @@ export function isBlogPostResource(value: unknown): value is BlogPostResource {
 
 export function isBlogSeriesCollectionResource(value: unknown): value is BlogSeriesCollectionResource {
   return isRecord(value) && Array.isArray(value.series) && value.series.every(isBlogSeries) && typeof value.isAdmin === "boolean";
+}
+
+export function isPublicBlogSeriesCollectionResource(value: unknown): value is PublicBlogSeriesCollectionResource {
+  return isRecord(value) && Array.isArray(value.series) && value.series.every(isBlogSeries);
 }
 
 export function isBlogSeriesResource(value: unknown): value is BlogSeriesResource {
