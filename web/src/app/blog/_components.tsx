@@ -13,8 +13,8 @@ export function BlogHeader() {
         <em>Blog</em>
       </Link>
       <nav className={styles.headerNav} aria-label="Blog navigation">
-        <Link href="/blog">Latest</Link>
-        <Link href="/blog/series">Series</Link>
+        <Link href="/blogs">Latest</Link>
+        <Link href="/blogs/series">Series</Link>
         <Link href="/security">Security</Link>
       </nav>
       <Link className={styles.openApp} href="/dashboard">Open app</Link>
@@ -41,9 +41,9 @@ export function BlogFooter() {
 export function TaxonomyLinks({ post }: { post: BlogPost }) {
   return (
     <div className={styles.taxonomy}>
-      <Link href={`/blog/category/${taxonomySlug(post.category)}`}>{post.category}</Link>
+      <Link href={`/blogs/category/${taxonomySlug(post.category)}`}>{post.category}</Link>
       {post.tags.map((tag) => (
-        <Link key={tag} href={`/blog/tag/${taxonomySlug(tag)}`}>#{tag}</Link>
+        <Link key={tag} href={`/blogs/tag/${taxonomySlug(tag)}`}>#{tag}</Link>
       ))}
     </div>
   );
@@ -57,33 +57,35 @@ export function PostCard({ post, compact = false }: { post: BlogPost; compact?: 
         <time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt)}</time>
         <span>{post.readingMinutes} min</span>
       </div>
-      <h2><Link href={`/blog/${post.slug}`}>{post.title}</Link></h2>
+      <h2><Link href={`/blogs/${post.slug}`}>{post.title}</Link></h2>
       <p>{post.excerpt}</p>
       <TaxonomyLinks post={post} />
-      <Link className={styles.readMore} href={`/blog/${post.slug}`}>Read article <span aria-hidden="true">→</span></Link>
+      <Link className={styles.readMore} href={`/blogs/${post.slug}`}>Read article <span aria-hidden="true">→</span></Link>
     </article>
   );
 }
 
-export function SeriesCard({ series }: { series: BlogSeries }) {
-  const posts = getSeriesPosts(series.slug);
+export function SeriesCard({ series, posts: suppliedPosts }: { series: BlogSeries; posts?: BlogPost[] }) {
+  const posts = suppliedPosts ?? getSeriesPosts(series.slug);
   return (
     <article className={styles.seriesCard}>
       <div className={styles.seriesCardTop}>
         <span>{series.status === "complete" ? "Complete series" : "Active series"}</span>
         <em>{posts.length} parts</em>
       </div>
-      <h2><Link href={`/blog/series/${series.slug}`}>{series.title}</Link></h2>
+      <h2><Link href={`/blogs/series/${series.slug}`}>{series.title}</Link></h2>
       <p>{series.description}</p>
-      <ol>
-        {posts.map((post) => (
-          <li key={post.slug}>
-            <span>{String(post.series?.part ?? 0).padStart(2, "0")}</span>
-            <Link href={`/blog/${post.slug}`}>{post.title}</Link>
-          </li>
-        ))}
-      </ol>
-      <Link className={styles.readMore} href={`/blog/series/${series.slug}`}>Explore series <span aria-hidden="true">→</span></Link>
+      {posts.length > 0 && (
+        <ol>
+          {posts.map((post) => (
+            <li key={post.slug}>
+              <span>{String(post.series?.part ?? 0).padStart(2, "0")}</span>
+              <Link href={`/blogs/${post.slug}`}>{post.title}</Link>
+            </li>
+          ))}
+        </ol>
+      )}
+      <Link className={styles.readMore} href={`/blogs/series/${series.slug}`}>Explore series <span aria-hidden="true">→</span></Link>
     </article>
   );
 }
@@ -136,7 +138,7 @@ export function EmptyState({ query }: { query?: string }) {
     <div className={styles.emptyState}>
       <strong>No articles found.</strong>
       <p>{query ? `Nothing matched “${query}”. Try a broader search.` : "There are no published articles in this view yet."}</p>
-      <Link href="/blog">View all articles</Link>
+      <Link href="/blogs">View all articles</Link>
     </div>
   );
 }
