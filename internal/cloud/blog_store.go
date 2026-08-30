@@ -76,6 +76,25 @@ func (s *Store) validateBlogSeriesOwner(ctx context.Context, authorUserID, serie
 	return err
 }
 
+func validateBlogSeriesOwnerTx(ctx context.Context, tx pgx.Tx, authorUserID, seriesID string) error {
+	seriesID = strings.TrimSpace(seriesID)
+	if seriesID == "" {
+		return nil
+	}
+	var owner string
+	err := tx.QueryRow(ctx, `SELECT author_user_id FROM codelocal_blog_series WHERE series_id=$1 AND deleted_at=0 FOR SHARE`, seriesID).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrBlogInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(owner) != strings.TrimSpace(authorUserID) {
+		return ErrBlogInvalid
+	}
+	return nil
+}
+
 func (s *Store) CreateBlogPost(ctx context.Context, input BlogPostDraft) (BlogPost, error) {
 	input, err := normalizeBlogDraft(input)
 	if err != nil {
@@ -99,6 +118,9 @@ func (s *Store) CreateBlogPost(ctx context.Context, input BlogPostDraft) (BlogPo
 		return BlogPost{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := validateBlogSeriesOwnerTx(ctx, tx, input.AuthorUserID, input.SeriesID); err != nil {
+		return BlogPost{}, err
+	}
 	_, err = tx.Exec(ctx, `
 INSERT INTO codelocal_blog_posts(
  post_id,slug,author_user_id,title,excerpt,content,cover_asset_id,category,tags,series_id,series_part,
@@ -178,6 +200,23 @@ func blogListLimit(limit int) int {
 	return limit
 }
 
+func publicBlogPageLimit(limit int) int {
+	if limit < 1 {
+		return 100
+	}
+	if limit > 201 {
+		return 201
+	}
+	return limit
+}
+
+func blogListOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
 func (s *Store) ListBlogPostsForUser(ctx context.Context, userID string, limit int) ([]BlogPost, error) {
 	rows, err := s.DB.Query(ctx, blogPostSelect+` WHERE p.author_user_id=$1 AND p.deleted_at=0 ORDER BY p.updated_at DESC LIMIT $2`, strings.TrimSpace(userID), blogListLimit(limit))
 	if err != nil {
@@ -195,7 +234,11 @@ func (s *Store) ListAllBlogPosts(ctx context.Context, limit int) ([]BlogPost, er
 }
 
 func (s *Store) ListPublicBlogPosts(ctx context.Context, limit int) ([]BlogPost, error) {
-	rows, err := s.DB.Query(ctx, blogPostSelect+` WHERE p.deleted_at=0 AND p.status='published' AND p.visibility='public' AND p.moderation_status='clean' ORDER BY p.published_at DESC,p.updated_at DESC LIMIT $1`, blogListLimit(limit))
+	return s.ListPublicBlogPostsPage(ctx, blogListLimit(limit), 0)
+}
+
+func (s *Store) ListPublicBlogPostsPage(ctx context.Context, limit, offset int) ([]BlogPost, error) {
+	rows, err := s.DB.Query(ctx, blogPostSelect+` WHERE p.deleted_at=0 AND p.status='published' AND p.visibility='public' AND p.moderation_status='clean' ORDER BY p.published_at DESC,p.updated_at DESC LIMIT $1 OFFSET $2`, publicBlogPageLimit(limit), blogListOffset(offset))
 	if err != nil {
 		return nil, err
 	}
@@ -231,6 +274,9 @@ func (s *Store) UpdateBlogPost(ctx context.Context, actorUserID string, admin bo
 		return BlogPost{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := validateBlogSeriesOwnerTx(ctx, tx, current.AuthorUserID, input.SeriesID); err != nil {
+		return BlogPost{}, err
+	}
 	now := time.Now().UnixMilli()
 	if _, err = tx.Exec(ctx, `
 INSERT INTO codelocal_blog_post_revisions(revision_id,post_id,editor_user_id,snapshot,created_at)
