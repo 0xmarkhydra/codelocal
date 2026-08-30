@@ -315,25 +315,42 @@ ON CONFLICT(old_slug) DO UPDATE SET post_id=EXCLUDED.post_id,created_at=EXCLUDED
 }
 
 func (s *Store) SetBlogPostPublished(ctx context.Context, actorUserID string, admin bool, postID string, published bool) (BlogPost, error) {
-	post, err := s.BlogPostByID(ctx, postID)
+	postID = strings.TrimSpace(postID)
+	actorUserID = strings.TrimSpace(actorUserID)
+	if postID == "" {
+		return BlogPost{}, ErrBlogNotFound
+	}
+
+	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return BlogPost{}, err
 	}
-	if post.AuthorUserID != strings.TrimSpace(actorUserID) && !admin {
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	post, err := scanBlogPost(tx.QueryRow(ctx, blogPostSelect+` WHERE p.post_id=$1 AND p.deleted_at=0 FOR UPDATE OF p`, postID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BlogPost{}, ErrBlogNotFound
+	}
+	if err != nil {
+		return BlogPost{}, err
+	}
+	if post.AuthorUserID != actorUserID && !admin {
 		return BlogPost{}, ErrBlogForbidden
 	}
 	if published && post.ModerationStatus == "hidden" {
 		return BlogPost{}, fmt.Errorf("%w: hidden posts cannot be published", ErrBlogForbidden)
 	}
+
 	if published {
 		mediaSlots, err := s.validateBlogMediaAssets(ctx, post.AuthorUserID, post.CoverAssetID, post.Content)
 		if err != nil {
 			return BlogPost{}, err
 		}
-		if err := s.syncBlogMediaRefs(ctx, post.AuthorUserID, post.ID, mediaSlots); err != nil {
+		if err := syncMediaAssetRefsTx(ctx, tx, post.AuthorUserID, "blog_post", post.ID, mediaSlots); err != nil {
 			return BlogPost{}, err
 		}
 	}
+
 	status := "draft"
 	publishedAt := post.PublishedAt
 	if published {
@@ -342,8 +359,11 @@ func (s *Store) SetBlogPostPublished(ctx context.Context, actorUserID string, ad
 			publishedAt = time.Now().UnixMilli()
 		}
 	}
-	_, err = s.DB.Exec(ctx, `UPDATE codelocal_blog_posts SET status=$1,published_at=$2,scheduled_at=0,updated_at=$3 WHERE post_id=$4 AND deleted_at=0`, status, publishedAt, time.Now().UnixMilli(), postID)
-	if err != nil {
+	now := time.Now().UnixMilli()
+	if _, err = tx.Exec(ctx, `UPDATE codelocal_blog_posts SET status=$1,published_at=$2,scheduled_at=0,updated_at=$3 WHERE post_id=$4 AND deleted_at=0`, status, publishedAt, now, postID); err != nil {
+		return BlogPost{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return BlogPost{}, err
 	}
 	return s.BlogPostByID(ctx, postID)
