@@ -17,7 +17,7 @@ export default function BlogsPage() {
             <h1>Blogs</h1>
             <p>Write, publish and manage posts from one CodeLocal Blog workspace.</p>
           </div>
-          <Link className={styles.primaryAction} href="/blog">Open public blog</Link>
+          <Link className={styles.primaryAction} href="/blogs">Open public blog</Link>
         </header>
         <BlogsHub />
       </div>
