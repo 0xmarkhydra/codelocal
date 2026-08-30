@@ -1,0 +1,137 @@
+.smartAdd {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.022);
+  backdrop-filter: blur(22px);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.smartAdd[data-dragging="true"] {
+  border-color: rgba(143, 177, 235, 0.42);
+  background: rgba(116, 153, 218, 0.07);
+  transform: translateY(-1px);
+}
+
+.inputRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.smartInput {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  border-radius: 13px;
+  padding: 13px 14px;
+  background: rgba(0, 0, 0, 0.14);
+  color: rgba(248, 250, 255, 0.9);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.smartInput::placeholder {
+  color: rgba(211, 222, 238, 0.34);
+}
+
+.smartInput:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(143, 177, 235, 0.5), 0 0 0 2px rgba(143, 177, 235, 0.08);
+}
+
+.addButton {
+  min-width: 96px;
+  border: 1px solid rgba(255, 255, 255, 0.095);
+  border-radius: 13px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.085);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.addButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.shortcuts,
+.secondaryActions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.shortcut,
+.secondaryAction {
+  min-height: 29px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+  padding: 0 9px;
+  background: rgba(255, 255, 255, 0.025);
+  color: rgba(223, 231, 244, 0.53);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 560;
+}
+
+.shortcut:hover:not(:disabled),
+.secondaryAction:hover:not(:disabled),
+.addButton:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.shortcut:disabled,
+.secondaryAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.hint {
+  margin: 9px 2px 0;
+  color: rgba(211, 222, 238, 0.35);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.hint strong {
+  color: rgba(224, 232, 245, 0.55);
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .inputRow {
+    grid-template-columns: 1fr;
+  }
+
+  .addButton {
+    min-height: 38px;
+  }
+
+  .actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
