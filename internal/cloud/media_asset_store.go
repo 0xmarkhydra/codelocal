@@ -122,31 +122,6 @@ func (s *Store) MediaAssetOwnedReady(ctx context.Context, ownerUserID, assetID s
 	return ready, err
 }
 
-func (s *Store) SyncMediaAssetRefs(ctx context.Context, ownerUserID, refKind, refID string, slots map[string]string) error {
-	ownerUserID = strings.TrimSpace(ownerUserID)
-	refKind = strings.TrimSpace(refKind)
-	refID = strings.TrimSpace(refID)
-	if ownerUserID == "" || refKind == "" || refID == "" { return ErrMediaAssetInvalid }
-	tx, err := s.DB.Begin(ctx)
-	if err != nil { return err }
-	defer func(){ _ = tx.Rollback(ctx) }()
-	if _, err = tx.Exec(ctx, `DELETE FROM codelocal_media_asset_refs WHERE owner_user_id=$1 AND ref_kind=$2 AND ref_id=$3`, ownerUserID, refKind, refID); err != nil { return err }
-	now := time.Now().UnixMilli()
-	for slot, rawAssetID := range slots {
-		slot = strings.TrimSpace(slot)
-		assetID := NormalizeMediaAssetID(rawAssetID)
-		if slot == "" || assetID == "" { return ErrMediaAssetInvalid }
-		command, insertErr := tx.Exec(ctx, `
-INSERT INTO codelocal_media_asset_refs(asset_id,owner_user_id,ref_kind,ref_id,slot,created_at)
-SELECT a.asset_id,$2,$3,$4,$5,$6
-FROM codelocal_media_assets a
-WHERE a.asset_id=$1 AND a.owner_user_id=$2 AND a.status='ready' AND a.deleted_at=0`, assetID,ownerUserID,refKind,refID,slot,now)
-		if insertErr != nil { return insertErr }
-		if command.RowsAffected() != 1 { return ErrMediaAssetForbidden }
-	}
-	return tx.Commit(ctx)
-}
-
 func (s *Store) UpsertMediaUnderstanding(ctx context.Context, ownerUserID string, input MediaUnderstanding) (MediaUnderstanding, error) {
 	asset, err := s.MediaAssetByID(ctx, input.AssetID)
 	if err != nil { return MediaUnderstanding{}, err }
