@@ -144,6 +144,7 @@ func (s *Store) Append(workspaceKey, taskID string, event Event) (stored Event, 
 			if existing.IdempotencyKey == event.IdempotencyKey {
 				return cloneEvent(existing), false, nil
 			}
+		}
 	}
 
 	sequence := uint64(1)
@@ -154,7 +155,7 @@ func (s *Store) Append(workspaceKey, taskID string, event Event) (stored Event, 
 	if event.ID == "" {
 		event.ID = eventID(taskID, sequence, event)
 	}
-	if err := codelocalstate.AppendJSONL(path, event); err != nil {
+	if err := codelocalstate.AppendJSONLDurable(path, event); err != nil {
 		return Event{}, false, err
 	}
 	return cloneEvent(event), true, nil
