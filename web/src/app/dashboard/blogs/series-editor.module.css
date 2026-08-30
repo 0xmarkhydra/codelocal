@@ -1,0 +1,27 @@
+.page { min-height: calc(100vh - 34px); background: var(--canvas); }
+.topbar { display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; min-height:58px; padding:8px 18px; border-bottom:1px solid var(--line); background:rgba(7,8,10,.9); backdrop-filter:blur(18px); }
+.topbar > span { color:var(--text-tertiary); font-size:12px; }
+.topbar > div { display:flex; gap:8px; align-items:center; }
+.topbar a,.topbar button { min-height:36px; display:inline-flex; align-items:center; padding:0 12px; border:1px solid var(--line); border-radius:10px; color:var(--text); background:var(--surface); }
+.topbar button { cursor:pointer; }
+.topbar button:disabled { opacity:.45; cursor:default; }
+.form { display:grid; gap:18px; width:min(760px,calc(100% - 40px)); margin:0 auto; padding:52px 0 100px; }
+.heading { display:grid; gap:8px; }
+.heading > span { color:var(--text-tertiary); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+.heading h1 { margin:0; font-size:clamp(34px,5vw,54px); letter-spacing:-.04em; }
+.heading p { margin:0; color:var(--text-secondary); line-height:1.6; }
+.form > label { display:grid; gap:8px; color:var(--text-secondary); font-size:12px; font-weight:650; }
+.form input,.form textarea,.form select { width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:12px; color:var(--text); background:var(--surface); outline:none; }
+.form input:focus,.form textarea:focus,.form select:focus { border-color:var(--line-strong); }
+.cover { overflow:hidden; aspect-ratio:16/9; border:1px solid var(--line); border-radius:18px; background:var(--surface-sunken); }
+.cover img { width:100%; height:100%; object-fit:cover; }
+.mediaPanel,.dangerZone { display:grid; gap:10px; padding:16px; border:1px solid var(--line); border-radius:16px; background:var(--surface-raised); }
+.mediaPanel > span,.dangerZone span { color:var(--text-secondary); font-size:12px; line-height:1.5; }
+.uploadButton { width:fit-content; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--surface); cursor:pointer; }
+.uploadButton input { display:none; }
+.mediaPanel button,.dangerZone button { width:fit-content; min-height:36px; padding:0 12px; border:1px solid var(--line); border-radius:10px; color:var(--text); background:var(--surface); cursor:pointer; }
+.dangerZone { grid-template-columns:1fr auto; align-items:center; border-color:rgba(255,100,100,.18); }
+.dangerZone > div { display:grid; gap:4px; }
+.error { margin:0; color:var(--danger); font-size:13px; }
+.state { display:grid; min-height:60vh; place-items:center; color:var(--text-secondary); }
+@media (max-width:640px) { .topbar { grid-template-columns:auto 1fr; } .topbar > div { grid-column:1/-1; } .form { width:calc(100% - 32px); padding-top:34px; } .dangerZone { grid-template-columns:1fr; } }
