@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import { validateBlogRegistry } from "@/lib/blog-validation";
 import { BlogFooter, BlogHeader } from "./_components";
 import styles from "./blog.module.css";
+
+validateBlogRegistry();
 
 export const metadata: Metadata = {
   title: {
