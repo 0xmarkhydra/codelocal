@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 15 {
+	if len(migrations) != 16 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -159,23 +159,29 @@ func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 			t.Fatalf("media migration 55 missing platform token %q", token)
 		}
 	}
+	seriesRedirects := strings.ToLower(migrations[15].sql)
+	for _, token := range []string{"codelocal_blog_series_slug_redirects", "old_slug", "series_id"} {
+		if !strings.Contains(seriesRedirects, token) {
+			t.Fatalf("blog series migration 56 missing platform token %q", token)
+		}
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 	if schemaMigrationAdvisoryLockID == 0 {
 		t.Fatal("schema migration advisory lock id must be non-zero")
 	}
-	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[40] || nonTransactionalMigrationVersions[54] || nonTransactionalMigrationVersions[55] {
+	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[40] || nonTransactionalMigrationVersions[54] || nonTransactionalMigrationVersions[55] || nonTransactionalMigrationVersions[56] {
 		t.Fatal("new migration train unexpectedly bypasses transactional runner")
 	}
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 55 {
-		t.Fatalf("latest schema version=%d want 55", got)
+	if got := LatestSchemaMigrationVersion(); got != 56 {
+		t.Fatalf("latest schema version=%d want 56", got)
 	}
-	ready := schemaMigrationStatus(55, 55)
-	if !ready.UpToDate || ready.TargetVersion != 55 || ready.AppliedCount != 55 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(56, 56)
+	if !ready.UpToDate || ready.TargetVersion != 56 || ready.AppliedCount != 56 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
@@ -197,7 +203,8 @@ func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
 		{current: 52, count: 52},
 		{current: 53, count: 53},
 		{current: 54, count: 54},
-		{current: 55, count: 54},
+		{current: 55, count: 55},
+		{current: 56, count: 55},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)
@@ -237,6 +244,5 @@ func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {
 				t.Fatalf("invalid database schema history accepted: current=%d count=%d target=%d", tc.current, tc.count, tc.target)
 			}
-		})
 	}
 }
