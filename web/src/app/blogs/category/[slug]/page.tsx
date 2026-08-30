@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { PostCard } from "../../../blog/_components";
 import styles from "../../../blog/blog.module.css";
 import { getCategories, taxonomySlug } from "@/lib/blog";
-import { getPostsByCategorySlugForRender } from "@/lib/blog-server";
+import { decodeBlogRouteSlug, getPostsByCategorySlugForRender } from "@/lib/blog-server";
 
 type CategoryPageProps = { params: Promise<{ slug: string }> };
 
@@ -12,7 +12,8 @@ export function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const posts = await getPostsByCategorySlugForRender(slug);
   const category = posts[0]?.category;
   if (!category) return { title: "Category not found", robots: { index: false, follow: false } };
@@ -24,7 +25,8 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
 }
 
 export default async function CategoryPage({ params }: CategoryPageProps) {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const posts = await getPostsByCategorySlugForRender(slug);
   if (posts.length === 0) notFound();
   const category = posts[0].category;

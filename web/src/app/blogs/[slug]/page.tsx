@@ -6,6 +6,7 @@ import { BlogBlocks, PostCard, TaxonomyLinks } from "../../blog/_components";
 import styles from "../../blog/blog.module.css";
 import { blogPosts, formatBlogDate } from "@/lib/blog";
 import {
+  decodeBlogRouteSlug,
   getBlogPostForRender,
   getBlogSeriesPageForRender,
   getRelatedPostsForRender,
@@ -22,7 +23,8 @@ export function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: ArticleProps): Promise<Metadata> {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const post = await getBlogPostForRender(slug);
   if (!post) return { title: "Article not found", robots: { index: false, follow: false } };
 
@@ -44,7 +46,8 @@ export async function generateMetadata({ params }: ArticleProps): Promise<Metada
 }
 
 export default async function ArticlePage({ params }: ArticleProps) {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const post = await getBlogPostForRender(slug);
   if (!post) notFound();
   if (slug !== post.slug) permanentRedirect(`/blogs/${post.slug}`);

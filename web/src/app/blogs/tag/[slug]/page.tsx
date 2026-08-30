@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { PostCard } from "../../../blog/_components";
 import styles from "../../../blog/blog.module.css";
 import { getTags, taxonomySlug } from "@/lib/blog";
-import { getBlogTagsForRender, getPostsByTagSlugForRender } from "@/lib/blog-server";
+import { decodeBlogRouteSlug, getBlogTagsForRender, getPostsByTagSlugForRender } from "@/lib/blog-server";
 
 type TagPageProps = { params: Promise<{ slug: string }> };
 
@@ -16,7 +16,8 @@ async function resolveTag(slug: string) {
 }
 
 export async function generateMetadata({ params }: TagPageProps): Promise<Metadata> {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const tag = await resolveTag(slug);
   if (!tag) return { title: "Tag not found", robots: { index: false, follow: false } };
   return {
@@ -27,7 +28,8 @@ export async function generateMetadata({ params }: TagPageProps): Promise<Metada
 }
 
 export default async function TagPage({ params }: TagPageProps) {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const [tag, posts] = await Promise.all([resolveTag(slug), getPostsByTagSlugForRender(slug)]);
   if (!tag) notFound();
 

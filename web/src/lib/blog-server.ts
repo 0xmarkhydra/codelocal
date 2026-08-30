@@ -50,6 +50,14 @@ async function backendJSON(path: string): Promise<unknown | undefined> {
   }
 }
 
+export function decodeBlogRouteSlug(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function positiveDimension(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
 }

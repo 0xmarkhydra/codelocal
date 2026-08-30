@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { PostCard } from "../../../blog/_components";
 import styles from "../../../blog/blog.module.css";
 import { blogSeries } from "@/lib/blog";
-import { getBlogSeriesPageForRender } from "@/lib/blog-server";
+import { decodeBlogRouteSlug, getBlogSeriesPageForRender } from "@/lib/blog-server";
 
 type SeriesPageProps = { params: Promise<{ slug: string }> };
 
@@ -17,7 +17,8 @@ export function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: SeriesPageProps): Promise<Metadata> {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const result = await getBlogSeriesPageForRender(slug);
   if (!result) return { title: "Series not found", robots: { index: false, follow: false } };
   return {
@@ -34,7 +35,8 @@ export async function generateMetadata({ params }: SeriesPageProps): Promise<Met
 }
 
 export default async function SeriesPage({ params }: SeriesPageProps) {
-  const { slug } = await params;
+  const { slug: routeSlug } = await params;
+  const slug = decodeBlogRouteSlug(routeSlug);
   const result = await getBlogSeriesPageForRender(slug);
   if (!result) notFound();
   if (result.redirected || slug !== result.series.slug) permanentRedirect(`/blogs/series/${result.series.slug}`);
