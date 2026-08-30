@@ -31,7 +31,7 @@ type MediaAsset struct {
 type MediaVariant struct {
 	AssetID     string `json:"assetId"`
 	Variant     string `json:"variant"`
-	ObjectKey   string `json:"objectKey,omitempty"`
+	ObjectKey   string `json:"-"`
 	ContentType string `json:"contentType"`
 	Size        int64  `json:"size"`
 	Width       int    `json:"width"`
