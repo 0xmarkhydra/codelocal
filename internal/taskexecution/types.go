@@ -28,13 +28,15 @@ type RepositoryBinding struct {
 }
 
 type Lease struct {
-	OwnerID   string    `json:"ownerId,omitempty"`
-	ExpiresAt time.Time `json:"expiresAt,omitempty"`
+	OwnerID    string    `json:"ownerId,omitempty"`
+	Generation uint64    `json:"generation,omitempty"`
+	ExpiresAt  time.Time `json:"expiresAt,omitempty"`
 }
 
 type Bundle struct {
 	SchemaVersion      int                 `json:"schemaVersion"`
 	ID                 string              `json:"id"`
+	Revision           uint64              `json:"revision"`
 	TaskID             string              `json:"taskId"`
 	ProjectID          string              `json:"projectId"`
 	WorkspaceID        string              `json:"workspaceId"`
