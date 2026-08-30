@@ -101,10 +101,10 @@ function readingMinutes(blocks: BlogBlock[], fallbackText = "") {
   return Math.max(1, Math.ceil(words / 220));
 }
 
-function durableAuthor(userID: string, email: string | undefined, official: boolean): BlogAuthor {
+function durableAuthor(userID: string, official: boolean): BlogAuthor {
   return {
     slug: userID,
-    name: official ? "CodeLocal Team" : (email ? email.split("@")[0] : "CodeLocal Creator"),
+    name: official ? "CodeLocal Team" : "CodeLocal Creator",
     role: official ? "Engineering & Product" : "CodeLocal Community",
   };
 }
@@ -114,7 +114,7 @@ function seriesByID(items: DurableSeries[]) {
 }
 
 function durableSeriesToRender(series: DurableSeries): BlogSeries {
-  const official = Boolean(series.authorEmail && /@codelocal\./i.test(series.authorEmail));
+  const official = Boolean(series.official);
   return {
     slug: series.slug,
     title: series.title,
@@ -122,7 +122,7 @@ function durableSeriesToRender(series: DurableSeries): BlogSeries {
     status: series.status === "complete" ? "complete" : "active",
     category: official ? "CodeLocal" : "Community",
     coverAssetId: series.coverAssetId,
-    author: durableAuthor(series.authorUserId, series.authorEmail, official),
+    author: durableAuthor(series.authorUserId, official),
   };
 }
 
@@ -138,7 +138,7 @@ function durableSummaryToRender(post: DurablePostSummary, seriesMap: Map<string,
     readingMinutes: readingMinutes([], fallback),
     category: post.category || "Community",
     tags: post.tags,
-    author: durableAuthor(post.authorUserId, post.authorEmail, post.official),
+    author: durableAuthor(post.authorUserId, post.official),
     official: post.official,
     featured: post.featured,
     showOnLanding: post.showOnLanding,
@@ -167,6 +167,7 @@ async function durablePost(slug: string): Promise<BlogPost | undefined> {
   if (!isBlogPostResource(body)) return undefined;
   const blocks = body.post.content.map(toBlogBlock).filter((block): block is BlogBlock => Boolean(block));
   const linkedSeries = body.post.seriesId ? seriesByID(series).get(body.post.seriesId) : undefined;
+  const official = Boolean(body.official);
   return {
     slug: body.post.slug,
     title: body.post.title,
@@ -176,8 +177,8 @@ async function durablePost(slug: string): Promise<BlogPost | undefined> {
     readingMinutes: readingMinutes(blocks, `${body.post.title} ${body.post.excerpt}`),
     category: body.post.category || "Community",
     tags: body.post.tags,
-    author: durableAuthor(body.post.authorUserId, body.post.authorEmail, Boolean(body.official)),
-    official: Boolean(body.official),
+    author: durableAuthor(body.post.authorUserId, official),
+    official,
     featured: body.post.featured,
     showOnLanding: body.post.showOnLanding,
     coverAssetId: body.post.coverAssetId,
