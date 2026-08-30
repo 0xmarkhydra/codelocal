@@ -63,9 +63,25 @@ func mapBlogWriteError(err error) error {
 	return err
 }
 
+func (s *Store) validateBlogSeriesOwner(ctx context.Context, authorUserID, seriesID string) error {
+	seriesID = strings.TrimSpace(seriesID)
+	if seriesID == "" {
+		return nil
+	}
+	var owner string
+	err := s.DB.QueryRow(ctx, `SELECT author_user_id FROM codelocal_blog_series WHERE series_id=$1 AND deleted_at=0`, seriesID).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) || strings.TrimSpace(owner) != strings.TrimSpace(authorUserID) {
+		return ErrBlogInvalid
+	}
+	return err
+}
+
 func (s *Store) CreateBlogPost(ctx context.Context, input BlogPostDraft) (BlogPost, error) {
 	input, err := normalizeBlogDraft(input)
 	if err != nil {
+		return BlogPost{}, err
+	}
+	if err := s.validateBlogSeriesOwner(ctx, input.AuthorUserID, input.SeriesID); err != nil {
 		return BlogPost{}, err
 	}
 	tagsJSON, err := json.Marshal(input.Tags)
@@ -183,6 +199,9 @@ func (s *Store) UpdateBlogPost(ctx context.Context, actorUserID string, admin bo
 	actorUserID = strings.TrimSpace(actorUserID)
 	if current.AuthorUserID != actorUserID && !admin {
 		return BlogPost{}, ErrBlogForbidden
+	}
+	if err := s.validateBlogSeriesOwner(ctx, current.AuthorUserID, input.SeriesID); err != nil {
+		return BlogPost{}, err
 	}
 	tagsJSON, err := json.Marshal(input.Tags)
 	if err != nil {
