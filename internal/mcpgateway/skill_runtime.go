@@ -29,9 +29,9 @@ func skillServicesForMCP(s *Service) *mcpSkillServices {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	durable, configured, err := cloud.SkillPackageStoreFromEnv(ctx)
+	durable, _, configured, err := cloud.ResolveSkillPackageStore(ctx, s.Store)
 	services := &mcpSkillServices{Err: err}
-	if err != nil || !configured {
+	if err != nil || !configured || durable == nil {
 		services.Runtime = cloud.NewSkillRuntime(s.Store, nil)
 		actual, _ := mcpSkillServicesByService.LoadOrStore(s, services)
 		return actual.(*mcpSkillServices)
