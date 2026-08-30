@@ -25,11 +25,20 @@ func scanMediaAsset(row mediaAssetRowScanner) (MediaAsset, error) {
 	return asset, err
 }
 
+func validMediaSourceContentType(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image/jpeg", "image/png", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Store) EnsureMediaAsset(ctx context.Context, ownerUserID, sha256, contentType string, size int64, preserveOriginal bool) (MediaAsset, bool, error) {
 	ownerUserID = strings.TrimSpace(ownerUserID)
 	sha256 = strings.ToLower(strings.TrimSpace(sha256))
 	contentType = strings.ToLower(strings.TrimSpace(contentType))
-	if ownerUserID == "" || len(sha256) != 64 || size <= 0 || size > 25<<20 || !strings.HasPrefix(contentType, "image/") {
+	if ownerUserID == "" || len(sha256) != 64 || size <= 0 || size > 25<<20 || !validMediaSourceContentType(contentType) {
 		return MediaAsset{}, false, ErrMediaAssetInvalid
 	}
 	if existing, err := s.MediaAssetByOwnerHash(ctx, ownerUserID, sha256); err == nil {
@@ -88,7 +97,8 @@ func (s *Store) CompleteMediaAsset(ctx context.Context, ownerUserID, assetID str
 	if _, err = tx.Exec(ctx, `DELETE FROM codelocal_media_variants WHERE asset_id=$1`, asset.ID); err != nil { return MediaAsset{}, err }
 	for _, variant := range variants {
 		if variant.Variant != "original" && variant.Variant != "thumb" && variant.Variant != "medium" && variant.Variant != "large" { return MediaAsset{}, ErrMediaAssetInvalid }
-		if variant.ObjectKey == "" || variant.ContentType == "" || variant.Size <= 0 || variant.Width <= 0 || variant.Height <= 0 || variant.SHA256 == "" { return MediaAsset{}, ErrMediaAssetInvalid }
+		if variant.ObjectKey == "" || variant.ContentType == "" || variant.Size <= 0 || variant.Width <= 0 || variant.Height <= 0 || len(variant.SHA256) != 64 { return MediaAsset{}, ErrMediaAssetInvalid }
+		if variant.Variant != "original" && variant.ContentType != "image/webp" { return MediaAsset{}, ErrMediaAssetInvalid }
 		if _, err = tx.Exec(ctx, `INSERT INTO codelocal_media_variants(asset_id,variant,object_key,content_type,size,width,height,sha256,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, asset.ID, variant.Variant, variant.ObjectKey, variant.ContentType, variant.Size, variant.Width, variant.Height, variant.SHA256, now); err != nil { return MediaAsset{}, err }
 	}
 	if _, err = tx.Exec(ctx, `UPDATE codelocal_media_assets SET width=$1,height=$2,status='ready',error_code='',updated_at=$3 WHERE asset_id=$4`, width,height,now,asset.ID); err != nil { return MediaAsset{}, err }
@@ -105,20 +115,34 @@ func (s *Store) FailMediaAsset(ctx context.Context, ownerUserID, assetID, code s
 
 func (s *Store) MediaAssetOwnedReady(ctx context.Context, ownerUserID, assetID string) (bool, error) {
 	if strings.TrimSpace(assetID) == "" { return true, nil }
+	assetID = NormalizeMediaAssetID(assetID)
+	if assetID == "" { return false, nil }
 	var ready bool
-	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM codelocal_media_assets WHERE asset_id=$1 AND owner_user_id=$2 AND status='ready' AND deleted_at=0)`, NormalizeMediaAssetID(assetID), strings.TrimSpace(ownerUserID)).Scan(&ready)
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM codelocal_media_assets WHERE asset_id=$1 AND owner_user_id=$2 AND status='ready' AND deleted_at=0)`, assetID, strings.TrimSpace(ownerUserID)).Scan(&ready)
 	return ready, err
 }
 
 func (s *Store) SyncMediaAssetRefs(ctx context.Context, ownerUserID, refKind, refID string, slots map[string]string) error {
+	ownerUserID = strings.TrimSpace(ownerUserID)
+	refKind = strings.TrimSpace(refKind)
+	refID = strings.TrimSpace(refID)
+	if ownerUserID == "" || refKind == "" || refID == "" { return ErrMediaAssetInvalid }
 	tx, err := s.DB.Begin(ctx)
 	if err != nil { return err }
 	defer func(){ _ = tx.Rollback(ctx) }()
 	if _, err = tx.Exec(ctx, `DELETE FROM codelocal_media_asset_refs WHERE owner_user_id=$1 AND ref_kind=$2 AND ref_id=$3`, ownerUserID, refKind, refID); err != nil { return err }
 	now := time.Now().UnixMilli()
-	for slot, assetID := range slots {
-		if strings.TrimSpace(assetID) == "" { continue }
-		if _, err = tx.Exec(ctx, `INSERT INTO codelocal_media_asset_refs(asset_id,owner_user_id,ref_kind,ref_id,slot,created_at) VALUES($1,$2,$3,$4,$5,$6)`, assetID,ownerUserID,refKind,refID,slot,now); err != nil { return err }
+	for slot, rawAssetID := range slots {
+		slot = strings.TrimSpace(slot)
+		assetID := NormalizeMediaAssetID(rawAssetID)
+		if slot == "" || assetID == "" { return ErrMediaAssetInvalid }
+		command, insertErr := tx.Exec(ctx, `
+INSERT INTO codelocal_media_asset_refs(asset_id,owner_user_id,ref_kind,ref_id,slot,created_at)
+SELECT a.asset_id,$2,$3,$4,$5,$6
+FROM codelocal_media_assets a
+WHERE a.asset_id=$1 AND a.owner_user_id=$2 AND a.status='ready' AND a.deleted_at=0`, assetID,ownerUserID,refKind,refID,slot,now)
+		if insertErr != nil { return insertErr }
+		if command.RowsAffected() != 1 { return ErrMediaAssetForbidden }
 	}
 	return tx.Commit(ctx)
 }
