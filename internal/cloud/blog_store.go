@@ -94,7 +94,12 @@ func (s *Store) CreateBlogPost(ctx context.Context, input BlogPostDraft) (BlogPo
 	}
 	postID := "blog_" + RandomHex(12)
 	now := time.Now().UnixMilli()
-	_, err = s.DB.Exec(ctx, `
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return BlogPost{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `
 INSERT INTO codelocal_blog_posts(
  post_id,slug,author_user_id,title,excerpt,content,cover_asset_id,category,tags,series_id,series_part,
  status,visibility,moderation_status,featured,show_on_landing,published_at,scheduled_at,created_at,updated_at,deleted_at
@@ -106,7 +111,10 @@ INSERT INTO codelocal_blog_posts(
 	if err != nil {
 		return BlogPost{}, mapBlogWriteError(err)
 	}
-	if err := s.syncBlogMediaRefs(ctx, input.AuthorUserID, postID, mediaSlots); err != nil {
+	if err := syncMediaAssetRefsTx(ctx, tx, input.AuthorUserID, "blog_post", postID, mediaSlots); err != nil {
+		return BlogPost{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return BlogPost{}, err
 	}
 	return s.BlogPostByID(ctx, postID)
@@ -251,10 +259,10 @@ ON CONFLICT(old_slug) DO UPDATE SET post_id=EXCLUDED.post_id,created_at=EXCLUDED
 			return BlogPost{}, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := syncMediaAssetRefsTx(ctx, tx, current.AuthorUserID, "blog_post", postID, mediaSlots); err != nil {
 		return BlogPost{}, err
 	}
-	if err := s.syncBlogMediaRefs(ctx, current.AuthorUserID, postID, mediaSlots); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return BlogPost{}, err
 	}
 	return s.BlogPostByID(ctx, postID)
@@ -321,9 +329,21 @@ func (s *Store) DeleteBlogPost(ctx context.Context, actorUserID string, admin bo
 	if post.AuthorUserID != strings.TrimSpace(actorUserID) && !admin {
 		return ErrBlogForbidden
 	}
-	now := time.Now().UnixMilli()
-	if _, err = s.DB.Exec(ctx, `UPDATE codelocal_blog_posts SET deleted_at=$1,status='archived',updated_at=$1 WHERE post_id=$2 AND deleted_at=0`, now, postID); err != nil {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	return s.syncBlogMediaRefs(ctx, post.AuthorUserID, post.ID, map[string]string{})
+	defer func() { _ = tx.Rollback(ctx) }()
+	now := time.Now().UnixMilli()
+	command, err := tx.Exec(ctx, `UPDATE codelocal_blog_posts SET deleted_at=$1,status='archived',updated_at=$1 WHERE post_id=$2 AND deleted_at=0`, now, postID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrBlogNotFound
+	}
+	if err := syncMediaAssetRefsTx(ctx, tx, post.AuthorUserID, "blog_post", post.ID, map[string]string{}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
