@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isAccountResource } from "@/lib/contracts/account";
-import { isBlogPostResource } from "@/lib/contracts/blog";
+import { isBlogPostResource, isBlogSeriesCollectionResource } from "@/lib/contracts/blog";
 import { privateMediaVariantURL, uploadMediaAsset } from "@/lib/media-upload";
 import { useDashboardResource } from "../use-dashboard-resource";
 import dashboard from "../dashboard.module.css";
@@ -59,12 +59,15 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 export function BlogEditor({ postID }: { postID: string }) {
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const resource = useDashboardResource(`/api/v1/blog/posts/${encodeURIComponent(postID)}`, isBlogPostResource);
+  const seriesResource = useDashboardResource("/api/v1/blog/series", isBlogSeriesCollectionResource);
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [excerpt, setExcerpt] = useState("");
   const [category, setCategory] = useState("");
   const [tags, setTags] = useState("");
   const [visibility, setVisibility] = useState("public");
+  const [seriesID, setSeriesID] = useState("");
+  const [seriesPart, setSeriesPart] = useState(0);
   const [body, setBody] = useState("");
   const [coverAssetID, setCoverAssetID] = useState("");
   const [images, setImages] = useState<EditorImageBlock[]>([]);
@@ -75,6 +78,7 @@ export function BlogEditor({ postID }: { postID: string }) {
   const [actionError, setActionError] = useState("");
 
   const post = resource.state.kind === "ready" ? resource.state.value.post : undefined;
+  const series = seriesResource.state.kind === "ready" ? seriesResource.state.value.series.filter((item) => item.status !== "archived") : [];
 
   useEffect(() => {
     if (!post || hydratedID === post.id) return;
@@ -84,6 +88,8 @@ export function BlogEditor({ postID }: { postID: string }) {
     setCategory(post.category ?? "");
     setTags(post.tags.join(", "));
     setVisibility(post.visibility);
+    setSeriesID(post.seriesId ?? "");
+    setSeriesPart(post.seriesPart ?? 0);
     setBody(blockText(post.content));
     setCoverAssetID(post.coverAssetId ?? "");
     setImages(imageBlocks(post.content));
@@ -99,9 +105,11 @@ export function BlogEditor({ postID }: { postID: string }) {
     category,
     tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
     visibility,
+    seriesId: seriesID,
+    seriesPart: seriesID ? Math.max(1, seriesPart || 1) : 0,
     coverAssetId: coverAssetID,
     content: [...contentFromText(body), ...images],
-  }), [body, category, coverAssetID, excerpt, images, slug, tags, title, visibility]);
+  }), [body, category, coverAssetID, excerpt, images, seriesID, seriesPart, slug, tags, title, visibility]);
 
   const save = useCallback(async () => {
     if (!post || !dirty || account.state.kind !== "ready") return true;
@@ -121,7 +129,7 @@ export function BlogEditor({ postID }: { postID: string }) {
       const responseBody: unknown = await response.json().catch(() => null);
       if (!response.ok || !isBlogPostResource(responseBody)) {
         setSaveState("error");
-        setActionError(response.status === 409 ? "That URL slug is already in use." : `Save failed (${response.status}).`);
+        setActionError(response.status === 409 ? "That URL slug or series part is already in use." : `Save failed (${response.status}).`);
         return false;
       }
       setDirty(false);
@@ -147,6 +155,12 @@ export function BlogEditor({ postID }: { postID: string }) {
 
   function change(setter: (value: string) => void, value: string) {
     setter(value);
+    markDirty();
+  }
+
+  function changeSeries(value: string) {
+    setSeriesID(value);
+    setSeriesPart(value ? Math.max(1, seriesPart || 1) : 0);
     markDirty();
   }
 
@@ -224,7 +238,7 @@ export function BlogEditor({ postID }: { postID: string }) {
             {mediaBusy ? "Processing image…" : saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : dirty ? "Unsaved" : ""}
           </span>
           <div className={styles.actions}>
-            {post.status === "published" && <Link href={`/blog/${post.slug}`}>View</Link>}
+            {post.status === "published" && <Link href={`/blogs/${post.slug}`}>View</Link>}
             <button type="button" onClick={() => void save()} disabled={!dirty || saveState === "saving" || Boolean(mediaBusy)}>Save</button>
             <button className={styles.publish} type="button" onClick={() => void setPublished(post.status !== "published")} disabled={Boolean(mediaBusy)}>
               {post.status === "published" ? "Unpublish" : "Publish"}
@@ -272,6 +286,23 @@ export function BlogEditor({ postID }: { postID: string }) {
               <option value="private">Private</option>
             </select>
           </label>
+          <label>Series
+            <select value={seriesID} onChange={(event) => changeSeries(event.target.value)}>
+              <option value="">No series</option>
+              {series.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+            </select>
+          </label>
+          {seriesID && (
+            <label>Part number
+              <input
+                type="number"
+                min={1}
+                max={999}
+                value={Math.max(1, seriesPart || 1)}
+                onChange={(event) => { setSeriesPart(Math.max(1, Number.parseInt(event.target.value || "1", 10))); markDirty(); }}
+              />
+            </label>
+          )}
 
           <div className={styles.mediaPanel}>
             <strong>Media</strong>
@@ -294,6 +325,7 @@ export function BlogEditor({ postID }: { postID: string }) {
               }} />
             </label>
           </div>
+          {seriesResource.state.kind === "error" && <p className={styles.error} role="alert">Series unavailable: {seriesResource.state.message}</p>}
           {actionError && <p className={styles.error} role="alert">{actionError}</p>}
         </aside>
       </div>
