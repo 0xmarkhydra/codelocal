@@ -47,7 +47,6 @@ type blogPostSummaryDTO struct {
 	ID               string   `json:"id"`
 	Slug             string   `json:"slug"`
 	AuthorUserID     string   `json:"authorUserId"`
-	AuthorEmail      string   `json:"authorEmail,omitempty"`
 	Title            string   `json:"title"`
 	Excerpt          string   `json:"excerpt"`
 	CoverAssetID     string   `json:"coverAssetId,omitempty"`
@@ -67,9 +66,14 @@ type blogPostSummaryDTO struct {
 	UpdatedAt        int64    `json:"updatedAt"`
 }
 
+type blogPublicPostDTO struct {
+	blogPostSummaryDTO
+	Content json.RawMessage `json:"content"`
+}
+
 func blogPostSummary(post cloud.BlogPost) blogPostSummaryDTO {
 	return blogPostSummaryDTO{
-		ID: post.ID, Slug: post.Slug, AuthorUserID: post.AuthorUserID, AuthorEmail: post.AuthorEmail,
+		ID: post.ID, Slug: post.Slug, AuthorUserID: post.AuthorUserID,
 		Title: post.Title, Excerpt: post.Excerpt, CoverAssetID: post.CoverAssetID, Category: post.Category,
 		Tags: post.Tags, SeriesID: post.SeriesID, SeriesPart: post.SeriesPart, Status: post.Status,
 		Visibility: post.Visibility, ModerationStatus: post.ModerationStatus, Featured: post.Featured,
@@ -84,6 +88,10 @@ func blogPostSummaries(posts []cloud.BlogPost) []blogPostSummaryDTO {
 		out = append(out, blogPostSummary(post))
 	}
 	return out
+}
+
+func blogPublicPost(post cloud.BlogPost) blogPublicPostDTO {
+	return blogPublicPostDTO{blogPostSummaryDTO: blogPostSummary(post), Content: append(json.RawMessage(nil), post.Content...)}
 }
 
 func (s *Server) blogAPIIdentity(w http.ResponseWriter, r *http.Request, mutation bool) (*webauth.Identity, bool) {
@@ -255,7 +263,7 @@ func (s *Server) publicBlogPostAPI(w http.ResponseWriter, r *http.Request) {
 	post, err := s.Store.PublicBlogPostBySlug(r.Context(), requestedSlug)
 	if err != nil { writeBlogAPIError(w, err); return }
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"post": post,
+		"post": blogPublicPost(post),
 		"official": cloud.IsAdminEmail(post.AuthorEmail),
 		"redirected": requestedSlug != post.Slug,
 	})
