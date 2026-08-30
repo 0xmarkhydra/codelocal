@@ -40,8 +40,11 @@ func TestGenerationThreePreservesGenerationTwoABI(t *testing.T) {
 	if got := legacyPublicToolContractHash(); got != PinnedLegacyPublicToolContractHash {
 		t.Fatalf("generation-2 tool contract drifted: got %s want %s", got, PinnedLegacyPublicToolContractHash)
 	}
-	if PublicMCPImplementationVersion != "1.5.16" {
-		t.Fatalf("public MCP implementation identity changed with the app release: %q", PublicMCPImplementationVersion)
+	if PinnedLegacyPublicMCPImplementationVersion != "1.5.16" {
+		t.Fatalf("legacy MCP implementation identity drifted: %q", PinnedLegacyPublicMCPImplementationVersion)
+	}
+	if PublicMCPImplementationVersion == PinnedLegacyPublicMCPImplementationVersion {
+		t.Fatalf("new public tool generation must advance MCP implementation identity so AI hosts invalidate cached catalogs: %q", PublicMCPImplementationVersion)
 	}
 	current := publicToolContractHash()
 	if len(current) != 64 || current == PinnedLegacyPublicToolContractHash {
