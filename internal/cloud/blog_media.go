@@ -5,7 +5,13 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
+
+type blogMediaReadyQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 func blogMediaSlots(coverAssetID string, content json.RawMessage) (map[string]string, error) {
 	slots := map[string]string{}
@@ -40,19 +46,20 @@ func blogMediaSlots(coverAssetID string, content json.RawMessage) (map[string]st
 	return slots, nil
 }
 
-func (s *Store) validateBlogMediaAssets(ctx context.Context, ownerUserID, coverAssetID string, content json.RawMessage) (map[string]string, error) {
+func validateBlogMediaAssetsWithQuerier(ctx context.Context, querier blogMediaReadyQuerier, ownerUserID, coverAssetID string, content json.RawMessage) (map[string]string, error) {
 	slots, err := blogMediaSlots(coverAssetID, content)
 	if err != nil {
 		return nil, err
 	}
+	ownerUserID = strings.TrimSpace(ownerUserID)
 	seen := map[string]struct{}{}
 	for _, assetID := range slots {
 		if _, duplicate := seen[assetID]; duplicate {
 			continue
 		}
 		seen[assetID] = struct{}{}
-		ready, err := s.MediaAssetOwnedReady(ctx, ownerUserID, assetID)
-		if err != nil {
+		var ready bool
+		if err := querier.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM codelocal_media_assets WHERE asset_id=$1 AND owner_user_id=$2 AND status='ready' AND deleted_at=0)`, assetID, ownerUserID).Scan(&ready); err != nil {
 			return nil, err
 		}
 		if !ready {
@@ -60,6 +67,14 @@ func (s *Store) validateBlogMediaAssets(ctx context.Context, ownerUserID, coverA
 		}
 	}
 	return slots, nil
+}
+
+func (s *Store) validateBlogMediaAssets(ctx context.Context, ownerUserID, coverAssetID string, content json.RawMessage) (map[string]string, error) {
+	return validateBlogMediaAssetsWithQuerier(ctx, s.DB, ownerUserID, coverAssetID, content)
+}
+
+func validateBlogMediaAssetsTx(ctx context.Context, tx pgx.Tx, ownerUserID, coverAssetID string, content json.RawMessage) (map[string]string, error) {
+	return validateBlogMediaAssetsWithQuerier(ctx, tx, ownerUserID, coverAssetID, content)
 }
 
 func (s *Store) syncBlogMediaRefs(ctx context.Context, ownerUserID, postID string, slots map[string]string) error {
