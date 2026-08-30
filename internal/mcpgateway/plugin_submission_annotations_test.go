@@ -28,6 +28,7 @@ func TestPluginSubmissionToolAnnotationsMatchCapabilities(t *testing.T) {
 		"security":   {true, false, false},
 		"mcp":        {false, true, true},
 		"social":     {true, false, true},
+		"blog":       {false, true, false},
 		"browser":    {false, true, true},
 		"computer":   {false, true, true},
 	}

@@ -17,6 +17,7 @@ type compactToolDef struct {
 	Title       string
 	Description string
 	Schema      json.RawMessage
+	Meta        mcp.Meta
 	Annotations *mcp.ToolAnnotations
 	Resolve     func(map[string]any) (operationInvocation, map[string]any, error)
 	Execute     func(context.Context, *Service, string, map[string]any, *mcp.CallToolRequest) (*mcp.CallToolResult, error)
@@ -301,7 +302,7 @@ func compactToolDefinitions() []compactToolDef {
 func registerCompactTools(server *mcp.Server, service *Service, userID string) {
 	for _, def := range compactToolDefinitions() {
 		definition := def
-		server.AddTool(&mcp.Tool{Name: def.Name, Title: def.Title, Annotations: def.Annotations, Description: def.Description, InputSchema: def.Schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		server.AddTool(&mcp.Tool{Meta: def.Meta, Name: def.Name, Title: def.Title, Annotations: def.Annotations, Description: def.Description, InputSchema: def.Schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			legacyTool := staleToolSchemaFromContext(ctx)
 			wrap := func(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
 				result = normalizeRecoverableToolResult(result)

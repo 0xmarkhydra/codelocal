@@ -13,11 +13,11 @@ import (
 )
 
 // PublicToolSurfaceVersion is the compatibility generation of the public MCP
-// contract. Generation 3 deliberately adds the cloud-native Blog tool while
-// preserving the complete generation-2 tool set byte-for-byte at its legacy
-// surface/contract boundaries.
+// contract. Generation 3 added the cloud-native Blog tool. Generation 4 keeps
+// the same 21-tool surface but extends Blog with ChatGPT host-native file import
+// via openai/fileParams while preserving generation-2 legacy boundaries.
 const (
-	PublicToolSurfaceVersion = 3
+	PublicToolSurfaceVersion = 4
 
 	// Version 1.5.16 was the generation-2 MCP identity. Keep the same release
 	// line and derive the patch from the surface generation so every future
@@ -28,8 +28,8 @@ const (
 
 	PinnedLegacyPublicToolSurfaceVersion       = 2
 	PinnedLegacyPublicMCPImplementationVersion = "1.5.16"
-	PinnedLegacyPublicToolSurfaceHash           = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
-	PinnedLegacyPublicToolContractHash          = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
+	PinnedLegacyPublicToolSurfaceHash          = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
+	PinnedLegacyPublicToolContractHash         = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
 
 	// Backward source-compatibility aliases. Generation-3 tests intentionally
 	// use the Legacy names so future readers do not mistake these for the hash
@@ -49,6 +49,7 @@ type ToolSurfaceInfo struct {
 type toolSurfaceFingerprint struct {
 	Name        string          `json:"name"`
 	Schema      json.RawMessage `json:"schema"`
+	Meta        mcp.Meta        `json:"meta,omitempty"`
 	ReadOnly    bool            `json:"readOnly"`
 	Destructive bool            `json:"destructive"`
 	OpenWorld   bool            `json:"openWorld"`
@@ -59,6 +60,7 @@ type toolContractFingerprint struct {
 	Title           string          `json:"title"`
 	Description     string          `json:"description"`
 	Schema          json.RawMessage `json:"schema"`
+	Meta            mcp.Meta        `json:"meta,omitempty"`
 	AnnotationTitle string          `json:"annotationTitle"`
 	ReadOnly        bool            `json:"readOnly"`
 	Destructive     bool            `json:"destructive"`
@@ -84,7 +86,7 @@ func canonicalSchema(raw json.RawMessage) json.RawMessage {
 func toolSurfaceFingerprintForDefinitions(defs []compactToolDef) []toolSurfaceFingerprint {
 	fingerprints := make([]toolSurfaceFingerprint, 0, len(defs))
 	for _, def := range defs {
-		fingerprint := toolSurfaceFingerprint{Name: def.Name, Schema: canonicalSchema(def.Schema)}
+		fingerprint := toolSurfaceFingerprint{Name: def.Name, Schema: canonicalSchema(def.Schema), Meta: def.Meta}
 		if def.Annotations != nil {
 			fingerprint.ReadOnly = def.Annotations.ReadOnlyHint
 			fingerprint.Destructive = annotationFlag(def.Annotations.DestructiveHint)
@@ -110,6 +112,7 @@ func toolContractHashForDefinitionsWithVersion(defs []compactToolDef, instructio
 			Title:       def.Title,
 			Description: def.Description,
 			Schema:      canonicalSchema(def.Schema),
+			Meta:        def.Meta,
 		}
 		if def.Annotations != nil {
 			fingerprint.AnnotationTitle = def.Annotations.Title

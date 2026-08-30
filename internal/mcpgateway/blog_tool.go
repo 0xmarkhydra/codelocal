@@ -11,8 +11,21 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+type BlogFileRef struct {
+	FileID      string `json:"file_id"`
+	DownloadURL string `json:"download_url"`
+	MIMEType    string `json:"mime_type,omitempty"`
+	FileName    string `json:"file_name,omitempty"`
+}
+
+type BlogMediaImporter interface {
+	ImportBlogImage(context.Context, string, BlogFileRef) (cloud.MediaAsset, error)
+}
+
+func (s *Service) SetBlogMediaImporter(importer BlogMediaImporter) { s.BlogMedia = importer }
+
 var blogToolActions = []string{
-	"list", "get", "create", "update", "publish", "unpublish", "archive",
+	"list", "get", "create", "update", "publish", "unpublish", "archive", "media_import",
 	"series_list", "series_get", "series_create", "series_update", "series_archive",
 	"set_distribution",
 }
@@ -20,10 +33,22 @@ var blogToolActions = []string{
 func compactBlogToolDefinitions() []compactToolDef {
 	stringItems := map[string]any{"type": "string"}
 	contentBlock := map[string]any{"type": "object", "additionalProperties": true}
+	fileParam := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"file_id":      str("ChatGPT host-issued file ID."),
+			"download_url": str("ChatGPT host-issued temporary download URL."),
+			"mime_type":    str("Optional MIME type hint."),
+			"file_name":    str("Optional original file name."),
+		},
+		"required":             []string{"file_id", "download_url"},
+		"additionalProperties": false,
+	}
 	properties := map[string]any{
 		"action":           map[string]any{"type": "string", "enum": blogToolActions, "description": "Blog operation to perform."},
 		"scope":            map[string]any{"type": "string", "enum": []string{"own", "all"}, "description": "For list actions. all is admin-only."},
 		"limit":            integer("Maximum records to return.", 1, 200),
+		"file":             fileParam,
 		"postId":           str("Blog post ID returned by list/create."),
 		"seriesId":         str("Blog series ID returned by series_list/series_create."),
 		"slug":             str("Canonical URL slug. Omit on create to derive it from title."),
@@ -44,8 +69,9 @@ func compactBlogToolDefinitions() []compactToolDef {
 	return []compactToolDef{{
 		Name:        "blog",
 		Title:       "Manage CodeLocal Blog",
-		Description: "Create, edit, publish, archive and curate CodeLocal Blog posts and series using the same durable Blog/Media domain as Dashboard. Image fields accept existing MediaAsset IDs; this tool never creates a second storage path. Normal users can manage only their own content. Admin-only scope=all and set_distribution never bypass account permissions.",
+		Description: "Create, edit, publish, archive and curate CodeLocal Blog posts and series using the same durable Blog/Media domain as Dashboard. action=media_import can ingest a ChatGPT conversation/generated image into the existing MediaAsset pipeline, returning an assetId for cover or inline blocks. Normal users can manage only their own content. Admin-only scope=all and set_distribution never bypass account permissions.",
 		Schema:      objectSchema(properties, "action"),
+		Meta:        mcp.Meta{"openai/fileParams": []string{"file"}},
 		Annotations: compactAnnotations("Manage CodeLocal Blog", false, true, false),
 		Execute:     executeBlogTool,
 	}}
@@ -87,6 +113,27 @@ func blogStrings(args map[string]any, key string) []string {
 		}
 	}
 	return out
+}
+
+func blogFileRef(args map[string]any) (BlogFileRef, error) {
+	value, ok := args["file"].(map[string]any)
+	if !ok {
+		return BlogFileRef{}, errors.New("media_import requires ChatGPT file")
+	}
+	stringValue := func(key string) string {
+		raw, _ := value[key].(string)
+		return strings.TrimSpace(raw)
+	}
+	ref := BlogFileRef{
+		FileID:      stringValue("file_id"),
+		DownloadURL: stringValue("download_url"),
+		MIMEType:    stringValue("mime_type"),
+		FileName:    stringValue("file_name"),
+	}
+	if ref.FileID == "" || ref.DownloadURL == "" {
+		return BlogFileRef{}, errors.New("ChatGPT file is missing file_id or download_url")
+	}
+	return ref, nil
 }
 
 func blogRawJSON(args map[string]any, key string) (json.RawMessage, bool, error) {
@@ -142,6 +189,20 @@ func executeBlogTool(ctx context.Context, service *Service, userID string, args 
 	}
 
 	switch action {
+	case "media_import":
+		if service.BlogMedia == nil {
+			return blogToolError(errors.New("blog media importer unavailable")), nil
+		}
+		ref, refErr := blogFileRef(args)
+		if refErr != nil {
+			return blogToolError(refErr), nil
+		}
+		asset, importErr := service.BlogMedia.ImportBlogImage(ctx, userID, ref)
+		if importErr != nil {
+			return blogToolError(importErr), nil
+		}
+		return textResult(map[string]any{"assetId": asset.ID, "asset": asset}, false), nil
+
 	case "list":
 		var posts []cloud.BlogPost
 		if blogString(args, "scope") == "all" {
@@ -215,18 +276,38 @@ func executeBlogTool(ctx context.Context, service *Service, userID string, args 
 			CoverAssetID: current.CoverAssetID, Category: current.Category, Tags: current.Tags,
 			Visibility: current.Visibility, SeriesID: current.SeriesID, SeriesPart: current.SeriesPart,
 		}
-		if _, ok := args["slug"]; ok { update.Slug = blogString(args, "slug") }
-		if _, ok := args["title"]; ok { update.Title = blogString(args, "title") }
-		if _, ok := args["excerpt"]; ok { update.Excerpt = blogString(args, "excerpt") }
+		if _, ok := args["slug"]; ok {
+			update.Slug = blogString(args, "slug")
+		}
+		if _, ok := args["title"]; ok {
+			update.Title = blogString(args, "title")
+		}
+		if _, ok := args["excerpt"]; ok {
+			update.Excerpt = blogString(args, "excerpt")
+		}
 		if content, ok, rawErr := blogRawJSON(args, "content"); rawErr != nil {
 			return blogToolError(rawErr), nil
-		} else if ok { update.Content = content }
-		if _, ok := args["coverAssetId"]; ok { update.CoverAssetID = blogString(args, "coverAssetId") }
-		if _, ok := args["category"]; ok { update.Category = blogString(args, "category") }
-		if _, ok := args["tags"]; ok { update.Tags = blogStrings(args, "tags") }
-		if _, ok := args["visibility"]; ok { update.Visibility = blogString(args, "visibility") }
-		if _, ok := args["seriesId"]; ok { update.SeriesID = blogString(args, "seriesId") }
-		if _, ok := args["seriesPart"]; ok { update.SeriesPart = blogInt(args, "seriesPart", 0) }
+		} else if ok {
+			update.Content = content
+		}
+		if _, ok := args["coverAssetId"]; ok {
+			update.CoverAssetID = blogString(args, "coverAssetId")
+		}
+		if _, ok := args["category"]; ok {
+			update.Category = blogString(args, "category")
+		}
+		if _, ok := args["tags"]; ok {
+			update.Tags = blogStrings(args, "tags")
+		}
+		if _, ok := args["visibility"]; ok {
+			update.Visibility = blogString(args, "visibility")
+		}
+		if _, ok := args["seriesId"]; ok {
+			update.SeriesID = blogString(args, "seriesId")
+		}
+		if _, ok := args["seriesPart"]; ok {
+			update.SeriesPart = blogInt(args, "seriesPart", 0)
+		}
 		post, err := service.Store.UpdateBlogPost(ctx, userID, admin, postID, update)
 		if err != nil {
 			return blogToolError(err), nil
@@ -310,11 +391,21 @@ func executeBlogTool(ctx context.Context, service *Service, userID string, args 
 			return blogToolError(err), nil
 		}
 		update := cloud.BlogSeriesUpdate{Slug: current.Slug, Title: current.Title, Description: current.Description, CoverAssetID: current.CoverAssetID, Status: current.Status}
-		if _, ok := args["slug"]; ok { update.Slug = blogString(args, "slug") }
-		if _, ok := args["title"]; ok { update.Title = blogString(args, "title") }
-		if _, ok := args["description"]; ok { update.Description = blogString(args, "description") }
-		if _, ok := args["coverAssetId"]; ok { update.CoverAssetID = blogString(args, "coverAssetId") }
-		if _, ok := args["status"]; ok { update.Status = blogString(args, "status") }
+		if _, ok := args["slug"]; ok {
+			update.Slug = blogString(args, "slug")
+		}
+		if _, ok := args["title"]; ok {
+			update.Title = blogString(args, "title")
+		}
+		if _, ok := args["description"]; ok {
+			update.Description = blogString(args, "description")
+		}
+		if _, ok := args["coverAssetId"]; ok {
+			update.CoverAssetID = blogString(args, "coverAssetId")
+		}
+		if _, ok := args["status"]; ok {
+			update.Status = blogString(args, "status")
+		}
 		series, err := service.Store.UpdateBlogSeries(ctx, userID, admin, seriesID, update)
 		if err != nil {
 			return blogToolError(err), nil

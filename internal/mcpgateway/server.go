@@ -27,6 +27,7 @@ type Service struct {
 	Hub          *gateway.Hub
 	Workspaces   *gateway.WorkspaceService
 	Memory       longTermMemoryStore
+	BlogMedia    BlogMediaImporter
 	Release      clientupdate.Manifest
 	mu           sync.Mutex
 	servers      map[string]*mcp.Server

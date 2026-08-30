@@ -197,6 +197,7 @@ func New(ctx context.Context) (*Server, error) {
 		InstanceID:  instanceID,
 		startedAt:   time.Now(),
 	}
+	mcpService.SetBlogMediaImporter(s)
 	s.routes()
 	s.HTTP = &http.Server{
 		Addr:              host() + ":" + defaultPort(),

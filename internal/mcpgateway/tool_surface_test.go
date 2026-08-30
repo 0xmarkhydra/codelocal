@@ -10,27 +10,30 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestPublicToolSurfaceGenerationThreeAddsOnlyBlog(t *testing.T) {
+func TestPublicToolSurfaceGenerationFourKeepsBlogAndAddsFileImport(t *testing.T) {
 	first := PublicToolSurface()
 	second := PublicToolSurface()
 	if first != second {
 		t.Fatalf("tool surface must be stable within a process: %#v != %#v", first, second)
 	}
-	if first.Version != 3 || first.Version != PublicToolSurfaceVersion {
-		t.Fatalf("surface version=%d want generation 3", first.Version)
+	if first.Version != PublicToolSurfaceVersion {
+		t.Fatalf("surface version=%d want public version=%d", first.Version, PublicToolSurfaceVersion)
+	}
+	if first.Version != 4 {
+		t.Fatalf("surface version=%d want generation 4", first.Version)
 	}
 	if first.Count != len(compactToolDefinitions()) || first.Count != 21 {
-		t.Fatalf("generation 3 should expose exactly 21 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
+		t.Fatalf("generation 4 should expose exactly 21 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
 	}
 	if len(first.Hash) != 64 {
-		t.Fatalf("generation-3 surface hash must be sha256: %q", first.Hash)
+		t.Fatalf("generation-4 surface hash must be sha256: %q", first.Hash)
 	}
 	if _, ok := currentPublicToolNames()["blog"]; !ok {
-		t.Fatal("generation 3 must advertise the blog tool")
+		t.Fatal("generation 4 must advertise the blog tool")
 	}
 }
 
-func TestGenerationThreePreservesGenerationTwoABI(t *testing.T) {
+func TestGenerationFourPreservesGenerationTwoABI(t *testing.T) {
 	legacy := legacyPublicToolDefinitions()
 	if len(legacy) != 20 {
 		t.Fatalf("legacy generation must retain 20 tools, got %d", len(legacy))
@@ -68,6 +71,10 @@ func TestBlogToolContractIsActionDrivenAndCloudScoped(t *testing.T) {
 	}
 	if def.Annotations == nil || def.Annotations.ReadOnlyHint || !annotationFlag(def.Annotations.DestructiveHint) || annotationFlag(def.Annotations.OpenWorldHint) {
 		t.Fatalf("unexpected blog annotations: %#v", def.Annotations)
+	}
+	fileParams, ok := def.Meta["openai/fileParams"].([]string)
+	if !ok || !reflect.DeepEqual(fileParams, []string{"file"}) {
+		t.Fatalf("blog file params=%#v", def.Meta["openai/fileParams"])
 	}
 	var schema struct {
 		Required   []string `json:"required"`
