@@ -71,7 +71,7 @@ func TestCompileDropsLowerPriorityLanesUnderPressure(t *testing.T) {
 		Brain: projectbrain.ContextPacket{Fingerprint: "brain", MutationAllowed: true},
 		Active: []Item{{ID: "active", Text: "active evidence"}},
 		Recent: []Item{{ID: "recent", Text: "recent history that should be dropped first when budget is tight"}},
-	}, 4)
+	}, 6)
 	if len(surface.Items) != 1 || surface.Items[0].ID != "active" {
 		t.Fatalf("expected active evidence to win tight budget: %+v", surface.Items)
 	}
