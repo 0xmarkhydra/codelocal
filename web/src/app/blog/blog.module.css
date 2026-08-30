@@ -274,6 +274,15 @@
 .articleMeta { display: flex; flex-wrap: wrap; gap: 9px 18px; margin-top: 22px; color: var(--text-tertiary); font-size: 12px; }
 .articleMeta strong { color: var(--text-secondary); }
 
+.articleCover {
+  overflow: hidden;
+  margin: 0 0 34px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255,255,255,.018);
+}
+.articleCover img { display: block; width: 100%; height: auto; }
+
 .seriesBanner {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -297,6 +306,9 @@
 .articleBody li { margin: 10px 0; padding-left: 6px; line-height: 1.65; }
 .articleBody pre { position: relative; overflow-x: auto; margin: 30px 0; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: #080b10; color: #d7e4ff; font-size: 13px; line-height: 1.65; }
 .articleBody pre::before { content: attr(data-language); display: block; margin-bottom: 12px; color: var(--text-tertiary); font-size: 10px; text-transform: uppercase; }
+.articleImage { margin: 34px 0; }
+.articleImage img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.018); }
+.articleImage figcaption { margin-top: 9px; color: var(--text-tertiary); font-size: 12px; line-height: 1.5; text-align: center; }
 .callout { margin: 34px 0; padding: 20px; border-left: 2px solid var(--accent); border-radius: 0 12px 12px 0; background: rgba(120,160,255,0.055); }
 .callout strong { display: block; margin-bottom: 7px; }
 .callout p { margin: 0; color: var(--text-secondary); line-height: 1.65; }
