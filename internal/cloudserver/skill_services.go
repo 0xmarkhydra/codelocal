@@ -31,6 +31,7 @@ type cloudSkillServices struct {
 	Packages   cloud.SkillPackageObjectStore
 	Imports    *cloud.SkillImportService
 	Configured bool
+	StorageMode string
 	Err        error
 }
 
@@ -46,13 +47,34 @@ func skillServicesForServer(s *Server) *cloudSkillServices {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	durable, configured, err := cloud.SkillPackageStoreFromEnv(ctx)
-	services := &cloudSkillServices{Configured: configured, Err: err}
-	if err != nil || !configured {
+	s3Store, externalConfigured, err := cloud.SkillPackageStoreFromEnv(ctx)
+	services := &cloudSkillServices{Configured: false, StorageMode: "unavailable", Err: err}
+	if err != nil {
 		services.Runtime = cloud.NewSkillRuntime(s.Store, nil)
 		actual, _ := cloudSkillServicesByServer.LoadOrStore(s, services)
 		return actual.(*cloudSkillServices)
 	}
+
+	var durable cloud.SkillPackageObjectStore
+	if externalConfigured {
+		durable = s3Store
+		services.StorageMode = "object"
+	} else if s.Store.DB != nil {
+		postgresStore, postgresErr := cloud.NewPostgresSkillPackageStore(s.Store.DB)
+		if postgresErr != nil {
+			services.Err = postgresErr
+			services.Runtime = cloud.NewSkillRuntime(s.Store, nil)
+			actual, _ := cloudSkillServicesByServer.LoadOrStore(s, services)
+			return actual.(*cloudSkillServices)
+		}
+		durable = postgresStore
+		services.StorageMode = "postgres"
+	} else {
+		services.Runtime = cloud.NewSkillRuntime(s.Store, nil)
+		actual, _ := cloudSkillServicesByServer.LoadOrStore(s, services)
+		return actual.(*cloudSkillServices)
+	}
+
 	cache, cacheErr := skillintel.NewCachedPackageStore(durable, skillintel.DefaultPackageMemoryCacheBytes)
 	if cacheErr != nil {
 		services.Err = cacheErr
@@ -64,6 +86,7 @@ func skillServicesForServer(s *Server) *cloudSkillServices {
 	services.Packages = packages
 	services.Runtime = cloud.NewSkillRuntime(s.Store, packages)
 	services.Imports, services.Err = cloud.NewSkillImportService(packages, s.Store)
+	services.Configured = services.Err == nil
 	actual, _ := cloudSkillServicesByServer.LoadOrStore(s, services)
 	return actual.(*cloudSkillServices)
 }
