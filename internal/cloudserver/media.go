@@ -140,11 +140,14 @@ func normalizeMediaPrefix(value string) string {
 }
 
 func newS3MediaStoreFromEnvironment(ctx context.Context) (*s3MediaStore, error) {
-	endpoint := envFirst("CODELOCAL_MEDIA_S3_ENDPOINT", "S3_ENDPOINT")
-	bucket := envFirst("CODELOCAL_MEDIA_S3_BUCKET", "S3_BUCKET")
-	accessKey := envFirst("CODELOCAL_MEDIA_S3_ACCESS_KEY_ID", "S3_ACCESS_KEY_ID")
-	secretKey := envFirst("CODELOCAL_MEDIA_S3_SECRET_ACCESS_KEY", "S3_SECRET_ACCESS_KEY")
-	region := envFirst("CODELOCAL_MEDIA_S3_REGION", "S3_REGION")
+	// Media-specific configuration wins, then the legacy generic S3 names. When
+	// neither is configured, reuse CodeLocal's existing durable Skill object
+	// storage so Blog media does not require a second S3 backend or credential set.
+	endpoint := envFirst("CODELOCAL_MEDIA_S3_ENDPOINT", "S3_ENDPOINT", "CODELOCAL_SKILL_STORAGE_ENDPOINT")
+	bucket := envFirst("CODELOCAL_MEDIA_S3_BUCKET", "S3_BUCKET", "CODELOCAL_SKILL_STORAGE_BUCKET")
+	accessKey := envFirst("CODELOCAL_MEDIA_S3_ACCESS_KEY_ID", "S3_ACCESS_KEY_ID", "CODELOCAL_SKILL_STORAGE_ACCESS_KEY_ID")
+	secretKey := envFirst("CODELOCAL_MEDIA_S3_SECRET_ACCESS_KEY", "S3_SECRET_ACCESS_KEY", "CODELOCAL_SKILL_STORAGE_SECRET_ACCESS_KEY")
+	region := envFirst("CODELOCAL_MEDIA_S3_REGION", "S3_REGION", "CODELOCAL_SKILL_STORAGE_REGION")
 	if region == "" {
 		region = "us-east-1"
 	}
