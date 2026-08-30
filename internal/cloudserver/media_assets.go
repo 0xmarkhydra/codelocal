@@ -23,7 +23,10 @@ import (
 	"github.com/deepteams/webp"
 )
 
-const durableMediaMaxPixels = 40_000_000
+const (
+	durableMediaMaxPixels          = 40_000_000
+	durableMediaPublicCacheControl = "public,no-cache,must-revalidate"
+)
 
 type mediaAssetPrepareRequest struct {
 	SHA256           string `json:"sha256"`
@@ -245,16 +248,6 @@ func (s *Server) processMediaAsset(r *http.Request, asset cloud.MediaAsset) (clo
 		return cloud.MediaAsset{}, fmt.Errorf("decode image: %w", err)
 	}
 	variants := make([]cloud.MediaVariant, 0, len(durableMediaVariantSpecs)+1)
-	uploadedKeys := []string{}
-	completed := false
-	defer func() {
-		if completed {
-			return
-		}
-		for _, key := range uploadedKeys {
-			_, _ = s.Media.client.DeleteObject(r.Context(), &s3.DeleteObjectInput{Bucket: aws.String(s.Media.bucket), Key: aws.String(key)})
-		}
-	}()
 	for _, spec := range durableMediaVariantSpecs {
 		resized := resizeImageMaxEdge(decoded, spec.MaxEdge)
 		encoded := bytes.Buffer{}
@@ -265,7 +258,6 @@ func (s *Server) processMediaAsset(r *http.Request, asset cloud.MediaAsset) (clo
 		if err := s.putDurableMediaVariant(r, key, encoded.Bytes(), asset.ID, spec.Name); err != nil {
 			return cloud.MediaAsset{}, err
 		}
-		uploadedKeys = append(uploadedKeys, key)
 		bounds := resized.Bounds()
 		sum := sha256.Sum256(encoded.Bytes())
 		variants = append(variants, cloud.MediaVariant{AssetID: asset.ID, Variant: spec.Name, ObjectKey: key, ContentType: "image/webp", Size: int64(encoded.Len()), Width: bounds.Dx(), Height: bounds.Dy(), SHA256: hex.EncodeToString(sum[:])})
@@ -277,7 +269,6 @@ func (s *Server) processMediaAsset(r *http.Request, asset cloud.MediaAsset) (clo
 	if err != nil {
 		return cloud.MediaAsset{}, err
 	}
-	completed = true
 	if !asset.PreserveOriginal {
 		_, _ = s.Media.client.DeleteObject(r.Context(), &s3.DeleteObjectInput{Bucket: aws.String(s.Media.bucket), Key: aws.String(sourceKey)})
 	}
@@ -287,7 +278,7 @@ func (s *Server) processMediaAsset(r *http.Request, asset cloud.MediaAsset) (clo
 func (s *Server) putDurableMediaVariant(r *http.Request, key string, data []byte, assetID, variant string) error {
 	_, err := s.Media.client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket: aws.String(s.Media.bucket), Key: aws.String(key), Body: bytes.NewReader(data), ContentType: aws.String("image/webp"),
-		CacheControl: aws.String("public,max-age=31536000,immutable"), Metadata: map[string]string{"asset-id": assetID, "variant": variant},
+		CacheControl: aws.String(durableMediaPublicCacheControl), Metadata: map[string]string{"asset-id": assetID, "variant": variant},
 	})
 	if err != nil {
 		return fmt.Errorf("store %s media variant: %w", variant, err)
@@ -322,6 +313,8 @@ func (s *Server) publicMediaVariantAPI(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Cache-Control", durableMediaPublicCacheControl)
+	w.Header().Set("ETag", `"`+variant.SHA256+`"`)
 	if match := strings.TrimSpace(r.Header.Get("If-None-Match")); match == `"`+variant.SHA256+`"` {
 		w.WriteHeader(http.StatusNotModified)
 		return
@@ -334,8 +327,6 @@ func (s *Server) publicMediaVariantAPI(w http.ResponseWriter, r *http.Request) {
 	defer object.Body.Close()
 	w.Header().Set("Content-Type", variant.ContentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(variant.Size, 10))
-	w.Header().Set("Cache-Control", "public,max-age=31536000,immutable")
-	w.Header().Set("ETag", `"`+variant.SHA256+`"`)
 	_, _ = io.Copy(w, object.Body)
 }
 
@@ -376,7 +367,7 @@ func bilinearNRGBA(c00, c10, c01, c11 color.NRGBA, fx, fy float64) color.NRGBA {
 		value := top*(1-fy) + bottom*fy
 		return uint8(math.Round(math.Max(0, math.Min(255, value))))
 	}
-	return color.NRGBA{R: blend(c00.R, c10.R, c01.R, c11.R), G: blend(c00.G, c10.G, c01.G, c11.G), B: blend(c00.B, c10.B, c01.B, c11.B), A: blend(c00.A, c10.A, c01.A, c11.A)}
+	return color.NRGBA{R: blend(c00.R, c10.R, c01.R, c11.R, fx, fy), G: blend(c00.G, c10.G, c01.G, c11.G, fx, fy), B: blend(c00.B, c10.B, c01.B, c11.B, fx, fy), A: blend(c00.A, c10.A, c01.A, c11.A, fx, fy)}
 }
 
 func clampInt(value, minValue, maxValue int) int {
