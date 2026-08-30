@@ -367,7 +367,7 @@ func bilinearNRGBA(c00, c10, c01, c11 color.NRGBA, fx, fy float64) color.NRGBA {
 		value := top*(1-fy) + bottom*fy
 		return uint8(math.Round(math.Max(0, math.Min(255, value))))
 	}
-	return color.NRGBA{R: blend(c00.R, c10.R, c01.R, c11.R, fx, fy), G: blend(c00.G, c10.G, c01.G, c11.G, fx, fy), B: blend(c00.B, c10.B, c01.B, c11.B, fx, fy), A: blend(c00.A, c10.A, c01.A, c11.A, fx, fy)}
+	return color.NRGBA{R: blend(c00.R, c10.R, c01.R, c11.R), G: blend(c00.G, c10.G, c01.G, c11.G), B: blend(c00.B, c10.B, c01.B, c11.B), A: blend(c00.A, c10.A, c01.A, c11.A)}
 }
 
 func clampInt(value, minValue, maxValue int) int {
