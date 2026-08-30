@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"image"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +26,15 @@ func TestValidateDurableMediaPrepare(t *testing.T) {
 		if _, err := validateDurableMediaPrepare(tc, 12<<20); err == nil {
 			t.Fatalf("invalid prepare accepted: %#v", tc)
 		}
+	}
+}
+
+func TestDurableMediaPublicCachePolicyRequiresRevalidation(t *testing.T) {
+	if durableMediaPublicCacheControl != "public,no-cache,must-revalidate" {
+		t.Fatalf("cache policy=%q must require revalidation", durableMediaPublicCacheControl)
+	}
+	if strings.Contains(durableMediaPublicCacheControl, "immutable") {
+		t.Fatalf("publication-gated media must not be immutable: %q", durableMediaPublicCacheControl)
 	}
 }
 
