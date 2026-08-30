@@ -29,7 +29,7 @@ const (
 )
 
 var (
-	htmlScriptStylePattern = regexp.MustCompile(`(?is)<(script|style)\b[^>]*>.*?</\1\s*>`)
+	htmlScriptStylePattern = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>`)
 	htmlTagPattern         = regexp.MustCompile(`(?s)<[^>]+>`)
 )
 
