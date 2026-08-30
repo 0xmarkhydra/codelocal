@@ -1,0 +1,246 @@
+.page {
+  display: grid;
+  gap: 24px;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface-raised);
+}
+
+.heroIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.heroCopy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.heroCopy h1,
+.sectionHeader h2 {
+  margin: 0;
+}
+
+.heroCopy p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.kicker {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.primaryAction,
+.sectionHeader > a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.primaryAction {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-weight: 650;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.stats article {
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-raised);
+}
+
+.stats strong {
+  font-size: 28px;
+}
+
+.stats span,
+.postRow p,
+.postRow time {
+  color: var(--text-secondary);
+}
+
+.section {
+  display: grid;
+  gap: 14px;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+}
+
+.sectionHeader > div {
+  display: grid;
+  gap: 4px;
+}
+
+.createForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-raised);
+}
+
+.createForm input,
+.createForm button,
+.emptyState button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.createForm input {
+  min-width: 0;
+  padding: 0 14px;
+  outline: none;
+}
+
+.createForm input:focus {
+  border-color: var(--line-strong);
+}
+
+.createForm button,
+.emptyState button {
+  padding: 0 14px;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.createForm button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.errorText {
+  margin: -4px 2px 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.emptyState {
+  padding: 22px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 18px;
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+}
+
+.emptyState p {
+  margin: 0 0 12px;
+}
+
+.postList {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface-raised);
+}
+
+.postRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 18px 20px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.postRow:hover {
+  background: var(--surface);
+}
+
+.postRow + .postRow {
+  border-top: 1px solid var(--line);
+}
+
+.postRow > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.postRow > div > span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.postRow strong {
+  font-size: 15px;
+}
+
+.postRow p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.postRow time {
+  align-self: center;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 18px;
+  }
+
+  .hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .primaryAction {
+    grid-column: 1 / -1;
+    text-align: center;
+  }
+
+  .stats,
+  .createForm,
+  .postRow {
+    grid-template-columns: 1fr;
+  }
+
+  .postRow time {
+    justify-self: start;
+  }
+}

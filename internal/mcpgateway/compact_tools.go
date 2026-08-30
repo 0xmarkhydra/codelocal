@@ -294,6 +294,7 @@ func compactToolDefinitions() []compactToolDef {
 		},
 	}
 	tools = append(tools, compactSocialToolDefinitions()...)
+	tools = append(tools, compactBlogToolDefinitions()...)
 	return append(tools, compactAutomationToolDefinitions()...)
 }
 

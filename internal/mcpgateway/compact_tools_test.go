@@ -16,7 +16,7 @@ import (
 
 var frozenCompactToolNames = []string{
 	"device", "workspace", "project", "context", "agent", "read", "search", "dependency", "lsp",
-	"edit", "verify", "git", "terminal", "process", "approvals", "security", "mcp", "social", "browser", "computer",
+	"edit", "verify", "git", "terminal", "process", "approvals", "security", "mcp", "social", "blog", "browser", "computer",
 }
 
 func compactSurfaceBytes(defs []compactToolDef) int {
@@ -36,8 +36,8 @@ func TestCompactToolSurfaceContract(t *testing.T) {
 	if !reflect.DeepEqual(got, frozenCompactToolNames) {
 		t.Fatalf("compact MCP tool contract changed\n got: %#v\nwant: %#v", got, frozenCompactToolNames)
 	}
-	if len(defs) != 20 {
-		t.Fatalf("compact tool count = %d, want 20 including one server-side social gateway, bounded agent orchestration, Browser and Computer Use", len(defs))
+	if len(defs) != 21 {
+		t.Fatalf("compact tool count = %d, want 21 including social, blog, bounded agent orchestration, Browser and Computer Use", len(defs))
 	}
 	const previousPublicSchemaBytes = 39798
 	compactBytes := compactSurfaceBytes(defs)

@@ -22,6 +22,8 @@ func TestNextDashboardRoutingUsesCompletePresentationWhitelist(t *testing.T) {
 		"/dashboard/settings",
 		"/dashboard/account",
 		"/dashboard/admin",
+		"/dashboard/blogs",
+		"/dashboard/blogs/blog_123",
 	} {
 		if !isNextDashboardPath(path) {
 			t.Fatalf("expected %q to use Next dashboard", path)
@@ -30,6 +32,7 @@ func TestNextDashboardRoutingUsesCompletePresentationWhitelist(t *testing.T) {
 	for _, path := range []string{
 		"/dashboard/admin/users",
 		"/dashboard/unknown",
+		"/dashboard/blogger",
 		"/api/v1/account",
 		"/client",
 		"/mcp",
@@ -41,15 +44,54 @@ func TestNextDashboardRoutingUsesCompletePresentationWhitelist(t *testing.T) {
 }
 
 func TestNextPresentationOwnsPublicAndFreshSecurityPages(t *testing.T) {
-	for _, path := range []string{"/", "/login", "/register", "/signup", "/signup/verify", "/forgot-password", "/reset-password", "/privacy", "/terms", "/support", "/security", "/healthz"} {
+	for _, path := range []string{
+		"/", "/login", "/register", "/signup", "/signup/verify", "/forgot-password", "/reset-password",
+		"/privacy", "/terms", "/support", "/security", "/healthz", "/sitemap.xml", "/robots.txt",
+		"/blogs", "/blogs/example", "/blogs/series", "/blogs/series/example", "/blogs/category/ai", "/blogs/tag/agents",
+	} {
 		if !isNextPublicPagePath(path) {
 			t.Fatalf("expected %q to be a Next public page", path)
+		}
+	}
+	for _, path := range []string{"/blogger", "/blogs-private", "/api/v1/blog/public"} {
+		if isNextPublicPagePath(path) {
+			t.Fatalf("expected %q to stay outside the public Next presentation family", path)
 		}
 	}
 	for _, path := range []string{"/authorize", "/pair/approve"} {
 		if !isNextFreshSecurityPath(path) {
 			t.Fatalf("expected %q to require fresh-security Next presentation", path)
 		}
+	}
+}
+
+func TestLegacyBlogPathsRedirectToCanonicalBlogs(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{path: "/blog", want: "/blogs"},
+		{path: "/blog/", want: "/blogs"},
+		{path: "/blog/post-one", want: "/blogs/post-one"},
+		{path: "/blog/series/demo?q=1", want: "/blogs/series/demo?q=1"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			calledNext := false
+			calledGo := false
+			server := &Server{WebFrontend: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calledNext = true })}
+			next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calledGo = true })
+			response := httptest.NewRecorder()
+			server.webFrontendMiddleware(next).ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != tc.want {
+				t.Fatalf("legacy route=%q status=%d location=%q want=%q", tc.path, response.Code, response.Header().Get("Location"), tc.want)
+			}
+			if calledNext || calledGo {
+				t.Fatal("legacy blog redirect must terminate before Go/Next handlers")
+			}
+		})
+	}
+	if isLegacyBlogPath("/blogger") || isLegacyBlogPath("/blogs") {
+		t.Fatal("legacy matcher widened beyond the /blog family")
 	}
 }
 
@@ -74,6 +116,7 @@ func TestWebFrontendMiddlewareKeepsProtocolsAPIsUnknownRoutesAndMutationsOnGo(t 
 	}{
 		{http.MethodGet, "/dashboard/not-migrated"},
 		{http.MethodGet, "/api/v1/account"},
+		{http.MethodGet, "/api/v1/blog/public"},
 		{http.MethodGet, "/.well-known/oauth-authorization-server"},
 		{http.MethodGet, "/mcp"},
 		{http.MethodGet, "/client"},
@@ -84,6 +127,7 @@ func TestWebFrontendMiddlewareKeepsProtocolsAPIsUnknownRoutesAndMutationsOnGo(t 
 		{http.MethodPost, "/authorize"},
 		{http.MethodPost, "/pair/approve"},
 		{http.MethodPost, "/logout"},
+		{http.MethodPost, "/blogs"},
 	} {
 		t.Run(test.method+" "+test.path, func(t *testing.T) {
 			called := false
@@ -98,7 +142,10 @@ func TestWebFrontendMiddlewareKeepsProtocolsAPIsUnknownRoutesAndMutationsOnGo(t 
 }
 
 func TestWebFrontendMiddlewareProxiesPublicNextPages(t *testing.T) {
-	for _, path := range []string{"/", "/privacy", "/terms", "/support", "/security", "/forgot-password", "/reset-password", "/healthz", "/_next/static/app.js"} {
+	for _, path := range []string{
+		"/", "/privacy", "/terms", "/support", "/security", "/forgot-password", "/reset-password", "/healthz",
+		"/sitemap.xml", "/robots.txt", "/blogs", "/blogs/demo", "/blogs/series/demo", "/_next/static/app.js",
+	} {
 		t.Run(path, func(t *testing.T) {
 			calledNext := false
 			calledGo := false

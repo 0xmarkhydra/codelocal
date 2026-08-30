@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 13 {
+	if len(migrations) != 17 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -147,23 +147,47 @@ func TestAccountSecurityMigrationFollowsProjectBrainTrain(t *testing.T) {
 			t.Fatalf("skill migration 53 missing rating token %q", token)
 		}
 	}
+	blog := strings.ToLower(migrations[13].sql)
+	for _, token := range []string{"codelocal_blog_posts", "codelocal_blog_series", "codelocal_blog_post_revisions", "codelocal_blog_slug_redirects", "cover_asset_id", "show_on_landing"} {
+		if !strings.Contains(blog, token) {
+			t.Fatalf("blog migration 54 missing platform token %q", token)
+		}
+	}
+	media := strings.ToLower(migrations[14].sql)
+	for _, token := range []string{"codelocal_media_assets", "codelocal_media_variants", "codelocal_media_understanding", "codelocal_media_asset_refs", "source_sha256", "preserve_original"} {
+		if !strings.Contains(media, token) {
+			t.Fatalf("media migration 55 missing platform token %q", token)
+		}
+	}
+	seriesRedirects := strings.ToLower(migrations[15].sql)
+	for _, token := range []string{"codelocal_blog_series_slug_redirects", "old_slug", "series_id"} {
+		if !strings.Contains(seriesRedirects, token) {
+			t.Fatalf("blog series migration 56 missing platform token %q", token)
+		}
+	}
+	redirectGuards := strings.ToLower(migrations[16].sql)
+	for _, token := range []string{"codelocal_guard_blog_post_redirect_slug", "codelocal_guard_blog_series_redirect_slug", "before insert or update of slug", "23505"} {
+		if !strings.Contains(redirectGuards, token) {
+			t.Fatalf("blog redirect namespace migration 57 missing token %q", token)
+		}
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 	if schemaMigrationAdvisoryLockID == 0 {
 		t.Fatal("schema migration advisory lock id must be non-zero")
 	}
-	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[40] {
+	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[40] || nonTransactionalMigrationVersions[54] || nonTransactionalMigrationVersions[55] || nonTransactionalMigrationVersions[56] || nonTransactionalMigrationVersions[57] {
 		t.Fatal("new migration train unexpectedly bypasses transactional runner")
 	}
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 53 {
-		t.Fatalf("latest schema version=%d want 53", got)
+	if got := LatestSchemaMigrationVersion(); got != 57 {
+		t.Fatalf("latest schema version=%d want 57", got)
 	}
-	ready := schemaMigrationStatus(53, 53)
-	if !ready.UpToDate || ready.TargetVersion != 53 || ready.AppliedCount != 53 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(57, 57)
+	if !ready.UpToDate || ready.TargetVersion != 57 || ready.AppliedCount != 57 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {
@@ -183,7 +207,11 @@ func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
 		{current: 50, count: 50},
 		{current: 51, count: 51},
 		{current: 52, count: 52},
-		{current: 53, count: 52},
+		{current: 53, count: 53},
+		{current: 54, count: 54},
+		{current: 55, count: 55},
+		{current: 56, count: 56},
+		{current: 57, count: 56},
 	} {
 		if status := schemaMigrationStatus(tc.current, tc.count); status.UpToDate {
 			t.Fatalf("non-target/non-contiguous schema reported ready: %#v", status)

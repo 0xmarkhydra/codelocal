@@ -103,11 +103,11 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_skill_ratings_skill
  ON codelocal_skill_ratings(skill_id, updated_at DESC);
 `
 
-// skillIntelligenceSchemaMigrations is intentionally forward-only. Existing
-// schema versions are immutable because Cloud/Desktop binaries can overlap
-// during rolling releases.
+// skillIntelligenceSchemaMigrations is the existing post-account migration tail
+// consumed by store.go. Versions 48-53 are immutable skill migrations; newer
+// feature migrations append through their domain-owned migration functions.
 func skillIntelligenceSchemaMigrations() []schemaMigration {
-	return []schemaMigration{
+	migrations := []schemaMigration{
 		{48, skillAffinityIndexMigrationSQL},
 		{49, dashboardChatSkillsMigrationSQL},
 		{50, skillRegistryMigrationSQL},
@@ -115,4 +115,7 @@ func skillIntelligenceSchemaMigrations() []schemaMigration {
 		{52, skillEvaluationMigrationSQL},
 		{53, skillRatingMigrationSQL},
 	}
+	migrations = append(migrations, blogSchemaMigrations()...)
+	migrations = append(migrations, mediaAssetSchemaMigrations()...)
+	return append(migrations, blogSeriesSchemaMigrations()...)
 }
