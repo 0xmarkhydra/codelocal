@@ -35,6 +35,7 @@ export type BlogSeries = {
   description: string;
   coverAssetId?: string;
   status: "active" | "complete" | "archived";
+  official?: boolean;
   createdAt: number;
   updatedAt: number;
 };
@@ -111,6 +112,7 @@ function isBlogSeries(value: unknown): value is BlogSeries {
     typeof value.title === "string" && value.title.length > 0 &&
     typeof value.description === "string" &&
     ["active", "complete", "archived"].includes(String(value.status)) &&
+    (value.official === undefined || typeof value.official === "boolean") &&
     isNonNegativeNumber(value.createdAt) && isNonNegativeNumber(value.updatedAt)
   );
 }
