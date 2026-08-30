@@ -342,7 +342,7 @@ func (s *Store) SetBlogPostPublished(ctx context.Context, actorUserID string, ad
 	}
 
 	if published {
-		mediaSlots, err := s.validateBlogMediaAssets(ctx, post.AuthorUserID, post.CoverAssetID, post.Content)
+		mediaSlots, err := validateBlogMediaAssetsTx(ctx, tx, post.AuthorUserID, post.CoverAssetID, post.Content)
 		if err != nil {
 			return BlogPost{}, err
 		}
