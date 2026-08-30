@@ -77,6 +77,8 @@ var nextPublicPagePaths = map[string]struct{}{
 	"/support":         {},
 	"/security":        {},
 	"/healthz":         {},
+	"/sitemap.xml":     {},
+	"/robots.txt":      {},
 }
 
 var nextFreshSecurityPaths = map[string]struct{}{
@@ -95,14 +97,40 @@ func canonicalNextPresentationPath(path string) string {
 	return path
 }
 
+func isPathFamily(path, root string) bool {
+	path = canonicalNextPresentationPath(path)
+	return path == root || strings.HasPrefix(path, root+"/")
+}
+
 func isNextDashboardPath(path string) bool {
-	_, ok := nextDashboardPaths[canonicalNextPresentationPath(path)]
+	path = canonicalNextPresentationPath(path)
+	if isPathFamily(path, "/dashboard/blogs") {
+		return true
+	}
+	_, ok := nextDashboardPaths[path]
 	return ok
 }
 
 func isNextPublicPagePath(path string) bool {
-	_, ok := nextPublicPagePaths[canonicalNextPresentationPath(path)]
+	path = canonicalNextPresentationPath(path)
+	if isPathFamily(path, "/blogs") {
+		return true
+	}
+	_, ok := nextPublicPagePaths[path]
 	return ok
+}
+
+func isLegacyBlogPath(path string) bool {
+	return isPathFamily(path, "/blog")
+}
+
+func legacyBlogRedirectTarget(r *http.Request) string {
+	path := canonicalNextPresentationPath(r.URL.Path)
+	target := "/blogs" + strings.TrimPrefix(path, "/blog")
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	return target
 }
 
 func isNextFreshSecurityPath(path string) bool {
@@ -154,6 +182,10 @@ func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isNextPresentationMethod(r.Method) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if isLegacyBlogPath(r.URL.Path) {
+			http.Redirect(w, r, legacyBlogRedirectTarget(r), http.StatusPermanentRedirect)
 			return
 		}
 		switch {
