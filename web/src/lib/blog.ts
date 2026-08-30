@@ -18,6 +18,8 @@ export type BlogSeries = {
   description: string;
   status: "active" | "complete";
   category: string;
+  coverAssetId?: string;
+  author?: BlogAuthor;
 };
 
 export type BlogPost = {
@@ -31,6 +33,8 @@ export type BlogPost = {
   tags: string[];
   author: BlogAuthor;
   featured?: boolean;
+  showOnLanding?: boolean;
+  official?: boolean;
   coverAssetId?: string;
   series?: { slug: string; part: number };
   blocks: BlogBlock[];
@@ -52,6 +56,7 @@ export const blogSeries: BlogSeries[] = [
       "A practical series about connecting AI coding clients to real projects while preserving workspace boundaries, verification and durable context.",
     status: "active",
     category: "Engineering",
+    author: blogAuthors.codelocal,
   },
 ];
 
@@ -66,6 +71,7 @@ const posts: BlogPost[] = [
     category: "Engineering",
     tags: ["Local AI", "Agents", "Security"],
     author: blogAuthors.codelocal,
+    official: true,
     featured: true,
     series: { slug: "local-agent-foundations", part: 1 },
     blocks: [
@@ -106,6 +112,7 @@ const posts: BlogPost[] = [
     category: "Guides",
     tags: ["MCP", "Agents", "Workspaces"],
     author: blogAuthors.codelocal,
+    official: true,
     series: { slug: "local-agent-foundations", part: 2 },
     blocks: [
       {
@@ -147,6 +154,7 @@ const posts: BlogPost[] = [
     category: "Product",
     tags: ["Project Brain", "Context", "Agents"],
     author: blogAuthors.codelocal,
+    official: true,
     series: { slug: "local-agent-foundations", part: 3 },
     blocks: [
       {
@@ -186,6 +194,7 @@ const posts: BlogPost[] = [
     category: "Security",
     tags: ["Security", "Approvals", "Local AI"],
     author: blogAuthors.codelocal,
+    official: true,
     featured: true,
     blocks: [
       {
