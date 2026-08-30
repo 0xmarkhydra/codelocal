@@ -4,6 +4,7 @@ import {
   isMediaAssetPrepareResponse,
   isMediaAssetResponse,
   type MediaAsset,
+  type MediaUploadGrant,
 } from "@/lib/contracts/media";
 
 const SUPPORTED_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -30,6 +31,34 @@ function uploadHeaders(input?: Record<string, string[]>) {
 
 async function readJSON(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
+}
+
+async function directUpload(file: File, upload: MediaUploadGrant) {
+  if (!upload.url) return false;
+  try {
+    const response = await fetch(upload.url, {
+      method: upload.method || "PUT",
+      headers: uploadHeaders(upload.headers),
+      body: file,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function proxyUpload(file: File, assetID: string, csrf: string) {
+  const response = await fetch(`/api/v1/media/assets/${encodeURIComponent(assetID)}/upload`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": file.type,
+      "X-CSRF-Token": csrf,
+    },
+    body: file,
+  });
+  if (!response.ok) throw new Error(`Image upload failed (${response.status}).`);
 }
 
 export function privateMediaVariantURL(assetID: string, variant: "thumb" | "medium" | "large" = "medium") {
@@ -63,13 +92,10 @@ export async function uploadMediaAsset(file: File, csrf: string): Promise<MediaA
   if (preparedBody.asset.status === "ready") return preparedBody.asset;
 
   if (preparedBody.upload.required) {
-    if (!preparedBody.upload.url) throw new Error("Image storage did not return an upload URL.");
-    const uploaded = await fetch(preparedBody.upload.url, {
-      method: preparedBody.upload.method || "PUT",
-      headers: uploadHeaders(preparedBody.upload.headers),
-      body: file,
-    });
-    if (!uploaded.ok) throw new Error(`Image upload failed (${uploaded.status}).`);
+    const uploadedDirectly = await directUpload(file, preparedBody.upload);
+    if (!uploadedDirectly) {
+      await proxyUpload(file, preparedBody.asset.id, csrf);
+    }
   }
 
   const finalize = await fetch(`/api/v1/media/assets/${encodeURIComponent(preparedBody.asset.id)}/finalize`, {
