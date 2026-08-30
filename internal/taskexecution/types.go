@@ -19,12 +19,14 @@ const (
 )
 
 type RepositoryBinding struct {
-	RepositoryID   string `json:"repositoryId"`
-	RepositoryPath string `json:"repositoryPath"`
-	SourceRevision string `json:"sourceRevision"`
-	BranchName     string `json:"branchName,omitempty"`
-	BindingID      string `json:"bindingId"`
-	LocalPath      string `json:"localPath"`
+	RepositoryID            string `json:"repositoryId"`
+	RepositoryPath          string `json:"repositoryPath"`
+	SourceRevision          string `json:"sourceRevision"`
+	SourceDirty             bool   `json:"sourceDirty,omitempty"`
+	SourceStatusFingerprint string `json:"sourceStatusFingerprint,omitempty"`
+	BranchName              string `json:"branchName,omitempty"`
+	BindingID               string `json:"bindingId"`
+	LocalPath               string `json:"localPath"`
 }
 
 type Lease struct {
