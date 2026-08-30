@@ -18,6 +18,18 @@ SELECT s.series_id,s.slug,s.author_user_id,COALESCE(u.email,''),s.title,s.descri
 FROM codelocal_blog_series s
 LEFT JOIN codelocal_users u ON u.id=s.author_user_id`
 
+const publicBlogSeriesPredicate = `
+ s.deleted_at=0
+ AND s.status IN ('active','complete')
+ AND EXISTS(
+   SELECT 1 FROM codelocal_blog_posts p
+   WHERE p.series_id=s.series_id
+     AND p.deleted_at=0
+     AND p.status='published'
+     AND p.visibility='public'
+     AND p.moderation_status='clean'
+ )`
+
 func scanBlogSeries(row blogSeriesRowScanner) (BlogSeries, error) {
 	var series BlogSeries
 	err := row.Scan(&series.ID,&series.Slug,&series.AuthorUserID,&series.AuthorEmail,&series.Title,&series.Description,&series.CoverAssetID,&series.Status,&series.PostCount,&series.CreatedAt,&series.UpdatedAt,&series.DeletedAt)
@@ -57,11 +69,11 @@ func (s *Store) BlogSeriesByID(ctx context.Context, seriesID string) (BlogSeries
 func (s *Store) PublicBlogSeriesBySlug(ctx context.Context, slug string) (BlogSeries, error) {
 	slug = NormalizeBlogSlug(slug)
 	if slug == "" { return BlogSeries{}, ErrBlogNotFound }
-	query := blogSeriesSelect+` WHERE s.slug=$1 AND s.deleted_at=0 AND s.status IN ('active','complete')`
+	query := blogSeriesSelect+` WHERE s.slug=$1 AND `+publicBlogSeriesPredicate
 	series, err := scanBlogSeries(s.DB.QueryRow(ctx, query, slug))
 	if err == nil { return series, nil }
 	if !errors.Is(err, pgx.ErrNoRows) { return BlogSeries{}, err }
-	redirectQuery := blogSeriesSelect+` JOIN codelocal_blog_series_slug_redirects r ON r.series_id=s.series_id WHERE r.old_slug=$1 AND s.deleted_at=0 AND s.status IN ('active','complete')`
+	redirectQuery := blogSeriesSelect+` JOIN codelocal_blog_series_slug_redirects r ON r.series_id=s.series_id WHERE r.old_slug=$1 AND `+publicBlogSeriesPredicate
 	series, err = scanBlogSeries(s.DB.QueryRow(ctx, redirectQuery, slug))
 	if errors.Is(err, pgx.ErrNoRows) { return BlogSeries{}, ErrBlogNotFound }
 	return series, err
@@ -91,7 +103,7 @@ func (s *Store) ListAllBlogSeries(ctx context.Context, limit int) ([]BlogSeries,
 }
 
 func (s *Store) ListPublicBlogSeries(ctx context.Context, limit int) ([]BlogSeries, error) {
-	rows, err := s.DB.Query(ctx, blogSeriesSelect+` WHERE s.deleted_at=0 AND s.status IN ('active','complete') AND EXISTS(SELECT 1 FROM codelocal_blog_posts p WHERE p.series_id=s.series_id AND p.deleted_at=0 AND p.status='published' AND p.visibility='public' AND p.moderation_status='clean') ORDER BY s.updated_at DESC LIMIT $1`, blogListLimit(limit))
+	rows, err := s.DB.Query(ctx, blogSeriesSelect+` WHERE `+publicBlogSeriesPredicate+` ORDER BY s.updated_at DESC LIMIT $1`, blogListLimit(limit))
 	if err != nil { return nil, err }
 	return scanBlogSeriesRows(rows)
 }
