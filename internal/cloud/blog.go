@@ -14,6 +14,17 @@ var (
 	ErrBlogInvalid      = errors.New("invalid blog post")
 )
 
+var reservedOfficialBlogPostSlugs = map[string]struct{}{
+	"why-local-execution-matters-for-ai-coding-agents":            {},
+	"connect-ai-clients-without-giving-up-workspace-control":     {},
+	"project-brain-durable-context-for-coding-agents":            {},
+	"a-practical-security-model-for-local-coding-agents":         {},
+}
+
+var reservedOfficialBlogSeriesSlugs = map[string]struct{}{
+	"local-agent-foundations": {},
+}
+
 type BlogPost struct {
 	ID               string          `json:"id"`
 	Slug             string          `json:"slug"`
@@ -82,6 +93,16 @@ func NormalizeBlogSlug(value string) string {
 		}
 	}
 	return strings.Trim(out.String(), "-")
+}
+
+func isReservedOfficialBlogPostSlug(value string) bool {
+	_, reserved := reservedOfficialBlogPostSlugs[NormalizeBlogSlug(value)]
+	return reserved
+}
+
+func isReservedOfficialBlogSeriesSlug(value string) bool {
+	_, reserved := reservedOfficialBlogSeriesSlugs[NormalizeBlogSlug(value)]
+	return reserved
 }
 
 func normalizeBlogTags(values []string) []string {
@@ -154,6 +175,9 @@ func normalizeBlogDraft(input BlogPostDraft) (BlogPostDraft, error) {
 	input.Slug = NormalizeBlogSlug(input.Slug)
 	if input.Slug == "" {
 		input.Slug = NormalizeBlogSlug(input.Title)
+	}
+	if isReservedOfficialBlogPostSlug(input.Slug) {
+		return BlogPostDraft{}, ErrBlogSlugConflict
 	}
 	content, err := normalizeBlogContent(input.Content)
 	if err != nil {
