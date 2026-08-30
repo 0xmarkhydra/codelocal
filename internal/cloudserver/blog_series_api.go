@@ -24,6 +24,37 @@ type blogSeriesUpdateRequest struct {
 	Status       *string `json:"status"`
 }
 
+type blogPublicSeriesDTO struct {
+	ID           string `json:"id"`
+	Slug         string `json:"slug"`
+	AuthorUserID string `json:"authorUserId"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	CoverAssetID string `json:"coverAssetId,omitempty"`
+	Status       string `json:"status"`
+	PostCount    int    `json:"postCount"`
+	Official     bool   `json:"official"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+}
+
+func blogPublicSeries(series cloud.BlogSeries) blogPublicSeriesDTO {
+	return blogPublicSeriesDTO{
+		ID: series.ID, Slug: series.Slug, AuthorUserID: series.AuthorUserID,
+		Title: series.Title, Description: series.Description, CoverAssetID: series.CoverAssetID,
+		Status: series.Status, PostCount: series.PostCount, Official: cloud.IsAdminEmail(series.AuthorEmail),
+		CreatedAt: series.CreatedAt, UpdatedAt: series.UpdatedAt,
+	}
+}
+
+func blogPublicSeriesList(series []cloud.BlogSeries) []blogPublicSeriesDTO {
+	out := make([]blogPublicSeriesDTO, 0, len(series))
+	for _, item := range series {
+		out = append(out, blogPublicSeries(item))
+	}
+	return out
+}
+
 func writeBlogSeriesAPIError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, cloud.ErrBlogNotFound):
@@ -108,7 +139,7 @@ func (s *Server) blogSeriesDeleteAPI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) publicBlogSeriesListAPI(w http.ResponseWriter, r *http.Request) {
 	series, err := s.Store.ListPublicBlogSeries(r.Context(), 100)
 	if err != nil { writeBlogSeriesAPIError(w, err); return }
-	webutil.JSON(w, http.StatusOK, map[string]any{"series":series})
+	webutil.JSON(w, http.StatusOK, map[string]any{"series":blogPublicSeriesList(series)})
 }
 
 func (s *Server) publicBlogSeriesAPI(w http.ResponseWriter, r *http.Request) {
@@ -117,5 +148,5 @@ func (s *Server) publicBlogSeriesAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil { writeBlogSeriesAPIError(w, err); return }
 	posts, err := s.Store.ListPublicBlogPostsBySeries(r.Context(), series.ID, 200)
 	if err != nil { writeBlogSeriesAPIError(w, err); return }
-	webutil.JSON(w, http.StatusOK, map[string]any{"series":series,"posts":blogPostSummaries(posts),"redirected":requested!=series.Slug})
+	webutil.JSON(w, http.StatusOK, map[string]any{"series":blogPublicSeries(series),"posts":blogPostSummaries(posts),"redirected":requested!=series.Slug})
 }
