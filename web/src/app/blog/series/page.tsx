@@ -20,7 +20,7 @@ export default function SeriesIndexPage() {
             <span className={styles.sectionLabel}>Collections</span>
             <h2 id="all-series">All series</h2>
           </div>
-          <p>{blogSeries.length} {blogSeries.length === 1 ? "series" : "series"}</p>
+          <p>{blogSeries.length} series</p>
         </div>
         <div className={styles.seriesGrid}>
           {blogSeries.map((series) => <SeriesCard key={series.slug} series={series} />)}
