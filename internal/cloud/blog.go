@@ -148,6 +148,9 @@ func normalizeBlogDraft(input BlogPostDraft) (BlogPostDraft, error) {
 	input.Category = strings.TrimSpace(input.Category)
 	input.CoverAssetID = strings.TrimSpace(input.CoverAssetID)
 	input.SeriesID = strings.TrimSpace(input.SeriesID)
+	if input.SeriesID == "" {
+		input.SeriesPart = 0
+	}
 	input.Slug = NormalizeBlogSlug(input.Slug)
 	if input.Slug == "" {
 		input.Slug = NormalizeBlogSlug(input.Title)
@@ -162,7 +165,7 @@ func normalizeBlogDraft(input BlogPostDraft) (BlogPostDraft, error) {
 	if input.AuthorUserID == "" || input.Title == "" || input.Slug == "" || len(input.Title) > 200 || len(input.Slug) > 180 || len(input.Excerpt) > 700 || len(input.Category) > 80 || len(input.CoverAssetID) > 220 {
 		return BlogPostDraft{}, ErrBlogInvalid
 	}
-	if (input.SeriesID == "") != (input.SeriesPart == 0) || input.SeriesPart < 0 {
+	if input.SeriesID != "" && input.SeriesPart <= 0 {
 		return BlogPostDraft{}, ErrBlogInvalid
 	}
 	return input, nil
