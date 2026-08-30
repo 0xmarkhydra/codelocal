@@ -63,6 +63,8 @@ export type BlogSeriesCollectionResource = {
 
 export type PublicBlogSeriesCollectionResource = {
   series: BlogSeries[];
+  hasMore?: boolean;
+  nextOffset?: number;
 };
 
 export type BlogSeriesResource = {
@@ -143,7 +145,10 @@ export function isBlogSeriesCollectionResource(value: unknown): value is BlogSer
 }
 
 export function isPublicBlogSeriesCollectionResource(value: unknown): value is PublicBlogSeriesCollectionResource {
-  return isRecord(value) && Array.isArray(value.series) && value.series.every(isBlogSeries);
+  if (!isRecord(value) || !Array.isArray(value.series) || !value.series.every(isBlogSeries)) return false;
+  if (value.hasMore !== undefined && typeof value.hasMore !== "boolean") return false;
+  if (value.nextOffset !== undefined && !isNonNegativeNumber(value.nextOffset)) return false;
+  return true;
 }
 
 export function isBlogSeriesResource(value: unknown): value is BlogSeriesResource {
