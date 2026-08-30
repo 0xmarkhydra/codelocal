@@ -45,3 +45,22 @@ func TestNormalizeBlogDraftRejectsInvalidContentAndSeriesPair(t *testing.T) {
 		t.Fatalf("invalid series pair error=%v", err)
 	}
 }
+
+func TestOfficialSeedSlugsAreReservedFromDurableWrites(t *testing.T) {
+	for _, slug := range []string{
+		"why-local-execution-matters-for-ai-coding-agents",
+		"connect-ai-clients-without-giving-up-workspace-control",
+		"project-brain-durable-context-for-coding-agents",
+		"a-practical-security-model-for-local-coding-agents",
+	} {
+		_, err := normalizeBlogDraft(BlogPostDraft{AuthorUserID: "user-1", Slug: slug, Title: "Community post"})
+		if !errors.Is(err, ErrBlogSlugConflict) {
+			t.Fatalf("reserved post slug %q error=%v", slug, err)
+		}
+	}
+
+	_, err := normalizeBlogSeriesDraft(BlogSeriesDraft{AuthorUserID: "user-1", Slug: "local-agent-foundations", Title: "Community series"})
+	if !errors.Is(err, ErrBlogSlugConflict) {
+		t.Fatalf("reserved series slug error=%v", err)
+	}
+}
