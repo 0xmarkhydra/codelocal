@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"net/netip"
+	"strings"
 	"testing"
 
 	skillintel "github.com/0xmarkhydra/codelocal/internal/skills"
@@ -95,7 +96,7 @@ func TestGitHubArchiveSubpathKeepsKnowledgeOnly(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	documents, err := sourceDocumentsFromZIPBytes(buffer.Bytes(), "skills/react")
+	documents, err := sourceDocumentsFromZIP(buffer.Bytes(), "skills/react", true)
 	if err != nil {
 		t.Fatalf("extract source archive: %v", err)
 	}
@@ -130,5 +131,26 @@ func TestSkillSourceURLSecurity(t *testing.T) {
 	}
 	if !publicSkillSourceIP(netip.MustParseAddr("1.1.1.1")) {
 		t.Fatal("public address unexpectedly rejected")
+	}
+}
+
+func TestHTMLKnowledgeTextDropsExecutableMarkup(t *testing.T) {
+	text := htmlKnowledgeText([]byte(`<html><style>.x{display:none}</style><body><h1>Guide</h1><script>alert(1)</script><p>Use &amp; verify.</p></body></html>`))
+	if strings.Contains(text, "alert") || strings.Contains(text, "display:none") {
+		t.Fatalf("script/style leaked into knowledge: %q", text)
+	}
+	if !strings.Contains(text, "Guide") || !strings.Contains(text, "Use & verify.") {
+		t.Fatalf("visible HTML text missing: %q", text)
+	}
+}
+
+func TestSkillHTTPClientDoesNotUseEnvironmentProxy(t *testing.T) {
+	client := safeSkillHTTPClient()
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("unexpected transport type %T", client.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Fatal("Skill source transport must not delegate requests through environment proxy")
 	}
 }
