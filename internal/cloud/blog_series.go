@@ -42,6 +42,9 @@ func normalizeBlogSeriesDraft(input BlogSeriesDraft) (BlogSeriesDraft, error) {
 	if input.Slug == "" {
 		input.Slug = NormalizeBlogSlug(input.Title)
 	}
+	if isReservedOfficialBlogSeriesSlug(input.Slug) {
+		return BlogSeriesDraft{}, ErrBlogSlugConflict
+	}
 	if input.AuthorUserID == "" || input.Title == "" || input.Slug == "" || len(input.Title) > 200 || len(input.Slug) > 180 || len(input.Description) > 2000 || len(input.CoverAssetID) > 80 {
 		return BlogSeriesDraft{}, ErrBlogInvalid
 	}
