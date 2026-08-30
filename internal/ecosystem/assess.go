@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+	"time"
 )
 
 func clamp(value float64) float64 {
@@ -46,7 +47,7 @@ func candidateFingerprint(candidate Candidate) string {
 	candidate = normalizeCandidate(candidate)
 	// DiscoveredAt is intentionally excluded: provenance should remain stable
 	// when the exact pinned source and analyst assessment are unchanged.
-	candidate.Source.DiscoveredAt = candidate.Source.DiscoveredAt.UTC()
+	candidate.Source.DiscoveredAt = time.Time{}
 	raw, _ := json.Marshal(candidate)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
