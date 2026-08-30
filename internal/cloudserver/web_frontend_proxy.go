@@ -27,8 +27,6 @@ func newWebFrontendProxyFromEnv() (http.Handler, error) {
 	baseDirector := proxy.Director
 	proxy.Director = func(request *http.Request) {
 		baseDirector(request)
-		// Go authenticates dashboard requests before this hop. The presentation
-		// service does not need browser session secrets or client-IP signals.
 		request.Header.Del("Authorization")
 		request.Header.Del("Cookie")
 		request.Header.Del("X-Real-IP")
@@ -86,10 +84,6 @@ var nextFreshSecurityPaths = map[string]struct{}{
 	"/pair/approve": {},
 }
 
-// canonicalNextPresentationPath accepts the common single trailing slash
-// variant without widening the presentation surface to arbitrary nested paths.
-// Keeping normalization centralized is also important for the admin guard: the
-// routing decision and authorization decision must always inspect the same path.
 func canonicalNextPresentationPath(path string) string {
 	if len(path) > 1 && strings.HasSuffix(path, "/") && !strings.HasSuffix(path, "//") {
 		return strings.TrimSuffix(path, "/")
@@ -113,7 +107,7 @@ func isNextDashboardPath(path string) bool {
 
 func isNextPublicPagePath(path string) bool {
 	path = canonicalNextPresentationPath(path)
-	if isPathFamily(path, "/blogs") {
+	if isPathFamily(path, "/blogs") || isPathFamily(path, "/users") {
 		return true
 	}
 	_, ok := nextPublicPagePaths[path]
