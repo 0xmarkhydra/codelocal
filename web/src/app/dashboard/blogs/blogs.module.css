@@ -12,9 +12,9 @@
   gap: 16px;
   align-items: center;
   padding: 22px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
   border-radius: 22px;
-  background: var(--surface-elevated);
+  background: var(--surface-raised);
 }
 
 .heroIcon {
@@ -23,7 +23,7 @@
   width: 42px;
   height: 42px;
   border-radius: 14px;
-  background: var(--surface-muted);
+  background: var(--surface);
 }
 
 .heroCopy {
@@ -58,9 +58,9 @@
 
 .primaryAction {
   padding: 10px 14px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface-muted);
+  background: var(--surface);
   font-weight: 650;
 }
 
@@ -74,9 +74,9 @@
   display: grid;
   gap: 4px;
   padding: 18px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
   border-radius: 18px;
-  background: var(--surface-elevated);
+  background: var(--surface-raised);
 }
 
 .stats strong {
@@ -109,9 +109,9 @@
 .postList {
   display: grid;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--line);
   border-radius: 20px;
-  background: var(--surface-elevated);
+  background: var(--surface-raised);
 }
 
 .postRow {
@@ -124,7 +124,7 @@
 }
 
 .postRow + .postRow {
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--line);
 }
 
 .postRow > div {
