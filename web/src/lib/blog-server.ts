@@ -154,6 +154,21 @@ function mergeBySlug<T extends { slug: string }>(seed: T[], durable: T[]) {
   return [...merged.values()];
 }
 
+async function publicPostsCollection(): Promise<DurablePostSummary[] | undefined> {
+  const posts: DurablePostSummary[] = [];
+  let offset = 0;
+  const limit = 200;
+
+  for (;;) {
+    const body = await backendJSON(`/api/v1/blog/public?limit=${limit}&offset=${offset}`);
+    if (!isPublicBlogPostsResource(body)) return undefined;
+    posts.push(...body.posts);
+    if (!body.hasMore) return posts;
+    if (typeof body.nextOffset !== "number" || body.nextOffset <= offset) return undefined;
+    offset = body.nextOffset;
+  }
+}
+
 async function publicSeriesCollection(): Promise<DurableSeries[]> {
   const body = await backendJSON("/api/v1/blog/public/series");
   return isPublicBlogSeriesCollectionResource(body) ? body.series : [];
@@ -192,13 +207,13 @@ export async function getBlogPostForRender(slug: string) {
 }
 
 export async function getBlogPostsForRender() {
-  const [postsBody, durableSeries] = await Promise.all([
-    backendJSON("/api/v1/blog/public"),
+  const [durablePostSummaries, durableSeries] = await Promise.all([
+    publicPostsCollection(),
     publicSeriesCollection(),
   ]);
-  if (!isPublicBlogPostsResource(postsBody)) return seedPosts;
+  if (!durablePostSummaries) return seedPosts;
   const lookup = seriesByID(durableSeries);
-  const durablePosts = postsBody.posts.map((post) => durableSummaryToRender(post, lookup));
+  const durablePosts = durablePostSummaries.map((post) => durableSummaryToRender(post, lookup));
   return mergeBySlug(seedPosts, durablePosts).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
 }
 
