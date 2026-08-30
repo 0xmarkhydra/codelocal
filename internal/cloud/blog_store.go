@@ -238,7 +238,7 @@ func (s *Store) ListPublicBlogPosts(ctx context.Context, limit int) ([]BlogPost,
 }
 
 func (s *Store) ListPublicBlogPostsPage(ctx context.Context, limit, offset int) ([]BlogPost, error) {
-	rows, err := s.DB.Query(ctx, blogPostSelect+` WHERE p.deleted_at=0 AND p.status='published' AND p.visibility='public' AND p.moderation_status='clean' ORDER BY p.published_at DESC,p.updated_at DESC LIMIT $1 OFFSET $2`, publicBlogPageLimit(limit), blogListOffset(offset))
+	rows, err := s.DB.Query(ctx, blogPostSelect+` WHERE p.deleted_at=0 AND p.status='published' AND p.visibility='public' AND p.moderation_status='clean' ORDER BY p.published_at DESC,p.updated_at DESC,p.post_id DESC LIMIT $1 OFFSET $2`, publicBlogPageLimit(limit), blogListOffset(offset))
 	if err != nil {
 		return nil, err
 	}
