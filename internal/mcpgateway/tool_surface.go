@@ -19,16 +19,17 @@ import (
 const (
 	PublicToolSurfaceVersion = 3
 
-	// PublicMCPImplementationVersion is part of the MCP server identity seen by
-	// AI hosts. It must advance whenever the public tool catalog generation
-	// changes so hosts invalidate cached tools/list results and discover newly
-	// published tools such as Blog without depending on a local workspace.
-	PublicMCPImplementationVersion = "1.5.17"
+	// Version 1.5.16 was the generation-2 MCP identity. Keep the same release
+	// line and derive the patch from the surface generation so every future
+	// public catalog generation automatically changes the server identity seen
+	// by AI hosts. This invalidates cached tools/list catalogs without requiring
+	// developers to remember a second manual version bump.
+	publicMCPImplementationVersionBasePatch = 14
 
-	PinnedLegacyPublicToolSurfaceVersion      = 2
+	PinnedLegacyPublicToolSurfaceVersion       = 2
 	PinnedLegacyPublicMCPImplementationVersion = "1.5.16"
-	PinnedLegacyPublicToolSurfaceHash          = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
-	PinnedLegacyPublicToolContractHash         = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
+	PinnedLegacyPublicToolSurfaceHash           = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
+	PinnedLegacyPublicToolContractHash          = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
 
 	// Backward source-compatibility aliases. Generation-3 tests intentionally
 	// use the Legacy names so future readers do not mistake these for the hash
@@ -36,6 +37,8 @@ const (
 	PinnedPublicToolSurfaceHash  = PinnedLegacyPublicToolSurfaceHash
 	PinnedPublicToolContractHash = PinnedLegacyPublicToolContractHash
 )
+
+var PublicMCPImplementationVersion = fmt.Sprintf("1.5.%d", publicMCPImplementationVersionBasePatch+PublicToolSurfaceVersion)
 
 type ToolSurfaceInfo struct {
 	Version int    `json:"version"`
