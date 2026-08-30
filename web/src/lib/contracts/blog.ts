@@ -47,6 +47,8 @@ export type BlogPostsResource = {
 
 export type PublicBlogPostsResource = {
   posts: BlogPostSummary[];
+  hasMore?: boolean;
+  nextOffset?: number;
 };
 
 export type BlogPostResource = {
@@ -123,7 +125,10 @@ export function isBlogPostsResource(value: unknown): value is BlogPostsResource 
 }
 
 export function isPublicBlogPostsResource(value: unknown): value is PublicBlogPostsResource {
-  return isRecord(value) && Array.isArray(value.posts) && value.posts.every(isBlogPostSummary);
+  if (!isRecord(value) || !Array.isArray(value.posts) || !value.posts.every(isBlogPostSummary)) return false;
+  if (value.hasMore !== undefined && typeof value.hasMore !== "boolean") return false;
+  if (value.nextOffset !== undefined && !isNonNegativeNumber(value.nextOffset)) return false;
+  return true;
 }
 
 export function isBlogPostResource(value: unknown): value is BlogPostResource {
