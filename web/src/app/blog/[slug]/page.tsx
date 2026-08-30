@@ -6,11 +6,11 @@ import styles from "../blog.module.css";
 import {
   blogPosts,
   formatBlogDate,
-  getPostBySlug,
   getRelatedPosts,
   getSeriesBySlug,
   getSeriesPosts,
 } from "@/lib/blog";
+import { getBlogPostForRender } from "@/lib/blog-server";
 
 type ArticleProps = { params: Promise<{ slug: string }> };
 
@@ -20,7 +20,7 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: ArticleProps): Promise<Metadata> {
   const { slug } = await params;
-  const post = getPostBySlug(slug);
+  const post = await getBlogPostForRender(slug);
   if (!post) return { title: "Article not found" };
 
   return {
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: ArticleProps): Promise<Metada
 
 export default async function ArticlePage({ params }: ArticleProps) {
   const { slug } = await params;
-  const post = getPostBySlug(slug);
+  const post = await getBlogPostForRender(slug);
   if (!post) notFound();
 
   const series = post.series ? getSeriesBySlug(post.series.slug) : undefined;
@@ -55,7 +55,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
     description: post.excerpt,
     datePublished: post.publishedAt,
     dateModified: post.updatedAt ?? post.publishedAt,
-    author: { "@type": "Organization", name: post.author.name },
+    author: { "@type": "Person", name: post.author.name },
     publisher: { "@type": "Organization", name: "CodeLocal" },
     mainEntityOfPage: `https://codelocal.cloud/blog/${post.slug}`,
     keywords: post.tags.join(", "),
