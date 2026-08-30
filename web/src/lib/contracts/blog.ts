@@ -74,6 +74,8 @@ export type BlogSeriesResource = {
 export type PublicBlogSeriesResource = BlogSeriesResource & {
   posts: BlogPostSummary[];
   redirected: boolean;
+  hasMore?: boolean;
+  nextOffset?: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -156,8 +158,11 @@ export function isBlogSeriesResource(value: unknown): value is BlogSeriesResourc
 }
 
 export function isPublicBlogSeriesResource(value: unknown): value is PublicBlogSeriesResource {
-  return (
-    isRecord(value) && isBlogSeries(value.series) && Array.isArray(value.posts) &&
-    value.posts.every(isBlogPostSummary) && typeof value.redirected === "boolean"
-  );
+  if (
+    !isRecord(value) || !isBlogSeries(value.series) || !Array.isArray(value.posts) ||
+    !value.posts.every(isBlogPostSummary) || typeof value.redirected !== "boolean"
+  ) return false;
+  if (value.hasMore !== undefined && typeof value.hasMore !== "boolean") return false;
+  if (value.nextOffset !== undefined && !isNonNegativeNumber(value.nextOffset)) return false;
+  return true;
 }
