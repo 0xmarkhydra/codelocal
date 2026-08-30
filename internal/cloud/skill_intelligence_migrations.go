@@ -103,6 +103,17 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_skill_ratings_skill
  ON codelocal_skill_ratings(skill_id, updated_at DESC);
 `
 
+const skillPackageFallbackMigrationSQL = `
+CREATE TABLE IF NOT EXISTS codelocal_skill_packages (
+  package_hash TEXT PRIMARY KEY,
+  payload BYTEA NOT NULL,
+  size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_codelocal_skill_packages_created
+ ON codelocal_skill_packages(created_at DESC);
+`
+
 // skillIntelligenceSchemaMigrations is intentionally forward-only. Existing
 // schema versions are immutable because Cloud/Desktop binaries can overlap
 // during rolling releases.
@@ -114,5 +125,6 @@ func skillIntelligenceSchemaMigrations() []schemaMigration {
 		{51, skillUserStateMigrationSQL},
 		{52, skillEvaluationMigrationSQL},
 		{53, skillRatingMigrationSQL},
+		{54, skillPackageFallbackMigrationSQL},
 	}
 }

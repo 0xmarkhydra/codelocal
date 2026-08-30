@@ -1,8 +1,9 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppIcon } from "../app-icon";
 import styles from "./skills.module.css";
+import smart from "./skills-smart-add.module.css";
 
 type SkillView = "for-you" | "explore" | "mine" | "built-in";
 type SkillMode = "auto" | "prefer" | "disabled";
@@ -53,15 +54,17 @@ type AdminSkillItem = {
 };
 
 type AdminResource = { items?: AdminSkillItem[] };
-
+type SourceDocument = { path: string; content: string };
 type Notice = { kind: "success" | "error"; text: string } | null;
 
 const views: Array<{ id: SkillView; label: string }> = [
   { id: "for-you", label: "For You" },
-  { id: "explore", label: "Explore" },
   { id: "mine", label: "My Skills" },
+  { id: "explore", label: "Explore" },
   { id: "built-in", label: "Built-in" },
 ];
+
+const knowledgeFilePattern = /\.(md|txt|json|ya?ml|csv)$/i;
 
 function scopeLabel(scope: string) {
   switch (scope) {
@@ -87,6 +90,15 @@ function isRoutableState(skill: SkillItem) {
   return skill.state === "active" || skill.state === "promoted";
 }
 
+function looksLikeSkillPackage(payload: unknown) {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as Record<string, unknown>;
+  return typeof candidate.formatVersion === "number"
+    && typeof candidate.manifest === "object"
+    && typeof candidate.artifact === "object"
+    && typeof candidate.packageHash === "string";
+}
+
 async function responseError(response: Response) {
   try {
     const payload = await response.json() as { detail?: string; error?: string };
@@ -94,6 +106,19 @@ async function responseError(response: Response) {
   } catch {
     return `Request failed (${response.status})`;
   }
+}
+
+async function fileToBase64(file: File) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      const marker = result.indexOf(",");
+      resolve(marker >= 0 ? result.slice(marker + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function SkillCard({
@@ -270,10 +295,18 @@ export function SkillsHub() {
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
-  const personalInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
   const communityInput = useRef<HTMLInputElement>(null);
   const adminInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    folderInput.current?.setAttribute("webkitdirectory", "");
+    folderInput.current?.setAttribute("directory", "");
+  }, []);
 
   const load = useCallback(async () => {
     const [skillsResponse, accountResponse] = await Promise.all([
@@ -334,8 +367,10 @@ export function SkillsHub() {
       await work();
       await refresh();
       setNotice({ kind: "success", text: success });
+      return true;
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Skill operation failed." });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -351,6 +386,88 @@ export function SkillsHub() {
       await mutation(endpoint, "POST", payload);
     }, success);
   }, [mutation, withMutation]);
+
+  const ingestPayload = useCallback(async (payload: Record<string, unknown>, success: string) => {
+    const completed = await withMutation(async () => {
+      await mutation("/api/v1/skills/ingest", "POST", payload);
+    }, success);
+    if (completed) setView("mine");
+    return completed;
+  }, [mutation, withMutation]);
+
+  const submitDraft = useCallback(async () => {
+    const value = draft.trim();
+    if (!value) return;
+    const payload = /^https?:\/\//i.test(value) ? { sourceUrl: value } : { text: value };
+    if (await ingestPayload(payload, "Personal Skill added and ready for Auto routing.")) {
+      setDraft("");
+    }
+  }, [draft, ingestPayload]);
+
+  const ingestFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    if (files.length === 1) {
+      const file = files[0];
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith(".zip")) {
+        await ingestPayload({ archiveBase64: await fileToBase64(file), name: file.name.replace(/\.zip$/i, "") }, `${file.name} added as a Personal Skill.`);
+        return;
+      }
+      if (lower.endsWith(".skill.json")) {
+        let payload: unknown;
+        try { payload = JSON.parse(await file.text()); } catch { throw new Error(`${file.name} is not valid JSON.`); }
+        await ingestPayload({ package: payload }, `${file.name} imported as a Personal Skill.`);
+        return;
+      }
+      if (lower.endsWith(".json")) {
+        try {
+          const payload = JSON.parse(await file.text()) as unknown;
+          if (looksLikeSkillPackage(payload)) {
+            await ingestPayload({ package: payload }, `${file.name} imported as a Personal Skill.`);
+            return;
+          }
+        } catch {
+          // A regular JSON knowledge document is handled below and validated by the server.
+        }
+      }
+    }
+
+    const documents: SourceDocument[] = [];
+    const unsupported: string[] = [];
+    for (const file of files) {
+      const relativePath = file.webkitRelativePath || file.name;
+      if (!knowledgeFilePattern.test(relativePath)) {
+        unsupported.push(relativePath);
+        continue;
+      }
+      documents.push({ path: relativePath, content: await file.text() });
+    }
+    if (documents.length === 0) {
+      throw new Error(unsupported.length ? "No supported knowledge files found. Use Markdown, text, JSON, YAML, CSV, ZIP, or .skill.json." : "No files selected.");
+    }
+    const suffix = unsupported.length ? ` (${unsupported.length} unsupported file${unsupported.length === 1 ? "" : "s"} ignored)` : "";
+    await ingestPayload({ documents }, `${documents.length} knowledge file${documents.length === 1 ? "" : "s"} added${suffix}.`);
+  }, [ingestPayload]);
+
+  const handleFileInput = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    try {
+      await ingestFiles(files);
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not read selected files." });
+    }
+  }, [ingestFiles]);
+
+  const handleDrop = useCallback(async (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    try {
+      await ingestFiles(Array.from(event.dataTransfer.files ?? []));
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not read dropped files." });
+    }
+  }, [ingestFiles]);
 
   const mutateState = useCallback(async (skill: SkillItem, mode: SkillMode, pinnedVersion = "") => {
     await withMutation(
@@ -384,9 +501,9 @@ export function SkillsHub() {
   }, [resource.items, view]);
 
   const emptyCopy = view === "explore"
-    ? { title: "No Community Skills yet", copy: "Published candidates and promoted Community Skills will appear here. Candidates are never auto-routed before evaluation and promotion." }
+    ? { title: "No Community Skills yet", copy: "Promoted Community Skills will appear here. Publishing remains a reviewed lifecycle, separate from quick Personal Skill creation." }
     : view === "mine"
-      ? { title: "No Personal Skills yet", copy: "Import a private .skill.json package. It stays scoped to your account and can be reused across projects." }
+      ? { title: "No Personal Skills yet", copy: "Paste a link or text above, or drop Markdown, JSON, YAML, CSV, ZIP, a folder, or an existing .skill.json package." }
       : { title: "No Skills available yet", copy: "CodeLocal will surface reusable expertise here when the authoritative catalog contains a match." };
 
   return (
@@ -403,16 +520,46 @@ export function SkillsHub() {
         </div>
       </header>
 
-      <div className={styles.toolbar}>
-        <div>
-          <button className={styles.primaryButton} disabled={busy || !resource.storageConfigured} onClick={() => personalInput.current?.click()} type="button">Import Personal</button>
-          <button disabled={busy || !resource.storageConfigured} onClick={() => communityInput.current?.click()} type="button">Publish Community</button>
+      <section
+        className={smart.smartAdd}
+        data-dragging={dragging || undefined}
+        onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
+        onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+        onDrop={(event) => void handleDrop(event)}
+      >
+        <div className={smart.inputRow}>
+          <textarea
+            aria-label="Add a Skill from a link or text"
+            className={smart.smartInput}
+            disabled={busy || !resource.storageConfigured}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void submitDraft();
+            }}
+            placeholder="Paste a GitHub/docs link, paste instructions, or describe knowledge you want CodeLocal to reuse…"
+            value={draft}
+          />
+          <button className={smart.addButton} disabled={busy || !resource.storageConfigured || !draft.trim()} onClick={() => void submitDraft()} type="button">
+            {busy ? "Adding…" : "Add Skill"}
+          </button>
         </div>
-        <span>{resource.storageConfigured ? "Cloud Skill storage ready" : "Cloud Skill storage is not configured"}</span>
-        <input accept=".json,.skill.json,application/json" hidden onChange={(event) => void uploadPackage(event, "/api/v1/skills/import", "Personal Skill imported.")} ref={personalInput} type="file" />
+        <div className={smart.actions}>
+          <div className={smart.shortcuts}>
+            <button className={smart.shortcut} disabled={busy || !resource.storageConfigured} onClick={() => fileInput.current?.click()} type="button">Files / ZIP</button>
+            <button className={smart.shortcut} disabled={busy || !resource.storageConfigured} onClick={() => folderInput.current?.click()} type="button">Folder</button>
+          </div>
+          <div className={smart.secondaryActions}>
+            <button className={smart.secondaryAction} disabled={busy || !resource.storageConfigured} onClick={() => communityInput.current?.click()} type="button">Publish package</button>
+            <span className={smart.hint}><strong>{resource.storageConfigured ? "Personal Skills ready" : "Skill storage unavailable"}</strong></span>
+          </div>
+        </div>
+        <p className={smart.hint}>Drop anything here. CodeLocal keeps quick imports <strong>Personal + Knowledge + Auto</strong>; source code is read as bounded knowledge only and is never executed during ingestion.</p>
+        <input accept=".md,.txt,.json,.yaml,.yml,.csv,.zip,.skill.json,application/json,application/zip" hidden multiple onChange={(event) => void handleFileInput(event)} ref={fileInput} type="file" />
+        <input hidden multiple onChange={(event) => void handleFileInput(event)} ref={folderInput} type="file" />
         <input accept=".json,.skill.json,application/json" hidden onChange={(event) => void uploadPackage(event, "/api/v1/skills/publish", "Community Skill submitted for review.")} ref={communityInput} type="file" />
         <input accept=".json,.skill.json,application/json" hidden onChange={(event) => void uploadPackage(event, "/api/v1/admin/skills/import", "Admin Skill candidate imported.")} ref={adminInput} type="file" />
-      </div>
+      </section>
 
       {account?.requiresReauthentication && <div className={styles.noticeError}>Sensitive Skill imports require a fresh sign-in session.</div>}
       {notice && <div className={notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}>{notice.text}</div>}
@@ -426,7 +573,7 @@ export function SkillsHub() {
       <div className={styles.content}>
         <div className={styles.sectionIntro}>
           <h2>{view === "for-you" ? "Ready when relevant" : view === "built-in" ? "Built-in intelligence" : view === "explore" ? "Community market" : "Your reusable skills"}</h2>
-          <p>{view === "for-you" ? "No install step. Eligible Skills are selected directly from chat." : "Manage visibility and preference without mixing project-specific knowledge into Project Brain."}</p>
+          <p>{view === "for-you" ? "No install ritual. Eligible Skills are selected directly from chat." : view === "mine" ? "Personal Skills follow your account across projects; project-specific facts still belong to Project Brain." : "Manage reusable expertise without weakening the existing Skill lifecycle and security gates."}</p>
         </div>
         {loading && <EmptyView title="Loading Skills" copy="Reading your current CodeLocal Skill catalog…" />}
         {!loading && loadFailed && <EmptyView title="Skills unavailable" copy="The Skill API could not be loaded. Chat continues with safe built-in fallback knowledge." />}

@@ -32,8 +32,10 @@ func skillJSONCSRF(next http.Handler) http.Handler {
 func (s *Server) registerSkillRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/skills", s.skillsManagementResourceAPI)
 	personalImport := skillJSONCSRF(http.HandlerFunc(s.skillImportPersonalAPI))
+	personalIngest := skillJSONCSRF(http.HandlerFunc(s.skillIngestAPI))
 	communityPublish := skillJSONCSRF(http.HandlerFunc(s.skillPublishCommunityAPI))
 	mux.Handle("POST /api/v1/skills/import", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "skill-personal-import-ip", Limit: 20, Window: 10 * time.Minute}, personalImport))
+	mux.Handle("POST /api/v1/skills/ingest", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "skill-personal-ingest-ip", Limit: 30, Window: 10 * time.Minute}, personalIngest))
 	mux.Handle("POST /api/v1/skills/publish", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "skill-community-publish-ip", Limit: 10, Window: 10 * time.Minute}, communityPublish))
 	mux.Handle("PATCH /api/v1/skills/{skillID}/state", skillJSONCSRF(http.HandlerFunc(s.skillUserStateAPI)))
 	mux.Handle("POST /api/v1/skills/{skillID}/rating", skillJSONCSRF(http.HandlerFunc(s.skillRatingAPI)))

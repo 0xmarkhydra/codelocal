@@ -27,11 +27,12 @@ func (s *cachedCloudSkillPackageStore) ObjectURI(packageHash string) (string, er
 }
 
 type cloudSkillServices struct {
-	Runtime    *cloud.SkillRuntime
-	Packages   cloud.SkillPackageObjectStore
-	Imports    *cloud.SkillImportService
-	Configured bool
-	Err        error
+	Runtime     *cloud.SkillRuntime
+	Packages    cloud.SkillPackageObjectStore
+	Imports     *cloud.SkillImportService
+	Configured  bool
+	StorageMode string
+	Err         error
 }
 
 var cloudSkillServicesByServer sync.Map
@@ -46,16 +47,18 @@ func skillServicesForServer(s *Server) *cloudSkillServices {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	durable, configured, err := cloud.SkillPackageStoreFromEnv(ctx)
-	services := &cloudSkillServices{Configured: configured, Err: err}
-	if err != nil || !configured {
+	durable, storageMode, configured, err := cloud.ResolveSkillPackageStore(ctx, s.Store)
+	services := &cloudSkillServices{Configured: configured, StorageMode: storageMode, Err: err}
+	if err != nil || !configured || durable == nil {
 		services.Runtime = cloud.NewSkillRuntime(s.Store, nil)
 		actual, _ := cloudSkillServicesByServer.LoadOrStore(s, services)
 		return actual.(*cloudSkillServices)
 	}
+
 	cache, cacheErr := skillintel.NewCachedPackageStore(durable, skillintel.DefaultPackageMemoryCacheBytes)
 	if cacheErr != nil {
 		services.Err = cacheErr
+		services.Configured = false
 		services.Runtime = cloud.NewSkillRuntime(s.Store, nil)
 		actual, _ := cloudSkillServicesByServer.LoadOrStore(s, services)
 		return actual.(*cloudSkillServices)
@@ -64,6 +67,7 @@ func skillServicesForServer(s *Server) *cloudSkillServices {
 	services.Packages = packages
 	services.Runtime = cloud.NewSkillRuntime(s.Store, packages)
 	services.Imports, services.Err = cloud.NewSkillImportService(packages, s.Store)
+	services.Configured = services.Err == nil
 	actual, _ := cloudSkillServicesByServer.LoadOrStore(s, services)
 	return actual.(*cloudSkillServices)
 }
