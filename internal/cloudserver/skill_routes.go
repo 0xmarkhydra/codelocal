@@ -46,8 +46,9 @@ func (s *Server) registerSkillRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/admin/skills/{skillID}/versions/{version}/promote", dashboardJSONCSRF(http.HandlerFunc(s.adminSkillPromoteAPI)))
 	mux.Handle("POST /api/v1/admin/skills/{skillID}/versions/{version}/rollback", dashboardJSONCSRF(http.HandlerFunc(s.adminSkillRollbackAPI)))
 
-	// server.go already has one decomposed product-route hook here. Keep Blog
-	// registration behind its own function so this can move to a neutral route
-	// registry later without changing Blog handlers or public contracts.
+	// server.go has one decomposed product-route hook here. Keep feature-owned
+	// route groups separate so they can move to a neutral registry without
+	// changing handler contracts.
 	s.registerBlogRoutes(mux)
+	s.registerMediaAssetRoutes(mux)
 }
