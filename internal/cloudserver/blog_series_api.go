@@ -137,9 +137,19 @@ func (s *Server) blogSeriesDeleteAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) publicBlogSeriesListAPI(w http.ResponseWriter, r *http.Request) {
-	series, err := s.Store.ListPublicBlogSeries(r.Context(), 100)
+	limit := publicBlogPageLimit(r.URL.Query().Get("limit"))
+	offset := publicBlogPageOffset(r.URL.Query().Get("offset"))
+	series, err := s.Store.ListPublicBlogSeriesPage(r.Context(), limit+1, offset)
 	if err != nil { writeBlogSeriesAPIError(w, err); return }
-	webutil.JSON(w, http.StatusOK, map[string]any{"series":blogPublicSeriesList(series)})
+	hasMore := len(series) > limit
+	if hasMore {
+		series = series[:limit]
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{
+		"series": blogPublicSeriesList(series),
+		"hasMore": hasMore,
+		"nextOffset": offset + len(series),
+	})
 }
 
 func (s *Server) publicBlogSeriesAPI(w http.ResponseWriter, r *http.Request) {
