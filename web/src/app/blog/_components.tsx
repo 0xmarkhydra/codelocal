@@ -105,6 +105,21 @@ export function BlogBlocks({ blocks }: { blocks: BlogBlock[] }) {
             </pre>
           );
         }
+        if (block.type === "image") {
+          return (
+            <figure className={styles.articleImage} key={key}>
+              <Image
+                src={`/api/v1/public/media/${encodeURIComponent(block.assetId)}/${block.variant ?? "large"}`}
+                alt={block.alt ?? ""}
+                width={block.width}
+                height={block.height}
+                sizes="(max-width: 860px) 100vw, 760px"
+                unoptimized
+              />
+              {block.caption && <figcaption>{block.caption}</figcaption>}
+            </figure>
+          );
+        }
         return (
           <aside className={styles.callout} key={key}>
             <strong>{block.title}</strong>
