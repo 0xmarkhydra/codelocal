@@ -13,17 +13,25 @@ import (
 )
 
 // PublicToolSurfaceVersion is the compatibility generation of the public MCP
-// contract. It is intentionally independent from the CodeLocal application
-// release version: routine backend deploys must not change the identity seen by
-// already-open ChatGPT threads.
+// contract. Generation 3 deliberately adds the cloud-native Blog tool while
+// preserving the complete generation-2 tool set byte-for-byte at its legacy
+// surface/contract boundaries.
 const (
-	PublicToolSurfaceVersion = 2
+	PublicToolSurfaceVersion = 3
 	// Freeze the MCP-facing implementation identity at the value already
-	// advertised by the current production gateway. Application releases may
-	// advance independently without invalidating an existing AI-client binding.
+	// advertised by the production gateway. Application releases may advance
+	// independently without invalidating an existing AI-client binding.
 	PublicMCPImplementationVersion = "1.5.16"
-	PinnedPublicToolSurfaceHash    = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
-	PinnedPublicToolContractHash   = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
+
+	PinnedLegacyPublicToolSurfaceVersion = 2
+	PinnedLegacyPublicToolSurfaceHash    = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
+	PinnedLegacyPublicToolContractHash   = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
+
+	// Backward source-compatibility aliases. Generation-3 tests intentionally
+	// use the Legacy names so future readers do not mistake these for the hash
+	// of the 21-tool generation.
+	PinnedPublicToolSurfaceHash  = PinnedLegacyPublicToolSurfaceHash
+	PinnedPublicToolContractHash = PinnedLegacyPublicToolContractHash
 )
 
 type ToolSurfaceInfo struct {
@@ -67,37 +75,28 @@ func canonicalSchema(raw json.RawMessage) json.RawMessage {
 	return canonical
 }
 
-var (
-	toolSurfaceOnce  sync.Once
-	toolSurfaceCache ToolSurfaceInfo
-	toolNamesOnce    sync.Once
-	toolNamesCache   map[string]struct{}
-)
-
-func PublicToolSurface() ToolSurfaceInfo {
-	toolSurfaceOnce.Do(func() {
-		defs := compactToolDefinitions()
-		fingerprints := make([]toolSurfaceFingerprint, 0, len(defs))
-		for _, def := range defs {
-			annotations := def.Annotations
-			fingerprint := toolSurfaceFingerprint{Name: def.Name, Schema: canonicalSchema(def.Schema)}
-			if annotations != nil {
-				fingerprint.ReadOnly = annotations.ReadOnlyHint
-				fingerprint.Destructive = annotationFlag(annotations.DestructiveHint)
-				fingerprint.OpenWorld = annotationFlag(annotations.OpenWorldHint)
-			}
-			fingerprints = append(fingerprints, fingerprint)
+func toolSurfaceFingerprintForDefinitions(defs []compactToolDef) []toolSurfaceFingerprint {
+	fingerprints := make([]toolSurfaceFingerprint, 0, len(defs))
+	for _, def := range defs {
+		fingerprint := toolSurfaceFingerprint{Name: def.Name, Schema: canonicalSchema(def.Schema)}
+		if def.Annotations != nil {
+			fingerprint.ReadOnly = def.Annotations.ReadOnlyHint
+			fingerprint.Destructive = annotationFlag(def.Annotations.DestructiveHint)
+			fingerprint.OpenWorld = annotationFlag(def.Annotations.OpenWorldHint)
 		}
-		sort.Slice(fingerprints, func(i, j int) bool { return fingerprints[i].Name < fingerprints[j].Name })
-		raw, _ := json.Marshal(fingerprints)
-		sum := sha256.Sum256(raw)
-		toolSurfaceCache = ToolSurfaceInfo{Version: PublicToolSurfaceVersion, Hash: hex.EncodeToString(sum[:]), Count: len(fingerprints)}
-	})
-	return toolSurfaceCache
+		fingerprints = append(fingerprints, fingerprint)
+	}
+	sort.Slice(fingerprints, func(i, j int) bool { return fingerprints[i].Name < fingerprints[j].Name })
+	return fingerprints
 }
 
-func publicToolContractHash() string {
-	defs := compactToolDefinitions()
+func toolSurfaceHashForDefinitions(defs []compactToolDef) string {
+	raw, _ := json.Marshal(toolSurfaceFingerprintForDefinitions(defs))
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func toolContractHashForDefinitions(defs []compactToolDef, instructions string) string {
 	fingerprints := make([]toolContractFingerprint, 0, len(defs))
 	for _, def := range defs {
 		fingerprint := toolContractFingerprint{
@@ -121,12 +120,62 @@ func publicToolContractHash() string {
 		Tools                 []toolContractFingerprint `json:"tools"`
 	}{
 		ImplementationVersion: PublicMCPImplementationVersion,
-		Instructions:          publicMCPInstructions(),
+		Instructions:          instructions,
 		Tools:                 fingerprints,
 	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func legacyPublicToolDefinitions() []compactToolDef {
+	defs := compactToolDefinitions()
+	legacy := make([]compactToolDef, 0, len(defs))
+	for _, def := range defs {
+		if def.Name != "blog" {
+			legacy = append(legacy, def)
+		}
+	}
+	return legacy
+}
+
+func legacyToolSurfaceSummary() string {
+	return fmt.Sprintf("CodeLocal tool surface v%d (%d tools, sha256:%s)", PinnedLegacyPublicToolSurfaceVersion, 20, PinnedLegacyPublicToolSurfaceHash)
+}
+
+func legacyPublicMCPInstructions() string {
+	return compactOrchestrationInstructions + "\n\nCompatibility: " + legacyToolSurfaceSummary() + ". Legacy tool calls that CodeLocal can translate remain supported without user action. Only CODELOCAL_TOOL_SCHEMA_MISMATCH means the client requested a contract CodeLocal cannot translate."
+}
+
+func legacyPublicToolSurfaceHash() string {
+	return toolSurfaceHashForDefinitions(legacyPublicToolDefinitions())
+}
+
+func legacyPublicToolContractHash() string {
+	return toolContractHashForDefinitions(legacyPublicToolDefinitions(), legacyPublicMCPInstructions())
+}
+
+var (
+	toolSurfaceOnce  sync.Once
+	toolSurfaceCache ToolSurfaceInfo
+	toolNamesOnce    sync.Once
+	toolNamesCache   map[string]struct{}
+)
+
+func PublicToolSurface() ToolSurfaceInfo {
+	toolSurfaceOnce.Do(func() {
+		defs := compactToolDefinitions()
+		toolSurfaceCache = ToolSurfaceInfo{
+			Version: PublicToolSurfaceVersion,
+			Hash:    toolSurfaceHashForDefinitions(defs),
+			Count:   len(defs),
+		}
+	})
+	return toolSurfaceCache
+}
+
+func publicToolContractHash() string {
+	return toolContractHashForDefinitions(compactToolDefinitions(), publicMCPInstructions())
 }
 
 func currentPublicToolNames() map[string]struct{} {
