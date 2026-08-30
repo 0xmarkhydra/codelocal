@@ -10,6 +10,7 @@ require (
 	github.com/aws/smithy-go v1.27.8
 	github.com/coder/websocket v1.8.14
 	github.com/creack/pty v1.1.24
+	github.com/deepteams/webp v1.2.7
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/jezek/xgb v1.1.1
