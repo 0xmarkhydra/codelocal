@@ -72,6 +72,17 @@ function consumeImage(images: EditorImageBlock[], assetID: string) {
   return image;
 }
 
+function sourceImageWithEdits(source: Record<string, unknown>, image: EditorImageBlock) {
+  return {
+    ...source,
+    assetId: image.assetId,
+    width: image.width,
+    height: image.height,
+    alt: image.alt,
+    caption: image.caption,
+  };
+}
+
 function structuredContentWithImages(source: unknown[], images: EditorImageBlock[]) {
   const pending = [...images];
   const output: unknown[] = [];
@@ -82,7 +93,7 @@ function structuredContentWithImages(source: unknown[], images: EditorImageBlock
       continue;
     }
     const replacement = consumeImage(pending, item.assetId);
-    if (replacement) output.push(replacement);
+    if (replacement) output.push(sourceImageWithEdits(item, replacement));
   }
   output.push(...pending);
   return output;
@@ -98,7 +109,7 @@ function paragraphContentWithImages(source: unknown[], body: string, images: Edi
     const item = recordBlock(block);
     if (item?.type === "image" && typeof item.assetId === "string") {
       const replacement = consumeImage(pendingImages, item.assetId);
-      if (replacement) output.push(replacement);
+      if (replacement) output.push(sourceImageWithEdits(item, replacement));
       continue;
     }
     if (item?.type === "paragraph") {
