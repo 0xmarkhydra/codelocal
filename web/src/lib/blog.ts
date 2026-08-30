@@ -3,7 +3,8 @@ export type BlogBlock =
   | { type: "heading"; text: string }
   | { type: "list"; items: string[] }
   | { type: "code"; code: string; language?: string }
-  | { type: "callout"; title: string; text: string };
+  | { type: "callout"; title: string; text: string }
+  | { type: "image"; assetId: string; width: number; height: number; alt?: string; caption?: string; variant?: "medium" | "large" };
 
 export type BlogAuthor = {
   slug: string;
@@ -30,6 +31,7 @@ export type BlogPost = {
   tags: string[];
   author: BlogAuthor;
   featured?: boolean;
+  coverAssetId?: string;
   series?: { slug: string; part: number };
   blocks: BlogBlock[];
 };
