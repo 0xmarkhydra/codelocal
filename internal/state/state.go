@@ -77,6 +77,18 @@ func WriteJSONAtomic(path string, value any) error {
 }
 
 func AppendJSONL(path string, value any) error {
+	return appendJSONL(path, value, false)
+}
+
+// AppendJSONLDurable appends one JSON object and fsyncs the file before
+// returning. Use it for append-only state that participates in crash recovery
+// or is treated as an execution source of truth. High-volume observational
+// logs that can tolerate losing the newest line may continue to use AppendJSONL.
+func AppendJSONLDurable(path string, value any) error {
+	return appendJSONL(path, value, true)
+}
+
+func appendJSONL(path string, value any, durable bool) error {
 	if err := EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return err
 	}
@@ -89,8 +101,17 @@ func AppendJSONL(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	if _, err := f.Write(payload); err != nil {
+		f.Close()
+		return err
+	}
+	if durable {
+		if err := f.Sync(); err != nil {
+			f.Close()
+			return err
+		}
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Chmod(path, 0o600)
