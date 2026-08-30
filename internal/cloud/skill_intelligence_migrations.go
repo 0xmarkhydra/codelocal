@@ -115,5 +115,6 @@ func skillIntelligenceSchemaMigrations() []schemaMigration {
 		{52, skillEvaluationMigrationSQL},
 		{53, skillRatingMigrationSQL},
 	}
-	return append(migrations, blogSchemaMigrations()...)
+	migrations = append(migrations, blogSchemaMigrations()...)
+	return append(migrations, mediaAssetSchemaMigrations()...)
 }
