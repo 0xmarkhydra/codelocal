@@ -121,6 +121,23 @@ func normalizeBlogContent(value json.RawMessage) (json.RawMessage, error) {
 	if len(value) > 512<<10 || !json.Valid(value) {
 		return nil, ErrBlogInvalid
 	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(value, &blocks); err != nil {
+		return nil, ErrBlogInvalid
+	}
+	for _, block := range blocks {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(block, &envelope); err != nil {
+			return nil, ErrBlogInvalid
+		}
+		switch strings.TrimSpace(envelope.Type) {
+		case "paragraph", "heading", "list", "code", "callout", "image":
+		default:
+			return nil, ErrBlogInvalid
+		}
+	}
 	return append(json.RawMessage(nil), value...), nil
 }
 
