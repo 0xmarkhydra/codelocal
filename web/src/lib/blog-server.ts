@@ -149,8 +149,8 @@ function durableSummaryToRender(post: DurablePostSummary, seriesMap: Map<string,
 }
 
 function mergeBySlug<T extends { slug: string }>(seed: T[], durable: T[]) {
-  const merged = new Map(seed.map((item) => [item.slug, item]));
-  for (const item of durable) merged.set(item.slug, item);
+  const merged = new Map(durable.map((item) => [item.slug, item]));
+  for (const item of seed) merged.set(item.slug, item);
   return [...merged.values()];
 }
 
@@ -184,6 +184,29 @@ async function publicSeriesCollection(): Promise<DurableSeries[]> {
   }
 }
 
+async function publicSeriesPage(slug: string) {
+  const posts: DurablePostSummary[] = [];
+  let offset = 0;
+  const limit = 200;
+  let firstSeries: DurableSeries | undefined;
+  let redirected = false;
+
+  for (;;) {
+    const body = await backendJSON(`/api/v1/blog/public/series/${encodeURIComponent(slug)}?limit=${limit}&offset=${offset}`);
+    if (!isPublicBlogSeriesResource(body)) return undefined;
+    if (!firstSeries) {
+      firstSeries = body.series;
+      redirected = body.redirected;
+    } else if (body.series.id !== firstSeries.id) {
+      return undefined;
+    }
+    posts.push(...body.posts);
+    if (!body.hasMore) return firstSeries ? { series: firstSeries, posts, redirected } : undefined;
+    if (typeof body.nextOffset !== "number" || body.nextOffset <= offset) return undefined;
+    offset = body.nextOffset;
+  }
+}
+
 async function durablePost(slug: string): Promise<BlogPost | undefined> {
   const [body, series] = await Promise.all([
     backendJSON(`/api/v1/blog/public/${encodeURIComponent(slug)}`),
@@ -213,7 +236,7 @@ async function durablePost(slug: string): Promise<BlogPost | undefined> {
 }
 
 export async function getBlogPostForRender(slug: string) {
-  return (await durablePost(slug)) ?? getPostBySlug(slug);
+  return getPostBySlug(slug) ?? (await durablePost(slug));
 }
 
 export async function getBlogPostsForRender() {
@@ -233,19 +256,18 @@ export async function getBlogSeriesForRender() {
 }
 
 export async function getBlogSeriesPageForRender(slug: string): Promise<{ series: BlogSeries; posts: BlogPost[]; redirected: boolean } | undefined> {
-  const body = await backendJSON(`/api/v1/blog/public/series/${encodeURIComponent(slug)}`);
-  if (isPublicBlogSeriesResource(body)) {
-    const series = durableSeriesToRender(body.series);
-    const lookup = new Map([[body.series.id, body.series]]);
-    return {
-      series,
-      posts: body.posts.map((post) => durableSummaryToRender(post, lookup)).sort((a, b) => (a.series?.part ?? 0) - (b.series?.part ?? 0)),
-      redirected: body.redirected,
-    };
-  }
   const local = getSeriesBySlug(slug);
-  if (!local) return undefined;
-  return { series: local, posts: getSeriesPosts(local.slug), redirected: false };
+  if (local) return { series: local, posts: getSeriesPosts(local.slug), redirected: false };
+
+  const body = await publicSeriesPage(slug);
+  if (!body) return undefined;
+  const series = durableSeriesToRender(body.series);
+  const lookup = new Map([[body.series.id, body.series]]);
+  return {
+    series,
+    posts: body.posts.map((post) => durableSummaryToRender(post, lookup)).sort((a, b) => (a.series?.part ?? 0) - (b.series?.part ?? 0)),
+    redirected: body.redirected,
+  };
 }
 
 export async function searchBlogPostsForRender(query: string) {
