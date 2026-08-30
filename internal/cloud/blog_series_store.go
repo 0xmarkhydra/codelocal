@@ -152,10 +152,10 @@ func (s *Store) DeleteBlogSeries(ctx context.Context, actorUserID string, admin 
 	if err != nil { return err }
 	defer func(){ _ = tx.Rollback(ctx) }()
 	now := time.Now().UnixMilli()
-	if _, err = tx.Exec(ctx, `UPDATE codelocal_blog_posts SET series_id=NULL,series_part=NULL,updated_at=$1 WHERE series_id=$2 AND deleted_at=0`, now,current.ID); err != nil { return err }
 	command, err := tx.Exec(ctx, `UPDATE codelocal_blog_series SET deleted_at=$1,status='archived',updated_at=$1 WHERE series_id=$2 AND deleted_at=0`, now,current.ID)
 	if err != nil { return err }
 	if command.RowsAffected()!=1 { return ErrBlogNotFound }
+	if _, err = tx.Exec(ctx, `UPDATE codelocal_blog_posts SET series_id=NULL,series_part=NULL,updated_at=$1 WHERE series_id=$2 AND deleted_at=0`, now,current.ID); err != nil { return err }
 	if err := syncMediaAssetRefsTx(ctx, tx, current.AuthorUserID, "blog_series", current.ID, map[string]string{}); err != nil { return err }
 	return tx.Commit(ctx)
 }
