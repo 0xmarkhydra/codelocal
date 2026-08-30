@@ -244,5 +244,6 @@ func TestDatabaseSchemaHistoryRejectsForwardBinaryAndGaps(t *testing.T) {
 			if err := validateDatabaseSchemaHistory(tc.current, tc.count, tc.target); err == nil {
 				t.Fatalf("invalid database schema history accepted: current=%d count=%d target=%d", tc.current, tc.count, tc.target)
 			}
+		})
 	}
 }
