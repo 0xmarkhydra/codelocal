@@ -202,6 +202,7 @@ export default function Home() {
         <nav className={styles.navCapsule} aria-label="Primary navigation">
           <a href="#system">Product</a>
           <Link href="/security">Security</Link>
+          <Link href="/blog">Blog</Link>
           <Link href="/support">Support</Link>
         </nav>
 
