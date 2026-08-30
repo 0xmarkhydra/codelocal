@@ -32,6 +32,29 @@ func SkillPackageStoreFromEnv(ctx context.Context) (*S3SkillPackageStore, bool, 
 	return store, true, nil
 }
 
+// ResolveSkillPackageStore keeps Web and MCP on the same durable package
+// backend. Explicit S3-compatible configuration wins; without it, Cloud falls
+// back to the primary Postgres database so Personal Skills remain usable on a
+// standard CodeLocal deployment. Invalid explicit object-store configuration
+// fails closed instead of silently switching storage backends.
+func ResolveSkillPackageStore(ctx context.Context, store *Store) (SkillPackageObjectStore, string, bool, error) {
+	external, configured, err := SkillPackageStoreFromEnv(ctx)
+	if err != nil {
+		return nil, "unavailable", false, err
+	}
+	if configured {
+		return external, "object", true, nil
+	}
+	if store == nil || store.DB == nil {
+		return nil, "unavailable", false, nil
+	}
+	fallback, err := NewPostgresSkillPackageStore(store.DB)
+	if err != nil {
+		return nil, "unavailable", false, err
+	}
+	return fallback, "postgres", true, nil
+}
+
 func optionalEnvBool(name string, fallback bool) (bool, error) {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
