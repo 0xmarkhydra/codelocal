@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlogBlocks, PostCard, TaxonomyLinks } from "../_components";
@@ -13,6 +14,10 @@ import {
 import { getBlogPostForRender } from "@/lib/blog-server";
 
 type ArticleProps = { params: Promise<{ slug: string }> };
+
+function publicCoverURL(assetID: string) {
+  return `/api/v1/public/media/${encodeURIComponent(assetID)}/large`;
+}
 
 export function generateStaticParams() {
   return blogPosts.map((post) => ({ slug: post.slug }));
@@ -33,6 +38,7 @@ export async function generateMetadata({ params }: ArticleProps): Promise<Metada
       publishedTime: `${post.publishedAt}T00:00:00Z`,
       modifiedTime: post.updatedAt ? `${post.updatedAt}T00:00:00Z` : undefined,
       tags: post.tags,
+      images: post.coverAssetId ? [{ url: publicCoverURL(post.coverAssetId) }] : undefined,
     },
   };
 }
@@ -58,6 +64,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
     author: { "@type": "Person", name: post.author.name },
     publisher: { "@type": "Organization", name: "CodeLocal" },
     mainEntityOfPage: `https://codelocal.cloud/blog/${post.slug}`,
+    image: post.coverAssetId ? `https://codelocal.cloud${publicCoverURL(post.coverAssetId)}` : undefined,
     keywords: post.tags.join(", "),
   };
 
@@ -79,6 +86,20 @@ export default async function ArticlePage({ params }: ArticleProps) {
           <span>{post.readingMinutes} min read</span>
         </div>
       </header>
+
+      {post.coverAssetId && (
+        <div className={styles.articleCover}>
+          <Image
+            src={publicCoverURL(post.coverAssetId)}
+            alt=""
+            width={1600}
+            height={900}
+            sizes="(max-width: 1160px) 100vw, 1160px"
+            priority
+            unoptimized
+          />
+        </div>
+      )}
 
       {series && (
         <div className={styles.seriesBanner}>
