@@ -10,7 +10,7 @@ import (
 var publicSocialService = social.New()
 
 func compactSocialToolDefinitions() []compactToolDef {
-	return []compactToolDef{
+	tools := []compactToolDef{
 		{
 			Name:        "social",
 			Title:       "Read public social content",
@@ -31,4 +31,5 @@ func compactSocialToolDefinitions() []compactToolDef {
 			},
 		},
 	}
+	return append(tools, compactBlogToolDefinitions()...)
 }
