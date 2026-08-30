@@ -84,6 +84,10 @@ func (s *Store) CreateBlogPost(ctx context.Context, input BlogPostDraft) (BlogPo
 	if err := s.validateBlogSeriesOwner(ctx, input.AuthorUserID, input.SeriesID); err != nil {
 		return BlogPost{}, err
 	}
+	mediaSlots, err := s.validateBlogMediaAssets(ctx, input.AuthorUserID, input.CoverAssetID, input.Content)
+	if err != nil {
+		return BlogPost{}, err
+	}
 	tagsJSON, err := json.Marshal(input.Tags)
 	if err != nil {
 		return BlogPost{}, err
@@ -101,6 +105,9 @@ INSERT INTO codelocal_blog_posts(
 	)
 	if err != nil {
 		return BlogPost{}, mapBlogWriteError(err)
+	}
+	if err := s.syncBlogMediaRefs(ctx, input.AuthorUserID, postID, mediaSlots); err != nil {
+		return BlogPost{}, err
 	}
 	return s.BlogPostByID(ctx, postID)
 }
@@ -203,6 +210,10 @@ func (s *Store) UpdateBlogPost(ctx context.Context, actorUserID string, admin bo
 	if err := s.validateBlogSeriesOwner(ctx, current.AuthorUserID, input.SeriesID); err != nil {
 		return BlogPost{}, err
 	}
+	mediaSlots, err := s.validateBlogMediaAssets(ctx, current.AuthorUserID, input.CoverAssetID, input.Content)
+	if err != nil {
+		return BlogPost{}, err
+	}
 	tagsJSON, err := json.Marshal(input.Tags)
 	if err != nil {
 		return BlogPost{}, err
@@ -243,6 +254,9 @@ ON CONFLICT(old_slug) DO UPDATE SET post_id=EXCLUDED.post_id,created_at=EXCLUDED
 	if err := tx.Commit(ctx); err != nil {
 		return BlogPost{}, err
 	}
+	if err := s.syncBlogMediaRefs(ctx, current.AuthorUserID, postID, mediaSlots); err != nil {
+		return BlogPost{}, err
+	}
 	return s.BlogPostByID(ctx, postID)
 }
 
@@ -256,6 +270,15 @@ func (s *Store) SetBlogPostPublished(ctx context.Context, actorUserID string, ad
 	}
 	if published && post.ModerationStatus == "hidden" {
 		return BlogPost{}, fmt.Errorf("%w: hidden posts cannot be published", ErrBlogForbidden)
+	}
+	if published {
+		mediaSlots, err := s.validateBlogMediaAssets(ctx, post.AuthorUserID, post.CoverAssetID, post.Content)
+		if err != nil {
+			return BlogPost{}, err
+		}
+		if err := s.syncBlogMediaRefs(ctx, post.AuthorUserID, post.ID, mediaSlots); err != nil {
+			return BlogPost{}, err
+		}
 	}
 	status := "draft"
 	publishedAt := post.PublishedAt
@@ -299,6 +322,8 @@ func (s *Store) DeleteBlogPost(ctx context.Context, actorUserID string, admin bo
 		return ErrBlogForbidden
 	}
 	now := time.Now().UnixMilli()
-	_, err = s.DB.Exec(ctx, `UPDATE codelocal_blog_posts SET deleted_at=$1,status='archived',updated_at=$1 WHERE post_id=$2 AND deleted_at=0`, now, postID)
-	return err
+	if _, err = s.DB.Exec(ctx, `UPDATE codelocal_blog_posts SET deleted_at=$1,status='archived',updated_at=$1 WHERE post_id=$2 AND deleted_at=0`, now, postID); err != nil {
+		return err
+	}
+	return s.syncBlogMediaRefs(ctx, post.AuthorUserID, post.ID, map[string]string{})
 }
