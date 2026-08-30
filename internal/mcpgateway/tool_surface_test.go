@@ -2,6 +2,7 @@ package mcpgateway
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -40,8 +41,15 @@ func TestGenerationThreePreservesGenerationTwoABI(t *testing.T) {
 	if got := legacyPublicToolContractHash(); got != PinnedLegacyPublicToolContractHash {
 		t.Fatalf("generation-2 tool contract drifted: got %s want %s", got, PinnedLegacyPublicToolContractHash)
 	}
-	if PublicMCPImplementationVersion != "1.5.16" {
-		t.Fatalf("public MCP implementation identity changed with the app release: %q", PublicMCPImplementationVersion)
+	if PinnedLegacyPublicMCPImplementationVersion != "1.5.16" {
+		t.Fatalf("legacy MCP implementation identity drifted: %q", PinnedLegacyPublicMCPImplementationVersion)
+	}
+	expectedVersion := fmt.Sprintf("1.5.%d", publicMCPImplementationVersionBasePatch+PublicToolSurfaceVersion)
+	if PublicMCPImplementationVersion != expectedVersion {
+		t.Fatalf("public MCP identity must be derived from tool surface generation: got %q want %q", PublicMCPImplementationVersion, expectedVersion)
+	}
+	if PublicMCPImplementationVersion == PinnedLegacyPublicMCPImplementationVersion {
+		t.Fatalf("new public tool generation must advance MCP implementation identity so AI hosts invalidate cached catalogs: %q", PublicMCPImplementationVersion)
 	}
 	current := publicToolContractHash()
 	if len(current) != 64 || current == PinnedLegacyPublicToolContractHash {

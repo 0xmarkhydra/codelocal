@@ -18,14 +18,18 @@ import (
 // surface/contract boundaries.
 const (
 	PublicToolSurfaceVersion = 3
-	// Freeze the MCP-facing implementation identity at the value already
-	// advertised by the production gateway. Application releases may advance
-	// independently without invalidating an existing AI-client binding.
-	PublicMCPImplementationVersion = "1.5.16"
 
-	PinnedLegacyPublicToolSurfaceVersion = 2
-	PinnedLegacyPublicToolSurfaceHash    = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
-	PinnedLegacyPublicToolContractHash   = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
+	// Version 1.5.16 was the generation-2 MCP identity. Keep the same release
+	// line and derive the patch from the surface generation so every future
+	// public catalog generation automatically changes the server identity seen
+	// by AI hosts. This invalidates cached tools/list catalogs without requiring
+	// developers to remember a second manual version bump.
+	publicMCPImplementationVersionBasePatch = 14
+
+	PinnedLegacyPublicToolSurfaceVersion       = 2
+	PinnedLegacyPublicMCPImplementationVersion = "1.5.16"
+	PinnedLegacyPublicToolSurfaceHash           = "780206fb4c6f4b53162bc3080060d1b14978900bf29bdbda50edfad366e0864c"
+	PinnedLegacyPublicToolContractHash          = "2f236697108144b7bf9d2e5296c6e20fd021d4739f0bce298c663bd4cce49cca"
 
 	// Backward source-compatibility aliases. Generation-3 tests intentionally
 	// use the Legacy names so future readers do not mistake these for the hash
@@ -33,6 +37,8 @@ const (
 	PinnedPublicToolSurfaceHash  = PinnedLegacyPublicToolSurfaceHash
 	PinnedPublicToolContractHash = PinnedLegacyPublicToolContractHash
 )
+
+var PublicMCPImplementationVersion = fmt.Sprintf("1.5.%d", publicMCPImplementationVersionBasePatch+PublicToolSurfaceVersion)
 
 type ToolSurfaceInfo struct {
 	Version int    `json:"version"`
@@ -96,7 +102,7 @@ func toolSurfaceHashForDefinitions(defs []compactToolDef) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func toolContractHashForDefinitions(defs []compactToolDef, instructions string) string {
+func toolContractHashForDefinitionsWithVersion(defs []compactToolDef, instructions, implementationVersion string) string {
 	fingerprints := make([]toolContractFingerprint, 0, len(defs))
 	for _, def := range defs {
 		fingerprint := toolContractFingerprint{
@@ -119,13 +125,17 @@ func toolContractHashForDefinitions(defs []compactToolDef, instructions string) 
 		Instructions          string                    `json:"instructions"`
 		Tools                 []toolContractFingerprint `json:"tools"`
 	}{
-		ImplementationVersion: PublicMCPImplementationVersion,
+		ImplementationVersion: implementationVersion,
 		Instructions:          instructions,
 		Tools:                 fingerprints,
 	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func toolContractHashForDefinitions(defs []compactToolDef, instructions string) string {
+	return toolContractHashForDefinitionsWithVersion(defs, instructions, PublicMCPImplementationVersion)
 }
 
 func legacyPublicToolDefinitions() []compactToolDef {
@@ -152,7 +162,7 @@ func legacyPublicToolSurfaceHash() string {
 }
 
 func legacyPublicToolContractHash() string {
-	return toolContractHashForDefinitions(legacyPublicToolDefinitions(), legacyPublicMCPInstructions())
+	return toolContractHashForDefinitionsWithVersion(legacyPublicToolDefinitions(), legacyPublicMCPInstructions(), PinnedLegacyPublicMCPImplementationVersion)
 }
 
 var (
