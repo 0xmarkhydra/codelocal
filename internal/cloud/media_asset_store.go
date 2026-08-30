@@ -107,10 +107,16 @@ func (s *Store) CompleteMediaAsset(ctx context.Context, ownerUserID, assetID str
 }
 
 func (s *Store) FailMediaAsset(ctx context.Context, ownerUserID, assetID, code string) error {
-	command, err := s.DB.Exec(ctx, `UPDATE codelocal_media_assets SET status='failed',error_code=$1,updated_at=$2 WHERE asset_id=$3 AND owner_user_id=$4 AND deleted_at=0`, strings.TrimSpace(code), time.Now().UnixMilli(), NormalizeMediaAssetID(assetID), strings.TrimSpace(ownerUserID))
+	assetID = NormalizeMediaAssetID(assetID)
+	ownerUserID = strings.TrimSpace(ownerUserID)
+	command, err := s.DB.Exec(ctx, `UPDATE codelocal_media_assets SET status='failed',error_code=$1,updated_at=$2 WHERE asset_id=$3 AND owner_user_id=$4 AND deleted_at=0 AND status='processing'`, strings.TrimSpace(code), time.Now().UnixMilli(), assetID, ownerUserID)
 	if err != nil { return err }
-	if command.RowsAffected() != 1 { return ErrMediaAssetNotFound }
-	return nil
+	if command.RowsAffected() == 1 { return nil }
+	asset, err := s.MediaAssetByID(ctx, assetID)
+	if err != nil { return err }
+	if asset.OwnerUserID != ownerUserID { return ErrMediaAssetForbidden }
+	if asset.Status != "processing" { return nil }
+	return ErrMediaAssetNotFound
 }
 
 func (s *Store) MediaAssetOwnedReady(ctx context.Context, ownerUserID, assetID string) (bool, error) {
