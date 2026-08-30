@@ -14,7 +14,24 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_blog_series_slug_redirects_series
 const blogRedirectNamespaceMigrationSQL = `
 CREATE OR REPLACE FUNCTION codelocal_guard_blog_post_redirect_slug()
 RETURNS TRIGGER AS $$
+DECLARE
+  first_slug TEXT;
+  second_slug TEXT;
 BEGIN
+  first_slug := NEW.slug;
+  second_slug := NULL;
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.slug <> NEW.slug THEN
+      first_slug := LEAST(OLD.slug, NEW.slug);
+      second_slug := GREATEST(OLD.slug, NEW.slug);
+    END IF;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended('codelocal:blog-post:' || first_slug, 0));
+  IF second_slug IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('codelocal:blog-post:' || second_slug, 0));
+  END IF;
+
   IF EXISTS (
     SELECT 1 FROM codelocal_blog_slug_redirects r
     WHERE r.old_slug = NEW.slug AND r.post_id <> NEW.post_id
@@ -32,7 +49,24 @@ FOR EACH ROW EXECUTE FUNCTION codelocal_guard_blog_post_redirect_slug();
 
 CREATE OR REPLACE FUNCTION codelocal_guard_blog_series_redirect_slug()
 RETURNS TRIGGER AS $$
+DECLARE
+  first_slug TEXT;
+  second_slug TEXT;
 BEGIN
+  first_slug := NEW.slug;
+  second_slug := NULL;
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.slug <> NEW.slug THEN
+      first_slug := LEAST(OLD.slug, NEW.slug);
+      second_slug := GREATEST(OLD.slug, NEW.slug);
+    END IF;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended('codelocal:blog-series:' || first_slug, 0));
+  IF second_slug IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('codelocal:blog-series:' || second_slug, 0));
+  END IF;
+
   IF EXISTS (
     SELECT 1 FROM codelocal_blog_series_slug_redirects r
     WHERE r.old_slug = NEW.slug AND r.series_id <> NEW.series_id
