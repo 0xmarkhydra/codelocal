@@ -51,6 +51,10 @@ function isNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
 function isVariant(value: unknown): value is MediaVariant {
   if (!isRecord(value)) return false;
   return (
@@ -58,7 +62,7 @@ function isVariant(value: unknown): value is MediaVariant {
     ["original", "thumb", "medium", "large"].includes(String(value.variant)) &&
     typeof value.contentType === "string" &&
     isNonNegativeNumber(value.size) && isNonNegativeNumber(value.width) && isNonNegativeNumber(value.height) &&
-    typeof value.sha256 === "string" && isNonNegativeNumber(value.createdAt)
+    typeof value.sha256 === "string" && value.sha256.length === 64 && isNonNegativeNumber(value.createdAt)
   );
 }
 
@@ -81,17 +85,23 @@ function isURLs(value: unknown): value is Record<string, string> {
   return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
 }
 
+function isUploadHeaders(value: unknown): value is Record<string, string[]> {
+  return isRecord(value) && Object.values(value).every(isStringArray);
+}
+
 export function isMediaAssetResponse(value: unknown): value is MediaAssetResponse {
   return isRecord(value) && isAsset(value.asset) && isURLs(value.urls);
 }
 
 export function isMediaAssetPrepareResponse(value: unknown): value is MediaAssetPrepareResponse {
-  if (!isMediaAssetResponse(value) || !isRecord(value.upload) || typeof value.deduplicated !== "boolean") return false;
+  if (!isRecord(value)) return false;
   const upload = value.upload;
+  const deduplicated = value.deduplicated;
+  if (!isMediaAssetResponse(value) || !isRecord(upload) || typeof deduplicated !== "boolean") return false;
   return (
     typeof upload.required === "boolean" &&
     (upload.url === undefined || typeof upload.url === "string") &&
     (upload.method === undefined || typeof upload.method === "string") &&
-    (upload.headers === undefined || isRecord(upload.headers))
+    (upload.headers === undefined || isUploadHeaders(upload.headers))
   );
 }
