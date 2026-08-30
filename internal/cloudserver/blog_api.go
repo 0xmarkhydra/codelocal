@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
@@ -252,10 +253,39 @@ func (s *Server) blogDistributionAPI(w http.ResponseWriter, r *http.Request) {
 	webutil.JSON(w, http.StatusOK, map[string]any{"post": post})
 }
 
+func publicBlogPageLimit(raw string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 1 {
+		return 100
+	}
+	if value > 200 {
+		return 200
+	}
+	return value
+}
+
+func publicBlogPageOffset(raw string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 0 {
+		return 0
+	}
+	return value
+}
+
 func (s *Server) publicBlogPostsAPI(w http.ResponseWriter, r *http.Request) {
-	posts, err := s.Store.ListPublicBlogPosts(r.Context(), 100)
+	limit := publicBlogPageLimit(r.URL.Query().Get("limit"))
+	offset := publicBlogPageOffset(r.URL.Query().Get("offset"))
+	posts, err := s.Store.ListPublicBlogPostsPage(r.Context(), limit+1, offset)
 	if err != nil { writeBlogAPIError(w, err); return }
-	webutil.JSON(w, http.StatusOK, map[string]any{"posts": blogPostSummaries(posts)})
+	hasMore := len(posts) > limit
+	if hasMore {
+		posts = posts[:limit]
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{
+		"posts": blogPostSummaries(posts),
+		"hasMore": hasMore,
+		"nextOffset": offset + len(posts),
+	})
 }
 
 func (s *Server) publicBlogPostAPI(w http.ResponseWriter, r *http.Request) {
