@@ -1,0 +1,180 @@
+.page {
+  display: grid;
+  gap: 24px;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 22px;
+  background: var(--surface-elevated);
+}
+
+.heroIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--surface-muted);
+}
+
+.heroCopy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.heroCopy h1,
+.sectionHeader h2 {
+  margin: 0;
+}
+
+.heroCopy p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.kicker {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.primaryAction,
+.sectionHeader > a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.primaryAction {
+  padding: 10px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  font-weight: 650;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.stats article {
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--surface-elevated);
+}
+
+.stats strong {
+  font-size: 28px;
+}
+
+.stats span,
+.postRow p,
+.postRow time {
+  color: var(--text-secondary);
+}
+
+.section {
+  display: grid;
+  gap: 14px;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+}
+
+.sectionHeader > div {
+  display: grid;
+  gap: 4px;
+}
+
+.postList {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  background: var(--surface-elevated);
+}
+
+.postRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 18px 20px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.postRow + .postRow {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.postRow > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.postRow > div > span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.postRow strong {
+  font-size: 15px;
+}
+
+.postRow p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.postRow time {
+  align-self: center;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 18px;
+  }
+
+  .hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .primaryAction {
+    grid-column: 1 / -1;
+    text-align: center;
+  }
+
+  .postRow {
+    grid-template-columns: 1fr;
+  }
+
+  .postRow time {
+    justify-self: start;
+  }
+}
