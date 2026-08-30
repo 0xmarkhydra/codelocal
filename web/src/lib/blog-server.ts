@@ -17,8 +17,8 @@ function backendOrigin() {
   }
 }
 
-function asText(value: unknown) {
-  return typeof value === "string" ? value : "";
+function positiveDimension(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
 }
 
 function toBlogBlock(value: unknown): BlogBlock | undefined {
@@ -35,6 +35,17 @@ function toBlogBlock(value: unknown): BlogBlock | undefined {
   if (block.type === "callout" && typeof block.title === "string" && typeof block.text === "string") {
     return { type: "callout", title: block.title, text: block.text };
   }
+  if (block.type === "image" && typeof block.assetId === "string" && block.assetId.startsWith("media_")) {
+    return {
+      type: "image",
+      assetId: block.assetId,
+      width: positiveDimension(block.width, 1600),
+      height: positiveDimension(block.height, 900),
+      alt: typeof block.alt === "string" ? block.alt : "",
+      caption: typeof block.caption === "string" ? block.caption : undefined,
+      variant: block.variant === "medium" ? "medium" : "large",
+    };
+  }
   return undefined;
 }
 
@@ -44,9 +55,11 @@ function dateOnly(value: number) {
 
 function readingMinutes(blocks: BlogBlock[]) {
   const words = blocks.reduce((total, block) => {
+    if (block.type === "image") return total;
     if (block.type === "list") return total + block.items.join(" ").split(/\s+/).filter(Boolean).length;
     if (block.type === "code") return total + block.code.split(/\s+/).filter(Boolean).length;
-    return total + `${"title" in block ? block.title : ""} ${block.text}`.split(/\s+/).filter(Boolean).length;
+    if (block.type === "callout") return total + `${block.title} ${block.text}`.split(/\s+/).filter(Boolean).length;
+    return total + block.text.split(/\s+/).filter(Boolean).length;
   }, 0);
   return Math.max(1, Math.ceil(words / 220));
 }
@@ -79,6 +92,7 @@ async function durablePost(slug: string): Promise<BlogPost | undefined> {
         role: body.official ? "Engineering & Product" : "CodeLocal Community",
       },
       featured: body.post.featured,
+      coverAssetId: body.post.coverAssetId,
       blocks,
     };
   } catch {
