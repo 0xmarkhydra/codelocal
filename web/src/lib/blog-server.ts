@@ -170,8 +170,18 @@ async function publicPostsCollection(): Promise<DurablePostSummary[] | undefined
 }
 
 async function publicSeriesCollection(): Promise<DurableSeries[]> {
-  const body = await backendJSON("/api/v1/blog/public/series");
-  return isPublicBlogSeriesCollectionResource(body) ? body.series : [];
+  const series: DurableSeries[] = [];
+  let offset = 0;
+  const limit = 200;
+
+  for (;;) {
+    const body = await backendJSON(`/api/v1/blog/public/series?limit=${limit}&offset=${offset}`);
+    if (!isPublicBlogSeriesCollectionResource(body)) return [];
+    series.push(...body.series);
+    if (!body.hasMore) return series;
+    if (typeof body.nextOffset !== "number" || body.nextOffset <= offset) return [];
+    offset = body.nextOffset;
+  }
 }
 
 async function durablePost(slug: string): Promise<BlogPost | undefined> {
