@@ -65,6 +65,64 @@ export function PostCard({ post, compact = false }: { post: BlogPost; compact?: 
   );
 }
 
+export function ArticleAbout({ post, seriesTitle }: { post: BlogPost; seriesTitle?: string }) {
+  const monogram = post.author.name.trim().charAt(0).toUpperCase() || "C";
+  const description = post.series && seriesTitle
+    ? `Part ${post.series.part} in ${seriesTitle}.`
+    : post.official
+      ? "An original article from the CodeLocal team."
+      : "An article from the CodeLocal community.";
+
+  return (
+    <div className={`${styles.asideCard} ${styles.aboutCard}`}>
+      <div className={styles.aboutTopline}>
+        <span>About this article</span>
+        <span className={styles.aboutBadge}>{post.official ? "Original" : "Community"}</span>
+      </div>
+      <Link className={styles.aboutCategory} href={`/blogs/category/${taxonomySlug(post.category)}`}>{post.category}</Link>
+      <p>{description}</p>
+      <dl className={styles.aboutMeta}>
+        <div>
+          <dt>Published</dt>
+          <dd><time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt)}</time></dd>
+        </div>
+        <div>
+          <dt>Reading time</dt>
+          <dd>{post.readingMinutes} min</dd>
+        </div>
+      </dl>
+      <div className={styles.aboutAuthor}>
+        <span className={styles.authorMonogram} aria-hidden="true">{monogram}</span>
+        <div>
+          <span>Written by</span>
+          <Link href={`/users/${post.author.slug}`}>{post.author.name}</Link>
+          <small>{post.author.role}</small>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function RelatedReading({ posts }: { posts: BlogPost[] }) {
+  if (posts.length === 0) return null;
+
+  return (
+    <section className={styles.related} aria-labelledby="related-reading">
+      <header className={styles.relatedHeader}>
+        <div>
+          <span className={styles.relatedEyebrow}>Curated next</span>
+          <h2 id="related-reading">Keep reading</h2>
+        </div>
+        <p>Continue exploring practical ideas for building, securing and operating AI agents.</p>
+        <Link className={styles.relatedBrowse} href="/blogs">Browse all stories <span aria-hidden="true">↗</span></Link>
+      </header>
+      <div className={`${styles.postGrid} ${styles.relatedGrid}`}>
+        {posts.map((post) => <PostCard key={post.slug} post={post} compact />)}
+      </div>
+    </section>
+  );
+}
+
 export function SeriesCard({ series, posts: suppliedPosts }: { series: BlogSeries; posts?: BlogPost[] }) {
   const posts = suppliedPosts ?? getSeriesPosts(series.slug);
   return (

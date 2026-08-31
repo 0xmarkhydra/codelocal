@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BlogBlocks, PostCard, TaxonomyLinks } from "../_components";
+import { ArticleAbout, BlogBlocks, RelatedReading, TaxonomyLinks } from "../_components";
 import styles from "../blog.module.css";
 import {
   blogPosts,
@@ -134,11 +134,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
         </article>
 
         <aside className={styles.articleAside}>
-          <div className={styles.asideCard}>
-            <span>About this article</span>
-            <strong>{post.category}</strong>
-            <p>{post.series ? `Part ${post.series.part} in ${series?.title}.` : "A standalone CodeLocal article."}</p>
-          </div>
+          <ArticleAbout post={post} seriesTitle={series?.title} />
           {series && (
             <div className={styles.asideCard}>
               <span>Series progress</span>
@@ -158,14 +154,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
         </aside>
       </div>
 
-      {related.length > 0 && (
-        <section className={styles.related} aria-labelledby="related-reading">
-          <h2 id="related-reading">Keep reading</h2>
-          <div className={styles.postGrid}>
-            {related.map((entry) => <PostCard key={entry.slug} post={entry} compact />)}
-          </div>
-        </section>
-      )}
+      <RelatedReading posts={related} />
     </main>
   );
 }
