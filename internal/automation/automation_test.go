@@ -254,6 +254,31 @@ func TestComputerPolicyScopesObservationAndScreenshot(t *testing.T) {
 	}
 }
 
+func TestMobileComputerPolicyPreservesApprovalBoundaries(t *testing.T) {
+	for _, operation := range []string{"list_devices", "list_apps", "get_orientation"} {
+		decision := ClassifyAutomation(Action{Domain: "computer", Operation: operation, Origin: "mobile:iphone"})
+		if decision.RequiresApproval || decision.RiskLevel != security.RiskSafe {
+			t.Fatalf("mobile read-only %s should stay safe: %+v", operation, decision)
+		}
+	}
+	observe := ClassifyAutomation(Action{Domain: "computer", Operation: "observe", Origin: "mobile:iphone"})
+	if observe.RiskLevel != security.RiskReview || !observe.RequiresApproval {
+		t.Fatalf("mobile UI observation should remain review-gated: %+v", observe)
+	}
+	crash := ClassifyAutomation(Action{Domain: "computer", Operation: "get_crash", Origin: "mobile:iphone"})
+	if crash.RiskLevel != security.RiskReview || !crash.RequiresApproval {
+		t.Fatalf("mobile crash diagnostics should remain review-gated: %+v", crash)
+	}
+	semantic := ClassifyAutomation(Action{Domain: "computer", Operation: "click", Origin: "mobile:iphone", Target: "Continue"})
+	if semantic.RiskLevel != security.RiskHigh || semantic.ApprovalPolicy != security.ApprovalRememberable {
+		t.Fatalf("semantic mobile input should use scoped high-risk approval: %+v", semantic)
+	}
+	coordinate := ClassifyAutomation(Action{Domain: "computer", Operation: "click", Origin: "mobile:iphone"})
+	if coordinate.RiskLevel != security.RiskCritical || coordinate.ApprovalPolicy != security.ApprovalAlways {
+		t.Fatalf("unscoped coordinate mobile input must require fresh approval: %+v", coordinate)
+	}
+}
+
 func TestComputerHelperPathUsesPackagedHelper(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "bin", "helpers", computerHelperName())

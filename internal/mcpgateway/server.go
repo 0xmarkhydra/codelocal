@@ -104,12 +104,12 @@ func capabilityBool(capabilities map[string]any, name string) bool {
 	return value
 }
 
-func ensureOperationSupported(operation operationInvocation, workspace *gateway.WorkspaceView) error {
+func ensureOperationSupported(operation operationInvocation, workspace *gateway.WorkspaceView, optionalArgs ...map[string]any) error {
 	if workspace == nil {
 		return errors.New("workspace unavailable")
 	}
 	if automationRuntimeTool(operation.RuntimeTool) {
-		return ensureAutomationOperationSupported(operation.RuntimeTool, workspace)
+		return ensureAutomationOperationSupported(operation.RuntimeTool, workspace, optionalArgs...)
 	}
 	if operation.RuntimeTool == "approval_mode" && workspace.ProtocolVersion < 3 {
 		return fmt.Errorf("%s requires CodeLocal protocol v3 or newer; update the client before changing chat access mode", operation.OperationID)
@@ -498,7 +498,7 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 	}
 	usageDeviceID = workspace.DeviceID
 	usageWorkspaceID = workspace.WorkspaceID
-	if err := ensureOperationSupported(operation, workspace); err != nil {
+	if err := ensureOperationSupported(operation, workspace, args); err != nil {
 		compatibility := map[string]any{
 			"error":                  err.Error(),
 			"code":                   "CODELOCAL_OPERATION_UNSUPPORTED",

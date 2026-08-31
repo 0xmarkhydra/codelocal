@@ -308,13 +308,16 @@ func generationFourCompactToolDefinitions() []compactToolDef {
 	}
 	tools = append(tools, compactSocialToolDefinitions()...)
 	tools = append(tools, compactBlogToolDefinitions()...)
-	return append(tools, compactAutomationToolDefinitions()...)
+	return append(tools, generationFiveCompactAutomationToolDefinitions()...)
 }
 
 func compactToolDefinitions() []compactToolDef {
 	generationFour := generationFourCompactToolDefinitions()
 	byName := make(map[string]compactToolDef, len(generationFour))
 	for _, def := range generationFour {
+		byName[def.Name] = def
+	}
+	for _, def := range compactAutomationToolDefinitions() {
 		byName[def.Name] = def
 	}
 

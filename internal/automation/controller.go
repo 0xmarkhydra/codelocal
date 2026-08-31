@@ -17,6 +17,7 @@ type Controller struct {
 	Root         string
 	Browser      *BrowserController
 	Computer     *ComputerController
+	Mobile       *MobileController
 	Authorizer   *Authorizer
 }
 
@@ -27,6 +28,9 @@ func NewController(workspaceID, workspaceKey, root string) *Controller {
 	}
 	if computer, err := NewComputerController(workspaceID, workspaceKey, root); err == nil {
 		controller.Computer = computer
+	}
+	if mobile, err := NewMobileController(root); err == nil {
+		controller.Mobile = mobile
 	}
 	return controller
 }
@@ -47,6 +51,12 @@ func (c *Controller) Capabilities() map[string]any {
 		"attachExisting":  false,
 	}
 	computer := ComputerCapabilities()
+	desktopAvailable, _ := computer["available"].(bool)
+	mobile := MobileCapabilities()
+	mobileAvailable, _ := mobile["available"].(bool)
+	computer["desktopAvailable"] = desktopAvailable
+	computer["mobile"] = mobile
+	computer["available"] = desktopAvailable || mobileAvailable
 	if c != nil && c.Computer != nil {
 		computer["agentCursor"] = c.Computer.AgentCursorSupported()
 	} else {
@@ -157,6 +167,9 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 	if args == nil {
 		args = map[string]any{}
 	}
+	if isMobileComputerRequest(tool, args) {
+		return c.handleMobileComputer(ctx, tool, args, sessionID)
+	}
 	switch tool {
 	case "browser_status":
 		if c.Browser == nil {
@@ -261,6 +274,12 @@ func (c *Controller) HandleScoped(ctx context.Context, tool string, args map[str
 		return c.Browser.Close(ctx)
 	case "computer_status":
 		status := ComputerCapabilities()
+		desktopAvailable, _ := status["available"].(bool)
+		mobile := MobileCapabilities()
+		mobileAvailable, _ := mobile["available"].(bool)
+		status["desktopAvailable"] = desktopAvailable
+		status["mobile"] = mobile
+		status["available"] = desktopAvailable || mobileAvailable
 		if c.Computer != nil {
 			status["agentCursor"] = c.Computer.AgentCursorSupported()
 			status["health"] = c.Computer.Health(ctx)
@@ -426,5 +445,8 @@ func (c *Controller) Close() {
 	}
 	if c.Computer != nil {
 		c.Computer.Close()
+	}
+	if c.Mobile != nil {
+		c.Mobile.Close()
 	}
 }

@@ -43,7 +43,7 @@ func TestCompactToolSurfaceContract(t *testing.T) {
 	if compactBytes >= previousPublicSchemaBytes {
 		t.Fatalf("generation-5 schema should be smaller than generation 4: compact=%d previous=%d", compactBytes, previousPublicSchemaBytes)
 	}
-	t.Logf("MCP surface bytes: generation4=%d generation5=%d reduction=%.1f%%", previousPublicSchemaBytes, compactBytes, 100*(1-float64(compactBytes)/float64(previousPublicSchemaBytes)))
+	t.Logf("MCP surface bytes: generation4=%d generation6=%d reduction=%.1f%%", previousPublicSchemaBytes, compactBytes, 100*(1-float64(compactBytes)/float64(previousPublicSchemaBytes)))
 }
 
 func allCompactActions(t *testing.T, def compactToolDef) []string {
@@ -68,9 +68,10 @@ func universalCompactArgs(action string) map[string]any {
 		"message": "commit", "command": "go test ./...", "processId": "process", "input": "input", "cols": 120, "rows": 36,
 		"server": "server", "tool": "tool", "id": "approval", "actionKey": "approval-key",
 		"memories": []any{map[string]any{"kind": "goal", "summary": "Ship CodeLocal", "scope": "global"}},
-		"url":      "https://example.com", "ref": "e1", "text": "input", "windowId": "window-1", "elementId": "element-1",
+		"url":      "https://example.com", "ref": "e1", "text": "input", "windowId": "window-1", "elementId": "element-1", "device": "mobile-device",
 		"steps": []any{map[string]any{"action": "click", "target": "Save"}},
 		"x":     100, "y": 100, "deltaX": 0, "deltaY": 100, "fromX": 10, "fromY": 10, "toX": 100, "toY": 100,
+		"packageName": "com.example.app", "bundleId": "com.example.app", "orientation": "portrait", "crashId": "crash-1",
 	}
 }
 
@@ -81,7 +82,11 @@ func TestCompactSurfaceCoversEveryRuntimeOperation(t *testing.T) {
 			continue
 		}
 		for _, action := range allCompactActions(t, def) {
-			operation, _, err := def.Resolve(universalCompactArgs(action))
+			args := universalCompactArgs(action)
+			if def.Name == "computer" && (action == "status" || action == "list_windows" || action == "focus" || action == "run") {
+				delete(args, "device")
+			}
+			operation, _, err := def.Resolve(args)
 			if err != nil {
 				t.Fatalf("resolve %s(%s): %v", def.Name, action, err)
 			}
