@@ -27,13 +27,26 @@
   --muted: var(--text-secondary);
   --muted-2: var(--text-tertiary);
 
-  --radius-control: 8px;
-  --radius-panel: 12px;
-  --radius-stage: 18px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-control: 10px;
+  --radius-panel: 16px;
+  --radius-stage: 22px;
   --radius-pill: 999px;
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-panel);
   --radius-lg: var(--radius-stage);
+
+  --glass-fill: rgba(10, 14, 21, 0.68);
+  --glass-fill-strong: rgba(10, 14, 21, 0.84);
+  --glass-line: rgba(255, 255, 255, 0.09);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --glass-blur: 26px;
 
   --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.16);
   --shadow-stage: 0 28px 78px rgba(0, 0, 0, 0.22);
