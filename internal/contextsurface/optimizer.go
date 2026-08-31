@@ -23,7 +23,11 @@ func CompileOptimized(input Input, rawObservations []ToolObservation, policy Opt
 		result.Metrics.ObservationReduction = float64(saved) / float64(result.Metrics.RawObservationTokens)
 	}
 
-	staging := Compile(input, optimizationStagingBudget(policy, len(rawObservations)))
+	stagingBudget := optimizationStagingBudget(policy, len(rawObservations))
+	if required := optimizationInputTokens(input); required > stagingBudget {
+		stagingBudget = minInt(256_000, required)
+	}
+	staging := Compile(input, stagingBudget)
 	result.Metrics.PreCompactionTokens = staging.Budget.EstimatedTokens
 	result.Metrics.StagingTruncated = staging.Truncated
 	pressureView := staging
@@ -88,4 +92,16 @@ func applyFinalBudget(surface Surface, maxTokens int) Surface {
 		}
 	}
 	return surface
+}
+
+func optimizationInputTokens(input Input) int {
+	total := totalItemTokens(brainItems(input.Brain))
+	for _, lane := range [][]Item{
+		normalizeLane(input.Active, LaneActive),
+		normalizeLane(input.Observations, LaneObservation),
+		normalizeLane(input.Recent, LaneRecent),
+	} {
+		total += totalItemTokens(lane)
+	}
+	return total
 }

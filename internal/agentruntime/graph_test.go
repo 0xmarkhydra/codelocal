@@ -32,7 +32,11 @@ func TestAgentGraphRejectsCycleAndRecovers(t *testing.T) {
 	if graph.JoinReady(root.ID) {
 		t.Fatal("join should wait for active child")
 	}
-	if _, err := graph.Transition(child.ID, AgentCompleted, root.UpdatedAt); err != nil {
+	child, err = graph.Transition(child.ID, AgentActive, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := graph.Transition(child.ID, AgentCompleted, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if !graph.JoinReady(root.ID) {
