@@ -1,0 +1,62 @@
+name: Agent OS V3 Gate
+
+on:
+  push:
+    branches:
+      - feat/agent-os-v3-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-os-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  internal:
+    name: Internal packages (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test internal packages
+        run: go test ./internal/...
+      - name: Vet internal packages
+        run: go vet ./internal/...
+
+  agent-os-focused:
+    name: Agent OS focused gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test Agent OS packages
+        run: >-
+          go test
+          ./internal/agentruntime
+          ./internal/contextsurface
+          ./internal/editing
+          ./internal/orchestration
+          ./internal/projectbrain
+          ./internal/releasegate
+          ./internal/runtimeevents
+          ./internal/runtimeprovider
+          ./internal/security
+          ./internal/taskexecution
+          ./internal/toolprogram
+          ./internal/usage
