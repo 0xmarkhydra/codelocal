@@ -5,6 +5,7 @@ import styles from "./article-share-actions.module.css";
 
 type Props = {
   slug: string;
+  shortCode: string;
   title: string;
 };
 
@@ -25,7 +26,7 @@ async function copyText(value: string) {
   textarea.remove();
 }
 
-export function ArticleShareActions({ slug, title }: Props) {
+export function ArticleShareActions({ slug, shortCode, title }: Props) {
   const [feedback, setFeedback] = useState<Feedback>("");
 
   function absoluteURL(path: string) {
@@ -50,7 +51,7 @@ export function ArticleShareActions({ slug, title }: Props) {
 
   async function copyShortLink() {
     try {
-      await copyText(absoluteURL(`/b/${encodeURIComponent(slug)}`));
+      await copyText(absoluteURL(`/b/${encodeURIComponent(shortCode)}`));
       setFeedback("short-copied");
     } catch {
       setFeedback("error");
