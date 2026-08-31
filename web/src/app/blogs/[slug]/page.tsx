@@ -11,6 +11,7 @@ import {
   getBlogSeriesPageForRender,
   getRelatedPostsForRender,
 } from "@/lib/blog-server";
+import { blogShortCode } from "@/lib/blog-short-link";
 import { ArticleShareActions } from "./article-share-actions";
 
 type ArticleProps = { params: Promise<{ slug: string }> };
@@ -62,6 +63,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
   const seriesIndex = seriesPosts.findIndex((entry) => entry.slug === post.slug);
   const previous = seriesIndex > 0 ? seriesPosts[seriesIndex - 1] : undefined;
   const next = seriesIndex >= 0 ? seriesPosts[seriesIndex + 1] : undefined;
+  const shortCode = blogShortCode(post.slug);
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
@@ -93,7 +95,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
           <time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt)}</time>
           <span>{post.readingMinutes} min read</span>
         </div>
-        <ArticleShareActions slug={post.slug} title={post.title} />
+        <ArticleShareActions slug={post.slug} shortCode={shortCode} title={post.title} />
       </header>
 
       {post.coverAssetId && (
