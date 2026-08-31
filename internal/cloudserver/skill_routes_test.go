@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-func TestSkillJSONCSRFAdaptsHeaderWithoutMutatingOriginalRequest(t *testing.T) {
+func TestDashboardJSONCSRFAdaptsHeaderWithoutMutatingOriginalRequest(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPatch, "/api/v1/skills/ui-ux-pro/state", nil)
 	request.Header.Set("X-CSRF-Token", "csrf-from-header")
 	var received string
-	handler := skillJSONCSRF(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	handler := dashboardJSONCSRF(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		received = r.URL.Query().Get("csrf")
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), request)
@@ -22,11 +22,11 @@ func TestSkillJSONCSRFAdaptsHeaderWithoutMutatingOriginalRequest(t *testing.T) {
 	}
 }
 
-func TestSkillJSONCSRFPreservesExplicitQueryToken(t *testing.T) {
+func TestDashboardJSONCSRFPreservesExplicitQueryToken(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/skills/import?csrf=explicit", nil)
 	request.Header.Set("X-CSRF-Token", "header")
 	var received string
-	skillJSONCSRF(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	dashboardJSONCSRF(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		received = r.URL.Query().Get("csrf")
 	})).ServeHTTP(httptest.NewRecorder(), request)
 	if received != "explicit" {
@@ -34,10 +34,10 @@ func TestSkillJSONCSRFPreservesExplicitQueryToken(t *testing.T) {
 	}
 }
 
-func TestSkillJSONCSRFWithoutHeaderLeavesRequestUntouched(t *testing.T) {
+func TestDashboardJSONCSRFWithoutHeaderLeavesRequestUntouched(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/skills/publish", nil)
 	seen := request
-	skillJSONCSRF(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	dashboardJSONCSRF(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		if r != seen {
 			t.Fatal("request without X-CSRF-Token should not be cloned")
 		}

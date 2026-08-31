@@ -121,11 +121,15 @@ func platformCapabilities() map[string]any {
 	} else {
 		trusted = macAccessibilityTrusted(ctx)
 	}
-	nativeSceneEvents, _ := nativeCapabilities["sceneEvents"].(bool)
 	controlState, controlStateErr := macControlState()
 	if controlStateErr != nil {
 		controlState = "unknown"
 	}
+	return macPlatformCapabilities(nativeCapabilities, nativeReady, trusted, controlState)
+}
+
+func macPlatformCapabilities(nativeCapabilities map[string]any, nativeReady, trusted bool, controlState string) map[string]any {
+	nativeSceneEvents, _ := nativeCapabilities["sceneEvents"].(bool)
 	backend := "macos-persistent-ax+coregraphics"
 	engine := "computer-v2"
 	if nativeReady {
