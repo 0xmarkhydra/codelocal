@@ -68,10 +68,14 @@ func Add(left, right TaskUsage) TaskUsage {
 	if out.TaskID == "" {
 		out.TaskID = right.TaskID
 	}
-	if out.EngineID == "" || out.EngineID != right.EngineID {
+	if out.EngineID == "" {
+		out.EngineID = right.EngineID
+	} else if right.EngineID != "" && out.EngineID != right.EngineID {
 		out.EngineID = "mixed"
 	}
-	if out.ModelID == "" || out.ModelID != right.ModelID {
+	if out.ModelID == "" {
+		out.ModelID = right.ModelID
+	} else if right.ModelID != "" && out.ModelID != right.ModelID {
 		out.ModelID = "mixed"
 	}
 	if out.Currency == "" {
