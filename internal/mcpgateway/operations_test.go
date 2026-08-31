@@ -4,7 +4,7 @@ import "testing"
 
 var frozenRuntimeToolNames = []string{
 	"list_devices", "list_device_identities", "revoke_device", "rename_device", "list_workspaces", "select_workspace", "workspace_info", "approval_mode", "memory_remember", "memory_recall", "learned_skill_list",
-	"project_info", "project_map", "context_for_task", "read_instructions", "list_files", "file_info", "read_file", "read_file_range", "read_files", "search_code",
+	"project_info", "project_map", "context_for_task", "read_instructions", "list_files", "file_info", "read_media", "read_file", "read_file_range", "read_files", "search_code",
 	"inspect_dependency", "read_dependency", "search_dependency",
 	"semantic_info", "workspace_symbols", "find_symbol", "document_symbols", "find_definition", "find_references", "find_implementations", "get_hover", "get_diagnostics", "get_callers", "get_callees", "get_import_graph",
 	"write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "snapshot_diagnostics", "verify_changes",

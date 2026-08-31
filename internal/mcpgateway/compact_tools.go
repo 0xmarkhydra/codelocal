@@ -413,6 +413,21 @@ func compactToolDefinitions() []compactToolDef {
 		})
 	}
 
+	readActions := map[string]string{"info": "file_info", "media": "read_media", "file": "read_file", "range": "read_file_range", "many": "read_files"}
+	readDef := byName["read"]
+	readDef.Title = "Read project files and publish media"
+	readDef.Description = "Read file metadata, one file, a line range, a targeted batch, or publish a workspace-local image through CodeLocal's private media transport. action=media accepts a workspace-relative PNG/JPEG/WebP/GIF path and returns a short-lived signed URL plus hash/MIME/size; the local runtime uploads bytes directly to object storage before the result crosses MCP."
+	readDef.Schema = actionSchema([]string{"info", "media", "file", "range", "many"}, map[string]any{
+		"path": path, "paths": array(path, "Target files."),
+		"startLine": integer("1-based first line.", 1, 0), "endLine": integer("1-based last line.", 1, 0),
+	})
+	readDef.Annotations = compactAnnotations("Read project files and publish media", true, false, false)
+	readDef.Resolve = func(args map[string]any) (operationInvocation, map[string]any, error) {
+		return resolveAction(args, readActions, map[string][]string{
+			"info": {"path"}, "media": {"path"}, "file": {"path"}, "range": {"path", "startLine", "endLine"}, "many": {"paths"},
+		})
+	}
+
 	terminalActions := map[string]string{
 		"preflight": "terminal_preflight", "history": "terminal_history", "run": "run_command", "start": "exec_start", "start_pty": "pty_start",
 		"process_list": "process_list", "poll": "exec_poll", "write": "exec_write", "resize": "pty_resize", "signal": "exec_signal", "kill": "exec_kill", "cancel": "exec_cancel",
@@ -442,7 +457,7 @@ func compactToolDefinitions() []compactToolDef {
 		workspace,
 		contextDef,
 		byName["agent"],
-		byName["read"],
+		readDef,
 		byName["search"],
 		byName["edit"],
 		byName["verify"],

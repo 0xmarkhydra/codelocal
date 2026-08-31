@@ -48,6 +48,7 @@ var runtimeOperationIDs = map[string]string{
 	"read_instructions": "project.instructions",
 	"list_files":        "search.files",
 	"file_info":         "read.info",
+	"read_media":        "read.media",
 	"read_file":         "read.file",
 	"read_file_range":   "read.range",
 	"read_files":        "read.many",

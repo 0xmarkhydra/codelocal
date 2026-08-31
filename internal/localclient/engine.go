@@ -1193,6 +1193,8 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		return e.FS.List(defaultString(asString(args["path"]), "."), asInt(args["maxDepth"], 4), asBool(args["includeIgnored"], false))
 	case "file_info":
 		return e.FS.FileInfo(asString(args["path"]))
+	case "read_media":
+		return e.workspaceMedia(asString(args["path"]))
 	case "read_file":
 		return e.taskReadFile(ctx, args, opts, asString(args["path"]), 0, 0)
 	case "read_file_range":

@@ -66,6 +66,16 @@ When Go visual media is configured:
 5. Runtime removes `__mcpImage` from the tool result and emits `__mcpImageRef`.
 6. MCP converts the ref into `ResourceLink`.
 
+### Publish an existing workspace image
+
+The compact MCP `read` tool also supports `action=media` for evidence/screenshots that already exist under an authorized workspace. The caller supplies only a workspace-relative path, for example:
+
+```json
+{"action":"media","path":"artifacts/evidence/BID-290-final.png"}
+```
+
+The local runtime resolves the path through the same workspace and sensitive-path policy as normal file reads, rejects symlink/path traversal, validates PNG/JPEG/WebP/GIF signatures and size, then feeds the bytes into the existing private media transport. The bytes are uploaded directly from the local runtime to the presigned object-storage URL before the MCP result is sent. The result contains the workspace path plus `visual.url`, SHA-256, MIME type, size and expiry metadata; raw image bytes are not returned through MCP.
+
 If the Go server explicitly reports `media_not_configured`, runtime preserves legacy base64 behavior for rollout compatibility. If media is configured but presign/upload fails, runtime fails closed by default. `CODELOCAL_MEDIA_BASE64_FALLBACK=1` is an explicit emergency compatibility override.
 
 ## Health
