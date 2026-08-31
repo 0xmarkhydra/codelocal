@@ -10,6 +10,7 @@ import {
   isBlogSeriesCollectionResource,
   isBlogSeriesResource,
 } from "@/lib/contracts/blog";
+import { AppIcon } from "../app-icon";
 import { useDashboardResource } from "../use-dashboard-resource";
 import styles from "./blogs.module.css";
 
@@ -35,6 +36,7 @@ export function BlogsHub() {
   const posts = resource.state.kind === "ready" ? resource.state.value.posts : [];
   const series = seriesResource.state.kind === "ready" ? seriesResource.state.value.series : [];
   const counts = useMemo(() => ({
+    all: posts.length,
     published: posts.filter((post) => post.status === "published").length,
     drafts: posts.filter((post) => post.status === "draft").length,
     series: series.filter((item) => item.status !== "archived").length,
@@ -110,21 +112,88 @@ export function BlogsHub() {
 
   return (
     <div className={styles.blogWorkspace}>
+      <section className={styles.overview} aria-label="Blog overview">
+        <div className={styles.stats}>
+          <article><strong>{counts.all}</strong><span>All posts</span></article>
+          <article><strong>{counts.published}</strong><span>Published</span></article>
+          <article><strong>{counts.drafts}</strong><span>Drafts</span></article>
+          <article><strong>{counts.series}</strong><span>Series</span></article>
+        </div>
+
+        <div className={styles.quickGrid}>
+          <form className={styles.quickCard} onSubmit={createDraft}>
+            <div className={styles.quickCopy}>
+              <span className={styles.quickIcon} aria-hidden="true"><AppIcon name="edit" size={17} /></span>
+              <div>
+                <span className={styles.kicker}>New article</span>
+                <strong>Start a draft</strong>
+                <p>Create the post first, then add metadata, media and publishing settings in the editor.</p>
+              </div>
+            </div>
+            <div className={styles.quickForm}>
+              <input
+                aria-label="Post title"
+                maxLength={200}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Article title"
+                value={title}
+              />
+              <button disabled={creating || account.state.kind !== "ready" || !title.trim()} type="submit">
+                <AppIcon name="plus" size={14} />
+                {creating ? "Creating…" : "Create draft"}
+              </button>
+            </div>
+            {error && <p className={styles.errorText} role="alert">{error}</p>}
+          </form>
+
+          <form className={styles.quickCard} onSubmit={createSeries}>
+            <div className={styles.quickCopy}>
+              <span className={styles.quickIcon} aria-hidden="true"><AppIcon name="module" size={17} /></span>
+              <div>
+                <span className={styles.kicker}>Collection</span>
+                <strong>Create a series</strong>
+                <p>Group related posts into a learning path without changing their canonical article URLs.</p>
+              </div>
+            </div>
+            <div className={styles.quickForm}>
+              <input
+                aria-label="Series title"
+                maxLength={200}
+                onChange={(event) => setSeriesTitle(event.target.value)}
+                placeholder="Series title"
+                value={seriesTitle}
+              />
+              <button disabled={creatingSeries || account.state.kind !== "ready" || !seriesTitle.trim()} type="submit">
+                <AppIcon name="plus" size={14} />
+                {creatingSeries ? "Creating…" : "Create series"}
+              </button>
+            </div>
+            {seriesError && <p className={styles.errorText} role="alert">{seriesError}</p>}
+          </form>
+        </div>
+      </section>
+
       <section className={`${styles.section} ${styles.postsSection}`}>
         <div className={styles.sectionHeader}>
-          <div><span className={styles.kicker}>Your content</span><h2>Posts</h2></div>
-          <Link href="/blogs">Open public blog</Link>
+          <div>
+            <span className={styles.kicker}>Content library</span>
+            <h2>Posts</h2>
+            <p>Search, review and continue editing all of your articles.</p>
+          </div>
+          <span className={styles.sectionCount}>{filteredPosts.length} shown</span>
         </div>
 
         <div className={styles.postToolbar}>
-          <input
-            aria-label="Search posts"
-            className={styles.searchInput}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search title, excerpt, category or tag"
-            type="search"
-            value={query}
-          />
+          <label className={styles.searchBox}>
+            <AppIcon name="search" size={15} />
+            <input
+              aria-label="Search posts"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search title, excerpt, category or tag"
+              type="search"
+              value={query}
+            />
+          </label>
           <div className={styles.statusFilters} role="group" aria-label="Filter posts by status">
             {(["all", "published", "draft"] as const).map((status) => (
               <button
@@ -134,7 +203,7 @@ export function BlogsHub() {
                 onClick={() => setStatusFilter(status)}
                 type="button"
               >
-                {status === "all" ? "All" : status === "published" ? "Published" : "Drafts"}
+                {status === "all" ? `All ${counts.all}` : status === "published" ? `Published ${counts.published}` : `Drafts ${counts.drafts}`}
               </button>
             ))}
           </div>
@@ -148,86 +217,61 @@ export function BlogsHub() {
           </div>
         )}
         {resource.state.kind === "unauthenticated" && <div className={styles.emptyState}>Sign in again to manage your posts.</div>}
-        {resource.state.kind === "ready" && posts.length === 0 && <div className={styles.emptyState}>No posts yet. Create your first draft from the right panel.</div>}
+        {resource.state.kind === "ready" && posts.length === 0 && <div className={styles.emptyState}>No posts yet. Start a draft above.</div>}
         {resource.state.kind === "ready" && posts.length > 0 && filteredPosts.length === 0 && <div className={styles.emptyState}>No posts match this search or filter.</div>}
         {resource.state.kind === "ready" && filteredPosts.length > 0 && (
           <div className={styles.postList}>
             {filteredPosts.map((post) => (
               <Link className={styles.postRow} href={`/dashboard/blogs/${post.id}`} key={post.id}>
-                <div>
-                  <span>{post.status} · {post.category || "Uncategorized"}</span>
+                <div className={styles.postMain}>
+                  <div className={styles.postMeta}>
+                    <span className={styles.statusChip} data-status={post.status}>{post.status}</span>
+                    <span>{post.category || "Uncategorized"}</span>
+                  </div>
                   <strong>{post.title}</strong>
                   <p>{post.excerpt || "No excerpt yet."}</p>
                 </div>
-                <time dateTime={new Date(post.updatedAt).toISOString()}>{formatDate(post.updatedAt)}</time>
+                <div className={styles.postEnd}>
+                  <time dateTime={new Date(post.updatedAt).toISOString()}>{formatDate(post.updatedAt)}</time>
+                  <AppIcon name="chevron-right" size={15} />
+                </div>
               </Link>
             ))}
           </div>
         )}
       </section>
 
-      <aside className={styles.sideRail}>
-        <div className={styles.stats} aria-label="Blog summary">
-          <article><strong>{counts.published}</strong><span>Published</span></article>
-          <article><strong>{counts.drafts}</strong><span>Drafts</span></article>
-          <article><strong>{counts.series}</strong><span>Series</span></article>
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <span className={styles.kicker}>Collections</span>
+            <h2>Series</h2>
+            <p>Organize related articles into a clear reading order.</p>
+          </div>
+          <span className={styles.sectionCount}>{counts.series} active</span>
         </div>
 
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <div><span className={styles.kicker}>Write</span><h2>New draft</h2></div>
+        {seriesResource.state.kind === "loading" && <div className={styles.emptyState}>Loading series…</div>}
+        {seriesResource.state.kind === "error" && <div className={styles.emptyState}><p>{seriesResource.state.message}</p><button type="button" onClick={seriesResource.retry}>Try again</button></div>}
+        {seriesResource.state.kind === "ready" && series.length === 0 && <div className={styles.emptyState}>No series yet. Create one above when you need a multi-part guide.</div>}
+        {seriesResource.state.kind === "ready" && series.length > 0 && (
+          <div className={styles.seriesGrid}>
+            {series.map((item) => (
+              <Link className={styles.seriesCard} href={`/dashboard/blogs/series/${item.id}`} key={item.id}>
+                <div>
+                  <span className={styles.statusChip} data-status={item.status}>{item.status}</span>
+                  <strong>{item.title}</strong>
+                  <p>{item.description || "No description yet."}</p>
+                </div>
+                <div className={styles.seriesFoot}>
+                  <time dateTime={new Date(item.updatedAt).toISOString()}>Updated {formatDate(item.updatedAt)}</time>
+                  <AppIcon name="chevron-right" size={15} />
+                </div>
+              </Link>
+            ))}
           </div>
-          <form className={styles.createForm} onSubmit={createDraft}>
-            <input
-              aria-label="Post title"
-              maxLength={200}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="What do you want to write about?"
-              value={title}
-            />
-            <button disabled={creating || account.state.kind !== "ready" || !title.trim()} type="submit">
-              {creating ? "Creating…" : "Create draft"}
-            </button>
-          </form>
-          {error && <p className={styles.errorText} role="alert">{error}</p>}
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <div><span className={styles.kicker}>Learning paths</span><h2>Series</h2></div>
-          </div>
-          <form className={styles.createForm} onSubmit={createSeries}>
-            <input
-              aria-label="Series title"
-              maxLength={200}
-              onChange={(event) => setSeriesTitle(event.target.value)}
-              placeholder="Create a new series"
-              value={seriesTitle}
-            />
-            <button disabled={creatingSeries || account.state.kind !== "ready" || !seriesTitle.trim()} type="submit">
-              {creatingSeries ? "Creating…" : "Create series"}
-            </button>
-          </form>
-          {seriesError && <p className={styles.errorText} role="alert">{seriesError}</p>}
-          {seriesResource.state.kind === "loading" && <div className={styles.emptyState}>Loading series…</div>}
-          {seriesResource.state.kind === "error" && <div className={styles.emptyState}><p>{seriesResource.state.message}</p><button type="button" onClick={seriesResource.retry}>Try again</button></div>}
-          {seriesResource.state.kind === "ready" && series.length === 0 && <div className={styles.emptyState}>No series yet.</div>}
-          {seriesResource.state.kind === "ready" && series.length > 0 && (
-            <div className={styles.postList}>
-              {series.map((item) => (
-                <Link className={styles.postRow} href={`/dashboard/blogs/series/${item.id}`} key={item.id}>
-                  <div>
-                    <span>{item.status}</span>
-                    <strong>{item.title}</strong>
-                    <p>{item.description || "No description yet."}</p>
-                  </div>
-                  <time dateTime={new Date(item.updatedAt).toISOString()}>{formatDate(item.updatedAt)}</time>
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
-      </aside>
+        )}
+      </section>
     </div>
   );
 }
