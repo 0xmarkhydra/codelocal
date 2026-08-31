@@ -139,10 +139,17 @@ func (g *VerificationGate) Record(expectedRevision uint64, evidence Verification
 	if previous, ok := g.results[evidence.CheckID]; ok && !verificationTransitionAllowed(previous.Status, evidence.Status) {
 		return VerificationSnapshot{}, ErrInvalidVerification
 	}
+	previous, hadPrevious := g.results[evidence.CheckID]
+	previousRevision := g.revision
 	g.results[evidence.CheckID] = evidence
 	g.revision++
 	if err := g.persistLocked(eventVerificationResult, "verification:result:"+evidence.CheckID+":"+strconv.FormatUint(g.revision, 10)); err != nil {
-		g.revision--
+		g.revision = previousRevision
+		if hadPrevious {
+			g.results[evidence.CheckID] = previous
+		} else {
+			delete(g.results, evidence.CheckID)
+		}
 		return VerificationSnapshot{}, err
 	}
 	return g.snapshotLocked(), nil
