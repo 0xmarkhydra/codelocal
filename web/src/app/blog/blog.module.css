@@ -223,11 +223,13 @@
 
 .taxonomy { display: flex; flex-wrap: wrap; gap: 7px; }
 .taxonomy a {
+  max-width: 100%;
   padding: 6px 9px;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--text-tertiary);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .taxonomy a:hover { color: var(--text); border-color: var(--line-strong); }
 
@@ -269,10 +271,16 @@
 .articlePage { padding: 80px 0 120px; }
 .articleHeader,
 .taxonomyHeader,
-.seriesHeader { max-width: 900px; padding-bottom: 42px; }
+.seriesHeader { min-width: 0; max-width: 900px; padding-bottom: 42px; }
 .articleHeader h1,
 .taxonomyHeader h1,
-.seriesHeader h1 { font-size: clamp(40px, 6vw, 68px); }
+.seriesHeader h1 {
+  font-size: clamp(40px, 6vw, 68px);
+  overflow-wrap: anywhere;
+}
+.articleHeader > p,
+.taxonomyHeader > p,
+.seriesHeader > p { overflow-wrap: anywhere; }
 .articleMeta { display: flex; flex-wrap: wrap; gap: 9px 18px; margin-top: 22px; color: var(--text-tertiary); font-size: 12px; }
 .articleMeta strong { color: var(--text-secondary); }
 
@@ -283,7 +291,7 @@
   border-radius: 22px;
   background: rgba(255,255,255,.018);
 }
-.articleCover img { display: block; width: 100%; height: auto; }
+.articleCover img { display: block; width: 100%; max-width: 100%; height: auto; }
 
 .seriesBanner {
   display: grid;
@@ -300,20 +308,22 @@
 .seriesBanner strong { font-size: 15px; }
 .seriesBanner a { color: #cbd9ff; font-size: 13px; }
 
-.articleLayout { display: grid; grid-template-columns: minmax(0, 760px) 1fr; gap: 54px; align-items: start; }
+.articleLayout { display: grid; grid-template-columns: minmax(0, 760px) minmax(0, 1fr); gap: 54px; align-items: start; }
+.articleLayout > article,
+.articleLayout > aside { min-width: 0; }
 .articleBody { min-width: 0; }
-.articleBody > p { margin: 0 0 24px; color: #c8ccd5; font-size: 17px; line-height: 1.8; }
-.articleBody h2 { margin: 54px 0 18px; font-size: 30px; letter-spacing: -0.035em; }
+.articleBody > p { margin: 0 0 24px; color: #c8ccd5; font-size: 17px; line-height: 1.8; overflow-wrap: anywhere; }
+.articleBody h2 { margin: 54px 0 18px; font-size: 30px; letter-spacing: -0.035em; overflow-wrap: anywhere; }
 .articleBody ul { margin: 0 0 28px; padding-left: 22px; color: #c8ccd5; }
-.articleBody li { margin: 10px 0; padding-left: 6px; line-height: 1.65; }
-.articleBody pre { position: relative; overflow-x: auto; margin: 30px 0; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: #080b10; color: #d7e4ff; font-size: 13px; line-height: 1.65; }
+.articleBody li { margin: 10px 0; padding-left: 6px; line-height: 1.65; overflow-wrap: anywhere; }
+.articleBody pre { position: relative; overflow-x: auto; max-width: 100%; min-width: 0; margin: 30px 0; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: #080b10; color: #d7e4ff; font-size: 13px; line-height: 1.65; }
 .articleBody pre::before { content: attr(data-language); display: block; margin-bottom: 12px; color: var(--text-tertiary); font-size: 10px; text-transform: uppercase; }
-.articleImage { margin: 34px 0; }
+.articleImage { overflow: hidden; max-width: 100%; margin: 34px 0; }
 .articleImage img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.018); }
 .articleImage figcaption { margin-top: 9px; color: var(--text-tertiary); font-size: 12px; line-height: 1.5; text-align: center; }
 .callout { margin: 34px 0; padding: 20px; border-left: 2px solid var(--accent); border-radius: 0 12px 12px 0; background: rgba(120,160,255,0.055); }
-.callout strong { display: block; margin-bottom: 7px; }
-.callout p { margin: 0; color: var(--text-secondary); line-height: 1.65; }
+.callout strong { display: block; margin-bottom: 7px; overflow-wrap: anywhere; }
+.callout p { margin: 0; color: var(--text-secondary); line-height: 1.65; overflow-wrap: anywhere; }
 
 .articleAside { position: sticky; top: 104px; display: grid; gap: 12px; }
 .asideCard { padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.018); }
@@ -371,6 +381,25 @@
   .openApp { padding: 8px 10px; }
   .page,
   .articlePage { padding-top: 54px; }
+  .articleHeader { padding-bottom: 30px; }
+  .articleHeader h1 {
+    font-size: clamp(32px, 10vw, 40px);
+    line-height: 1.04;
+    letter-spacing: -0.04em;
+  }
+  .articleHeader > p {
+    margin-top: 18px;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .articleMeta { gap: 8px 12px; margin-top: 18px; }
+  .articleCover { margin-bottom: 26px; border-radius: 14px; }
+  .articleBody > p { font-size: 16px; line-height: 1.72; }
+  .articleBody h2 { margin-top: 42px; font-size: 26px; line-height: 1.12; }
+  .articleBody ul { padding-left: 19px; }
+  .articleBody pre { margin: 24px 0; padding: 16px; border-radius: 12px; }
+  .articleImage { margin: 26px 0; }
+  .callout { margin: 26px 0; padding: 16px; }
   .hero { gap: 28px; padding-bottom: 40px; }
   .hero h1 { font-size: 43px; }
   .postGrid,
