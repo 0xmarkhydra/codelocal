@@ -13,11 +13,11 @@ import (
 )
 
 // PublicToolSurfaceVersion is the compatibility generation of the public MCP
-// contract. Generation 3 added the cloud-native Blog tool. Generation 4 keeps
-// the same 21-tool surface but extends Blog with ChatGPT host-native file import
-// via openai/fileParams while preserving generation-2 legacy boundaries.
+// contract. Generation 5 collapses the 21-tool generation-4 catalog to 14
+// top-level tools while preserving every runtime operation behind action-driven
+// workspace/context/terminal groups and keeping generation-4 calls translatable.
 const (
-	PublicToolSurfaceVersion = 4
+	PublicToolSurfaceVersion = 5
 
 	// Version 1.5.16 was the generation-2 MCP identity. Keep the same release
 	// line and derive the patch from the surface generation so every future
@@ -142,7 +142,7 @@ func toolContractHashForDefinitions(defs []compactToolDef, instructions string) 
 }
 
 func legacyPublicToolDefinitions() []compactToolDef {
-	defs := compactToolDefinitions()
+	defs := generationFourCompactToolDefinitions()
 	legacy := make([]compactToolDef, 0, len(defs))
 	for _, def := range defs {
 		if def.Name != "blog" {
@@ -156,8 +156,14 @@ func legacyToolSurfaceSummary() string {
 	return fmt.Sprintf("CodeLocal tool surface v%d (%d tools, sha256:%s)", PinnedLegacyPublicToolSurfaceVersion, 20, PinnedLegacyPublicToolSurfaceHash)
 }
 
+func generationFourOrchestrationInstructions() string {
+	const current = "For coding/debugging/review/refactor, call context(action=task) early; use context's project/dependency/LSP actions for exact relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal for both command execution and process lifecycle, git only for Git work, and mcp lazily for installed extensions."
+	const previous = "For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions."
+	return strings.Replace(compactOrchestrationInstructions, current, previous, 1)
+}
+
 func legacyPublicMCPInstructions() string {
-	return compactOrchestrationInstructions + "\n\nCompatibility: " + legacyToolSurfaceSummary() + ". Legacy tool calls that CodeLocal can translate remain supported without user action. Only CODELOCAL_TOOL_SCHEMA_MISMATCH means the client requested a contract CodeLocal cannot translate."
+	return generationFourOrchestrationInstructions() + "\n\nCompatibility: " + legacyToolSurfaceSummary() + ". Legacy tool calls that CodeLocal can translate remain supported without user action. Only CODELOCAL_TOOL_SCHEMA_MISMATCH means the client requested a contract CodeLocal cannot translate."
 }
 
 func legacyPublicToolSurfaceHash() string {

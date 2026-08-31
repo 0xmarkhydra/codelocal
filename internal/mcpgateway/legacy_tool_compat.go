@@ -145,26 +145,97 @@ func writeUnknownToolCompatibilityError(w http.ResponseWriter, id any, tool stri
 // public surface without registering the old names in tools/list. This keeps
 // already-open ChatGPT threads working after a gateway deploy while new
 // sessions only discover the compact tool set.
+func publicAliasForOperationID(operationID string) (legacyToolAlias, bool) {
+	parts := strings.SplitN(strings.TrimSpace(operationID), ".", 2)
+	if len(parts) != 2 {
+		return legacyToolAlias{}, false
+	}
+	domain, action := parts[0], parts[1]
+	switch domain {
+	case "device":
+		mapped := map[string]string{"list_active": "devices", "list_paired": "paired_devices", "rename": "rename_device", "revoke": "revoke_device"}[action]
+		return legacyToolAlias{Tool: "workspace", Action: mapped}, mapped != ""
+	case "memory":
+		mapped := map[string]string{"remember": "remember", "recall": "recall"}[action]
+		return legacyToolAlias{Tool: "workspace", Action: mapped}, mapped != ""
+	case "skills":
+		if action == "list" {
+			return legacyToolAlias{Tool: "workspace", Action: "skills"}, true
+		}
+	case "project":
+		mapped := map[string]string{"info": "project_info", "map": "project_map", "instructions": "instructions"}[action]
+		return legacyToolAlias{Tool: "context", Action: mapped}, mapped != ""
+	case "context":
+		if action == "task" {
+			return legacyToolAlias{Tool: "context", Action: "task"}, true
+		}
+	case "dependency":
+		mapped := map[string]string{"inspect": "dependency_inspect", "read": "dependency_read", "search": "dependency_search"}[action]
+		return legacyToolAlias{Tool: "context", Action: mapped}, mapped != ""
+	case "lsp":
+		if action == "info" {
+			action = "lsp_info"
+		}
+		return legacyToolAlias{Tool: "context", Action: action}, true
+	case "process":
+		if action == "list" {
+			action = "process_list"
+		}
+		return legacyToolAlias{Tool: "terminal", Action: action}, true
+	case "approvals":
+		mapped := map[string]string{"list": "approvals", "revoke": "revoke_approval", "reset": "reset_approvals"}[action]
+		return legacyToolAlias{Tool: "workspace", Action: mapped}, mapped != ""
+	case "security":
+		mapped := map[string]string{"info": "security", "smoke_test": "security_smoke_test"}[action]
+		return legacyToolAlias{Tool: "workspace", Action: mapped}, mapped != ""
+	case "workspace", "read", "search", "edit", "verify", "git", "terminal", "mcp", "browser", "computer":
+		return legacyToolAlias{Tool: domain, Action: action}, true
+	}
+	return legacyToolAlias{}, false
+}
+
 func legacyToolAliasFor(name string) (legacyToolAlias, bool) {
 	operationID, ok := runtimeOperationID(strings.TrimSpace(name))
 	if !ok {
 		return legacyToolAlias{}, false
 	}
-	parts := strings.SplitN(operationID, ".", 2)
-	if len(parts) != 2 {
+	return publicAliasForOperationID(operationID)
+}
+
+func legacyCompactToolAliasFor(name string, args map[string]any) (legacyToolAlias, bool) {
+	action, _ := args["action"].(string)
+	action = strings.TrimSpace(action)
+	var operationID string
+	switch strings.TrimSpace(name) {
+	case "device":
+		operationID = map[string]string{"active": "device.list_active", "paired": "device.list_paired", "rename": "device.rename", "revoke": "device.revoke"}[action]
+	case "project":
+		operationID = map[string]string{"info": "project.info", "map": "project.map", "instructions": "project.instructions"}[action]
+	case "dependency":
+		operationID = map[string]string{"inspect": "dependency.inspect", "read": "dependency.read", "search": "dependency.search"}[action]
+	case "lsp":
+		if action != "" {
+			operationID = "lsp." + action
+		}
+	case "process":
+		if action != "" {
+			operationID = "process." + action
+		}
+	case "approvals":
+		if action != "" {
+			operationID = "approvals." + action
+		}
+	case "security":
+		if action != "" {
+			operationID = "security." + action
+		}
+	default:
 		return legacyToolAlias{}, false
 	}
-	alias := legacyToolAlias{Tool: parts[0], Action: parts[1]}
-	switch operationID {
-	case "device.list_active":
-		alias.Action = "active"
-	case "device.list_paired":
-		alias.Action = "paired"
-	case "context.task":
-		// context is the only compact tool that does not use an action field.
-		alias.Action = ""
+	if operationID == "" {
+		return legacyToolAlias{}, false
 	}
-	return alias, true
+	return publicAliasForOperationID(operationID)
 }
 
 func rewriteLegacyToolEnvelope(value any) bool {
@@ -187,16 +258,30 @@ func rewriteLegacyToolEnvelope(value any) bool {
 			return false
 		}
 		name, _ := params["name"].(string)
-		alias, ok := legacyToolAliasFor(name)
-		if !ok {
-			return false
-		}
-		params["name"] = alias.Tool
 		arguments, _ := params["arguments"].(map[string]any)
 		if arguments == nil {
 			arguments = map[string]any{}
 			params["arguments"] = arguments
 		}
+		// Generation four exposed context(taskHint=...) without an action field.
+		// Generation five keeps the same tool name but makes every grouped tool
+		// action-driven, so translate the cached v4 shape in place.
+		if strings.TrimSpace(name) == "context" {
+			if _, hasAction := arguments["action"]; !hasAction {
+				if taskHint, _ := arguments["taskHint"].(string); strings.TrimSpace(taskHint) != "" {
+					arguments["action"] = "task"
+					return true
+				}
+			}
+		}
+		alias, ok := legacyCompactToolAliasFor(name, arguments)
+		if !ok {
+			alias, ok = legacyToolAliasFor(name)
+		}
+		if !ok {
+			return false
+		}
+		params["name"] = alias.Tool
 		if alias.Action != "" {
 			// A legacy tool has one fixed semantic operation. Always overwrite an
 			// accidental action field so the compatibility path cannot change it.

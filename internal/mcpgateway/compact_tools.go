@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const compactOrchestrationInstructions = `CodeLocal connects MCP-compatible AI clients and coding agents to explicitly authorized local workspaces through one shared Project Brain and controlled runtime. Reuse prior results. Pass the exact workspaceKey on workspace-scoped calls; legacy stateful clients may reuse a selected workspace, while modern sessionless MCP clients must carry workspaceKey explicitly between calls. Minimize MCP round trips: when the user asks for a continuation, a workflow with two or more dependent steps, or a cross-domain sequence such as browser/computer plus edit/verify/git, prefer one bounded agent call that performs the full safe sequence and checkpoints progress after each step. This reduces loss of work when an AI host reconnects or drops a connector between turns. For coding/debugging/review/refactor, call context early; use lsp for exact code relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal plus process for execution lifecycle, git only for Git work, and mcp lazily for installed extensions. For websites, inspect with browser snapshot/find before interacting. For desktop apps, prefer computer observe and semantic targets; use raw element IDs or coordinates only as fallbacks. For repeatable multi-step browser/desktop workflows, prefer agent with the concrete user objective and semantic steps so verified runs can be learned locally and replayed as a faster path on similar future requests. When the user explicitly asks to remember something, or states a durable goal, preference, constraint, milestone or confirmed project decision that materially affects future work, workspace(action=remember) can persist a compact sanitized fact to CodeLocal memory; use a stable memory key for facts whose value may change. When prior durable user/project context may materially affect an answer, workspace(action=recall) can retrieve it with a focused query, including global memory without selecting a workspace. Do not store secrets or routine small talk. Browser and Computer Use are separate opt-in domains, and first-run consent never replaces action-level approval. Avoid repeated inspection unless state changed. Local security policy and explicit user approval in the current MCP client remain authoritative for side effects.`
+const compactOrchestrationInstructions = `CodeLocal connects MCP-compatible AI clients and coding agents to explicitly authorized local workspaces through one shared Project Brain and controlled runtime. Reuse prior results. Pass the exact workspaceKey on workspace-scoped calls; legacy stateful clients may reuse a selected workspace, while modern sessionless MCP clients must carry workspaceKey explicitly between calls. Minimize MCP round trips: when the user asks for a continuation, a workflow with two or more dependent steps, or a cross-domain sequence such as browser/computer plus edit/verify/git, prefer one bounded agent call that performs the full safe sequence and checkpoints progress after each step. This reduces loss of work when an AI host reconnects or drops a connector between turns. For coding/debugging/review/refactor, call context(action=task) early; use context's project/dependency/LSP actions for exact relationships, read only for targeted expansion, and search mainly for literal/config/log text. Use edit for mutations, then verify and the smallest relevant terminal checks. Use terminal for both command execution and process lifecycle, git only for Git work, and mcp lazily for installed extensions. For websites, inspect with browser snapshot/find before interacting. For desktop apps, prefer computer observe and semantic targets; use raw element IDs or coordinates only as fallbacks. For repeatable multi-step browser/desktop workflows, prefer agent with the concrete user objective and semantic steps so verified runs can be learned locally and replayed as a faster path on similar future requests. When the user explicitly asks to remember something, or states a durable goal, preference, constraint, milestone or confirmed project decision that materially affects future work, workspace(action=remember) can persist a compact sanitized fact to CodeLocal memory; use a stable memory key for facts whose value may change. When prior durable user/project context may materially affect an answer, workspace(action=recall) can retrieve it with a focused query, including global memory without selecting a workspace. Do not store secrets or routine small talk. Browser and Computer Use are separate opt-in domains, and first-run consent never replaces action-level approval. Avoid repeated inspection unless state changed. Local security policy and explicit user approval in the current MCP client remain authoritative for side effects.`
 
 type compactToolDef struct {
 	Name        string
@@ -41,6 +41,18 @@ func actionSchema(actions []string, properties map[string]any) json.RawMessage {
 		properties["workspaceKey"] = workspaceKeySchema
 	}
 	return objectSchema(properties, "action")
+}
+
+func schemaProperty(schema json.RawMessage, name string) any {
+	var decoded map[string]any
+	if json.Unmarshal(schema, &decoded) != nil {
+		return nil
+	}
+	properties, _ := decoded["properties"].(map[string]any)
+	if properties == nil {
+		return nil
+	}
+	return properties[name]
 }
 
 func cloneArgs(args map[string]any) map[string]any {
@@ -90,7 +102,7 @@ func singleOperationResolver(runtimeTool string, required ...string) func(map[st
 	}
 }
 
-func compactToolDefinitions() []compactToolDef {
+func generationFourCompactToolDefinitions() []compactToolDef {
 	path := str("Workspace-relative path.")
 	approval := str("One-time approval token returned by an approval-required result.")
 	processID := str("CodeLocal process ID.")
@@ -297,6 +309,148 @@ func compactToolDefinitions() []compactToolDef {
 	tools = append(tools, compactSocialToolDefinitions()...)
 	tools = append(tools, compactBlogToolDefinitions()...)
 	return append(tools, compactAutomationToolDefinitions()...)
+}
+
+func compactToolDefinitions() []compactToolDef {
+	generationFour := generationFourCompactToolDefinitions()
+	byName := make(map[string]compactToolDef, len(generationFour))
+	for _, def := range generationFour {
+		byName[def.Name] = def
+	}
+
+	path := str("Workspace-relative path.")
+	approval := str("One-time approval token returned by an approval-required result.")
+	processID := str("CodeLocal process ID.")
+	limit := integer("Maximum results.", 1, 2000)
+
+	workspaceActions := map[string]string{
+		"list": "list_workspaces", "select": "select_workspace", "info": "workspace_info", "access": "approval_mode",
+		"remember": "memory_remember", "recall": "memory_recall", "skills": "learned_skill_list",
+		"devices": "list_devices", "paired_devices": "list_device_identities", "rename_device": "rename_device", "revoke_device": "revoke_device",
+		"approvals": "approval_list", "revoke_approval": "approval_revoke", "reset_approvals": "approval_reset",
+		"security": "sandbox_info", "security_smoke_test": "sandbox_smoke_test",
+	}
+	workspace := byName["workspace"]
+	workspace.Title = "Manage CodeLocal workspace and runtime"
+	workspace.Description = "Manage workspaces, access, durable memory, learned skills, paired devices, remembered approvals, and execution-security diagnostics through one runtime-scoped tool. Device revocation and approval changes remain policy-controlled."
+	workspace.Schema = actionSchema(
+		[]string{"list", "select", "info", "access", "remember", "recall", "skills", "devices", "paired_devices", "rename_device", "revoke_device", "approvals", "revoke_approval", "reset_approvals", "security", "security_smoke_test"},
+		map[string]any{
+			"key":          str("Workspace key returned by action=list."),
+			"mode":         map[string]any{"type": "string", "enum": []string{"prompt", "smart", "full"}, "description": "Access mode for action=access."},
+			"query":        str("Focused natural-language memory query for action=recall."),
+			"limit":        integer("Maximum recalled memories or learned skills.", 1, 20),
+			"memories":     schemaProperty(byName["workspace"].Schema, "memories"),
+			"credentialId": str("Paired device credential ID."),
+			"deviceName":   str("New device name."),
+			"id":           str("Remembered approval ID."),
+			"actionKey":    str("Structured approval action key."),
+		},
+	)
+	workspace.Annotations = compactAnnotations("Manage CodeLocal workspace and runtime", false, true, false)
+	workspace.Resolve = func(args map[string]any) (operationInvocation, map[string]any, error) {
+		operation, forward, err := resolveAction(args, workspaceActions, map[string][]string{
+			"select": {"key"}, "remember": {"memories"}, "recall": {"query"},
+			"rename_device": {"credentialId", "deviceName"}, "revoke_device": {"credentialId"},
+		})
+		if err != nil {
+			return operationInvocation{}, nil, err
+		}
+		if operation.OperationID == "approvals.revoke" {
+			id, _ := forward["id"].(string)
+			actionKey, _ := forward["actionKey"].(string)
+			if strings.TrimSpace(id) == "" && strings.TrimSpace(actionKey) == "" {
+				return operationInvocation{}, nil, fmt.Errorf("revoke_approval requires id or actionKey")
+			}
+		}
+		return operation, forward, nil
+	}
+
+	contextActions := map[string]string{
+		"task": "context_for_task", "project_info": "project_info", "project_map": "project_map", "instructions": "read_instructions",
+		"dependency_inspect": "inspect_dependency", "dependency_read": "read_dependency", "dependency_search": "search_dependency",
+		"lsp_info": "semantic_info", "workspace_symbols": "workspace_symbols", "document_symbols": "document_symbols",
+		"definition": "find_definition", "references": "find_references", "implementations": "find_implementations",
+		"hover": "get_hover", "diagnostics": "get_diagnostics", "callers": "get_callers", "callees": "get_callees", "import_graph": "get_import_graph",
+	}
+	contextDef := byName["context"]
+	contextDef.Title = "Inspect project context"
+	contextDef.Description = "Primary semantic-first inspection tool. Use task for ranked Project Brain context; project_* for metadata/instructions; dependency_* for installed packages; and LSP actions for exact symbols, definitions, references, diagnostics and call/import graphs."
+	contextDef.Schema = actionSchema(
+		[]string{"task", "project_info", "project_map", "instructions", "dependency_inspect", "dependency_read", "dependency_search", "lsp_info", "workspace_symbols", "document_symbols", "definition", "references", "implementations", "hover", "diagnostics", "callers", "callees", "import_graph"},
+		map[string]any{
+			"taskHint":     str("Concrete coding/debug/review/refactor task."),
+			"targets":      array(path, "Optional workspace-relative targets for task context."),
+			"force":        boolean("Force project-map refresh."),
+			"path":         path,
+			"name":         str("Dependency or symbol name."),
+			"ecosystem":    str("Dependency ecosystem: node, python, rust, go, or auto."),
+			"query":        str("Dependency/symbol/fallback query."),
+			"startLine":    integer("First line.", 1, 0),
+			"endLine":      integer("Last line.", 1, 0),
+			"maxResults":   integer("Maximum dependency search matches.", 1, 500),
+			"fixedStrings": boolean("Treat dependency search literally."),
+			"line":         integer("1-based line.", 1, 0),
+			"column":       integer("1-based column.", 1, 0),
+			"limit":        limit,
+		},
+	)
+	contextDef.Resolve = func(args map[string]any) (operationInvocation, map[string]any, error) {
+		// Generation four exposed context without an action discriminator. Keep
+		// direct compatibility for callers that still send only taskHint.
+		if _, hasAction := args["action"]; !hasAction {
+			if taskHint, _ := args["taskHint"].(string); strings.TrimSpace(taskHint) != "" {
+				args = cloneArgs(args)
+				args["action"] = "task"
+			}
+		}
+		return resolveAction(args, contextActions, map[string][]string{
+			"task": {"taskHint"}, "dependency_inspect": {"name"}, "dependency_read": {"name"}, "dependency_search": {"name", "query"},
+			"document_symbols": {"path"}, "implementations": {"path", "line", "column"}, "hover": {"path", "line", "column"},
+		})
+	}
+
+	terminalActions := map[string]string{
+		"preflight": "terminal_preflight", "history": "terminal_history", "run": "run_command", "start": "exec_start", "start_pty": "pty_start",
+		"process_list": "process_list", "poll": "exec_poll", "write": "exec_write", "resize": "pty_resize", "signal": "exec_signal", "kill": "exec_kill", "cancel": "exec_cancel",
+	}
+	terminal := byName["terminal"]
+	terminal.Title = "Use terminal and processes"
+	terminal.Description = "Run or start guarded commands and manage the lifecycle of CodeLocal-started normal/PTY processes in one tool. Use run for bounded commands; start/start_pty plus poll/write/signal/kill/cancel for long-lived processes."
+	terminal.Schema = actionSchema(
+		[]string{"preflight", "history", "run", "start", "start_pty", "process_list", "poll", "write", "resize", "signal", "kill", "cancel"},
+		map[string]any{
+			"command": str("Shell command."), "cwd": path, "approvalToken": approval,
+			"yieldMs": integer("Initial wait milliseconds.", 0, 10000), "timeoutMs": integer("Timeout milliseconds; 0 disables timeout.", 0, 3600000),
+			"query": str("Terminal-history query."), "event": map[string]any{"type": "string", "enum": []string{"started", "finished", "all"}}, "limit": integer("History record limit.", 1, 500),
+			"processId": processID, "stdoutCursor": integer("Stdout byte cursor.", 0, 0), "stderrCursor": integer("Stderr byte cursor.", 0, 0),
+			"input": str("UTF-8 process input."), "cols": integer("PTY columns.", 10, 500), "rows": integer("PTY rows.", 5, 300),
+			"signal": map[string]any{"type": "string", "enum": []string{"SIGTERM", "SIGINT", "SIGKILL"}}, "reason": str("Cancellation reason."),
+		},
+	)
+	terminal.Resolve = func(args map[string]any) (operationInvocation, map[string]any, error) {
+		return resolveAction(args, terminalActions, map[string][]string{
+			"preflight": {"command"}, "run": {"command"}, "start": {"command"}, "start_pty": {"command"},
+			"poll": {"processId"}, "write": {"processId", "input"}, "resize": {"processId", "cols", "rows"}, "signal": {"processId"}, "kill": {"processId"}, "cancel": {"processId"},
+		})
+	}
+
+	return []compactToolDef{
+		workspace,
+		contextDef,
+		byName["agent"],
+		byName["read"],
+		byName["search"],
+		byName["edit"],
+		byName["verify"],
+		byName["git"],
+		terminal,
+		byName["mcp"],
+		byName["social"],
+		byName["blog"],
+		byName["browser"],
+		byName["computer"],
+	}
 }
 
 func registerCompactTools(server *mcp.Server, service *Service, userID string) {
