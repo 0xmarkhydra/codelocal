@@ -11,6 +11,7 @@ import {
   getBlogSeriesPageForRender,
   getRelatedPostsForRender,
 } from "@/lib/blog-server";
+import { ArticleShareActions } from "./article-share-actions";
 
 type ArticleProps = { params: Promise<{ slug: string }> };
 
@@ -92,6 +93,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
           <time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt)}</time>
           <span>{post.readingMinutes} min read</span>
         </div>
+        <ArticleShareActions slug={post.slug} title={post.title} />
       </header>
 
       {post.coverAssetId && (
