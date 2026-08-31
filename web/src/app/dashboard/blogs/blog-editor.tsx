@@ -354,7 +354,7 @@ export function BlogEditor({ postID }: { postID: string }) {
               <img src={privateMediaVariantURL(coverAssetID, "large")} alt="Post cover preview" />
             </div>
           )}
-          <input className={styles.title} maxLength={200} aria-label="Title" value={title} onChange={(event) => change(setTitle, event.target.value)} placeholder="Post title" />
+          <textarea className={styles.title} maxLength={200} aria-label="Title" value={title} onChange={(event) => change(setTitle, event.target.value)} placeholder="Post title" rows={2} />
           <textarea className={styles.excerpt} maxLength={700} aria-label="Excerpt" value={excerpt} onChange={(event) => change(setExcerpt, event.target.value)} placeholder="Short description for previews and SEO" rows={3} />
           <textarea
             className={styles.body}
