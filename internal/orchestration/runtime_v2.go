@@ -20,6 +20,7 @@ var (
 // invariants before the V3 scheduler is allowed to dispatch real work.
 type ShadowRuntime struct {
 	graph        *agentruntime.AgentGraph
+	activations  *agentruntime.ActivationManager
 	dag          *TaskDAG
 	mailbox      *Mailbox
 	verification *VerificationGate
@@ -28,6 +29,10 @@ type ShadowRuntime struct {
 
 func NewShadowRuntime(events *runtimeevents.Store, workspaceKey, taskID string, plan VerificationPlan) (*ShadowRuntime, error) {
 	graph, err := agentruntime.NewAgentGraph(events, workspaceKey, taskID)
+	if err != nil {
+		return nil, err
+	}
+	activations, err := agentruntime.NewActivationManager(events, workspaceKey, taskID, graph)
 	if err != nil {
 		return nil, err
 	}
@@ -47,10 +52,11 @@ func NewShadowRuntime(events *runtimeevents.Store, workspaceKey, taskID string, 
 	if err != nil {
 		return nil, err
 	}
-	return &ShadowRuntime{graph: graph, dag: dag, mailbox: mailbox, verification: verification, recovery: recovery}, nil
+	return &ShadowRuntime{graph: graph, activations: activations, dag: dag, mailbox: mailbox, verification: verification, recovery: recovery}, nil
 }
 
 func (r *ShadowRuntime) Graph() *agentruntime.AgentGraph { return r.graph }
+func (r *ShadowRuntime) Activations() *agentruntime.ActivationManager { return r.activations }
 func (r *ShadowRuntime) DAG() *TaskDAG { return r.dag }
 func (r *ShadowRuntime) Mailbox() *Mailbox { return r.mailbox }
 func (r *ShadowRuntime) Verification() *VerificationGate { return r.verification }

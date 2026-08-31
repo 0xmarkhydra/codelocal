@@ -26,19 +26,21 @@ const (
 	AgentFailed    AgentStatus = "failed"
 	AgentCancelled AgentStatus = "cancelled"
 
-	ActivationStarting  ActivationStatus = "starting"
-	ActivationRunning   ActivationStatus = "running"
-	ActivationWaiting   ActivationStatus = "waiting"
-	ActivationCompleted ActivationStatus = "completed"
-	ActivationFailed    ActivationStatus = "failed"
-	ActivationCancelled ActivationStatus = "cancelled"
-	ActivationLost      ActivationStatus = "lost"
+	ActivationStarting     ActivationStatus = "starting"
+	ActivationRunning      ActivationStatus = "running"
+	ActivationWaiting      ActivationStatus = "waiting"
+	ActivationCheckpointed ActivationStatus = "checkpointed"
+	ActivationStopped      ActivationStatus = "stopped"
+	ActivationCompleted    ActivationStatus = "completed"
+	ActivationFailed       ActivationStatus = "failed"
+	ActivationCancelled    ActivationStatus = "cancelled"
+	ActivationLost         ActivationStatus = "lost"
 )
 
 var (
-	ErrInvalidAgentIdentity  = errors.New("invalid agent identity")
-	ErrInvalidActivation     = errors.New("invalid agent activation")
-	ErrInvalidAgentTransition = errors.New("invalid agent status transition")
+	ErrInvalidAgentIdentity        = errors.New("invalid agent identity")
+	ErrInvalidActivation           = errors.New("invalid agent activation")
+	ErrInvalidAgentTransition      = errors.New("invalid agent status transition")
 	ErrInvalidActivationTransition = errors.New("invalid activation status transition")
 )
 
@@ -58,8 +60,8 @@ type AgentIdentity struct {
 }
 
 // AgentActivation is one live attempt/runtime incarnation of an AgentIdentity.
-// A continuable agent can have activation #1, go idle/lost, and later start
-// activation #2 without losing its durable identity or mailbox/task lineage.
+// A continuable agent can have activation #1 terminate/checkpoint and later
+// start activation #2 without losing its durable identity or task lineage.
 type AgentActivation struct {
 	ID                string           `json:"id"`
 	AgentID           string           `json:"agentId"`
@@ -68,6 +70,7 @@ type AgentActivation struct {
 	ProviderSessionID string           `json:"providerSessionId,omitempty"`
 	ProcessID         string           `json:"processId,omitempty"`
 	Status            ActivationStatus `json:"status"`
+	Revision          uint64           `json:"revision"`
 	StartedAt         time.Time        `json:"startedAt"`
 	UpdatedAt         time.Time        `json:"updatedAt"`
 	EndedAt           time.Time        `json:"endedAt,omitempty"`
@@ -131,6 +134,9 @@ func NormalizeActivation(activation AgentActivation) (AgentActivation, error) {
 	} else {
 		activation.UpdatedAt = activation.UpdatedAt.UTC()
 	}
+	if activation.Revision == 0 {
+		activation.Revision = 1
+	}
 	if activationTerminal(activation.Status) && activation.EndedAt.IsZero() {
 		activation.EndedAt = activation.UpdatedAt
 	} else if !activation.EndedAt.IsZero() {
@@ -172,6 +178,7 @@ func TransitionActivation(activation AgentActivation, next ActivationStatus, at 
 		at = at.UTC()
 	}
 	activation.Status = next
+	activation.Revision++
 	activation.UpdatedAt = at
 	if activationTerminal(next) {
 		activation.EndedAt = at
@@ -190,7 +197,7 @@ func validAgentStatus(status AgentStatus) bool {
 
 func validActivationStatus(status ActivationStatus) bool {
 	switch status {
-	case ActivationStarting, ActivationRunning, ActivationWaiting, ActivationCompleted, ActivationFailed, ActivationCancelled, ActivationLost:
+	case ActivationStarting, ActivationRunning, ActivationWaiting, ActivationCheckpointed, ActivationStopped, ActivationCompleted, ActivationFailed, ActivationCancelled, ActivationLost:
 		return true
 	default:
 		return false
@@ -218,7 +225,12 @@ func agentTransitionAllowed(from, to AgentStatus) bool {
 }
 
 func activationTerminal(status ActivationStatus) bool {
-	return status == ActivationCompleted || status == ActivationFailed || status == ActivationCancelled || status == ActivationLost
+	switch status {
+	case ActivationCheckpointed, ActivationStopped, ActivationCompleted, ActivationFailed, ActivationCancelled, ActivationLost:
+		return true
+	default:
+		return false
+	}
 }
 
 func activationTransitionAllowed(from, to ActivationStatus) bool {
@@ -227,12 +239,12 @@ func activationTransitionAllowed(from, to ActivationStatus) bool {
 	}
 	switch from {
 	case ActivationStarting:
-		return to == ActivationRunning || to == ActivationFailed || to == ActivationCancelled || to == ActivationLost
+		return to == ActivationRunning || to == ActivationCheckpointed || to == ActivationStopped || to == ActivationFailed || to == ActivationCancelled || to == ActivationLost
 	case ActivationRunning:
-		return to == ActivationWaiting || to == ActivationCompleted || to == ActivationFailed || to == ActivationCancelled || to == ActivationLost
+		return to == ActivationWaiting || to == ActivationCheckpointed || to == ActivationStopped || to == ActivationCompleted || to == ActivationFailed || to == ActivationCancelled || to == ActivationLost
 	case ActivationWaiting:
-		return to == ActivationRunning || to == ActivationCompleted || to == ActivationFailed || to == ActivationCancelled || to == ActivationLost
-	case ActivationCompleted, ActivationFailed, ActivationCancelled, ActivationLost:
+		return to == ActivationRunning || to == ActivationCheckpointed || to == ActivationStopped || to == ActivationCompleted || to == ActivationFailed || to == ActivationCancelled || to == ActivationLost
+	case ActivationCheckpointed, ActivationStopped, ActivationCompleted, ActivationFailed, ActivationCancelled, ActivationLost:
 		return false
 	default:
 		return false
