@@ -23,8 +23,8 @@ const (
 	githubOIDCIssuer      = "https://token.actions.githubusercontent.com"
 	githubOIDCJWKSURL     = "https://token.actions.githubusercontent.com/.well-known/jwks"
 	githubOIDCAudience    = "codelocal-release-notify"
-	githubReleaseRepo     = "0xmarkhydra/codex-mcp"
-	githubReleaseWorkflow = "0xmarkhydra/codex-mcp/.github/workflows/release-email.yml@refs/heads/main"
+	githubReleaseRepo     = "0xmarkhydra/codelocal"
+	githubReleaseWorkflow = "0xmarkhydra/codelocal/.github/workflows/release-email.yml@refs/heads/main"
 )
 
 type githubOIDCHeader struct {

@@ -56,7 +56,7 @@ Metadata tối thiểu:
 {
   "benchmark_version": "1.0.0",
   "task_id": "auth-refresh-001",
-  "repo": "0xmarkhydra/codex-mcp",
+  "repo": "0xmarkhydra/codelocal",
   "commit": "abc123...",
   "model": "...",
   "mode": "direct",
@@ -151,7 +151,7 @@ Ví dụ task:
 {
   "id": "workspace-auth-001",
   "category": "bugfix",
-  "repo": "0xmarkhydra/codex-mcp",
+  "repo": "0xmarkhydra/codelocal",
   "commit": "<fixed-sha>",
   "prompt": "Fix ...",
   "timeout_seconds": 1200,

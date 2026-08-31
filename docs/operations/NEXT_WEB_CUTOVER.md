@@ -96,7 +96,7 @@ Public Next auth forms obtain their CSRF form token from `GET /api/v1/auth/csrf`
 
 ## Railway DEV web service
 
-Create a second service in the existing `dev` environment from `0xmarkhydra/codex-mcp`, branch `dev`:
+Create a second service in the existing `dev` environment from `0xmarkhydra/codelocal`, branch `dev`:
 
 ```text
 Service: CodeLocal-Web-DEV
