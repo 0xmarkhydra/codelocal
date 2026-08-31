@@ -15,6 +15,7 @@ var frozenRuntimeToolNames = []string{
 	"mcp_list", "mcp_search_tools", "mcp_tool_info", "mcp_call",
 	"browser_status", "browser_open", "browser_snapshot", "browser_find", "browser_click", "browser_fill", "browser_press", "browser_screenshot", "browser_console", "browser_requests", "browser_close",
 	"computer_status", "computer_list_windows", "computer_ui_tree", "computer_observe", "computer_screenshot", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run",
+	"computer_list_devices", "computer_list_apps", "computer_launch_app", "computer_terminate_app", "computer_install_app", "computer_uninstall_app", "computer_open_url", "computer_get_orientation", "computer_set_orientation", "computer_double_tap", "computer_long_press", "computer_record_start", "computer_record_stop", "computer_list_crashes", "computer_get_crash",
 }
 
 func TestEveryRuntimeToolResolvesToStableOperation(t *testing.T) {

@@ -121,7 +121,8 @@ process.exit(result.status ?? 1);
 		"files":   []string{"bin/", "README.md"},
 		"engines": map[string]string{"node": ">=20"},
 		"dependencies": map[string]string{
-			"@playwright/cli": "0.1.17",
+			"@playwright/cli":        "0.1.17",
+			"@mobilenext/mobile-mcp": "1.0.2",
 		},
 		"keywords": []string{"chatgpt", "mcp", "coding", "local", "go", "playwright", "browser-automation", "computer-use"},
 	}
@@ -147,7 +148,7 @@ codelocal .
 ` + "```\n\n" + "`codelocal .` only authorizes that folder locally. It does not pair the machine or connect to CodeLocal Cloud.\n\n" + `## Start CodeLocal
 
 ` + "```bash\n" + `codelocal
-` + "```\n\n" + `On first start, CodeLocal asks which local capabilities connected MCP clients may use. Browser Automation lets a compatible AI client inspect and interact with websites in an isolated session; if enabled, CodeLocal downloads one managed Chromium browser and shows the install progress before starting. Coding works without this optional download. Computer Use remains a separate opt-in capability and uses the native helper already bundled for the current operating system, so it does not trigger another browser download.
+` + "```\n\n" + `On first start, CodeLocal asks which local capabilities connected MCP clients may use. Browser Automation lets a compatible AI client inspect and interact with websites in an isolated session; if enabled, CodeLocal downloads one managed Chromium browser and shows the install progress before starting. Coding works without this optional download. Computer Use remains a separate opt-in capability and includes both the native desktop helper and a managed Mobile MCP backend inside the CodeLocal package. Mobile automation becomes active only when a simulator, emulator or authorized real device is available; Android targets require platform tools/adb and iOS targets require the relevant Xcode/device tooling.
 
 The Go runtime then pairs this machine if needed, syncs authorized workspaces, and waits for authenticated MCP clients. One machine runs one runtime; multiple workspaces activate lazily inside it.
 

@@ -15,24 +15,45 @@ type BrowserCapabilities struct {
 	AttachExisting  bool `json:"attachExisting,omitempty"`
 }
 
+type MobileCapabilities struct {
+	Available     bool   `json:"available"`
+	Backend       string `json:"backend,omitempty"`
+	Version       string `json:"version,omitempty"`
+	Managed       bool   `json:"managed,omitempty"`
+	IOS           bool   `json:"ios,omitempty"`
+	Android       bool   `json:"android,omitempty"`
+	DeviceList    bool   `json:"deviceList,omitempty"`
+	ScreenCapture bool   `json:"screenCapture,omitempty"`
+	UITree        bool   `json:"uiTree,omitempty"`
+	Pointer       bool   `json:"pointer,omitempty"`
+	Keyboard      bool   `json:"keyboard,omitempty"`
+	AppLifecycle  bool   `json:"appLifecycle,omitempty"`
+	OpenURL       bool   `json:"openURL,omitempty"`
+	Orientation   bool   `json:"orientation,omitempty"`
+	Recording     bool   `json:"recording,omitempty"`
+	CrashReports  bool   `json:"crashReports,omitempty"`
+}
+
 type ComputerCapabilities struct {
-	Available              bool   `json:"available"`
-	Backend                string `json:"backend,omitempty"`
-	Engine                 string `json:"engine,omitempty"`
-	PersistentEngine       bool   `json:"persistentEngine,omitempty"`
-	SceneCache             bool   `json:"sceneCache,omitempty"`
-	BatchActions           bool   `json:"batchActions,omitempty"`
-	WindowList             bool   `json:"windowList,omitempty"`
-	ScreenCapture          bool   `json:"screenCapture,omitempty"`
-	ScreenCaptureStreaming bool   `json:"screenCaptureStreaming,omitempty"`
-	UITree                 bool   `json:"uiTree,omitempty"`
-	SemanticActions        bool   `json:"semanticActions,omitempty"`
-	PhysicalInputFallback  bool   `json:"physicalInputFallback,omitempty"`
-	Pointer                bool   `json:"pointer,omitempty"`
-	Keyboard               bool   `json:"keyboard,omitempty"`
-	Clipboard              bool   `json:"clipboard,omitempty"`
-	BackgroundControl      bool   `json:"backgroundControl,omitempty"`
-	SecureDesktop          bool   `json:"secureDesktop,omitempty"`
+	Available              bool                `json:"available"`
+	DesktopAvailable       bool                `json:"desktopAvailable,omitempty"`
+	Backend                string              `json:"backend,omitempty"`
+	Engine                 string              `json:"engine,omitempty"`
+	PersistentEngine       bool                `json:"persistentEngine,omitempty"`
+	SceneCache             bool                `json:"sceneCache,omitempty"`
+	BatchActions           bool                `json:"batchActions,omitempty"`
+	WindowList             bool                `json:"windowList,omitempty"`
+	ScreenCapture          bool                `json:"screenCapture,omitempty"`
+	ScreenCaptureStreaming bool                `json:"screenCaptureStreaming,omitempty"`
+	UITree                 bool                `json:"uiTree,omitempty"`
+	SemanticActions        bool                `json:"semanticActions,omitempty"`
+	PhysicalInputFallback  bool                `json:"physicalInputFallback,omitempty"`
+	Pointer                bool                `json:"pointer,omitempty"`
+	Keyboard               bool                `json:"keyboard,omitempty"`
+	Clipboard              bool                `json:"clipboard,omitempty"`
+	BackgroundControl      bool                `json:"backgroundControl,omitempty"`
+	SecureDesktop          bool                `json:"secureDesktop,omitempty"`
+	Mobile                 *MobileCapabilities `json:"mobile,omitempty"`
 }
 
 type AutomationCapabilities struct {
@@ -122,6 +143,7 @@ func SideEffecting(tool string) bool {
 		"git_stage", "git_unstage", "git_commit", "git_push", "approval_mode", "approval_revoke", "approval_reset", "mcp_call",
 		"browser_open", "browser_click", "browser_fill", "browser_press", "browser_close",
 		"computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run",
+		"computer_launch_app", "computer_terminate_app", "computer_install_app", "computer_uninstall_app", "computer_open_url", "computer_set_orientation", "computer_double_tap", "computer_long_press", "computer_record_start", "computer_record_stop",
 		"learned_skill_record", "learned_skill_feedback":
 		return true
 	default:

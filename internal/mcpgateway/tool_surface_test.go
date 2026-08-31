@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestPublicToolSurfaceGenerationFiveGroupsRuntimeDomains(t *testing.T) {
+func TestPublicToolSurfaceGenerationSixAddsMobileBehindComputer(t *testing.T) {
 	first := PublicToolSurface()
 	second := PublicToolSurface()
 	if first != second {
@@ -19,23 +19,23 @@ func TestPublicToolSurfaceGenerationFiveGroupsRuntimeDomains(t *testing.T) {
 	if first.Version != PublicToolSurfaceVersion {
 		t.Fatalf("surface version=%d want public version=%d", first.Version, PublicToolSurfaceVersion)
 	}
-	if first.Version != 5 {
-		t.Fatalf("surface version=%d want generation 5", first.Version)
+	if first.Version != 6 {
+		t.Fatalf("surface version=%d want generation 6", first.Version)
 	}
 	if first.Count != len(compactToolDefinitions()) || first.Count != 14 {
-		t.Fatalf("generation 5 should expose exactly 14 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
+		t.Fatalf("generation 6 should keep exactly 14 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
 	}
 	if len(first.Hash) != 64 {
-		t.Fatalf("generation-5 surface hash must be sha256: %q", first.Hash)
+		t.Fatalf("generation-6 surface hash must be sha256: %q", first.Hash)
 	}
 	for _, name := range []string{"workspace", "context", "terminal", "blog", "browser", "computer"} {
 		if _, ok := currentPublicToolNames()[name]; !ok {
-			t.Fatalf("generation 5 must advertise %s", name)
+			t.Fatalf("generation 6 must advertise %s", name)
 		}
 	}
-	for _, removed := range []string{"device", "project", "dependency", "lsp", "process", "approvals", "security"} {
+	for _, removed := range []string{"device", "project", "dependency", "lsp", "process", "approvals", "security", "mobile"} {
 		if _, ok := currentPublicToolNames()[removed]; ok {
-			t.Fatalf("generation 5 must not advertise grouped legacy tool %s", removed)
+			t.Fatalf("generation 6 must not advertise grouped/internal tool %s", removed)
 		}
 	}
 }
