@@ -32,8 +32,8 @@ export function BlogsHub() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all");
 
-  const posts = resource.state.kind === "ready" ? resource.state.value.posts : [];
-  const series = seriesResource.state.kind === "ready" ? seriesResource.state.value.series : [];
+  const posts = useMemo(() => resource.state.kind === "ready" ? resource.state.value.posts : [], [resource.state]);
+  const series = useMemo(() => seriesResource.state.kind === "ready" ? seriesResource.state.value.series : [], [seriesResource.state]);
   const counts = useMemo(() => ({
     published: posts.filter((post) => post.status === "published").length,
     drafts: posts.filter((post) => post.status === "draft").length,

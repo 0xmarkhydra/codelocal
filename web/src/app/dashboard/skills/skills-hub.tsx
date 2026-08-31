@@ -299,6 +299,7 @@ export function SkillsHub() {
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial async catalog load intentionally updates local resource state
     void load()
       .then(() => { if (!cancelled) setLoadFailed(false); })
       .catch(() => { if (!cancelled) setLoadFailed(true); })
@@ -325,7 +326,7 @@ export function SkillsHub() {
     });
     if (!response.ok) throw new Error(await responseError(response));
     return response;
-  }, [account?.csrf]);
+  }, [account]);
 
   const withMutation = useCallback(async (work: () => Promise<void>, success: string) => {
     setBusy(true);
