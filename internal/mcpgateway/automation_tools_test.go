@@ -48,6 +48,63 @@ func TestAutomationCapabilityGateUsesNestedProtocolV3Capabilities(t *testing.T) 
 	}
 }
 
+func TestAutomationCapabilityGateRoutesDesktopAndMobileIndependently(t *testing.T) {
+	workspace := &gateway.WorkspaceView{ProtocolVersion: 3, Capabilities: map[string]any{
+		"automation": map[string]any{
+			"computer": map[string]any{
+				"available":        true,
+				"desktopAvailable": false,
+				"mobile": map[string]any{
+					"available": true, "deviceList": true, "uiTree": true, "screenCapture": true,
+					"pointer": true, "keyboard": true, "appLifecycle": true, "openURL": true,
+					"orientation": true, "recording": true, "crashReports": true,
+				},
+			},
+		},
+	}}
+	if err := ensureAutomationOperationSupported("computer_list_devices", workspace); err != nil {
+		t.Fatalf("managed mobile device discovery should pass: %v", err)
+	}
+	if err := ensureAutomationOperationSupported("computer_click", workspace, map[string]any{"device": "iphone"}); err != nil {
+		t.Fatalf("mobile click should use nested mobile pointer capability: %v", err)
+	}
+	if err := ensureAutomationOperationSupported("computer_click", workspace); err == nil || !strings.Contains(err.Error(), "desktop") {
+		t.Fatalf("mobile-only client must not accidentally satisfy desktop click: %v", err)
+	}
+	mobile := workspace.Capabilities["automation"].(map[string]any)["computer"].(map[string]any)["mobile"].(map[string]any)
+	mobile["pointer"] = false
+	if err := ensureAutomationOperationSupported("computer_click", workspace, map[string]any{"device": "iphone"}); err == nil || !strings.Contains(err.Error(), "pointer") {
+		t.Fatalf("mobile click must honor granular mobile pointer capability: %v", err)
+	}
+}
+
+func TestCompactComputerRoutesMobileWithoutAddingTopLevelTool(t *testing.T) {
+	var computer compactToolDef
+	for _, tool := range compactAutomationToolDefinitions() {
+		if tool.Name == "computer" {
+			computer = tool
+			break
+		}
+	}
+	if computer.Resolve == nil {
+		t.Fatal("computer compact tool not registered")
+	}
+	devices, _, err := computer.Resolve(map[string]any{"action": "devices"})
+	if err != nil || devices.RuntimeTool != "computer_list_devices" {
+		t.Fatalf("mobile device discovery did not resolve: %#v %v", devices, err)
+	}
+	click, forwarded, err := computer.Resolve(map[string]any{"action": "click", "device": "iphone", "target": "Continue"})
+	if err != nil || click.RuntimeTool != "computer_click" {
+		t.Fatalf("semantic mobile click did not resolve: %#v %v", click, err)
+	}
+	if forwarded["device"] != "iphone" || forwarded["target"] != "Continue" {
+		t.Fatalf("semantic mobile arguments were not forwarded: %#v", forwarded)
+	}
+	if _, _, err := computer.Resolve(map[string]any{"action": "run", "device": "iphone", "windowId": "ignored", "steps": []any{map[string]any{"action": "click", "target": "Continue"}}}); err == nil {
+		t.Fatal("mobile run batching must stay blocked so each device action remains approval-scoped")
+	}
+}
+
 func TestCompactBrowserForwardsVerify(t *testing.T) {
 	var browser compactToolDef
 	for _, tool := range compactAutomationToolDefinitions() {

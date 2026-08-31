@@ -32,16 +32,19 @@ func workspaceAutomationCapabilities(w *WorkspaceWorker) protocol.AutomationCapa
 	controller := automationController(w)
 	browserEnabled, browserPrepared := automation.BrowserConfigured()
 	browserAvailable := controller != nil && controller.Browser != nil && browserEnabled && browserPrepared
-	computerMap := automation.ComputerCapabilities()
-	boolValue := func(key string) bool {
-		value, _ := computerMap[key].(bool)
+	desktop := automation.ComputerCapabilities()
+	mobile := automation.MobileCapabilities()
+	boolValue := func(values map[string]any, key string) bool {
+		value, _ := values[key].(bool)
 		return value
 	}
-	stringValue := func(key string) string {
-		value, _ := computerMap[key].(string)
+	stringValue := func(values map[string]any, key string) string {
+		value, _ := values[key].(string)
 		return value
 	}
-	uiTree := boolValue("uiTree")
+	desktopAvailable := boolValue(desktop, "available")
+	mobileAvailable := boolValue(mobile, "available")
+	uiTree := boolValue(desktop, "uiTree")
 	return protocol.AutomationCapabilities{
 		Browser: protocol.BrowserCapabilities{
 			Available:       browserAvailable,
@@ -51,23 +54,30 @@ func workspaceAutomationCapabilities(w *WorkspaceWorker) protocol.AutomationCapa
 			AttachExisting:  false,
 		},
 		Computer: protocol.ComputerCapabilities{
-			Available:              boolValue("available"),
-			Backend:                stringValue("backend"),
-			Engine:                 stringValue("engine"),
-			PersistentEngine:       boolValue("persistentEngine"),
-			SceneCache:             boolValue("sceneCache"),
-			BatchActions:           boolValue("batchActions"),
-			WindowList:             boolValue("windowList"),
-			ScreenCapture:          boolValue("screenCapture"),
-			ScreenCaptureStreaming: boolValue("screenCaptureStreaming"),
+			Available:              desktopAvailable || mobileAvailable,
+			DesktopAvailable:       desktopAvailable,
+			Backend:                stringValue(desktop, "backend"),
+			Engine:                 stringValue(desktop, "engine"),
+			PersistentEngine:       boolValue(desktop, "persistentEngine"),
+			SceneCache:             boolValue(desktop, "sceneCache"),
+			BatchActions:           boolValue(desktop, "batchActions"),
+			WindowList:             boolValue(desktop, "windowList"),
+			ScreenCapture:          boolValue(desktop, "screenCapture"),
+			ScreenCaptureStreaming: boolValue(desktop, "screenCaptureStreaming"),
 			UITree:                 uiTree,
-			SemanticActions:        boolValue("semanticActions") || uiTree,
-			PhysicalInputFallback:  boolValue("physicalInputFallback"),
-			Pointer:                boolValue("pointer"),
-			Keyboard:               boolValue("keyboard"),
-			Clipboard:              boolValue("clipboard"),
-			BackgroundControl:      boolValue("backgroundControl"),
+			SemanticActions:        boolValue(desktop, "semanticActions") || uiTree,
+			PhysicalInputFallback:  boolValue(desktop, "physicalInputFallback"),
+			Pointer:                boolValue(desktop, "pointer"),
+			Keyboard:               boolValue(desktop, "keyboard"),
+			Clipboard:              boolValue(desktop, "clipboard"),
+			BackgroundControl:      boolValue(desktop, "backgroundControl"),
 			SecureDesktop:          false,
+			Mobile: &protocol.MobileCapabilities{
+				Available: mobileAvailable, Backend: stringValue(mobile, "backend"), Version: stringValue(mobile, "version"), Managed: boolValue(mobile, "managed"),
+				IOS: boolValue(mobile, "ios"), Android: boolValue(mobile, "android"), DeviceList: boolValue(mobile, "deviceList"), ScreenCapture: boolValue(mobile, "screenCapture"),
+				UITree: boolValue(mobile, "uiTree"), Pointer: boolValue(mobile, "pointer"), Keyboard: boolValue(mobile, "keyboard"), AppLifecycle: boolValue(mobile, "appLifecycle"),
+				OpenURL: boolValue(mobile, "openURL"), Orientation: boolValue(mobile, "orientation"), Recording: boolValue(mobile, "recording"), CrashReports: boolValue(mobile, "crashReports"),
+			},
 		},
 	}
 }

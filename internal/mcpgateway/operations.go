@@ -134,17 +134,32 @@ var runtimeOperationIDs = map[string]string{
 	"browser_requests":   "browser.requests",
 	"browser_close":      "browser.close",
 
-	"computer_status":       "computer.status",
-	"computer_list_windows": "computer.list_windows",
-	"computer_ui_tree":      "computer.ui_tree",
-	"computer_screenshot":   "computer.screenshot",
-	"computer_focus":        "computer.focus",
-	"computer_click":        "computer.click",
-	"computer_type":         "computer.type",
-	"computer_key":          "computer.key",
-	"computer_scroll":       "computer.scroll",
-	"computer_drag":         "computer.drag",
-	"computer_run":          "computer.run",
+	"computer_status":          "computer.status",
+	"computer_list_windows":    "computer.list_windows",
+	"computer_ui_tree":         "computer.ui_tree",
+	"computer_screenshot":      "computer.screenshot",
+	"computer_focus":           "computer.focus",
+	"computer_click":           "computer.click",
+	"computer_type":            "computer.type",
+	"computer_key":             "computer.key",
+	"computer_scroll":          "computer.scroll",
+	"computer_drag":            "computer.drag",
+	"computer_run":             "computer.run",
+	"computer_list_devices":    "computer.list_devices",
+	"computer_list_apps":       "computer.list_apps",
+	"computer_launch_app":      "computer.launch_app",
+	"computer_terminate_app":   "computer.terminate_app",
+	"computer_install_app":     "computer.install_app",
+	"computer_uninstall_app":   "computer.uninstall_app",
+	"computer_open_url":        "computer.open_url",
+	"computer_get_orientation": "computer.get_orientation",
+	"computer_set_orientation": "computer.set_orientation",
+	"computer_double_tap":      "computer.double_tap",
+	"computer_long_press":      "computer.long_press",
+	"computer_record_start":    "computer.record_start",
+	"computer_record_stop":     "computer.record_stop",
+	"computer_list_crashes":    "computer.list_crashes",
+	"computer_get_crash":       "computer.get_crash",
 }
 
 func runtimeOperationID(name string) (string, bool) {
@@ -185,7 +200,8 @@ func runtimeToolMutatesState(name string) bool {
 func runtimeToolDestructive(name string) bool {
 	switch name {
 	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call",
-		"browser_click", "browser_fill", "browser_press", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run":
+		"browser_click", "browser_fill", "browser_press", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run",
+		"computer_launch_app", "computer_terminate_app", "computer_install_app", "computer_uninstall_app", "computer_open_url", "computer_set_orientation", "computer_double_tap", "computer_long_press", "computer_record_start", "computer_record_stop":
 		return true
 	default:
 		return false
@@ -194,7 +210,7 @@ func runtimeToolDestructive(name string) bool {
 
 func runtimeToolOpenWorld(name string) bool {
 	switch name {
-	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call", "browser_open":
+	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call", "browser_open", "computer_open_url":
 		return true
 	default:
 		return false

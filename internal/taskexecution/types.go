@@ -6,6 +6,13 @@ type Provider string
 
 const ProviderLocalWorktree Provider = "local_worktree"
 
+type RuntimeGeneration string
+
+const (
+	RuntimeV1 RuntimeGeneration = "v1"
+	RuntimeV2 RuntimeGeneration = "v2"
+)
+
 type State string
 
 const (
@@ -19,27 +26,32 @@ const (
 )
 
 type RepositoryBinding struct {
-	RepositoryID   string `json:"repositoryId"`
-	RepositoryPath string `json:"repositoryPath"`
-	SourceRevision string `json:"sourceRevision"`
-	BranchName     string `json:"branchName,omitempty"`
-	BindingID      string `json:"bindingId"`
-	LocalPath      string `json:"localPath"`
+	RepositoryID            string `json:"repositoryId"`
+	RepositoryPath          string `json:"repositoryPath"`
+	SourceRevision          string `json:"sourceRevision"`
+	SourceDirty             bool   `json:"sourceDirty,omitempty"`
+	SourceStatusFingerprint string `json:"sourceStatusFingerprint,omitempty"`
+	BranchName              string `json:"branchName,omitempty"`
+	BindingID               string `json:"bindingId"`
+	LocalPath               string `json:"localPath"`
 }
 
 type Lease struct {
-	OwnerID   string    `json:"ownerId,omitempty"`
-	ExpiresAt time.Time `json:"expiresAt,omitempty"`
+	OwnerID    string    `json:"ownerId,omitempty"`
+	Generation uint64    `json:"generation,omitempty"`
+	ExpiresAt  time.Time `json:"expiresAt,omitempty"`
 }
 
 type Bundle struct {
 	SchemaVersion      int                 `json:"schemaVersion"`
 	ID                 string              `json:"id"`
+	Revision           uint64              `json:"revision"`
 	TaskID             string              `json:"taskId"`
 	ProjectID          string              `json:"projectId"`
 	WorkspaceID        string              `json:"workspaceId"`
 	WorkspaceKey       string              `json:"workspaceKey"`
 	Provider           Provider            `json:"provider"`
+	RuntimeGeneration  RuntimeGeneration   `json:"runtimeGeneration,omitempty"`
 	State              State               `json:"state"`
 	RepositoryBindings []RepositoryBinding `json:"repositoryBindings"`
 	Lease              Lease               `json:"lease,omitempty"`
@@ -50,4 +62,9 @@ type Bundle struct {
 func (b Bundle) Clone() Bundle {
 	b.RepositoryBindings = append([]RepositoryBinding(nil), b.RepositoryBindings...)
 	return b
+}
+
+func (b Bundle) EffectiveRuntimeGeneration() RuntimeGeneration {
+	if b.RuntimeGeneration == RuntimeV2 { return RuntimeV2 }
+	return RuntimeV1
 }

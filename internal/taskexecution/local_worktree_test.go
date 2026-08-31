@@ -2,7 +2,6 @@ package taskexecution
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,16 +96,47 @@ func TestLocalWorktreeProviderReusesTaskBinding(t *testing.T) {
 	}
 }
 
-func TestLocalWorktreeProviderRefusesDirtyAuthoritativeRepository(t *testing.T) {
+func TestLocalWorktreeProviderPreservesDirtyAuthoritativeRepository(t *testing.T) {
 	ctx := context.Background()
 	repo := makeTaskRepo(t)
-	if err := os.WriteFile(filepath.Join(repo.Root, "app.txt"), []byte("dirty\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo.Root, "app.txt"), []byte("user dirty work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo.Root, "user-untracked.txt"), []byte("do not touch\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	provider := NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees"))
-	_, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}})
-	if !errors.Is(err, ErrDirtyRepository) {
-		t.Fatalf("dirty authoritative checkout must be rejected safely, got %v", err)
+	bundle, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := bundle.RepositoryBindings[0]
+	if !binding.SourceDirty || binding.SourceStatusFingerprint == "" || binding.SourceRevision == "" {
+		t.Fatalf("dirty source provenance was not recorded: %+v", binding)
+	}
+	worktreeData, err := os.ReadFile(filepath.Join(binding.LocalPath, "app.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(worktreeData) != "main\n" {
+		t.Fatalf("agent worktree implicitly copied user's dirty tracked state: %q", worktreeData)
+	}
+	if _, err := os.Stat(filepath.Join(binding.LocalPath, "user-untracked.txt")); !os.IsNotExist(err) {
+		t.Fatalf("agent worktree implicitly copied user's untracked file, stat err=%v", err)
+	}
+	if err := os.WriteFile(filepath.Join(binding.LocalPath, "app.txt"), []byte("agent work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	userData, err := os.ReadFile(filepath.Join(repo.Root, "app.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(userData) != "user dirty work\n" {
+		t.Fatalf("agent worktree modified dirty authoritative file: %q", userData)
+	}
+	untracked, err := os.ReadFile(filepath.Join(repo.Root, "user-untracked.txt"))
+	if err != nil || string(untracked) != "do not touch\n" {
+		t.Fatalf("agent worktree modified user untracked file: %q err=%v", untracked, err)
 	}
 }
 

@@ -190,7 +190,7 @@ func ClassifyAutomation(action Action) security.Decision {
 	case "computer":
 		scope := computerScopeKey(action.Origin)
 		switch op {
-		case "status", "list_windows":
+		case "status", "list_windows", "list_devices", "list_apps", "get_orientation":
 			return decision
 		case "observe":
 			if scope == "unknown" {
@@ -216,12 +216,19 @@ func ClassifyAutomation(action Action) security.Decision {
 			decision.ApprovalKey = "computer:screenshot:" + scope
 			decision.ApprovalLabel = "Allow CodeLocal screen capture for " + scope
 			decision.Reason = "screen capture may reveal private application content"
+		case "list_crashes", "get_crash":
+			decision.RiskLevel = security.RiskReview
+			decision.RequiresApproval = true
+			decision.ApprovalPolicy = security.ApprovalRememberable
+			decision.ApprovalKey = "computer:diagnostics:" + scope
+			decision.ApprovalLabel = "Allow CodeLocal to inspect device diagnostics for " + scope
+			decision.Reason = "mobile crash reports can contain private application diagnostics"
 		case "focus":
 			decision.RiskLevel = security.RiskCritical
 			decision.RequiresApproval = true
 			decision.ApprovalPolicy = security.ApprovalAlways
 			decision.Reason = "foreground focus can interrupt the user's active application and always requires fresh confirmation"
-		case "click", "type", "key", "scroll", "drag", "run":
+		case "click", "type", "key", "scroll", "drag", "run", "launch_app", "terminate_app", "install_app", "uninstall_app", "open_url", "set_orientation", "double_tap", "long_press", "record_start", "record_stop":
 			decision.RiskLevel = security.RiskHigh
 			decision.RequiresApproval = true
 			decision.ApprovalPolicy = security.ApprovalRememberable
