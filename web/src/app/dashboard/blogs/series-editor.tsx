@@ -33,6 +33,7 @@ export function SeriesEditor({ seriesID }: { seriesID: string }) {
 
   useEffect(() => {
     if (!series || hydratedID === series.id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate editable form state when the async series resource changes
     setTitle(series.title);
     setSlug(series.slug);
     setDescription(series.description);

@@ -156,6 +156,7 @@ export function BlogEditor({ postID }: { postID: string }) {
 
   useEffect(() => {
     if (!post || hydratedID === post.id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate editable form state when the async post resource changes
     setTitle(post.title);
     setSlug(post.slug);
     setExcerpt(post.excerpt);
