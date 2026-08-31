@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import styles from "../../blog/blog.module.css";
+import styles from "./article-share-actions.module.css";
 
 type Props = {
   slug: string;
@@ -68,7 +68,7 @@ export function ArticleShareActions({ slug, title }: Props) {
           : "";
 
   return (
-    <div className={styles.articleActions} aria-label="Article sharing">
+    <div className={styles.actions} aria-label="Article sharing">
       <button type="button" onClick={() => void share()}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5V4m0 0 4 4m-4-4-4 4M5 13.5v5.25h14V13.5" /></svg>
         Share
@@ -77,7 +77,7 @@ export function ArticleShareActions({ slug, title }: Props) {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.25 14.75-1.6 1.6a3.55 3.55 0 1 1-5.02-5.02l3-3A3.55 3.55 0 0 1 10.65 8" /><path d="m14.75 9.25 1.6-1.6a3.55 3.55 0 1 1 5.02 5.02l-3 3A3.55 3.55 0 0 1 13.35 16" /><path d="m8.6 15.4 6.8-6.8" /></svg>
         Short link
       </button>
-      <span className={styles.articleActionFeedback} aria-live="polite">{message}</span>
+      <span className={styles.feedback} aria-live="polite">{message}</span>
     </div>
   );
 }
