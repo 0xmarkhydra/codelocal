@@ -32,6 +32,13 @@ func TestEvaluateBudgetRejectsCurrencyMismatch(t *testing.T) {
 	}
 }
 
+func TestAddUsagePreservesFirstEngineIdentity(t *testing.T) {
+	combined := Add(TaskUsage{}, TaskUsage{TaskID: "task", EngineID: "codex", ModelID: "gpt", Tokens: TokenBreakdown{Code: 10}})
+	if combined.EngineID != "codex" || combined.ModelID != "gpt" {
+		t.Fatalf("single-engine aggregate must keep its identity: %+v", combined)
+	}
+}
+
 func TestAddUsageMarksMixedAndPreservesEstimated(t *testing.T) {
 	combined := Add(
 		TaskUsage{TaskID: "task", EngineID: "codex", ModelID: "a", Currency: "USD", CostMicros: 3, Tokens: TokenBreakdown{Brain: 10}, ModelCalls: 1},
