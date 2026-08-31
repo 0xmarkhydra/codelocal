@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestPublicToolSurfaceGenerationFourKeepsBlogAndAddsFileImport(t *testing.T) {
+func TestPublicToolSurfaceGenerationFiveGroupsRuntimeDomains(t *testing.T) {
 	first := PublicToolSurface()
 	second := PublicToolSurface()
 	if first != second {
@@ -19,17 +19,24 @@ func TestPublicToolSurfaceGenerationFourKeepsBlogAndAddsFileImport(t *testing.T)
 	if first.Version != PublicToolSurfaceVersion {
 		t.Fatalf("surface version=%d want public version=%d", first.Version, PublicToolSurfaceVersion)
 	}
-	if first.Version != 4 {
-		t.Fatalf("surface version=%d want generation 4", first.Version)
+	if first.Version != 5 {
+		t.Fatalf("surface version=%d want generation 5", first.Version)
 	}
-	if first.Count != len(compactToolDefinitions()) || first.Count != 21 {
-		t.Fatalf("generation 4 should expose exactly 21 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
+	if first.Count != len(compactToolDefinitions()) || first.Count != 14 {
+		t.Fatalf("generation 5 should expose exactly 14 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
 	}
 	if len(first.Hash) != 64 {
-		t.Fatalf("generation-4 surface hash must be sha256: %q", first.Hash)
+		t.Fatalf("generation-5 surface hash must be sha256: %q", first.Hash)
 	}
-	if _, ok := currentPublicToolNames()["blog"]; !ok {
-		t.Fatal("generation 4 must advertise the blog tool")
+	for _, name := range []string{"workspace", "context", "terminal", "blog", "browser", "computer"} {
+		if _, ok := currentPublicToolNames()[name]; !ok {
+			t.Fatalf("generation 5 must advertise %s", name)
+		}
+	}
+	for _, removed := range []string{"device", "project", "dependency", "lsp", "process", "approvals", "security"} {
+		if _, ok := currentPublicToolNames()[removed]; ok {
+			t.Fatalf("generation 5 must not advertise grouped legacy tool %s", removed)
+		}
 	}
 }
 
