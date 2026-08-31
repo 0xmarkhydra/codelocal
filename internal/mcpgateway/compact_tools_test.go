@@ -15,8 +15,7 @@ import (
 )
 
 var frozenCompactToolNames = []string{
-	"device", "workspace", "project", "context", "agent", "read", "search", "dependency", "lsp",
-	"edit", "verify", "git", "terminal", "process", "approvals", "security", "mcp", "social", "blog", "browser", "computer",
+	"workspace", "context", "agent", "read", "search", "edit", "verify", "git", "terminal", "mcp", "social", "blog", "browser", "computer",
 }
 
 func compactSurfaceBytes(defs []compactToolDef) int {
@@ -36,15 +35,15 @@ func TestCompactToolSurfaceContract(t *testing.T) {
 	if !reflect.DeepEqual(got, frozenCompactToolNames) {
 		t.Fatalf("compact MCP tool contract changed\n got: %#v\nwant: %#v", got, frozenCompactToolNames)
 	}
-	if len(defs) != 21 {
-		t.Fatalf("compact tool count = %d, want 21 including social, blog, bounded agent orchestration, Browser and Computer Use", len(defs))
+	if len(defs) != 14 {
+		t.Fatalf("compact tool count = %d, want 14 grouped tools including social, blog, bounded agent orchestration, Browser and Computer Use", len(defs))
 	}
-	const previousPublicSchemaBytes = 39798
+	previousPublicSchemaBytes := compactSurfaceBytes(generationFourCompactToolDefinitions())
 	compactBytes := compactSurfaceBytes(defs)
 	if compactBytes >= previousPublicSchemaBytes {
-		t.Fatalf("compact schema should be smaller: compact=%d previous=%d", compactBytes, previousPublicSchemaBytes)
+		t.Fatalf("generation-5 schema should be smaller than generation 4: compact=%d previous=%d", compactBytes, previousPublicSchemaBytes)
 	}
-	t.Logf("MCP surface bytes: previous=%d compact=%d reduction=%.1f%%", previousPublicSchemaBytes, compactBytes, 100*(1-float64(compactBytes)/float64(previousPublicSchemaBytes)))
+	t.Logf("MCP surface bytes: generation4=%d generation5=%d reduction=%.1f%%", previousPublicSchemaBytes, compactBytes, 100*(1-float64(compactBytes)/float64(previousPublicSchemaBytes)))
 }
 
 func allCompactActions(t *testing.T, def compactToolDef) []string {
@@ -79,14 +78,6 @@ func TestCompactSurfaceCoversEveryRuntimeOperation(t *testing.T) {
 	covered := map[string]struct{}{}
 	for _, def := range compactToolDefinitions() {
 		if def.Execute != nil {
-			continue
-		}
-		if def.Name == "context" {
-			operation, _, err := def.Resolve(map[string]any{"taskHint": "fix bug"})
-			if err != nil {
-				t.Fatalf("resolve context: %v", err)
-			}
-			covered[operation.OperationID] = struct{}{}
 			continue
 		}
 		for _, action := range allCompactActions(t, def) {
@@ -150,11 +141,14 @@ func TestCompactResolverRejectsInvalidOrIncompleteActions(t *testing.T) {
 	if _, _, err := defs["git"].Resolve(map[string]any{"action": "commit"}); err == nil {
 		t.Fatal("git commit without message must fail before runtime dispatch")
 	}
-	if _, _, err := defs["approvals"].Resolve(map[string]any{"action": "revoke"}); err == nil {
+	if _, _, err := defs["workspace"].Resolve(map[string]any{"action": "revoke_approval"}); err == nil {
 		t.Fatal("approval revoke without id/actionKey must fail")
 	}
-	if _, _, err := defs["lsp"].Resolve(map[string]any{"action": "not-real"}); err == nil {
+	if _, _, err := defs["context"].Resolve(map[string]any{"action": "not-real"}); err == nil {
 		t.Fatal("unknown compact action must fail")
+	}
+	if _, _, err := defs["context"].Resolve(map[string]any{"action": "task"}); err == nil {
+		t.Fatal("context task without taskHint must fail")
 	}
 	if _, _, err := defs["browser"].Resolve(map[string]any{"action": "open"}); err == nil {
 		t.Fatal("browser open without url must fail")
@@ -228,7 +222,7 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 	}
 	defer session.Close()
 
-	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "device", Arguments: map[string]any{"action": "active"}})
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "workspace", Arguments: map[string]any{"action": "devices"}})
 	if err != nil {
 		t.Fatalf("call compact device tool: %v", err)
 	}
@@ -263,7 +257,7 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 		t.Fatalf("legacy compatibility notice must keep an already-open thread working without reconnect: %#v", legacy.Content[0])
 	}
 
-	invalid, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "device", Arguments: map[string]any{"action": "not-real"}})
+	invalid, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "workspace", Arguments: map[string]any{"action": "not-real"}})
 	if err != nil {
 		t.Fatalf("invalid compact action should be model-visible tool error, got protocol error: %v", err)
 	}
@@ -289,10 +283,10 @@ func TestRepresentativeCompactCallsMatchRuntimeOperations(t *testing.T) {
 	}{
 		{tool: "workspace", action: "select", runtimeTool: "select_workspace", args: map[string]any{"key": "workspace"}},
 		{tool: "workspace", action: "access", runtimeTool: "approval_mode", args: map[string]any{"mode": "full"}},
-		{tool: "lsp", action: "definition", runtimeTool: "find_definition", args: map[string]any{"path": "main.go", "line": 10, "column": 3}},
+		{tool: "context", action: "definition", runtimeTool: "find_definition", args: map[string]any{"path": "main.go", "line": 10, "column": 3}},
 		{tool: "edit", action: "apply", runtimeTool: "apply_edits", args: map[string]any{"files": []any{map[string]any{"path": "main.go", "edits": []any{}}}}},
 		{tool: "terminal", action: "start_pty", runtimeTool: "pty_start", args: map[string]any{"command": "go test ./..."}},
-		{tool: "process", action: "poll", runtimeTool: "exec_poll", args: map[string]any{"processId": "process"}},
+		{tool: "terminal", action: "poll", runtimeTool: "exec_poll", args: map[string]any{"processId": "process"}},
 		{tool: "git", action: "push", runtimeTool: "git_push", args: map[string]any{"remote": "origin", "branch": "dev"}},
 		{tool: "mcp", action: "call", runtimeTool: "mcp_call", args: map[string]any{"server": "github", "tool": "search", "arguments": map[string]any{}}},
 	}
