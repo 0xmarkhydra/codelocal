@@ -1,0 +1,11 @@
+name: Ghost Registry Repair
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "GitHub Actions registry repair probe"
