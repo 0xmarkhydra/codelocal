@@ -10,14 +10,17 @@ export default function BlogsPage() {
       <div className={styles.page}>
         <header className={styles.hero}>
           <span className={styles.heroIcon} aria-hidden="true">
-            <AppIcon name="file" size={20} />
+            <AppIcon name="blog" size={20} />
           </span>
           <div className={styles.heroCopy}>
-            <span className={styles.kicker}>Publishing</span>
+            <span className={styles.kicker}>Publishing workspace</span>
             <h1>Blogs</h1>
-            <p>Write, publish and manage posts from one CodeLocal Blog workspace.</p>
+            <p>Create, organize and publish CodeLocal articles without leaving the dashboard.</p>
           </div>
-          <Link className={styles.primaryAction} href="/blogs">Open public blog</Link>
+          <Link className={styles.primaryAction} href="/blogs">
+            <span>View public blog</span>
+            <AppIcon name="chevron-right" size={14} />
+          </Link>
         </header>
         <BlogsHub />
       </div>
