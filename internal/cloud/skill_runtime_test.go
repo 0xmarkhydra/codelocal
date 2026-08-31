@@ -169,6 +169,36 @@ func TestSkillRuntimeCommunityUsesTrustedQuality(t *testing.T) {
 	t.Fatal("trusted Community skill should be routable")
 }
 
+func TestSkillRuntimeCommunityRejectsTamperedPackageAfterTrustedQualityOverlay(t *testing.T) {
+	pkg := runtimeTestPackage(t, skills.Manifest{
+		ID: "tampered-community", Name: "Trusted Community", Version: "1.0.0", Publisher: "creator",
+		Scope: skills.ScopeCommunity, Kind: skills.KindKnowledge, Intents: []string{"code_review"}, Quality: 1.0,
+		SourceURL: "https://github.com/example/tampered", SourceRef: "abc", SourceHash: "tree", License: "MIT",
+	})
+	record, _ := NewSkillVersionRecord("", "creator", pkg, "s3://skills/tampered", SkillVersionPromoted)
+	tampered := pkg
+	tampered.Manifest.Name = "Tampered package"
+	catalog := &fakeSkillRuntimeCatalog{
+		stable: []SkillVersionRecord{record},
+		quality: map[string]SkillQualitySignal{
+			skillQualityKey("tampered-community", "1.0.0"): {SkillID: "tampered-community", Version: "1.0.0", EvaluationScore: 0.9, Quality: 0.82},
+		},
+	}
+	store := &fakeSkillRuntimePackageStore{packages: map[string]skills.Package{pkg.PackageHash: tampered}}
+	snapshot, err := NewSkillRuntime(catalog, store).Snapshot(context.Background(), "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, manifest := range snapshot.Engine.Catalog() {
+		if manifest.ID == "tampered-community" {
+			t.Fatal("tampered Community package must not become routable")
+		}
+	}
+	if len(snapshot.Warnings) == 0 || !strings.Contains(strings.Join(snapshot.Warnings, "\n"), "registry mismatch") {
+		t.Fatalf("expected package integrity warning, got %#v", snapshot.Warnings)
+	}
+}
+
 func TestSkillRuntimeCommunityWithoutEvaluationIsSuppressed(t *testing.T) {
 	pkg := runtimeTestPackage(t, skills.Manifest{
 		ID: "untrusted-community", Name: "Untrusted", Version: "1.0.0", Publisher: "creator",
@@ -237,7 +267,7 @@ func runtimeTestPackage(t *testing.T, manifest skills.Manifest) skills.Package {
 	chunk := skills.KnowledgeChunk{
 		ID: "knowledge:" + manifest.Version, SkillID: manifest.ID, SkillVersion: manifest.Version,
 		Content: "Reusable runtime knowledge for " + manifest.ID + " " + manifest.Version,
-		Source: manifest.SourceURL, SourceRef: manifest.SourceRef, SourceHash: manifest.SourceHash,
+		Source:  manifest.SourceURL, SourceRef: manifest.SourceRef, SourceHash: manifest.SourceHash,
 	}
 	artifact, err := skills.BuildArtifact(manifest, []skills.KnowledgeChunk{chunk})
 	if err != nil {

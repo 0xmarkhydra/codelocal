@@ -189,12 +189,10 @@ func (r *SkillRuntime) Snapshot(ctx context.Context, userID string) (SkillRuntim
 						continue
 					}
 					source := selected[ref.SkillID]
+					// Trusted evaluation quality is a runtime routing overlay. Keep the
+					// persisted record manifest immutable so package/hash/provenance
+					// verification still compares against the exact promoted package.
 					source.manifest.Quality = signal.Quality
-					if source.record != nil {
-						copy := *source.record
-						copy.Manifest = source.manifest
-						source.record = &copy
-					}
 					selected[ref.SkillID] = source
 				}
 			}
@@ -263,7 +261,10 @@ func (r *SkillRuntime) resolveSource(ctx context.Context, source, builtinFallbac
 		return fallback("skill package registry mismatch for " + source.manifest.ID)
 	}
 	artifact := pkg.Artifact
-	return effectiveSkillSource{manifest: pkg.Manifest, artifact: &artifact, record: source.record}, true, ""
+	// Package identity/provenance has been verified against the immutable
+	// persisted record above. Return the effective runtime manifest so trusted
+	// routing overlays (currently Community quality) do not rewrite the package.
+	return effectiveSkillSource{manifest: source.manifest, artifact: &artifact, record: source.record}, true, ""
 }
 
 func routableSkillRecord(record SkillVersionRecord) bool {
