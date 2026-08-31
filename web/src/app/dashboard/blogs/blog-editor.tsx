@@ -330,7 +330,7 @@ export function BlogEditor({ postID }: { postID: string }) {
   }
 
   return (
-    <section className={dashboard.content}>
+    <section className={`${dashboard.content} ${dashboard.editorContent}`}>
       <div className={styles.editor}>
         <header className={styles.topbar}>
           <Link href="/dashboard/blogs">← Blogs</Link>

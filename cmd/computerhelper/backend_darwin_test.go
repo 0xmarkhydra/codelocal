@@ -82,13 +82,22 @@ func TestMacSemanticFastPathRejectsAmbiguousTargets(t *testing.T) {
 	}
 }
 
-func TestMacV2CapabilitiesAdvertisePersistentEngine(t *testing.T) {
-	caps := platformCapabilities()
+func TestMacV2CapabilitiesAdvertisePersistentFallback(t *testing.T) {
+	caps := macPlatformCapabilities(nil, false, true, "background")
 	if value, _ := caps["engine"].(string); value != "computer-v2" {
 		t.Fatalf("unexpected Computer Engine identity: %q", value)
 	}
+	if backend, _ := caps["backend"].(string); backend != "macos-persistent-ax+coregraphics" {
+		t.Fatalf("unexpected v2 backend: %q", backend)
+	}
 	if enabled, _ := caps["persistentEngine"].(bool); !enabled {
-		t.Fatal("macOS v2 should advertise a persistent engine")
+		t.Fatal("macOS v2 fallback should advertise a persistent engine")
+	}
+	if native, _ := caps["nativeAXBackend"].(bool); native {
+		t.Fatal("v2 fallback must not advertise native AX backend")
+	}
+	if activity, _ := caps["activityIndicator"].(bool); activity {
+		t.Fatal("v2 fallback must not advertise native activity indicator")
 	}
 	if streaming, _ := caps["screenCaptureStreaming"].(bool); streaming {
 		t.Fatal("ScreenCaptureKit streaming must not be advertised before it is implemented")
@@ -139,19 +148,34 @@ func TestParseMacHIDIdleMilliseconds(t *testing.T) {
 	}
 }
 
-func TestMacBackendContractExposesV3MigrationState(t *testing.T) {
-	caps := platformCapabilities()
+func TestMacV3CapabilitiesAdvertiseNativeContract(t *testing.T) {
+	caps := macPlatformCapabilities(map[string]any{"sceneEvents": true}, true, true, "background")
+	if got, _ := caps["engine"].(string); got != "computer-v3" {
+		t.Fatalf("engine = %q", got)
+	}
+	if got, _ := caps["backend"].(string); got != "macos-native-ax+jxa-fallback" {
+		t.Fatalf("backend = %q", got)
+	}
 	if got, _ := caps["backendContract"].(string); got != "desktop-v3-transition" {
 		t.Fatalf("backend contract = %q", got)
 	}
-	if native, _ := caps["nativeAXBackend"].(bool); native {
-		t.Fatal("JXA migration backend must not claim the future native AX daemon is already active")
+	if native, _ := caps["nativeAXBackend"].(bool); !native {
+		t.Fatal("native-ready v3 must advertise native AX backend")
+	}
+	if events, _ := caps["eventDrivenScene"].(bool); !events {
+		t.Fatal("native-ready v3 should advertise event-driven scene support when daemon reports it")
+	}
+	if activity, _ := caps["activityIndicator"].(bool); !activity {
+		t.Fatal("native-ready v3 must advertise activity indicator")
+	}
+	if gate, _ := caps["userControlGate"].(bool); !gate {
+		t.Fatal("native-ready v3 must advertise user control gate")
 	}
 	if guarded, _ := caps["userActivityGuard"].(bool); !guarded {
-		t.Fatal("macOS migration backend must protect disruptive foreground/physical control while the user is active")
+		t.Fatal("macOS v3 must protect disruptive foreground/physical control while the user is active")
 	}
 	if targeted, _ := caps["targetedVerification"].(bool); !targeted {
-		t.Skip("Accessibility permission unavailable; targeted verification capability is intentionally disabled")
+		t.Fatal("trusted accessibility should enable targeted verification")
 	}
 }
 

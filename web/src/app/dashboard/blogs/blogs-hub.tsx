@@ -29,6 +29,8 @@ export function BlogsHub() {
   const [creatingSeries, setCreatingSeries] = useState(false);
   const [error, setError] = useState("");
   const [seriesError, setSeriesError] = useState("");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all");
 
   const posts = resource.state.kind === "ready" ? resource.state.value.posts : [];
   const series = seriesResource.state.kind === "ready" ? seriesResource.state.value.series : [];
@@ -37,6 +39,16 @@ export function BlogsHub() {
     drafts: posts.filter((post) => post.status === "draft").length,
     series: series.filter((item) => item.status !== "archived").length,
   }), [posts, series]);
+  const filteredPosts = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return posts.filter((post) => {
+      if (statusFilter !== "all" && post.status !== statusFilter) return false;
+      if (!normalized) return true;
+      return [post.title, post.excerpt, post.category, ...post.tags]
+        .filter((value): value is string => typeof value === "string")
+        .some((value) => value.toLowerCase().includes(normalized));
+    });
+  }, [posts, query, statusFilter]);
 
   async function createDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -97,72 +109,35 @@ export function BlogsHub() {
   }
 
   return (
-    <>
-      <div className={styles.stats} aria-label="Blog summary">
-        <article><strong>{counts.published}</strong><span>Published</span></article>
-        <article><strong>{counts.drafts}</strong><span>Drafts</span></article>
-        <article><strong>{counts.series}</strong><span>Series</span></article>
-      </div>
-
-      <section className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <div><span className={styles.kicker}>Write</span><h2>New draft</h2></div>
-        </div>
-        <form className={styles.createForm} onSubmit={createDraft}>
-          <input
-            aria-label="Post title"
-            maxLength={200}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="What do you want to write about?"
-            value={title}
-          />
-          <button disabled={creating || account.state.kind !== "ready" || !title.trim()} type="submit">
-            {creating ? "Creating…" : "Create draft"}
-          </button>
-        </form>
-        {error && <p className={styles.errorText} role="alert">{error}</p>}
-      </section>
-
-      <section className={styles.section}>
-        <div className={styles.sectionHeader}>
-          <div><span className={styles.kicker}>Learning paths</span><h2>Series</h2></div>
-        </div>
-        <form className={styles.createForm} onSubmit={createSeries}>
-          <input
-            aria-label="Series title"
-            maxLength={200}
-            onChange={(event) => setSeriesTitle(event.target.value)}
-            placeholder="Create a new series"
-            value={seriesTitle}
-          />
-          <button disabled={creatingSeries || account.state.kind !== "ready" || !seriesTitle.trim()} type="submit">
-            {creatingSeries ? "Creating…" : "Create series"}
-          </button>
-        </form>
-        {seriesError && <p className={styles.errorText} role="alert">{seriesError}</p>}
-        {seriesResource.state.kind === "loading" && <div className={styles.emptyState}>Loading series…</div>}
-        {seriesResource.state.kind === "error" && <div className={styles.emptyState}><p>{seriesResource.state.message}</p><button type="button" onClick={seriesResource.retry}>Try again</button></div>}
-        {seriesResource.state.kind === "ready" && series.length === 0 && <div className={styles.emptyState}>No series yet. Create one above when you want an ordered reading path.</div>}
-        {seriesResource.state.kind === "ready" && series.length > 0 && (
-          <div className={styles.postList}>
-            {series.map((item) => (
-              <Link className={styles.postRow} href={`/dashboard/blogs/series/${item.id}`} key={item.id}>
-                <div>
-                  <span>{item.status}</span>
-                  <strong>{item.title}</strong>
-                  <p>{item.description || "No description yet."}</p>
-                </div>
-                <time dateTime={new Date(item.updatedAt).toISOString()}>{formatDate(item.updatedAt)}</time>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className={styles.section}>
+    <div className={styles.blogWorkspace}>
+      <section className={`${styles.section} ${styles.postsSection}`}>
         <div className={styles.sectionHeader}>
           <div><span className={styles.kicker}>Your content</span><h2>Posts</h2></div>
           <Link href="/blogs">Open public blog</Link>
+        </div>
+
+        <div className={styles.postToolbar}>
+          <input
+            aria-label="Search posts"
+            className={styles.searchInput}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search title, excerpt, category or tag"
+            type="search"
+            value={query}
+          />
+          <div className={styles.statusFilters} role="group" aria-label="Filter posts by status">
+            {(["all", "published", "draft"] as const).map((status) => (
+              <button
+                aria-pressed={statusFilter === status}
+                data-active={statusFilter === status}
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                type="button"
+              >
+                {status === "all" ? "All" : status === "published" ? "Published" : "Drafts"}
+              </button>
+            ))}
+          </div>
         </div>
 
         {resource.state.kind === "loading" && <div className={styles.emptyState}>Loading posts…</div>}
@@ -173,10 +148,11 @@ export function BlogsHub() {
           </div>
         )}
         {resource.state.kind === "unauthenticated" && <div className={styles.emptyState}>Sign in again to manage your posts.</div>}
-        {resource.state.kind === "ready" && posts.length === 0 && <div className={styles.emptyState}>No posts yet. Create your first draft above.</div>}
-        {resource.state.kind === "ready" && posts.length > 0 && (
+        {resource.state.kind === "ready" && posts.length === 0 && <div className={styles.emptyState}>No posts yet. Create your first draft from the right panel.</div>}
+        {resource.state.kind === "ready" && posts.length > 0 && filteredPosts.length === 0 && <div className={styles.emptyState}>No posts match this search or filter.</div>}
+        {resource.state.kind === "ready" && filteredPosts.length > 0 && (
           <div className={styles.postList}>
-            {posts.map((post) => (
+            {filteredPosts.map((post) => (
               <Link className={styles.postRow} href={`/dashboard/blogs/${post.id}`} key={post.id}>
                 <div>
                   <span>{post.status} · {post.category || "Uncategorized"}</span>
@@ -189,6 +165,69 @@ export function BlogsHub() {
           </div>
         )}
       </section>
-    </>
+
+      <aside className={styles.sideRail}>
+        <div className={styles.stats} aria-label="Blog summary">
+          <article><strong>{counts.published}</strong><span>Published</span></article>
+          <article><strong>{counts.drafts}</strong><span>Drafts</span></article>
+          <article><strong>{counts.series}</strong><span>Series</span></article>
+        </div>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <div><span className={styles.kicker}>Write</span><h2>New draft</h2></div>
+          </div>
+          <form className={styles.createForm} onSubmit={createDraft}>
+            <input
+              aria-label="Post title"
+              maxLength={200}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="What do you want to write about?"
+              value={title}
+            />
+            <button disabled={creating || account.state.kind !== "ready" || !title.trim()} type="submit">
+              {creating ? "Creating…" : "Create draft"}
+            </button>
+          </form>
+          {error && <p className={styles.errorText} role="alert">{error}</p>}
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <div><span className={styles.kicker}>Learning paths</span><h2>Series</h2></div>
+          </div>
+          <form className={styles.createForm} onSubmit={createSeries}>
+            <input
+              aria-label="Series title"
+              maxLength={200}
+              onChange={(event) => setSeriesTitle(event.target.value)}
+              placeholder="Create a new series"
+              value={seriesTitle}
+            />
+            <button disabled={creatingSeries || account.state.kind !== "ready" || !seriesTitle.trim()} type="submit">
+              {creatingSeries ? "Creating…" : "Create series"}
+            </button>
+          </form>
+          {seriesError && <p className={styles.errorText} role="alert">{seriesError}</p>}
+          {seriesResource.state.kind === "loading" && <div className={styles.emptyState}>Loading series…</div>}
+          {seriesResource.state.kind === "error" && <div className={styles.emptyState}><p>{seriesResource.state.message}</p><button type="button" onClick={seriesResource.retry}>Try again</button></div>}
+          {seriesResource.state.kind === "ready" && series.length === 0 && <div className={styles.emptyState}>No series yet.</div>}
+          {seriesResource.state.kind === "ready" && series.length > 0 && (
+            <div className={styles.postList}>
+              {series.map((item) => (
+                <Link className={styles.postRow} href={`/dashboard/blogs/series/${item.id}`} key={item.id}>
+                  <div>
+                    <span>{item.status}</span>
+                    <strong>{item.title}</strong>
+                    <p>{item.description || "No description yet."}</p>
+                  </div>
+                  <time dateTime={new Date(item.updatedAt).toISOString()}>{formatDate(item.updatedAt)}</time>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      </aside>
+    </div>
   );
 }

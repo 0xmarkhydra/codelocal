@@ -1903,6 +1903,8 @@
 
 /* Apple-inspired dashboard refresh — presentation only; existing backend contracts remain authoritative. */
 .shell {
+  width: 100%;
+  height: 100dvh;
   min-height: 100dvh;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
@@ -1920,12 +1922,17 @@
   top: 0;
   height: 100dvh;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   padding: 14px 12px 12px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid rgba(255, 255, 255, 0.065);
-  background: rgba(8, 12, 18, 0.74);
-  backdrop-filter: blur(30px) saturate(125%);
+  border-right: 1px solid var(--glass-line);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), transparent 18%),
+    var(--glass-fill-strong);
+  box-shadow: inset -1px 0 rgba(255,255,255,.018), inset 0 1px var(--glass-highlight);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
 }
 
 .brandRow {
@@ -1984,6 +1991,9 @@
   min-height: 0;
   flex: 1;
   display: block;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding-top: 4px;
 }
 
@@ -2035,9 +2045,20 @@
 
 .content {
   min-width: 0;
-  min-height: 100dvh;
-  overflow: auto;
+  min-height: 0;
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 28px clamp(22px, 3vw, 46px) 38px;
+}
+
+.editorContent {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
 }
 
 .chatContent {
@@ -2338,15 +2359,16 @@
 }
 
 @media (max-width: 620px) {
-  .shell { display: block; }
-  .sidebar { position: fixed; z-index: 30; left: 8px; right: 8px; bottom: 8px; top: auto; width: auto; height: 58px; padding: 5px; flex-direction: row; align-items: center; border: 1px solid rgba(255,255,255,.085); border-radius: 18px; background: rgba(13,18,27,.84); box-shadow: 0 18px 44px rgba(0,0,0,.36); }
+  .shell { display: block; height: auto; min-height: 100dvh; overflow: visible; }
+  .sidebar { position: fixed; z-index: 30; left: 8px; right: 8px; bottom: 8px; top: auto; width: auto; height: 58px; min-height: 0; overflow: hidden; padding: 5px; flex-direction: row; align-items: center; border: 1px solid var(--glass-line); border-radius: var(--radius-panel); background: var(--glass-fill-strong); box-shadow: 0 18px 44px rgba(0,0,0,.36), inset 0 1px var(--glass-highlight); backdrop-filter: blur(var(--glass-blur)) saturate(130%); }
   .brandRow { display: none; }
-  .nav { flex: 1; padding: 0; }
+  .nav { flex: 1; overflow: visible; padding: 0; }
   .navPrimary { grid-template-columns: repeat(auto-fit, minmax(40px, 1fr)); gap: 2px; }
-  .navPrimary > a { min-height: 46px; border-radius: 13px; }
+  .navPrimary > a { min-height: 46px; border-radius: var(--radius-control); }
   .navPrimary > a.activeNav::before { left: 50%; bottom: 1px; top: auto; width: 18px; height: 2px; transform: translateX(-50%); }
-  .content { min-height: 100dvh; padding: 16px 10px 84px; }
-  .chatContent { height: 100dvh; padding: 5px 5px 72px; }
+  .content { height: auto; min-height: 100dvh; overflow: visible; padding: 16px 10px 84px; }
+  .editorContent { height: auto; min-height: 100dvh; overflow: visible; padding: 10px 10px 84px; }
+  .chatContent { height: 100dvh; overflow: hidden; padding: 5px 5px 72px; }
   .header { align-items: flex-start; flex-direction: column; margin-bottom: 14px; }
   .header h1 { font-size: 28px; }
   .brainHeader { flex-direction: row; align-items: center; }
@@ -2366,38 +2388,53 @@
   .brainHealthDisclosure > summary svg { transition: none; }
 }
 
-/* Optical finishing pass: calmer materials, consistent icon weight, less decorative glow. */
+/* UI/UX Pro finishing pass: flat technical editorial surfaces shared with landing and Blogs. */
 .shell {
-  background:
-    radial-gradient(circle at 34% -20%, rgba(84, 102, 154, 0.065), transparent 38%),
-    #070a0f;
+  color: var(--text);
+  background: var(--canvas);
 }
 
 .sidebar {
-  background: rgba(9, 12, 17, 0.82);
-  backdrop-filter: blur(28px) saturate(108%);
+  border-right-color: var(--glass-line);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.055), transparent 16%),
+    linear-gradient(90deg, rgba(139,168,255,.035), transparent 42%),
+    var(--glass-fill-strong);
+  box-shadow: inset -1px 0 rgba(255,255,255,.018), inset 0 1px var(--glass-highlight);
+  backdrop-filter: blur(var(--glass-blur)) saturate(132%);
+}
+
+.navPrimary > a {
+  border-radius: var(--radius-control);
+}
+
+.navPrimary > a:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .navPrimary > a.activeNav {
-  border-color: rgba(255, 255, 255, 0.075);
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  border-color: transparent;
+  background: rgba(139, 168, 255, 0.045);
+  box-shadow: none;
 }
 
 .navPrimary > a.activeNav::before {
-  background: rgba(139, 163, 221, 0.92);
+  background: var(--accent);
   box-shadow: none;
 }
 
 .navPrimary > a.activeNav .navIcon,
 .navPrimary > a:hover .navIcon {
-  color: rgba(226, 235, 249, 0.82);
+  color: #a8b8d0;
 }
 
 .brandMark {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--glass-line);
+  border-radius: var(--radius-control);
   background: rgba(255, 255, 255, 0.028);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px rgba(255,255,255,.045);
 }
 
 .workspaceCard,
@@ -2405,22 +2442,28 @@
 .livePanel,
 .panel,
 .heroPanel {
-  background: linear-gradient(145deg, rgba(20, 26, 35, 0.72), rgba(10, 14, 20, 0.88));
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.16), inset 0 1px rgba(255, 255, 255, 0.025);
+  border-color: var(--glass-line);
+  border-radius: var(--radius-panel);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012) 34%, transparent 72%),
+    var(--glass-fill);
+  box-shadow: inset 0 1px var(--glass-highlight), 0 18px 52px rgba(0,0,0,.16);
+  backdrop-filter: blur(var(--glass-blur)) saturate(125%);
 }
 
 .workspaceCard:hover {
-  transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.12);
-  background: linear-gradient(145deg, rgba(24, 31, 42, 0.76), rgba(11, 16, 23, 0.9));
+  transform: none;
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.022);
 }
 
 .workspaceFolderLarge,
 .deviceGlyph,
 .deviceHeroIcon {
-  color: rgba(151, 176, 224, 0.9);
-  border-color: rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.028);
+  color: #9bacc5;
+  border-color: var(--line);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.018);
 }
 
 .workspaceFolderLarge svg,
@@ -2428,38 +2471,40 @@
 .deviceHeroIcon svg {
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.65;
+  stroke-width: 1.6;
 }
 
 .statusPill i,
-.deviceStateDot[data-state="online"] {
-  background: #69d895;
-  box-shadow: 0 0 0 2px rgba(105, 216, 149, 0.08);
-}
-
+.deviceStateDot[data-state="online"],
 .summaryPills i,
 .deviceSummary i {
-  background: #69d895;
+  background: var(--green);
+  box-shadow: none;
 }
 
-.primaryCardAction {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.055);
-  color: rgba(246, 248, 252, 0.86);
+.primaryCardAction,
+.secondaryCardAction,
+.liveAction,
+.headerAction {
+  border-color: var(--line-strong);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--text-secondary);
 }
 
 .primaryCardAction:hover,
 .secondaryCardAction:hover,
 .liveAction:hover,
 .headerAction:hover {
-  border-color: rgba(255, 255, 255, 0.13);
-  background: rgba(255, 255, 255, 0.075);
+  color: var(--text);
+  border-color: rgba(139, 168, 255, 0.28);
+  background: var(--accent-soft);
 }
 
 .adminBadge {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(224, 231, 243, 0.64);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--text-secondary);
 }
 
 /* Readable Apple-like optical type scale on primary product surfaces. */
