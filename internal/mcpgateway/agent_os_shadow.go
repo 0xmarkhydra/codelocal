@@ -25,6 +25,7 @@ type agentOSV2Shadow struct {
 	WorkspaceKey     string
 	TaskID           string
 	SessionID        string
+	Events           *runtimeevents.Store
 	Prepared         *orchestration.PreparedAgentOS
 	PrepareFailed    bool
 	PersistenceError bool
@@ -96,6 +97,7 @@ func prepareAgentOSV2ShadowWithStore(ctx context.Context, events *runtimeevents.
 		WorkspaceKey: workspaceKey,
 		TaskID:       agentOSV2ShadowTaskID(userID, session, workspaceKey, objective, started),
 		SessionID:    session,
+		Events:       events,
 	}
 	if events == nil {
 		shadow.PrepareFailed = true
@@ -142,19 +144,19 @@ func finalizeAgentOSV2Shadow(shadow *agentOSV2Shadow, status, qualityStatus stri
 	if shadow == nil {
 		return nil
 	}
-	if shadow.Prepared != nil {
-		_, _, err := agentOSV2ShadowEvents.Append(shadow.WorkspaceKey, shadow.TaskID, runtimeevents.Event{
+	if shadow.Prepared != nil && shadow.Events != nil {
+		_, _, err := shadow.Events.Append(shadow.WorkspaceKey, shadow.TaskID, runtimeevents.Event{
 			Type:           agentOSV2ShadowObservedEvent,
 			SessionID:      shadow.SessionID,
 			TraceID:        shadow.TaskID,
 			IdempotencyKey: "shadow-observed",
 			Payload: map[string]any{
-				"actualStatus":  strings.TrimSpace(status),
-				"qualityStatus": strings.TrimSpace(qualityStatus),
-				"qualityScore":  qualityScore,
+				"actualStatus":   strings.TrimSpace(status),
+				"qualityStatus":  strings.TrimSpace(qualityStatus),
+				"qualityScore":   qualityScore,
 				"operationCount": operationCount,
-				"replans":       replans,
-				"halted":        halted,
+				"replans":        replans,
+				"halted":         halted,
 			},
 		})
 		if err != nil {
