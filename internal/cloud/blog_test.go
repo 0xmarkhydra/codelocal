@@ -6,9 +6,35 @@ import (
 	"testing"
 )
 
-func TestNormalizeBlogSlugKeepsStableUnicodeWords(t *testing.T) {
-	if got, want := NormalizeBlogSlug("  AI Agent: Từ Project → Blog!  "), "ai-agent-từ-project-blog"; got != want {
-		t.Fatalf("NormalizeBlogSlug()=%q want %q", got, want)
+func TestNormalizeBlogSlugTransliteratesVietnameseWords(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "vietnamese title",
+			input: "  OpenClaw và DeepSeek Harness: Hướng tiếp cận khác nhau để xây AI Agent?  ",
+			want:  "openclaw-va-deepseek-harness-huong-tiep-can-khac-nhau-de-xay-ai-agent",
+		},
+		{
+			name:  "vietnamese d stroke",
+			input: "Điện toán đám mây & AI",
+			want:  "dien-toan-dam-may-ai",
+		},
+		{
+			name:  "special characters",
+			input: "AI Agent: Từ Project → Blog!",
+			want:  "ai-agent-tu-project-blog",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeBlogSlug(tt.input); got != tt.want {
+				t.Fatalf("NormalizeBlogSlug()=%q want %q", got, tt.want)
+			}
+		})
 	}
 }
 
