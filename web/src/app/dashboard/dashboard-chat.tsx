@@ -33,11 +33,21 @@ type ChatMsg = {
   skills?: SkillBadge[];
 };
 
+type ChatThread = {
+  id: string;
+  title: string;
+  model: string;
+  workspaceKey?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 type StreamData = {
   delta?: string;
   content?: string;
   reply?: string;
   error?: string;
+  threadId?: string;
   tool_calls?: ToolCall[] | Array<{ index: number; name?: string; arguments?: string; id?: string }>;
 };
 
@@ -75,21 +85,6 @@ function modelLabel(model: string) {
     case "muse-spark-1.2-contributor-free": return "Muse Spark 1.2";
     default: return model;
   }
-}
-
-function modelFamily(model: string) {
-  const normalized = model.toLowerCase();
-  if (/^(gpt-|o[134]-)/.test(normalized)) return "OpenAI";
-  if (normalized.startsWith("claude-")) return "Anthropic";
-  if (normalized.startsWith("gemini-") || normalized.startsWith("gemma-")) return "Google";
-  if (normalized.startsWith("qwen")) return "Qwen";
-  if (normalized.startsWith("deepseek-")) return "DeepSeek";
-  if (normalized.startsWith("glm-")) return "Zhipu";
-  if (normalized.startsWith("grok-")) return "xAI";
-  if (normalized.startsWith("kimi-")) return "Moonshot";
-  if (normalized.startsWith("minimax-")) return "MiniMax";
-  if (normalized.startsWith("mistral-")) return "Mistral";
-  return "Khác";
 }
 
 function workspaceKey(workspace: WorkspaceItem) {
@@ -140,6 +135,46 @@ function parseHistorySkills(raw: string | SkillBadge[] | undefined): SkillBadge[
   return parseSkillHeader(raw ?? null);
 }
 
+function historyMessages(value: unknown): ChatMsg[] {
+  if (!value || typeof value !== "object") return [];
+  const records = (value as { messages?: unknown }).messages;
+  if (!Array.isArray(records)) return [];
+  return records.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const message = entry as { role?: unknown; content?: unknown; tool_calls?: string | ToolCall[]; skills?: string | SkillBadge[]; image?: unknown };
+    if ((message.role !== "user" && message.role !== "assistant") || typeof message.content !== "string") return [];
+    let toolCalls: ToolCall[] | undefined;
+    if (typeof message.tool_calls === "string") {
+      try {
+        const parsed = JSON.parse(message.tool_calls) as unknown;
+        if (Array.isArray(parsed)) toolCalls = parsed as ToolCall[];
+      } catch {
+        toolCalls = undefined;
+      }
+    } else if (Array.isArray(message.tool_calls)) {
+      toolCalls = message.tool_calls;
+    }
+    const skills = parseHistorySkills(message.skills);
+    return [{
+      role: message.role,
+      content: message.content,
+      tool_calls: toolCalls,
+      skills: skills.length ? skills : undefined,
+      image: typeof message.image === "string" ? message.image : undefined,
+    } satisfies ChatMsg];
+  }).slice(-50);
+}
+
+function threadGroupLabel(updatedAt: number) {
+  const startToday = new Date();
+  startToday.setHours(0, 0, 0, 0);
+  const age = startToday.getTime() - updatedAt;
+  if (age <= 0) return "Hôm nay";
+  if (age < 24 * 60 * 60 * 1000) return "Hôm qua";
+  if (age < 7 * 24 * 60 * 60 * 1000) return "7 ngày qua";
+  return "Cũ hơn";
+}
+
 function friendlyChatFailure(message: string) {
   if (/508|tool loop|loop exceeded/i.test(message)) {
     return "Luồng xử lý vừa quá dài. Thánh Gióng đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
@@ -159,6 +194,11 @@ export function DashboardChat() {
   const [image, setImage] = useState<PreparedChatImage | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [threadSearch, setThreadSearch] = useState("");
+  const [threadActionLoading, setThreadActionLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [models, setModels] = useState<string[]>(["auto"]);
   const [selectedModel, setSelectedModel] = useState("auto");
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState(() => {
@@ -180,52 +220,95 @@ export function DashboardChat() {
     () => workspaceItems.find((workspace) => workspaceKey(workspace) === selectedWorkspaceKey),
     [selectedWorkspaceKey, workspaceItems],
   );
-  const modelGroups = useMemo(() => {
-    const groups = new Map<string, string[]>();
-    for (const model of models) {
-      if (model === "auto") continue;
-      const family = modelFamily(model);
-      groups.set(family, [...(groups.get(family) || []), model]);
-    }
-    return Array.from(groups.entries());
-  }, [models]);
+  const popularModels = useMemo(() => models.filter((model) => model !== "auto").slice(0, 20), [models]);
+  const threadGroups = useMemo(() => {
+    const query = threadSearch.trim().toLocaleLowerCase("vi");
+    const visible = query ? threads.filter((thread) => thread.title.toLocaleLowerCase("vi").includes(query)) : threads;
+    const labels = ["Hôm nay", "Hôm qua", "7 ngày qua", "Cũ hơn"];
+    return labels.map((label) => ({ label, threads: visible.filter((thread) => threadGroupLabel(thread.updatedAt) === label) })).filter((group) => group.threads.length > 0);
+  }, [threadSearch, threads]);
+  const activeThreadModel = threads.find((thread) => thread.id === activeThreadId)?.model;
+  const activeThreadWorkspaceKey = threads.find((thread) => thread.id === activeThreadId)?.workspaceKey;
 
   useEffect(() => {
-    fetch("/api/v1/dashboard/chat/history", { credentials: "include" })
+    let cancelled = false;
+    fetch("/api/v1/dashboard/chat/threads", { credentials: "include" })
+      .then(async (response) => {
+        if (response.status === 401) {
+          router.replace("/login");
+          return null;
+        }
+        if (!response.ok) throw new Error(`threads ${response.status}`);
+        return response.json() as Promise<{ threads?: ChatThread[] }>;
+      })
+      .then(async (data) => {
+        if (cancelled || !data) return;
+        let available = Array.isArray(data.threads) ? data.threads : [];
+        if (available.length === 0) {
+          const response = await fetch("/api/v1/dashboard/chat/threads", {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model: "auto" }),
+          });
+          if (!response.ok) throw new Error(`create thread ${response.status}`);
+          const created = (await response.json()) as { thread?: ChatThread };
+          available = created.thread ? [created.thread] : [];
+        }
+        if (cancelled) return;
+        setThreads(available);
+        if (available[0]) {
+          setMessages([]);
+          setHistoryLoading(true);
+          setActiveThreadId(available[0].id);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setNotice("Không tải được danh sách cuộc trò chuyện");
+      })
+      .finally(() => {
+        if (!cancelled) setThreadActionLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [router]);
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      return;
+    }
+    const controller = new AbortController();
+    fetch(`/api/v1/dashboard/chat/history?threadId=${encodeURIComponent(activeThreadId)}`, { credentials: "include", signal: controller.signal })
       .then(async (response) => {
         if (response.status === 401) {
           router.replace("/login");
           return null;
         }
         if (!response.ok) throw new Error(`history ${response.status}`);
-        return response.json();
+        return response.json() as Promise<unknown>;
       })
-      .then((data: { messages?: Array<{ role: string; content: string; tool_calls?: string | ToolCall[]; skills?: string | SkillBadge[]; image?: string }> } | null) => {
-        if (!data?.messages) return;
-        const mapped: ChatMsg[] = data.messages.map((message) => {
-          let toolCalls: ToolCall[] | undefined;
-          if (typeof message.tool_calls === "string") {
-            try {
-              toolCalls = JSON.parse(message.tool_calls) as ToolCall[];
-            } catch {
-              toolCalls = undefined;
-            }
-          } else if (Array.isArray(message.tool_calls)) {
-            toolCalls = message.tool_calls;
-          }
-          const skills = parseHistorySkills(message.skills);
-          return {
-            role: message.role as ChatMsg["role"],
-            content: message.content,
-            tool_calls: toolCalls,
-            skills: skills.length ? skills : undefined,
-            image: message.image,
-          };
-        });
-        setMessages(mapped.slice(-50));
+      .then((data) => {
+        if (data) setMessages(historyMessages(data));
       })
-      .catch(() => setNotice("Không tải được lịch sử chat"));
-  }, [router]);
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setNotice("Không tải được lịch sử chat");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHistoryLoading(false);
+      });
+    return () => controller.abort();
+  }, [activeThreadId, router]);
+
+  useEffect(() => {
+    if (!activeThreadId) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSelectedModel(activeThreadModel && models.includes(activeThreadModel) ? activeThreadModel : "auto");
+      const storedWorkspace = activeThreadWorkspaceKey || "auto";
+      setSelectedWorkspaceKey(storedWorkspace === "auto" || workspaceItems.some((workspace) => workspaceKey(workspace) === storedWorkspace) ? storedWorkspace : "auto");
+    });
+    return () => { cancelled = true; };
+  }, [activeThreadId, activeThreadModel, activeThreadWorkspaceKey, models, workspaceItems]);
 
   useEffect(() => {
     fetch("/api/v1/dashboard/models", { credentials: "include" })
@@ -373,9 +456,110 @@ export function DashboardChat() {
   }
 
   function submitQuickMessage(message: string) {
-    if (loading) return;
+    if (loading || historyLoading || threadActionLoading) return;
     quickMessageRef.current = message;
     formRef.current?.requestSubmit();
+  }
+
+  async function createThreadRecord() {
+    const response = await fetch("/api/v1/dashboard/chat/threads", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: selectedModel,
+        workspaceKey: selectedWorkspaceKey === "auto" ? "" : selectedWorkspaceKey,
+      }),
+    });
+    if (response.status === 401) {
+      router.replace("/login");
+      throw new Error("Phiên đăng nhập đã hết hạn");
+    }
+    if (!response.ok) throw new Error(`create thread ${response.status}`);
+    const data = (await response.json()) as { thread?: ChatThread };
+    if (!data.thread) throw new Error("missing thread");
+    return data.thread;
+  }
+
+  async function refreshThreads(preferredThreadId?: string) {
+    const response = await fetch("/api/v1/dashboard/chat/threads", { credentials: "include" });
+    if (!response.ok) return;
+    const data = (await response.json()) as { threads?: ChatThread[] };
+    if (!Array.isArray(data.threads)) return;
+    setThreads(data.threads);
+    if (preferredThreadId && preferredThreadId !== activeThreadId && data.threads.some((thread) => thread.id === preferredThreadId)) {
+      setMessages([]);
+      setHistoryLoading(true);
+      setActiveThreadId(preferredThreadId);
+    }
+  }
+
+  async function newThread() {
+    if (loading || threadActionLoading) return;
+    setThreadActionLoading(true);
+    setNotice("");
+    try {
+      const thread = await createThreadRecord();
+      setThreads((current) => [thread, ...current]);
+      setHistoryLoading(true);
+      setActiveThreadId(thread.id);
+      setMessages([]);
+      setInput("");
+      discardImage();
+    } catch {
+      setNotice("Không thể tạo cuộc trò chuyện mới");
+    } finally {
+      setThreadActionLoading(false);
+    }
+  }
+
+  async function renameThread(thread: ChatThread) {
+    if (loading || threadActionLoading) return;
+    const title = window.prompt("Tên cuộc trò chuyện", thread.title)?.trim();
+    if (!title || title === thread.title) return;
+    setThreadActionLoading(true);
+    try {
+      const response = await fetch(`/api/v1/dashboard/chat/threads/${encodeURIComponent(thread.id)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      const data = (await response.json()) as { thread?: ChatThread };
+      setThreads((current) => {
+        const updated = data.thread || { ...thread, title, updatedAt: Date.now() };
+        return [updated, ...current.filter((item) => item.id !== thread.id)];
+      });
+    } catch {
+      setNotice("Không thể đổi tên cuộc trò chuyện");
+    } finally {
+      setThreadActionLoading(false);
+    }
+  }
+
+  async function deleteThread(thread: ChatThread) {
+    if (loading || threadActionLoading || !window.confirm(`Xóa “${thread.title}”?`)) return;
+    setThreadActionLoading(true);
+    try {
+      const response = await fetch(`/api/v1/dashboard/chat/threads/${encodeURIComponent(thread.id)}`, { method: "DELETE", credentials: "include" });
+      if (!response.ok) throw new Error(String(response.status));
+      let remaining = threads.filter((item) => item.id !== thread.id);
+      if (remaining.length === 0) {
+        const replacement = await createThreadRecord();
+        remaining = [replacement];
+      }
+      setThreads(remaining);
+      if (activeThreadId === thread.id) {
+        setHistoryLoading(true);
+        setActiveThreadId(remaining[0].id);
+        setMessages([]);
+      }
+    } catch {
+      setNotice("Không thể xóa cuộc trò chuyện");
+    } finally {
+      setThreadActionLoading(false);
+    }
   }
 
   async function send(event: FormEvent) {
@@ -383,7 +567,20 @@ export function DashboardChat() {
     const quickMessage = quickMessageRef.current;
     quickMessageRef.current = null;
     const text = (quickMessage ?? input).trim();
-    if ((!text && !image) || loading || imageUploading) return;
+    if ((!text && !image) || loading || imageUploading || historyLoading || threadActionLoading) return;
+    let requestThreadId = activeThreadId;
+    if (!requestThreadId) {
+      try {
+        const thread = await createThreadRecord();
+        requestThreadId = thread.id;
+        setThreads((current) => [thread, ...current]);
+        setHistoryLoading(true);
+        setActiveThreadId(thread.id);
+      } catch {
+        setNotice("Không thể tạo cuộc trò chuyện để gửi tin nhắn");
+        return;
+      }
+    }
 
     const pendingImage = image;
     let sendImage: ChatImageMeta | undefined;
@@ -416,6 +613,7 @@ export function DashboardChat() {
     try {
       const history = next.slice(-12).map((message) => ({ role: message.role, content: message.content }));
       const payload = {
+        threadId: requestThreadId,
         message: text || "Phân tích ảnh này",
         history,
         model: selectedModel,
@@ -468,8 +666,9 @@ export function DashboardChat() {
       setNotice("");
 
       if (!(response.headers.get("content-type") || "").includes("text/event-stream")) {
-        const data = (await response.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string };
+        const data = (await response.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string; threadId?: string };
         if (data.error) throw new Error(data.error);
+        if (data.threadId) requestThreadId = data.threadId;
         updateAssistant(placeholderIndex, data.reply || "", data.tool_calls || [], activeSkills);
         return;
       }
@@ -540,6 +739,7 @@ export function DashboardChat() {
             continue;
           }
           if (eventName === "done") {
+            if (typeof data.threadId === "string" && data.threadId) requestThreadId = data.threadId;
             if (typeof data.reply === "string") content = data.reply;
             if (Array.isArray(data.tool_calls)) toolCalls = data.tool_calls as ToolCall[];
             streamedContent = content;
@@ -555,14 +755,16 @@ export function DashboardChat() {
       updateAssistant(placeholderIndex, content, streamedToolCalls);
     } finally {
       setLoading(false);
+      if (requestThreadId) void refreshThreads(requestThreadId);
     }
   }
 
   async function clear() {
+    if (!activeThreadId) return;
     setMessages([]);
     setNotice("");
     try {
-      const response = await fetch("/api/v1/dashboard/chat/history", { method: "DELETE", credentials: "include" });
+      const response = await fetch(`/api/v1/dashboard/chat/history?threadId=${encodeURIComponent(activeThreadId)}`, { method: "DELETE", credentials: "include" });
       if (!response.ok) throw new Error(String(response.status));
     } catch {
       setNotice("Không thể xóa lịch sử trên server");
@@ -570,112 +772,159 @@ export function DashboardChat() {
   }
 
   return (
-    <section className={styles.chatShell} aria-label="Chat với Thánh Gióng">
-      <div className={styles.chatHead}>
-        <div className={styles.brandBlock}>
-          <span className={styles.avatar} aria-hidden="true"><AppIcon name="thanh-giong" size={22} /></span>
-          <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
+    <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện Thánh Gióng">
+      <aside className={styles.threadSidebar} aria-label="Các cuộc trò chuyện">
+        <div className={styles.threadSidebarHead}>
+          <div>
+            <span>Lịch sử</span>
+            <strong>Cuộc trò chuyện</strong>
+          </div>
+          <span className={styles.threadCount}>{threads.length}</span>
         </div>
-        <div className={styles.chatActions}>
-          <label className={`${styles.projectPicker} ${styles.modelPicker}`}>
-            <select value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} aria-label="Chọn model">
-              <option value="auto">Auto</option>
-              {modelGroups.map(([family, familyModels]) => (
-                <optgroup key={family} label={`${family} · ${familyModels.length}`}>
-                  {familyModels.map((model) => <option key={model} value={model}>{modelLabel(model)}</option>)}
-                </optgroup>
+        <button className={styles.newThreadButton} type="button" onClick={() => void newThread()} disabled={loading || threadActionLoading}>
+          <AppIcon name="plus" size={16} />
+          Cuộc trò chuyện mới
+        </button>
+        <label className={styles.threadSearch}>
+          <AppIcon name="search" size={15} />
+          <input value={threadSearch} onChange={(event) => setThreadSearch(event.target.value)} placeholder="Tìm cuộc trò chuyện" aria-label="Tìm cuộc trò chuyện" />
+        </label>
+        <div className={styles.threadList}>
+          {threadGroups.length === 0 ? <p className={styles.threadEmpty}>Không tìm thấy cuộc trò chuyện.</p> : threadGroups.map((group) => (
+            <section className={styles.threadGroup} key={group.label}>
+              <h2>{group.label}</h2>
+              {group.threads.map((thread) => (
+                <div className={`${styles.threadItem} ${thread.id === activeThreadId ? styles.threadItemActive : ""}`} key={thread.id}>
+                  <button className={styles.threadSelect} type="button" onClick={() => {
+                    if (thread.id === activeThreadId) return;
+                    setMessages([]);
+                    setHistoryLoading(true);
+                    setActiveThreadId(thread.id);
+                  }} disabled={loading || historyLoading} title={thread.title}>
+                    <AppIcon name="chat" size={15} />
+                    <span>{thread.title}</span>
+                  </button>
+                  <div className={styles.threadItemActions}>
+                    <button type="button" onClick={() => void renameThread(thread)} aria-label={`Đổi tên ${thread.title}`} title="Đổi tên"><AppIcon name="edit" size={13} /></button>
+                    <button type="button" onClick={() => void deleteThread(thread)} aria-label={`Xóa ${thread.title}`} title="Xóa"><AppIcon name="trash" size={13} /></button>
+                  </div>
+                </div>
               ))}
-            </select>
-          </label>
-          <label className={styles.projectPicker}>
-            <span className={styles.projectPickerIcon} aria-hidden="true">
-              <AppIcon name="folder" size={17} />
-            </span>
-            <select value={selectedWorkspaceKey} onChange={(event) => setSelectedWorkspaceKey(event.target.value)} aria-label="Chọn dự án">
-              <option value="auto">Dự án: Auto</option>
-              {workspaceItems.map((workspace) => <option key={workspaceKey(workspace)} value={workspaceKey(workspace)}>Dự án: {workspace.workspaceName}</option>)}
-            </select>
-          </label>
-          <button onClick={clear} className={styles.clearBtn} type="button" aria-label="Xóa lịch sử" title="Xóa lịch sử">
-            <AppIcon name="trash" size={18} />
-          </button>
+            </section>
+          ))}
         </div>
-      </div>
+        <div className={styles.threadSidebarFoot}>
+          Lưu theo tài khoản CodeLocal
+        </div>
+      </aside>
 
-      <div className={styles.chatMessages} onPaste={onPaste}>
-        {messages.length === 0 ? (
-          <div className={styles.emptyState}>
-            <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="thanh-giong" size={27} /></span>
-            <strong>Bạn muốn làm gì?</strong>
-            <div className={styles.suggestions}>
-              {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
-            </div>
+      <section className={styles.chatShell} aria-label="Chat với Thánh Gióng">
+        <div className={styles.chatHead}>
+          <div className={styles.brandBlock}>
+            <span className={styles.avatar} aria-hidden="true"><AppIcon name="thanh-giong" size={22} /></span>
+            <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
           </div>
-        ) : messages.map((message, index) => (
-          <div key={`${message.role}-${index}`} className={`${styles.msgBlock} ${message.role === "user" ? styles.userBlock : styles.assistantBlock}`}>
-            <div className={styles.messageBody}>
-              {message.skills?.length ? (
-                <div className={skillStyles.list} aria-label="Skills đang được CodeLocal sử dụng">
-                  {message.skills.map((skill) => (
-                    <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>
-                      <AppIcon name="skill" size={13} />
-                      {skill.name}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {message.tool_calls?.length ? (
-                <div className={styles.toolList}>
-                  {message.tool_calls.map((tool) => (
-                    <div key={tool.id} className={styles.toolActionRow}>
-                      <details className={styles.toolPill}>
-                        <summary>
-                          <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name)}</span>
-                          {tool.status === "error" ? <span className={styles.toolMeta}>Lỗi</span> : null}
-                          {tool.status === "approval_required" ? <span className={styles.toolMeta}>Cần quyền</span> : null}
-                        </summary>
-                        <div className={styles.toolDetail}>
-                          <code>{tool.arguments || "{}"}</code>
-                          {tool.result ? <code>{tool.result.length > 800 ? `${tool.result.slice(0, 800)}…` : tool.result}</code> : null}
-                        </div>
-                      </details>
-                      {tool.status === "approval_required" ? (
-                        <button type="button" className={styles.fullAccessBtn} onClick={() => submitQuickMessage("Toàn quyền truy cập")} disabled={loading}>
-                          Toàn quyền truy cập
-                        </button>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {message.image ? <img src={message.image} alt="Ảnh đã gửi" className={styles.msgImage} /> : null}
-              {message.content ? (
-                <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant} ${loading && message.role === "assistant" && index === messages.length - 1 ? styles.msgStreaming : ""}`}>
-                  {message.role === "assistant" ? <ChatRichMessage content={message.content} /> : message.content}
-                  {loading && message.role === "assistant" && index === messages.length - 1 ? (
-                    <span className={styles.streamingDots} aria-label="Thánh Gióng vẫn đang trả lời"><i /><i /><i /></span>
-                  ) : null}
-                </div>
-              ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="Thánh Gióng đang trả lời"><i /><i /><i /></div> : null}
-            </div>
+          <div className={styles.chatActions}>
+            <label className={`${styles.projectPicker} ${styles.modelPicker}`}>
+              <select value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} aria-label="Chọn model">
+                <option value="auto">Auto</option>
+                {popularModels.length ? (
+                  <optgroup label="Top 20 phổ biến · OpenRouter">
+                    {popularModels.map((model) => <option key={model} value={model}>{modelLabel(model)}</option>)}
+                  </optgroup>
+                ) : null}
+              </select>
+            </label>
+            <label className={styles.projectPicker}>
+              <span className={styles.projectPickerIcon} aria-hidden="true">
+                <AppIcon name="folder" size={17} />
+              </span>
+              <select value={selectedWorkspaceKey} onChange={(event) => setSelectedWorkspaceKey(event.target.value)} aria-label="Chọn dự án">
+                <option value="auto">Dự án: Auto</option>
+                {workspaceItems.map((workspace) => <option key={workspaceKey(workspace)} value={workspaceKey(workspace)}>Dự án: {workspace.workspaceName}</option>)}
+              </select>
+            </label>
+            <button onClick={clear} className={styles.clearBtn} type="button" aria-label="Xóa lịch sử" title="Xóa lịch sử">
+              <AppIcon name="trash" size={18} />
+            </button>
           </div>
-        ))}
-        <div ref={endRef} />
-      </div>
+        </div>
 
-      {image ? <div className={styles.imagePreview}><img src={image.previewUrl} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={discardImage} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
+        <div className={styles.chatMessages} onPaste={onPaste}>
+          {historyLoading ? <div className={styles.historyLoading}>Đang tải cuộc trò chuyện…</div> : messages.length === 0 ? (
+            <div className={styles.emptyState}>
+              <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="thanh-giong" size={27} /></span>
+              <strong>Bạn muốn làm gì?</strong>
+              <div className={styles.suggestions}>
+                {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
+              </div>
+            </div>
+          ) : messages.map((message, index) => (
+            <div key={`${message.role}-${index}`} className={`${styles.msgBlock} ${message.role === "user" ? styles.userBlock : styles.assistantBlock}`}>
+              <div className={styles.messageBody}>
+                {message.skills?.length ? (
+                  <div className={skillStyles.list} aria-label="Skills đang được CodeLocal sử dụng">
+                    {message.skills.map((skill) => (
+                      <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>
+                        <AppIcon name="skill" size={13} />
+                        {skill.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {message.tool_calls?.length ? (
+                  <div className={styles.toolList}>
+                    {message.tool_calls.map((tool) => (
+                      <div key={tool.id} className={styles.toolActionRow}>
+                        <details className={styles.toolPill}>
+                          <summary>
+                            <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name)}</span>
+                            {tool.status === "error" ? <span className={styles.toolMeta}>Lỗi</span> : null}
+                            {tool.status === "approval_required" ? <span className={styles.toolMeta}>Cần quyền</span> : null}
+                          </summary>
+                          <div className={styles.toolDetail}>
+                            <code>{tool.arguments || "{}"}</code>
+                            {tool.result ? <code>{tool.result.length > 800 ? `${tool.result.slice(0, 800)}…` : tool.result}</code> : null}
+                          </div>
+                        </details>
+                        {tool.status === "approval_required" ? (
+                          <button type="button" className={styles.fullAccessBtn} onClick={() => submitQuickMessage("Toàn quyền truy cập")} disabled={loading}>
+                            Toàn quyền truy cập
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {message.image ? <img src={message.image} alt="Ảnh đã gửi" className={styles.msgImage} /> : null}
+                {message.content ? (
+                  <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant} ${loading && message.role === "assistant" && index === messages.length - 1 ? styles.msgStreaming : ""}`}>
+                    {message.role === "assistant" ? <ChatRichMessage content={message.content} /> : message.content}
+                    {loading && message.role === "assistant" && index === messages.length - 1 ? (
+                      <span className={styles.streamingDots} aria-label="Thánh Gióng vẫn đang trả lời"><i /><i /><i /></span>
+                    ) : null}
+                  </div>
+                ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="Thánh Gióng đang trả lời"><i /><i /><i /></div> : null}
+              </div>
+            </div>
+          ))}
+          <div ref={endRef} />
+        </div>
 
-      <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
-        <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
-        <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={imageUploading}>
-          <AppIcon name="paperclip" size={18} />
-        </button>
-        <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
-        <button className={styles.sendBtn} type="submit" disabled={loading || imageUploading || (!input.trim() && !image)} aria-label="Gửi">
-          <AppIcon name="send" size={18} />
-        </button>
-      </form>
-      {notice ? <div className={styles.chatHint}>{notice}</div> : null}
+        {image ? <div className={styles.imagePreview}><img src={image.previewUrl} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={discardImage} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
+
+        <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
+          <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
+          <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={imageUploading}>
+            <AppIcon name="paperclip" size={18} />
+          </button>
+          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
+          <button className={styles.sendBtn} type="submit" disabled={loading || imageUploading || historyLoading || threadActionLoading || (!input.trim() && !image)} aria-label="Gửi">
+            <AppIcon name="send" size={18} />
+          </button>
+        </form>
+        {notice ? <div className={styles.chatHint}>{notice}</div> : null}
+      </section>
     </section>
   );
 }

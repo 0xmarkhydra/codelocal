@@ -343,6 +343,17 @@ func TestDashboardChatStoredImageKeepsLegacyValue(t *testing.T) {
 	}
 }
 
+func TestDashboardChatThreadContextFollowsRequestCopies(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/chat", nil)
+	threadRequest := dashboardWithChatThread(r, "  thr_test  ")
+	if got := dashboardChatThreadID(threadRequest); got != "thr_test" {
+		t.Fatalf("thread id=%q want thr_test", got)
+	}
+	if got := dashboardChatThreadID(r); got != "" {
+		t.Fatalf("original request unexpectedly changed: %q", got)
+	}
+}
+
 func TestDecodeDashboardChatRequestAcceptsMultipartImageFallback(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)

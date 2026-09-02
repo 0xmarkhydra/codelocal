@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -17,8 +18,11 @@ import (
 
 const (
 	dashboardShopAIKeyBaseURL  = "https://api.shopaikey.com/v1"
+	dashboardOpenRouterModels  = "https://openrouter.ai/api/v1/models"
 	dashboardModelCatalogTTL   = 5 * time.Minute
+	dashboardModelRankingTTL   = 30 * time.Minute
 	dashboardModelCatalogLimit = 4 << 20
+	dashboardPopularModelLimit = 20
 )
 
 type dashboardProviderModel struct {
@@ -32,10 +36,20 @@ type dashboardModelCatalogEntry struct {
 	ExpiresAt time.Time
 }
 
+type dashboardModelRankingEntry struct {
+	Models    []string
+	ExpiresAt time.Time
+}
+
 var dashboardModelCatalogCache = struct {
 	sync.Mutex
 	Entries map[string]dashboardModelCatalogEntry
 }{Entries: map[string]dashboardModelCatalogEntry{}}
+
+var dashboardModelRankingCache = struct {
+	sync.Mutex
+	Entries map[string]dashboardModelRankingEntry
+}{Entries: map[string]dashboardModelRankingEntry{}}
 
 func dashboardShopAIKeyConfig() (apiKey, baseURL, defaultModel string, ok bool) {
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
@@ -147,6 +161,12 @@ func dashboardCopyProviderModels(models []dashboardProviderModel) []dashboardPro
 	return out
 }
 
+func dashboardCopyModelIDs(models []string) []string {
+	out := make([]string, len(models))
+	copy(out, models)
+	return out
+}
+
 func dashboardFetchShopAIKeyModels(ctx context.Context, baseURL, apiKey string) ([]dashboardProviderModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/models", nil)
 	if err != nil {
@@ -214,6 +234,155 @@ func dashboardShopAIKeyModels(ctx context.Context) ([]dashboardProviderModel, er
 	return models, nil
 }
 
+func dashboardOpenRouterModelsURL() string {
+	if endpoint := strings.TrimSpace(os.Getenv("CODELOCAL_OPENROUTER_MODELS_URL")); endpoint != "" {
+		return endpoint
+	}
+	return dashboardOpenRouterModels
+}
+
+func dashboardFetchOpenRouterPopularModels(ctx context.Context, endpoint string) ([]string, error) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	query := parsed.Query()
+	query.Set("output_modalities", "text")
+	query.Set("sort", "most-popular")
+	parsed.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := (&http.Client{Timeout: 12 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, dashboardModelCatalogLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > dashboardModelCatalogLimit {
+		return nil, errors.New("OpenRouter model ranking response is too large")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &httpError{Status: resp.StatusCode, Body: string(raw)}
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(payload.Data))
+	for _, model := range payload.Data {
+		if dashboardModelIDSafe(model.ID) {
+			models = append(models, model.ID)
+		}
+	}
+	if len(models) == 0 {
+		return nil, errors.New("OpenRouter model ranking is empty")
+	}
+	return models, nil
+}
+
+func dashboardOpenRouterPopularModels(ctx context.Context) ([]string, error) {
+	endpoint := dashboardOpenRouterModelsURL()
+	now := time.Now()
+
+	dashboardModelRankingCache.Lock()
+	cached, hasCached := dashboardModelRankingCache.Entries[endpoint]
+	if hasCached && now.Before(cached.ExpiresAt) {
+		models := dashboardCopyModelIDs(cached.Models)
+		dashboardModelRankingCache.Unlock()
+		return models, nil
+	}
+	dashboardModelRankingCache.Unlock()
+
+	models, err := dashboardFetchOpenRouterPopularModels(ctx, endpoint)
+	if err != nil {
+		if hasCached && len(cached.Models) > 0 {
+			return dashboardCopyModelIDs(cached.Models), nil
+		}
+		return nil, err
+	}
+	dashboardModelRankingCache.Lock()
+	dashboardModelRankingCache.Entries[endpoint] = dashboardModelRankingEntry{
+		Models:    dashboardCopyModelIDs(models),
+		ExpiresAt: now.Add(dashboardModelRankingTTL),
+	}
+	dashboardModelRankingCache.Unlock()
+	return models, nil
+}
+
+func dashboardModelPopularityKey(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if slash := strings.LastIndex(model, "/"); slash >= 0 {
+		model = model[slash+1:]
+	}
+	if variant := strings.Index(model, ":"); variant >= 0 {
+		model = model[:variant]
+	}
+	var normalized strings.Builder
+	separator := false
+	for _, char := range model {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') {
+			if separator && normalized.Len() > 0 {
+				normalized.WriteByte('-')
+			}
+			normalized.WriteRune(char)
+			separator = false
+			continue
+		}
+		separator = true
+	}
+	return normalized.String()
+}
+
+func dashboardModelsRankedByOpenRouter(providerModels []dashboardProviderModel, rankedModels []string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	available := make([]string, 0, len(providerModels))
+	for _, model := range providerModels {
+		if dashboardModelSupportsChat(model) {
+			available = append(available, model.ID)
+		}
+	}
+	sort.Slice(available, func(i, j int) bool {
+		return strings.ToLower(available[i]) < strings.ToLower(available[j])
+	})
+	byPopularityKey := make(map[string]string, len(available))
+	for _, model := range available {
+		key := dashboardModelPopularityKey(model)
+		if key != "" {
+			if _, exists := byPopularityKey[key]; !exists {
+				byPopularityKey[key] = model
+			}
+		}
+	}
+
+	selected := make([]string, 0, limit)
+	seen := make(map[string]bool, limit)
+	for _, rankedModel := range rankedModels {
+		model := byPopularityKey[dashboardModelPopularityKey(rankedModel)]
+		if model == "" || seen[model] {
+			continue
+		}
+		seen[model] = true
+		selected = append(selected, model)
+		if len(selected) == limit {
+			break
+		}
+	}
+	return selected
+}
+
 func dashboardCuratedModels() []string {
 	return []string{dashboardModelAuto, dashboardModelGLM, dashboardModelQwen, dashboardModelMuse}
 }
@@ -224,19 +393,15 @@ func dashboardSelectableModels(ctx context.Context) ([]string, error) {
 	}
 	providerModels, err := dashboardShopAIKeyModels(ctx)
 	if err != nil {
-		return dashboardCuratedModels(), err
+		return []string{dashboardModelAuto}, err
 	}
-	seen := map[string]bool{dashboardModelAuto: true}
-	models := make([]string, 0, len(providerModels)+1)
-	for _, model := range providerModels {
-		if !dashboardModelSupportsChat(model) || seen[model.ID] {
-			continue
-		}
-		seen[model.ID] = true
-		models = append(models, model.ID)
+	rankedModels, err := dashboardOpenRouterPopularModels(ctx)
+	if err != nil {
+		return []string{dashboardModelAuto}, err
 	}
-	sort.Slice(models, func(i, j int) bool {
-		return strings.ToLower(models[i]) < strings.ToLower(models[j])
-	})
+	models := dashboardModelsRankedByOpenRouter(providerModels, rankedModels, dashboardPopularModelLimit)
+	if len(models) == 0 {
+		return []string{dashboardModelAuto}, errors.New("no popular OpenRouter models are available through ShopAIKey")
+	}
 	return append([]string{dashboardModelAuto}, models...), nil
 }

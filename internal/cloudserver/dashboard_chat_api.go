@@ -41,6 +41,7 @@ type dashboardChatImageMeta struct {
 }
 
 type dashboardChatRequest struct {
+	ThreadID  string                     `json:"threadId,omitempty"`
 	Message   string                     `json:"message"`
 	History   []dashboardChatHistoryItem `json:"history"`
 	Image     string                     `json:"image,omitempty"`
@@ -469,7 +470,7 @@ func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	models, err := dashboardSelectableModels(r.Context())
 	if err != nil {
-		slog.Warn("dashboard model catalog unavailable; using curated fallback", "error", err)
+		slog.Warn("dashboard ranked model catalog unavailable; using Auto only", "error", err)
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
 		"models":        models,
@@ -525,6 +526,37 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if len(req.History) > 12 {
 		req.History = req.History[len(req.History)-12:]
 	}
+
+	nowMs := time.Now().UnixMilli()
+	effectiveThreadID, err := s.Store.EnsureDashboardChatThreadForMessage(r.Context(), identity.User.ID, req.ThreadID, nowMs)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "thread_unavailable"})
+		return
+	}
+	workspaceKeyForThread := ""
+	if req.Workspace != nil && strings.TrimSpace(req.Workspace.WorkspaceID) != "" {
+		workspaceKeyForThread = strings.TrimSpace(req.Workspace.DeviceID) + "::" + strings.TrimSpace(req.Workspace.WorkspaceID)
+	}
+	modelForThread := strings.TrimSpace(req.Model)
+	if modelForThread == "" {
+		modelForThread = "auto"
+	}
+	if err := s.Store.UpdateDashboardChatThreadMeta(r.Context(), identity.User.ID, effectiveThreadID, modelForThread, workspaceKeyForThread, nowMs); err != nil {
+		slog.Warn("dashboard chat thread metadata update failed", "error", err, "user", identity.User.ID, "thread", effectiveThreadID)
+	}
+	if thr, err := s.Store.GetDashboardChatThread(r.Context(), identity.User.ID, effectiveThreadID); err == nil && thr != nil && strings.TrimSpace(thr.Title) == "Cuộc trò chuyện mới" {
+		title := cloud.DashboardChatAutoTitle(msg)
+		if title != "Cuộc trò chuyện mới" {
+			if err := s.Store.UpdateDashboardChatThreadTitle(r.Context(), identity.User.ID, effectiveThreadID, title, nowMs); err != nil {
+				slog.Warn("dashboard chat thread title update failed", "error", err, "user", identity.User.ID, "thread", effectiveThreadID)
+			}
+		}
+	} else {
+		if err := s.Store.TouchDashboardChatThread(r.Context(), identity.User.ID, effectiveThreadID, nowMs); err != nil {
+			slog.Warn("dashboard chat thread touch failed", "error", err, "user", identity.User.ID, "thread", effectiveThreadID)
+		}
+	}
+	r = dashboardWithChatThread(r, effectiveThreadID)
 
 	promptWorkspace := req.Workspace
 	autoResolved := false
@@ -616,13 +648,13 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 				writeSSE("delta", map[string]any{"delta": wrd + " "})
 				time.Sleep(35 * time.Millisecond)
 			}
-			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName})
+			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName, "threadId": effectiveThreadID})
 			now2 := time.Now().UnixMilli()
 			tcsJSON2, _ := json.Marshal(tcs)
-			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now2}); err != nil {
+			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now2}); err != nil {
 				slog.Warn("dashboard chat stream mock save user failed", "error", err)
 			}
-			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1}); err != nil {
+			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1}); err != nil {
 				slog.Warn("dashboard chat stream mock save assistant failed", "error", err)
 			}
 			return
@@ -648,7 +680,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		} else {
 			msgs = append(msgs, map[string]any{"role": "user", "content": msg})
 		}
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: time.Now().UnixMilli()}); err != nil {
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: time.Now().UnixMilli()}); err != nil {
 			slog.Warn("dashboard chat stream save user failed", "error", err)
 		}
 		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, allowCommunity, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
@@ -680,13 +712,13 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMilli()
 		tcsJSON, _ := json.Marshal(tcs)
 		// image handled: save with image field for backend history
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now}); err != nil {
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now}); err != nil {
 			slog.Warn("dashboard chat save user failed", "error", err, "user", identity.User.ID)
 		}
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1}); err != nil {
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1}); err != nil {
 			slog.Warn("dashboard chat save assistant failed", "error", err)
 		}
-		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName})
+		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName, "threadId": effectiveThreadID})
 		return
 	}
 	system := dashboardChatSystemPrompt(promptWorkspace, autoResolved)
@@ -716,13 +748,13 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(toolCalls) == 0 {
 		now3 := time.Now().UnixMilli()
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now3}); err != nil {
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now3}); err != nil {
 			slog.Warn("dashboard chat save no-tool user failed", "error", err)
 		}
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1}); err != nil {
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1}); err != nil {
 			slog.Warn("dashboard chat save no-tool assistant failed", "error", err)
 		}
-		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": target.Model, "tool_calls": []dashboardToolCall{}})
+		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": target.Model, "tool_calls": []dashboardToolCall{}, "threadId": effectiveThreadID})
 		return
 	}
 	var results []dashboardToolCall
@@ -752,13 +784,13 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if len(tcsJSON4) > 5000 {
 		tcsJSON4 = tcsJSON4[:5000]
 	}
-	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now4}); err != nil {
+	if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now4}); err != nil {
 		slog.Warn("dashboard chat save final user failed", "error", err)
 	}
-	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
+	if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
 		slog.Warn("dashboard chat save final assistant failed", "error", err)
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": finalTarget.Model, "tool_calls": results})
+	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": finalTarget.Model, "tool_calls": results, "threadId": effectiveThreadID})
 }
 
 func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request) {
@@ -766,12 +798,22 @@ func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	threadID := strings.TrimSpace(r.URL.Query().Get("threadId"))
+	if threadID != "" {
+		if _, err := s.Store.GetDashboardChatThread(r.Context(), identity.User.ID, threadID); err != nil {
+			writeDashboardChatThreadError(w, err)
+			return
+		}
+	}
 	if r.Method == http.MethodDelete {
-		_ = s.Store.ClearDashboardChatHistory(r.Context(), identity.User.ID)
+		if err := s.Store.ClearDashboardChatHistoryForThread(r.Context(), identity.User.ID, threadID); err != nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "history_unavailable"})
+			return
+		}
 		webutil.JSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	msgs, err := s.Store.ListDashboardChatHistory(r.Context(), identity.User.ID, 50)
+	msgs, err := s.Store.ListDashboardChatHistoryForThread(r.Context(), identity.User.ID, threadID, 50)
 	if err != nil {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "history_unavailable"})
 		return
@@ -781,7 +823,7 @@ func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request)
 			msgs[i].Image = s.dashboardChatHistoryImageURL(r.Context(), identity.User.ID, msgs[i].Image)
 		}
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"messages": msgs})
+	webutil.JSON(w, http.StatusOK, map[string]any{"messages": msgs, "threadId": threadID})
 }
 
 func execDashboardTool(r *http.Request, s *Server, userID, name string, args map[string]any) string {
@@ -1103,8 +1145,8 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 				finalContent = content
 			}
 			tcsJSON, _ := json.Marshal(allResults)
-			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
-			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName})
+			_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "threadId": dashboardChatThreadID(r)})
 			return nil
 		}
 
@@ -1178,8 +1220,8 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 		writeDashboardTextDeltas(w, flusher, finalContent)
 	}
 	tcsJSON, _ := json.Marshal(allResults)
-	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
-	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true})
+	_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true, "threadId": dashboardChatThreadID(r)})
 	return nil
 }
 
@@ -1339,13 +1381,13 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		}
 		writeDashboardTextDeltas(w, flusher, secondContent)
 		tcsJSON, _ := json.Marshal(results)
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: secondContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+		_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: secondContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
 	}
 	// persist assistant for non-tool stream
 	if len(toolCallsByIndex) == 0 {
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: fullContent.String(), ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
+		_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: fullContent.String(), ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
 	}
-	_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", `{"done":true}`)
+	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "threadId": dashboardChatThreadID(r)})
 	if flusher != nil {
 		flusher.Flush()
 	}
