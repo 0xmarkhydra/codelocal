@@ -96,8 +96,12 @@ func TestDashboardAIPoolRouteIsPrivateAndFirstForAuto(t *testing.T) {
 		t.Fatalf("AI Pool should be the first private auto target: %#v", route)
 	}
 
-	explicit := dashboardLLMRoute("cc/claude-sonnet", false)
-	if len(explicit) != 1 || explicit[0].ID != "ai-pool:cc/claude-sonnet" || explicit[0].Community {
-		t.Fatalf("provider-qualified Pool selection should route strictly through Pool: %#v", explicit)
+	explicit := dashboardLLMRoute("gpt-5.6-sol", false)
+	if len(explicit) != 1 || explicit[0].ID != "ai-pool:gpt-5.6-sol" || explicit[0].Community {
+		t.Fatalf("canonical Pool selection should route strictly through Pool: %#v", explicit)
+	}
+	providerQualified := dashboardLLMRoute("cc/claude-sonnet", false)
+	if len(providerQualified) != 0 {
+		t.Fatalf("provider-qualified ids must never be routable from CodeLocal UI: %#v", providerQualified)
 	}
 }

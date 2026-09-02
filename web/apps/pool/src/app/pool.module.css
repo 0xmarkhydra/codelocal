@@ -1,0 +1,42 @@
+.shell { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 40px; display: grid; gap: 14px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+.topbar h1 { margin: 4px 0 3px; font-size: 34px; letter-spacing: -.045em; }
+.topbar p { margin: 0; color: var(--muted); font-size: 12px; }
+.actions, .rowActions { display: flex; gap: 8px; }
+.actions button, .rowActions button, .form button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: rgba(255,255,255,.04); }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+.metrics article { min-height: 92px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); }
+.metrics span { color: var(--muted); font-size: 10px; }
+.metrics strong { display: block; margin-top: 13px; font-size: 22px; }
+.grid { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(340px,.7fr); gap: 12px; }
+.panel { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+.panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+.panel h2 { margin: 5px 0 0; font-size: 16px; }
+.panel header small { color: var(--muted); font-size: 9px; }
+.list { display: grid; }
+.modelRow { min-height: 66px; display: grid; grid-template-columns: auto minmax(160px,.8fr) minmax(200px,1.2fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.055); }
+.modelRow:last-child, .sourceRow:last-child { border-bottom: 0; }
+.modelRow[data-active="false"] { opacity: .55; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.modelRow[data-active="false"] .dot { background: var(--red); }
+.identity { min-width: 0; display: grid; gap: 4px; }
+.identity code { min-width: 0; overflow: hidden; color: #dce5f3; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.identity small, .managed { color: var(--muted); font-size: 8.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chips span { padding: 4px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 8px; }
+.chips span[data-state="healthy"] { color: var(--green); }
+.chips span[data-state="exhausted"], .chips span[data-state="unauthorized"] { color: var(--red); }
+.chips span[data-state="degraded"], .chips span[data-state="cooldown"] { color: var(--amber); }
+.modelRow > strong { font-size: 9px; }
+.sourceRow { min-height: 70px; display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.055); }
+.badge { color: var(--red); font-size: 8px; }
+.badge[data-enabled="true"] { color: var(--green); }
+.form { display: grid; grid-template-columns: .8fr 1.3fr 1.2fr 100px auto; align-items: end; gap: 9px; padding-top: 14px; }
+.form label { min-width: 0; display: grid; gap: 6px; color: var(--muted); font-size: 8.5px; }
+.form input { width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; outline: 0; color: var(--text); background: rgba(0,0,0,.22); }
+.alert, .loading { padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); background: var(--surface-2); font-size: 10px; }
+.alert { color: var(--red); }
+.empty { padding: 26px 0; color: var(--muted); font-size: 11px; text-align: center; }
+.footer { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 15px; border: 1px solid var(--line); border-radius: 14px; color: var(--muted); background: rgba(255,255,255,.02); font-size: 9px; }
+@media (max-width: 1050px) { .grid { grid-template-columns: 1fr; } .form { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 720px) { .shell { width: min(100% - 20px, 1500px); padding-top: 10px; } .topbar { align-items: flex-start; flex-direction: column; } .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .modelRow { grid-template-columns: auto minmax(0,1fr) auto; padding: 10px 0; } .chips { grid-column: 2 / -1; } .sourceRow { grid-template-columns: 1fr auto; padding: 10px 0; } .rowActions, .managed { grid-column: 1 / -1; } .form { grid-template-columns: 1fr; } }

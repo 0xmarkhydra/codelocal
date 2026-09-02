@@ -16,7 +16,10 @@ type dashboardAIPoolConfig struct {
 	BaseURL      string
 	APIKey       string
 	DefaultModel string
-	DashboardURL string
+}
+
+func dashboardAIPoolCanonicalModelIDSafe(model string) bool {
+	return dashboardModelIDSafe(model) && !strings.Contains(strings.TrimSpace(model), "/")
 }
 
 func dashboardAIPoolConfigFromEnv() (dashboardAIPoolConfig, bool) {
@@ -37,24 +40,14 @@ func dashboardAIPoolConfigFromEnv() (dashboardAIPoolConfig, bool) {
 	baseURL = strings.TrimRight(parsed.String(), "/")
 
 	defaultModel := strings.TrimSpace(os.Getenv("CODELOCAL_AI_POOL_MODEL"))
-	if defaultModel != "" && !dashboardModelIDSafe(defaultModel) {
+	if defaultModel != "" && !dashboardAIPoolCanonicalModelIDSafe(defaultModel) {
 		defaultModel = ""
-	}
-
-	dashboardURL := strings.TrimRight(strings.TrimSpace(os.Getenv("CODELOCAL_AI_POOL_DASHBOARD_URL")), "/")
-	if dashboardURL == "" {
-		dashboardParsed := *parsed
-		dashboardParsed.Path = strings.TrimSuffix(strings.TrimRight(dashboardParsed.Path, "/"), "/v1")
-		dashboardURL = strings.TrimRight(dashboardParsed.String(), "/")
-	} else if dashboardParsed, parseErr := url.Parse(dashboardURL); parseErr != nil || dashboardParsed.User != nil || (dashboardParsed.Scheme != "https" && dashboardParsed.Scheme != "http") || dashboardParsed.Host == "" {
-		dashboardURL = ""
 	}
 
 	return dashboardAIPoolConfig{
 		BaseURL:      baseURL,
 		APIKey:       apiKey,
 		DefaultModel: defaultModel,
-		DashboardURL: dashboardURL,
 	}, true
 }
 
@@ -67,7 +60,7 @@ func dashboardAIPoolTarget(model string) (dashboardLLMTarget, bool) {
 	if model == "" || model == dashboardModelAuto {
 		model = config.DefaultModel
 	}
-	if !dashboardModelIDSafe(model) {
+	if !dashboardAIPoolCanonicalModelIDSafe(model) {
 		return dashboardLLMTarget{}, false
 	}
 	return dashboardLLMTarget{
@@ -104,14 +97,10 @@ func dashboardAIPoolOwnsSelection(model string) bool {
 		}
 	}
 
-	// Core 9Router provider IDs are qualified. Limit the cold-cache fallback to
-	// known provider prefixes so enabling Pool does not hijack arbitrary
-	// OpenRouter/ShopAIKey model IDs that also contain a slash.
-	for _, prefix := range []string{"cc/", "cx/", "gc/", "gh/", "glm/", "minimax/", "kimi/", "if/", "qw/", "kr/"} {
-		if strings.HasPrefix(strings.ToLower(model), prefix) {
-			return true
-		}
-	}
+	// Provider-qualified IDs belong behind CodeLocal Pool and must never become
+	// part of the CodeLocal model contract. Explicit Pool selections are routed
+	// only after the canonical ID has been discovered from /v1/models (or when it
+	// is the configured default model).
 	return false
 }
 
@@ -150,7 +139,7 @@ func dashboardFetchAIPoolModels(ctx context.Context, config dashboardAIPoolConfi
 	seen := make(map[string]bool, len(payload.Data))
 	for _, item := range payload.Data {
 		id := strings.TrimSpace(item.ID)
-		if !dashboardModelIDSafe(id) || seen[id] {
+		if !dashboardAIPoolCanonicalModelIDSafe(id) || seen[id] {
 			continue
 		}
 		seen[id] = true

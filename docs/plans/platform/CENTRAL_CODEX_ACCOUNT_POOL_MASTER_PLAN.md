@@ -1,81 +1,81 @@
 # CodeLocal Central AI Account Pool — Master Plan
 
-Status: **Selected architecture — implementation in progress**
+Status: **Canonical Pool implemented — Railway deployment in progress**
 
-Date: **2026-09-02**
+Date: **2026-09-03**
 
 Owner: **CodeLocal**
 
-Scope: **Private central provider-account pool controlled by the CodeLocal owner**
+Scope: **Private canonical AI model pool controlled by the CodeLocal owner**
 
 This document is the source of truth for CodeLocal AI Pool v1.
 
 ## 1. Product decision
 
-CodeLocal will **not reimplement provider OAuth, refresh, quota, account rotation or combo fallback in Go for v1**.
+CodeLocal owns a **canonical Pool API** but does **not** reimplement provider OAuth, refresh or provider-session lifecycle that 9Router already owns.
 
-The production shape is a dedicated self-hosted 9Router deployment at `pool.codelocal.cloud`. Provider accounts are connected directly to that website. CodeLocal Cloud treats the Pool as one private OpenAI-compatible provider.
+Production is split into three boundaries:
 
 ```text
-Owner-controlled accounts
-  ├── Codex / OpenAI accounts
-  ├── Claude / Anthropic accounts
-  ├── Gemini / Google accounts
-  ├── API-key providers
-  └── other 9Router-supported providers
+CodeLocal clients / CodeLocal Cloud
              |
+             | canonical model IDs + Pool API key
              v
       pool.codelocal.cloud
-           9Router
+          Pool Web
+  ├── operator login/admin UI
+  └── public OpenAI-compatible /v1 gateway
+             |
+             | Railway private network
+             v
+          Pool API
+  ├── canonical model registry
+  ├── Active / Exhausted / Degraded state
+  ├── source priority + failover
+  └── encrypted BYOK source metadata
+          |             |
+          |             └── owner BYOK OpenAI-compatible sources
+          v
+        9Router
   ├── provider connections
   ├── OAuth/API credentials
   ├── refresh lifecycle
-  ├── quota / cooldown
-  ├── combos / fallback
-  └── OpenAI-compatible /v1 gateway
-             |
-             | dedicated endpoint API key
-             v
-        CodeLocal Cloud
-             |
-       model=auto / selected model
-             |
-             v
-      CodeLocal chat/agent runtime
+  └── account-level quota/cooldown/fallback
 ```
 
-Provider credentials are not copied into CodeLocal's database and are never sent to the local CodeLocal runtime.
+9Router remains the provider execution engine. Pool API is the canonical routing/control layer. Provider session credentials owned by 9Router are never copied into CodeLocal's database or sent to the local CodeLocal runtime.
 
 ## 2. BA — three cases
 
-### Case A — Self-host 9Router as the Pool control plane — SELECTED
+### Case A — Canonical CodeLocal Pool in front of self-hosted 9Router — SELECTED
 
-Use the upstream 9Router runtime as a separate deployment and add only a thin CodeLocal integration layer.
+Run 9Router as a separate upstream execution engine and place a small CodeLocal-owned canonical Pool API/Web boundary in front of it.
 
 Advantages:
 
-- fastest path to a working central account pool;
-- provider OAuth/API-key management already exists;
-- account refresh, quota and fallback behavior remain inside the router that owns those provider connections;
-- CodeLocal stays provider-agnostic;
-- a 9Router upgrade can add/fix provider behavior without rewriting CodeLocal Cloud.
+- canonical model IDs are owned by CodeLocal rather than provider/router prefixes;
+- 9Router continues to own provider OAuth/session lifecycle;
+- Pool API can combine 9Router with owner BYOK sources;
+- Pool can expose Active/Exhausted state independently from raw provider IDs;
+- source-level failover can evolve without changing the client contract;
+- 9Router upgrades can add/fix provider behavior without rewriting CodeLocal Cloud.
 
 Tradeoffs:
 
-- CodeLocal depends on a third-party runtime and its persistence format;
-- release upgrades require compatibility tests;
-- the Pool dashboard is a separate administrative surface;
-- CodeLocal must treat the Pool as a hard security boundary because provider credentials live there.
+- 9Router remains an external infrastructure dependency;
+- Pool Web is a separate administrative surface;
+- Pool API, Pool Web and 9Router are hard security boundaries;
+- release upgrades require compatibility and routing tests.
 
 Decision: **Use Case A for v1.**
 
-### Case B — Build a separate native CodeLocal Pool service
+### Case B — Replace 9Router with native provider adapters
 
-Reimplement credential vault, provider adapters, refresh, scheduler and fallback in CodeLocal-owned Go services.
+Move provider OAuth/session refresh/provider-specific execution entirely into CodeLocal-owned services.
 
 Advantages: maximum control and custom scaling.
 
-Disadvantages: duplicates a large amount of existing 9Router behavior, increases security surface, slows delivery, and requires continuous provider-maintenance work.
+Disadvantages: duplicates substantial 9Router provider behavior, increases security surface, slows delivery, and requires continuous provider-maintenance work.
 
 Decision: **Deferred. Reconsider only if 9Router becomes a proven product bottleneck.**
 
@@ -83,38 +83,38 @@ Decision: **Deferred. Reconsider only if 9Router becomes a proven product bottle
 
 Keep provider sessions on contributor laptops and dispatch jobs back to those machines.
 
-Advantages: provider credential can stay on the contributor machine.
+Advantages: provider credentials can stay on contributor machines.
 
-Disadvantages: contributor must stay online, prompt privacy becomes harder, scheduling is more complex, and this is not the requested product.
+Disadvantages: contributors must stay online, prompt privacy becomes harder, scheduling is more complex, and this is not the requested product.
 
 Decision: **Rejected for this product.**
 
-## 3. CodeLocal integration contract
+## 3. CodeLocal client contract
 
 CodeLocal Cloud requires only:
 
 ```text
 CODELOCAL_AI_POOL_BASE_URL=https://pool.codelocal.cloud/v1
-CODELOCAL_AI_POOL_API_KEY=<dedicated 9Router endpoint key>
-CODELOCAL_AI_POOL_MODEL=<exact 9Router model or combo id>
-CODELOCAL_AI_POOL_DASHBOARD_URL=https://pool.codelocal.cloud
+CODELOCAL_AI_POOL_API_KEY=<dedicated Pool client key>
+CODELOCAL_AI_POOL_MODEL=<canonical model id, for example gpt-5.6-sol>
 ```
 
 Rules:
 
-1. `CODELOCAL_AI_POOL_API_KEY` is server-only and must never be exposed to Next.js.
-2. `CODELOCAL_AI_POOL_MODEL` is the first Pool route for `model=auto`.
+1. `CODELOCAL_AI_POOL_API_KEY` is server-only and must never be exposed to browser JavaScript.
+2. `CODELOCAL_AI_POOL_MODEL` is the first Pool route for `model=auto` and is always canonical.
 3. Pool model discovery comes from authenticated `GET /v1/models`.
-4. Explicit provider-qualified model IDs such as `cc/...` and combo IDs route through the Pool.
-5. A temporary Pool outage must not break the model picker or remove existing fallback providers.
-6. A Pool route is private/trusted, not a community/free provider; existing workspace/tool context can use it.
+4. `GET /v1/models` returns only Active canonical models.
+5. Provider prefixes such as `cx/`, `cc/` and `gc/` stay behind Pool and are not part of the client contract.
+6. A temporary Pool outage must not break the model picker or remove existing fallback providers.
+7. Pool is private/trusted, not a community/free provider; existing workspace/tool context can use it.
 
 ## 4. Routing
 
 `auto` becomes:
 
 ```text
-1. CodeLocal AI Pool default model/combo, when configured
+1. CodeLocal AI Pool canonical default model, when configured and Active
 2. Existing ShopAIKey route, when configured
 3. Existing GLM free route for community-eligible requests
 4. Existing Qwen free route for community-eligible requests
@@ -122,55 +122,88 @@ Rules:
 6. Existing generic fallback
 ```
 
-The important separation is:
+The separation is:
 
-- CodeLocal decides whether to call the Pool and which top-level model/combo ID to request.
-- 9Router decides which provider account handles that request and performs account-level fallback/quota/cooldown.
+- CodeLocal clients choose `auto` or a canonical model ID.
+- Pool API maps that canonical model to eligible sources and performs source-level failover.
+- 9Router, when selected as a source, decides which provider account executes the request and performs its own account-level fallback/quota/cooldown.
+- BYOK OpenAI-compatible sources can sit beside 9Router with explicit priority.
 
-CodeLocal must not duplicate 9Router's account scheduler.
+Pool must not leak provider-qualified IDs into the client model contract or duplicate 9Router's provider-account scheduler.
 
-## 5. Pool deployment boundary
+## 5. Railway deployment boundary
 
-Pool is deployed as a dedicated Railway service using `Dockerfile.pool` and `railway.pool.json`.
+Railway uses three independent service definitions:
 
-Required production properties:
+- **9Router:** `Dockerfile.9router` + `railway.9router.json`;
+- **Pool API:** `Dockerfile.pool-api` + `railway.pool-api.json`;
+- **Pool Web:** `Dockerfile.pool-web` + `railway.pool-web.json`.
+
+Production properties:
 
 - pin an explicit 9Router image version;
-- mount persistent storage at `/app/data`;
-- expose a dedicated `pool.codelocal.cloud` domain;
-- use strong `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET` and `MACHINE_ID_SALT` values;
-- keep request logging off unless explicitly required for debugging;
-- keep 9Router Cloud Sync disabled for the private self-hosted Pool;
-- require endpoint API-key authentication in the 9Router dashboard;
-- create a dedicated endpoint key only for CodeLocal Cloud;
-- do not reuse the Pool admin password as the API key.
+- preserve 9Router persistent storage at `/app/data`;
+- use Railway private networking for Pool API → 9Router;
+- use Railway private networking for Pool Web → Pool API;
+- expose `pool.codelocal.cloud` from Pool Web, not directly from 9Router;
+- do not delete or recreate the 9Router service/volume during cutover;
+- use independent `POOL_API_KEY`, `POOL_ADMIN_TOKEN`, `POOL_ENCRYPTION_KEY`, `POOL_WEB_PASSWORD` and `POOL_WEB_SESSION_SECRET` values;
+- keep `POOL_ADMIN_TOKEN` server-side;
+- keep 9Router provider/session credentials behind the 9Router boundary;
+- verify unauthorized requests are rejected after every deployment.
 
-See `docs/operations/AI_POOL_9ROUTER.md`.
+Pool API environment contract:
 
-## 6. Dashboard
+```text
+PORT=8080
+POOL_API_KEY=<client key>
+POOL_ADMIN_TOKEN=<separate admin key>
+POOL_ENCRYPTION_KEY=<32-byte key>
+POOL_9ROUTER_BASE_URL=http://<9router-private-domain>:20128/v1
+POOL_9ROUTER_API_KEY=<9Router endpoint key>
+POOL_9ROUTER_PRIORITY=100
+DATABASE_URL=<PostgreSQL URL when durable BYOK storage is enabled>
+```
 
-`/dashboard/pool` is a CodeLocal status/integration page, not a second credential manager.
+Pool Web environment contract:
 
-It exposes only:
+```text
+POOL_API_BASE_URL=http://<pool-api-private-domain>:8080
+POOL_ADMIN_TOKEN=<reference to Pool API admin token>
+POOL_WEB_PASSWORD=<operator password>
+POOL_WEB_SESSION_SECRET=<at least 32 bytes>
+```
 
-- configured / available / routing-ready state;
-- discovered model count;
-- default model/combo ID;
-- bounded model list;
-- link to the separate Pool dashboard;
-- setup/security boundary documentation.
+## 6. Pool Web
 
-It never returns:
+`pool.codelocal.cloud` is a standalone website, separate from the main CodeLocal dashboard.
 
-- provider OAuth tokens;
-- provider API keys;
-- Pool endpoint API key;
-- 9Router admin credentials;
-- raw upstream error bodies.
+Its authenticated operator UI exposes:
 
-Provider connections are managed on `pool.codelocal.cloud` itself.
+- canonical model Active/Exhausted/Degraded state;
+- eligible source counts and source health;
+- configured routing sources;
+- encrypted BYOK source create/enable/disable/delete operations.
 
-## 7. Upgrade strategy
+Its public gateway exposes only:
+
+- `GET /v1/models`;
+- `POST /v1/chat/completions`;
+- `POST /v1/responses`.
+
+Security boundary:
+
+- `POOL_ADMIN_TOKEN` exists only in server-side Pool Web code;
+- operator sessions are signed with HMAC-SHA256;
+- session cookies are HttpOnly and SameSite=Strict, and Secure in production;
+- `POOL_WEB_SESSION_SECRET` must be at least 32 bytes;
+- admin mutations enforce same-origin checks;
+- gateway request size and admin response size are bounded;
+- only safe request/response headers are proxied.
+
+Provider OAuth/session credentials remain inside 9Router.
+
+## 7. 9Router upgrade strategy
 
 Treat 9Router as an external infrastructure dependency.
 
@@ -179,85 +212,91 @@ Before changing the pinned version:
 1. review upstream security advisories and release notes;
 2. boot the candidate image against a temporary copied data volume, never the production volume first;
 3. verify `/api/health`;
-4. verify authenticated `/v1/models`;
-5. run one non-streaming and one streaming chat request through the configured Combo;
+4. verify authenticated `/v1/models` through 9Router;
+5. run one non-streaming and one streaming request;
 6. verify Codex/Claude/Gemini provider connections still refresh and route;
-7. verify endpoint API-key enforcement from an unauthenticated client;
-8. roll forward only after those checks pass.
+7. verify 9Router endpoint API-key enforcement;
+8. verify Pool API canonical discovery/routing against the candidate;
+9. roll forward only after those checks pass.
 
-Rollback is the previous pinned image plus the same persistent volume, subject to upstream data-migration compatibility.
+Rollback is the previous pinned 9Router image plus the same persistent volume, subject to upstream data-migration compatibility.
 
 ## 8. Security model
 
-The Pool contains high-value provider credentials. Therefore:
+The stack contains high-value credentials. Therefore:
 
-- deploy it separately from the main CodeLocal Cloud service;
-- never mount its `/app/data` volume into CodeLocal Cloud;
-- never proxy or serialize provider tokens through CodeLocal APIs;
+- deploy Pool Web, Pool API and 9Router as separate service boundaries;
+- never mount 9Router `/app/data` into CodeLocal Cloud or Pool Web;
+- never serialize 9Router provider tokens through Pool APIs;
 - use HTTPS for the public Pool domain;
-- make the CodeLocal endpoint key revocable independently;
-- rotate the CodeLocal endpoint key if exposed;
-- back up the encrypted/provider data according to upstream persistence semantics;
-- use provider-specific kill switches by disabling connections/combos in the Pool dashboard;
-- do not treat environment flags as proof of endpoint-key enforcement: verify enforcement with an actual unauthorized request after each deployment.
+- make client and admin keys independently revocable;
+- encrypt owner BYOK credentials at rest in Pool API;
+- rotate affected keys if exposed;
+- use provider-specific kill switches inside 9Router where appropriate;
+- do not treat environment flags as proof of authentication: verify with actual unauthorized requests.
 
-## 9. Implementation phases
+## 9. Implementation status
 
-### Phase 1 — Foundation
+### Phase 1 — Canonical Pool core
 
-- [x] Create a clean feature branch from `origin/main`.
-- [x] Add thin AI Pool config/target adapter to CodeLocal Cloud.
-- [x] Put Pool first in `model=auto` when a default model/combo is configured.
-- [x] Add authenticated `/v1/models` discovery with bounded caching.
-- [x] Add authenticated CodeLocal `/api/v1/pool` status resource.
-- [x] Add `Dockerfile.pool` and Railway service definition.
+- [x] Add CodeLocal Pool provider integration to CodeLocal Cloud.
+- [x] Put Pool first in `model=auto` when configured.
+- [x] Add canonical model registry and Active/Exhausted state.
+- [x] Add source-level priority/failover.
+- [x] Add encrypted BYOK source persistence.
+- [x] Add OpenAI-compatible `/v1/models`, `/v1/chat/completions` and `/v1/responses`.
+- [x] Keep 9Router as an upstream execution source.
 
-### Phase 2 — Browser integration
+### Phase 2 — Standalone Pool Web
 
-- [x] Add Dashboard → AI Pool navigation.
-- [x] Add live Pool status page.
-- [x] Show discovered models and current auto default.
-- [x] Link to the Pool dashboard without exposing its API key.
+- [x] Remove Pool control plane from the main CodeLocal dashboard.
+- [x] Add standalone `web/apps/pool` website.
+- [x] Add operator login and secure session cookie.
+- [x] Add canonical model/source status UI.
+- [x] Add BYOK source management UI.
+- [x] Add strict public `/v1/*` gateway allowlist.
 
 ### Phase 3 — Verification
 
-- [ ] Go formatting and package tests.
-- [ ] Full Go test suite.
-- [ ] Web lint/typecheck/build/audit.
-- [ ] `git diff --check`.
-- [ ] Review final diff for secrets and old distributed-worker code.
-- [ ] Commit and push only `feat/codelocal-ai-pool-9router`.
+- [x] Go formatting and targeted Pool/Cloud tests.
+- [x] Full Go test/vet suite.
+- [x] Main Web lint/typecheck/build/audit.
+- [x] Pool Web lint/typecheck/build/audit.
+- [x] `git diff --check`.
+- [x] Audit reports zero production vulnerabilities for both web apps.
 
-### Phase 4 — Deployment
+### Phase 4 — Railway deployment
 
-- [ ] Create Railway Pool service from `railway.pool.json`.
-- [ ] Attach persistent `/app/data` volume.
-- [ ] Configure `pool.codelocal.cloud`.
-- [ ] Add production secrets.
-- [ ] Connect owner-controlled provider accounts in 9Router.
-- [ ] Create the production Combo/default model.
-- [ ] Enable Endpoint → Require API Key and create the CodeLocal endpoint key.
+- [ ] Land verified feature on `main`.
+- [ ] Reuse/link existing 9Router service and preserve its persistent volume.
+- [ ] Create/configure Pool API service.
+- [ ] Create/configure Pool Web service.
+- [ ] Connect Pool API to 9Router over Railway private network.
+- [ ] Connect Pool Web to Pool API over Railway private network.
+- [ ] Configure `pool.codelocal.cloud` after health checks pass.
 - [ ] Configure CodeLocal Cloud Pool envs.
-- [ ] Smoke-test `/api/health`, `/v1/models`, chat streaming and CodeLocal `auto`.
+- [ ] Smoke-test health, unauthorized access, authenticated model discovery and an actual model request.
 
 ## 10. Non-goals for v1
 
 - no public contributor marketplace;
 - no local contributor daemon;
-- no credential upload through CodeLocal Dashboard;
-- no CodeLocal-owned provider OAuth implementation;
-- no reimplementation of 9Router's scheduler/combos/quota system;
-- no Pool API key in browser JavaScript;
+- no provider OAuth implementation duplicated inside CodeLocal Pool;
+- no provider-qualified model IDs in the client contract;
+- no Pool admin key in browser JavaScript;
 - no claim that a provider subscription can be redistributed contrary to that provider's current terms.
 
 ## 11. Success criteria
 
 AI Pool v1 is complete when:
 
-1. provider accounts can be administered centrally at `pool.codelocal.cloud`;
-2. CodeLocal can discover Pool models without seeing provider credentials;
-3. `model=auto` can use a configured 9Router Combo as its first private route;
-4. an explicit Pool model can be selected and routed without ShopAIKey hijacking it;
-5. Pool outage degrades cleanly to existing CodeLocal routes;
-6. the Pool endpoint rejects requests without a valid endpoint API key;
-7. the pinned deployment can be upgraded/rolled back with a documented procedure.
+1. `pool.codelocal.cloud` exposes the standalone Pool Web/API gateway;
+2. CodeLocal discovers only Active canonical models without seeing provider credentials;
+3. `model=auto` can use the configured canonical Pool model as its first private route;
+4. Pool API can route/fail over between 9Router and owner BYOK sources;
+5. exhausted upstream standard models disappear from Active discovery without leaking provider prefixes;
+6. Pool outage degrades cleanly to existing CodeLocal routes;
+7. Pool client endpoints reject requests without a valid client API key;
+8. Pool admin endpoints reject requests without the separate admin token;
+9. 9Router remains independently upgradeable with its persistent data preserved;
+10. Railway health checks and a real authenticated model request pass after deployment.

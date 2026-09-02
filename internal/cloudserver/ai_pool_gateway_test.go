@@ -14,14 +14,12 @@ func clearAIPoolEnv(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
-	t.Setenv("CODELOCAL_AI_POOL_DASHBOARD_URL", "")
 }
 
 func TestDashboardAIPoolConfigNormalizesGateway(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
-	t.Setenv("CODELOCAL_AI_POOL_DASHBOARD_URL", "")
 
 	config, ok := dashboardAIPoolConfigFromEnv()
 	if !ok {
@@ -29,9 +27,6 @@ func TestDashboardAIPoolConfigNormalizesGateway(t *testing.T) {
 	}
 	if config.BaseURL != "https://pool.example.test/v1" {
 		t.Fatalf("baseURL=%q", config.BaseURL)
-	}
-	if config.DashboardURL != "https://pool.example.test" {
-		t.Fatalf("dashboardURL=%q", config.DashboardURL)
 	}
 	if config.DefaultModel != "codelocal-auto" || config.APIKey != "pool-key" {
 		t.Fatalf("unexpected config: %#v", config)
@@ -50,11 +45,14 @@ func TestDashboardAIPoolTargetIsPrivateAndModelScoped(t *testing.T) {
 	if target.BaseURL != "https://pool.example.test/v1" || target.APIKey != "pool-key" || target.Model != "codelocal-auto" || target.Community {
 		t.Fatalf("unexpected target: %#v", target)
 	}
-	if !dashboardAIPoolOwnsSelection("codelocal-auto") || !dashboardAIPoolOwnsSelection("cc/claude-sonnet") {
-		t.Fatal("default combo and provider-qualified Pool models should route through AI Pool")
+	if !dashboardAIPoolOwnsSelection("codelocal-auto") {
+		t.Fatal("configured canonical default should route through AI Pool")
+	}
+	if dashboardAIPoolOwnsSelection("cc/claude-sonnet") {
+		t.Fatal("provider-qualified models must stay behind CodeLocal Pool")
 	}
 	if dashboardAIPoolOwnsSelection("claude-sonnet") {
-		t.Fatal("unknown unqualified model must not be hijacked from existing providers")
+		t.Fatal("unknown canonical model must not be hijacked before Pool discovery")
 	}
 }
 
@@ -71,10 +69,11 @@ func TestDashboardAIPoolCatalogMakesUnqualifiedComboRoutable(t *testing.T) {
 			t.Fatalf("authorization=%q", got)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
-			{"id": "premium-coding", "owned_by": "combo"},
-			{"id": "cc/claude-sonnet", "owned_by": "claude"},
+			{"id": "premium-coding", "owned_by": "codelocal-pool"},
+			{"id": "claude-sonnet", "owned_by": "codelocal-pool"},
+			{"id": "cc/claude-sonnet", "owned_by": "should-never-leak"},
 			{"id": "unsafe model", "owned_by": "bad"},
-			{"id": "premium-coding", "owned_by": "combo"},
+			{"id": "premium-coding", "owned_by": "codelocal-pool"},
 		}})
 	}))
 	defer server.Close()
@@ -88,7 +87,7 @@ func TestDashboardAIPoolCatalogMakesUnqualifiedComboRoutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := dashboardAIPoolModelIDs(models, 0)
-	want := []string{"premium-coding", "cc/claude-sonnet"}
+	want := []string{"premium-coding", "claude-sonnet"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("models=%v want=%v", got, want)
 	}

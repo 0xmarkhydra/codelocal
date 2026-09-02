@@ -265,7 +265,6 @@ func (s *Server) routes() {
 	mux.Handle("GET /api/status", s.WebAuth.Require(http.HandlerFunc(s.apiStatus)))
 	mux.HandleFunc("GET /api/v1/dashboard/overview", s.dashboardOverviewAPI)
 	mux.HandleFunc("GET /api/v1/dashboard/models", s.dashboardModelsAPI)
-	mux.HandleFunc("GET /api/v1/pool", s.aiPoolResourceAPI)
 	mux.HandleFunc("POST /api/v1/dashboard/chat", s.dashboardChatAPI)
 	mux.HandleFunc("POST /api/v1/dashboard/media/presign", s.dashboardMediaPresign)
 	mux.HandleFunc("POST /api/v1/dashboard/media/upload", s.dashboardMediaUpload)
