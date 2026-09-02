@@ -463,8 +463,15 @@ const (
 )
 
 func dashboardUsesZen(baseURL string) bool {
-	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
-	return provider == "zen" || strings.Contains(strings.ToLower(baseURL), "opencode.ai/zen")
+	normalizedBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
+	if strings.Contains(normalizedBaseURL, "opencode.ai/zen") {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")), "zen") {
+		return false
+	}
+	configuredBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_BASE_URL"))), "/")
+	return configuredBaseURL != "" && normalizedBaseURL == configuredBaseURL
 }
 
 func dashboardProtocolForModel(baseURL, model string) dashboardLLMProtocol {

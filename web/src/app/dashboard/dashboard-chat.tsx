@@ -640,7 +640,7 @@ export function DashboardChat() {
       setNotice(streamedContent.trim() || streamedToolCalls.length ? "Đã dừng trả lời; phần đã nhận vẫn được giữ lại." : "Đã dừng trước khi có phản hồi.");
     };
     try {
-      const history = next.slice(-12).map((message) => ({ role: message.role, content: message.content }));
+      const history = messages.slice(-12).map((message) => ({ role: message.role, content: message.content }));
       const payload = {
         threadId: requestThreadId,
         message: text || "Phân tích ảnh này",

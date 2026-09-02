@@ -47,6 +47,27 @@ func TestDashboardProtocolForNonZenProviderUsesChatCompletions(t *testing.T) {
 	}
 }
 
+func TestDashboardProtocolForShopAIKeyDoesNotInheritZenProvider(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://opencode.ai/zen/v1")
+	baseURL := "https://api.shopaikey.com/v1"
+	for _, model := range []string{"claude-opus-5", "gemini-3-flash-preview", "qwen3.5-plus"} {
+		t.Run(model, func(t *testing.T) {
+			if got := dashboardProtocolForModel(baseURL, model); got != dashboardProtocolChatCompletions {
+				t.Fatalf("dashboardProtocolForModel(%q) = %v, want chat completions", model, got)
+			}
+		})
+	}
+}
+
+func TestDashboardProtocolForConfiguredCustomZenEndpoint(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://zen-proxy.example.test/v1/")
+	if got := dashboardProtocolForModel("https://zen-proxy.example.test/v1", "claude-opus-5"); got != dashboardProtocolUnsupported {
+		t.Fatalf("got %v, want unsupported Zen protocol", got)
+	}
+}
+
 func TestWriteDashboardSSEFramesNamedEvent(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	writeDashboardSSE(recorder, nil, "delta", map[string]any{"delta": "xin chào"})
