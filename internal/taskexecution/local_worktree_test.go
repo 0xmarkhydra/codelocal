@@ -2,10 +2,10 @@ package taskexecution
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/repository"
@@ -97,16 +97,59 @@ func TestLocalWorktreeProviderReusesTaskBinding(t *testing.T) {
 	}
 }
 
-func TestLocalWorktreeProviderRefusesDirtyAuthoritativeRepository(t *testing.T) {
+func TestLocalWorktreeProviderSnapshotsDirtyAuthoritativeRepository(t *testing.T) {
 	ctx := context.Background()
 	repo := makeTaskRepo(t)
-	if err := os.WriteFile(filepath.Join(repo.Root, "app.txt"), []byte("dirty\n"), 0o644); err != nil {
+
+	if err := os.WriteFile(filepath.Join(repo.Root, "app.txt"), []byte("staged\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gitTaskTest(t, repo.Root, "add", "app.txt")
+	if err := os.WriteFile(filepath.Join(repo.Root, "app.txt"), []byte("dirty working\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo.Root, "notes.txt"), []byte("untracked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	provider := NewLocalWorktreeProvider(filepath.Join(t.TempDir(), "worktrees"))
-	_, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-a", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}})
-	if !errors.Is(err, ErrDirtyRepository) {
-		t.Fatalf("dirty authoritative checkout must be rejected safely, got %v", err)
+	bundle, err := provider.Prepare(ctx, PrepareRequest{TaskID: "task-dirty", WorkspaceKey: "workspace", Repositories: []repository.Checkout{repo}})
+	if err != nil {
+		t.Fatalf("dirty authoritative checkout should be snapshotted, got %v", err)
+	}
+	binding := bundle.RepositoryBindings[0]
+
+	taskData, err := os.ReadFile(filepath.Join(binding.LocalPath, "app.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(taskData) != "dirty working\n" {
+		t.Fatalf("tracked dirty state was not snapshotted: %q", taskData)
+	}
+	untrackedData, err := os.ReadFile(filepath.Join(binding.LocalPath, "notes.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(untrackedData) != "untracked\n" {
+		t.Fatalf("untracked state was not snapshotted: %q", untrackedData)
+	}
+
+	if staged := strings.TrimSpace(gitTaskTest(t, binding.LocalPath, "diff", "--cached", "--name-only")); staged != "" {
+		t.Fatalf("source index state must not leak into isolated task index: %q", staged)
+	}
+	if dirty := gitTaskTest(t, binding.LocalPath, "status", "--porcelain"); !strings.Contains(dirty, "app.txt") || !strings.Contains(dirty, "notes.txt") {
+		t.Fatalf("isolated task should start from the source working snapshot, status=%q", dirty)
+	}
+
+	if err := os.WriteFile(filepath.Join(binding.LocalPath, "app.txt"), []byte("task edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceData, err := os.ReadFile(filepath.Join(repo.Root, "app.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(sourceData) != "dirty working\n" {
+		t.Fatalf("task mutation leaked into authoritative checkout: %q", sourceData)
 	}
 }
 
