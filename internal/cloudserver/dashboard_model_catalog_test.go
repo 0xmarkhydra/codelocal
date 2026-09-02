@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -74,11 +75,43 @@ func TestDashboardShopAIKeySelectedModelRoutesFirst(t *testing.T) {
 	t.Setenv("CODELOCAL_SHOPAIKEY_MODEL", "qwen3.5-flash")
 
 	direct := dashboardLLMRoute("claude-sonnet-4-6", false)
-	if len(direct) == 0 || direct[0].BaseURL != "https://shop.example.test/v1" || direct[0].Model != "claude-sonnet-4-6" || direct[0].Community {
+	if len(direct) != 1 || direct[0].BaseURL != "https://shop.example.test/v1" || direct[0].Model != "claude-sonnet-4-6" || direct[0].Community {
 		t.Fatalf("direct route=%#v", direct)
 	}
 	auto := dashboardLLMRoute(dashboardModelAuto, false)
 	if len(auto) == 0 || auto[0].Model != "qwen3.5-flash" {
 		t.Fatalf("auto route=%#v", auto)
+	}
+}
+
+func TestDashboardShopAIKeySelectedModelRetriesWithoutFallback(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, `{"error":"temporarily unavailable"}`, http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "test-shop-key")
+	t.Setenv("CODELOCAL_SHOPAIKEY_BASE_URL", server.URL)
+	t.Setenv("CODELOCAL_SHOPAIKEY_MODEL", "qwen3.5-flash")
+
+	target, _, _, err := callDashboardLLMWithTools("claude-opus-5", false, []map[string]any{{"role": "user", "content": "hello"}}, nil)
+	if err == nil {
+		t.Fatal("expected selected model error")
+	}
+	var selectedErr *dashboardSelectedModelError
+	if !errors.As(err, &selectedErr) {
+		t.Fatalf("error=%T %v, want dashboardSelectedModelError", err, err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests=%d, want one initial attempt plus one same-model retry", requests)
+	}
+	if target.Model != "" {
+		t.Fatalf("unexpected fallback target: %#v", target)
+	}
+	if got := dashboardFriendlyStreamError(err); got != selectedErr.Error() {
+		t.Fatalf("friendly error=%q want=%q", got, selectedErr.Error())
 	}
 }

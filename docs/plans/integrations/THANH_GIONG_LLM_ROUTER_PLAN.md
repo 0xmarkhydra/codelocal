@@ -30,11 +30,13 @@ non-sensitive chat prefers:
 3. Muse Spark 1.2 via OpenCode Zen
 4. Existing configured provider as a final compatible fallback
 
-A user-selected model is tried first, then the remaining compatible fallbacks.
+A user-selected model is strict: CodeLocal retries that same model for a
+transient failure, then asks the user to retry. It never switches a manually
+selected request to another model. Only `auto` may use the fallback chain.
 
 ## Reliability
 
-- Retry a provider once for transient network errors, 408, 429, 502, 503 and 504.
+- Retry a provider once for transient network errors, 408, 425, 429, 500, 502, 503 and 504.
 - Failed targets enter a 30-second cooldown.
 - Never replay a stream on another provider after bytes have already been emitted to the user.
 - Validate model-generated tool calls before executing them.

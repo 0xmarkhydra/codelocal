@@ -69,7 +69,12 @@ func TestDashboardLLMRouteOrder(t *testing.T) {
 	}
 
 	privateRoute := dashboardLLMRoute(dashboardModelGLM, false)
-	if len(privateRoute) == 0 || privateRoute[0].Model != dashboardModelMuse || privateRoute[0].Community {
-		t.Fatalf("private route should start on trusted Muse: %#v", privateRoute)
+	if len(privateRoute) != 0 {
+		t.Fatalf("explicit community model must not fall back for private chat: %#v", privateRoute)
+	}
+
+	explicitRoute := dashboardLLMRoute(dashboardModelQwen, true)
+	if len(explicitRoute) != 1 || explicitRoute[0].Model != dashboardModelQwen {
+		t.Fatalf("explicit model route must be strict: %#v", explicitRoute)
 	}
 }

@@ -27,6 +27,31 @@ type dashboardLLMTarget struct {
 	Community bool
 }
 
+type dashboardSelectedModelError struct {
+	Err error
+}
+
+func (e *dashboardSelectedModelError) Error() string {
+	return "Thánh Gióng không thể kết nối model đã chọn. CodeLocal không chuyển sang model khác; vui lòng thử lại."
+}
+
+func (e *dashboardSelectedModelError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func dashboardRouteError(selection string, err error) error {
+	if dashboardNormalizeModelSelection(selection) == dashboardModelAuto {
+		return err
+	}
+	if err == nil {
+		err = errors.New("selected model route is unavailable")
+	}
+	return &dashboardSelectedModelError{Err: err}
+}
+
 var dashboardLLMHealth = struct {
 	sync.Mutex
 	cooldownUntil map[string]time.Time
@@ -107,49 +132,31 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 		}
 		ordered = append(ordered, target)
 	}
-	appendMuse := func() {
-		if hasMuse {
-			appendTarget(muse)
-		}
-	}
-	appendShopDefault := func() {
-		if hasShop {
-			appendTarget(shopDefault)
-		}
-	}
-
 	switch selection {
 	case dashboardModelGLM:
 		appendTarget(glm)
-		appendTarget(qwen)
-		appendShopDefault()
-		appendMuse()
 	case dashboardModelQwen:
 		appendTarget(qwen)
-		appendTarget(glm)
-		appendShopDefault()
-		appendMuse()
 	case dashboardModelMuse:
-		appendMuse()
-		appendShopDefault()
-		appendTarget(glm)
-		appendTarget(qwen)
+		if hasMuse {
+			appendTarget(muse)
+		}
 	case dashboardModelAuto:
-		appendShopDefault()
+		if hasShop {
+			appendTarget(shopDefault)
+		}
 		appendTarget(glm)
 		appendTarget(qwen)
-		appendMuse()
+		if hasMuse {
+			appendTarget(muse)
+		}
+		if legacy, ok := dashboardLegacyTarget(); ok {
+			appendTarget(legacy)
+		}
 	default:
 		if shop, ok := dashboardShopAIKeyTarget(selection); ok {
 			appendTarget(shop)
 		}
-		appendShopDefault()
-		appendMuse()
-		appendTarget(glm)
-		appendTarget(qwen)
-	}
-	if legacy, ok := dashboardLegacyTarget(); ok {
-		appendTarget(legacy)
 	}
 	return ordered
 }
@@ -206,7 +213,7 @@ func dashboardRetryableLLMError(err error) bool {
 	var httpErr *httpError
 	if errors.As(err, &httpErr) {
 		switch httpErr.Status {
-		case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 			return true
 		default:
 			return false
@@ -230,7 +237,7 @@ func callDashboardLLMWithTools(selection string, allowCommunity bool, messages [
 	messages = dashboardWithSkillContext(messages)
 	route := dashboardLLMRoute(selection, allowCommunity)
 	if len(route) == 0 {
-		return dashboardLLMTarget{}, nil, "", errors.New("no configured LLM route")
+		return dashboardLLMTarget{}, nil, "", dashboardRouteError(selection, errors.New("no configured LLM route"))
 	}
 	var lastErr error
 	for index, target := range route {
@@ -253,7 +260,7 @@ func callDashboardLLMWithTools(selection string, allowCommunity bool, messages [
 		}
 		dashboardMarkTargetFailed(target)
 	}
-	return dashboardLLMTarget{}, nil, "", lastErr
+	return dashboardLLMTarget{}, nil, "", dashboardRouteError(selection, lastErr)
 }
 
 type dashboardCountingWriter struct {
@@ -278,7 +285,7 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 	messages = dashboardWithSkillPlan(messages, skillPlan)
 	route := dashboardLLMRoute(selection, allowCommunity)
 	if len(route) == 0 {
-		return dashboardLLMTarget{}, errors.New("no configured LLM route")
+		return dashboardLLMTarget{}, dashboardRouteError(selection, errors.New("no configured LLM route"))
 	}
 	var lastErr error
 	for index, target := range route {
@@ -302,5 +309,5 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 		}
 		dashboardMarkTargetFailed(target)
 	}
-	return dashboardLLMTarget{}, lastErr
+	return dashboardLLMTarget{}, dashboardRouteError(selection, lastErr)
 }

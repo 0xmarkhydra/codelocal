@@ -115,6 +115,10 @@ func dashboardFallbackReply(results []dashboardToolCall) string {
 }
 
 func dashboardFriendlyStreamError(err error) string {
+	var selectedModelErr *dashboardSelectedModelError
+	if errors.As(err, &selectedModelErr) {
+		return selectedModelErr.Error()
+	}
 	if dashboardIsTransientLLMError(err) {
 		return "Kết nối xử lý đang gián đoạn. Thánh Gióng đã thử lại tự động nhưng chưa hoàn tất; bạn gửi “tiếp tục” để nối tiếp."
 	}
