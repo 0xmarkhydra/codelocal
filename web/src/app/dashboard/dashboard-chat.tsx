@@ -77,6 +77,21 @@ function modelLabel(model: string) {
   }
 }
 
+function modelFamily(model: string) {
+  const normalized = model.toLowerCase();
+  if (/^(gpt-|o[134]-)/.test(normalized)) return "OpenAI";
+  if (normalized.startsWith("claude-")) return "Anthropic";
+  if (normalized.startsWith("gemini-") || normalized.startsWith("gemma-")) return "Google";
+  if (normalized.startsWith("qwen")) return "Qwen";
+  if (normalized.startsWith("deepseek-")) return "DeepSeek";
+  if (normalized.startsWith("glm-")) return "Zhipu";
+  if (normalized.startsWith("grok-")) return "xAI";
+  if (normalized.startsWith("kimi-")) return "Moonshot";
+  if (normalized.startsWith("minimax-")) return "MiniMax";
+  if (normalized.startsWith("mistral-")) return "Mistral";
+  return "Khác";
+}
+
 function workspaceKey(workspace: WorkspaceItem) {
   return `${workspace.deviceId}::${workspace.workspaceId}`;
 }
@@ -165,6 +180,15 @@ export function DashboardChat() {
     () => workspaceItems.find((workspace) => workspaceKey(workspace) === selectedWorkspaceKey),
     [selectedWorkspaceKey, workspaceItems],
   );
+  const modelGroups = useMemo(() => {
+    const groups = new Map<string, string[]>();
+    for (const model of models) {
+      if (model === "auto") continue;
+      const family = modelFamily(model);
+      groups.set(family, [...(groups.get(family) || []), model]);
+    }
+    return Array.from(groups.entries());
+  }, [models]);
 
   useEffect(() => {
     fetch("/api/v1/dashboard/chat/history", { credentials: "include" })
@@ -555,7 +579,12 @@ export function DashboardChat() {
         <div className={styles.chatActions}>
           <label className={`${styles.projectPicker} ${styles.modelPicker}`}>
             <select value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} aria-label="Chọn model">
-              {models.map((model) => <option key={model} value={model}>{modelLabel(model)}</option>)}
+              <option value="auto">Auto</option>
+              {modelGroups.map(([family, familyModels]) => (
+                <optgroup key={family} label={`${family} · ${familyModels.length}`}>
+                  {familyModels.map((model) => <option key={model} value={model}>{modelLabel(model)}</option>)}
+                </optgroup>
+              ))}
             </select>
           </label>
           <label className={styles.projectPicker}>

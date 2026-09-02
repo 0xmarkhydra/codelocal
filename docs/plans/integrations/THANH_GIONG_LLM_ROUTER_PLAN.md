@@ -4,7 +4,7 @@
 
 Dashboard chat exposes a user-selectable model picker while keeping `Auto` as the default.
 
-Selectable models:
+Built-in fallback models:
 
 - `auto`
 - `glm-5.3-flash`
@@ -13,9 +13,17 @@ Selectable models:
 
 The assistant identity remains **Thánh Gióng**. Model selection controls routing, not the product identity.
 
+When `CODELOCAL_SHOPAIKEY_API_KEY` is configured, the backend discovers the
+key-scoped catalog from `GET https://api.shopaikey.com/v1/models`, caches it for
+five minutes, and exposes every OpenAI-compatible chat model. Media generation,
+audio, embedding, moderation, transcription and reranking models are excluded
+because they do not implement the dashboard chat contract.
+
 ## Auto routing
 
-For generic, non-sensitive chat, Auto prefers:
+With ShopAIKey configured, Auto prefers the configured
+`CODELOCAL_SHOPAIKEY_MODEL` (default `qwen3.5-flash`). Without it, generic,
+non-sensitive chat prefers:
 
 1. GLM-5.3-Flash via Empero
 2. Qwen3.8-Flash via Empero
@@ -44,7 +52,8 @@ If a community model requests a CodeLocal tool, the tool may execute locally, bu
 
 ## UI contract
 
-`GET /api/v1/dashboard/models` returns only the curated model list and `auto` as `default_model`.
+`GET /api/v1/dashboard/models` returns the live ShopAIKey chat-model catalog
+when configured, or the curated fallback list, and `auto` as `default_model`.
 
 The dashboard sends the selected model in the chat request payload. The existing workspace picker, media upload, tool-loop, access-mode and streaming UX remain unchanged.
 

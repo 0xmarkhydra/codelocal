@@ -1,9 +1,18 @@
 package cloudserver
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestDashboardSelectableModels(t *testing.T) {
-	models := dashboardSelectableModels()
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
+	t.Setenv("SHOPAIKEY_API_KEY", "")
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
+	models, err := dashboardSelectableModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{dashboardModelAuto, dashboardModelGLM, dashboardModelQwen, dashboardModelMuse}
 	if len(models) != len(want) {
 		t.Fatalf("models=%v want=%v", models, want)
@@ -22,7 +31,8 @@ func TestDashboardNormalizeModelSelection(t *testing.T) {
 		"glm-5.3-flash":          dashboardModelGLM,
 		"Qwen 3.8 Flash":         dashboardModelQwen,
 		"Muse Spark 1.2":         dashboardModelMuse,
-		"unknown-provider-model": dashboardModelAuto,
+		"unknown-provider-model": "unknown-provider-model",
+		"../../unsafe model":     dashboardModelAuto,
 	}
 	for input, want := range cases {
 		if got := dashboardNormalizeModelSelection(input); got != want {

@@ -467,8 +467,12 @@ func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authenticatedAPIIdentity(w, r); !ok {
 		return
 	}
+	models, err := dashboardSelectableModels(r.Context())
+	if err != nil {
+		slog.Warn("dashboard model catalog unavailable; using curated fallback", "error", err)
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"models":        dashboardSelectableModels(),
+		"models":        models,
 		"default_model": dashboardModelAuto,
 	})
 }

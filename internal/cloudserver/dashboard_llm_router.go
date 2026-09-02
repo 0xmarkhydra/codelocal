@@ -33,7 +33,8 @@ var dashboardLLMHealth = struct {
 }{cooldownUntil: map[string]time.Time{}}
 
 func dashboardNormalizeModelSelection(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	trimmed := strings.TrimSpace(raw)
+	switch strings.ToLower(trimmed) {
 	case "", "auto", "thánh gióng", "thanh giong":
 		return dashboardModelAuto
 	case dashboardModelGLM, "glm 5.3 flash", "glm-5.3-flash-20260826":
@@ -43,12 +44,11 @@ func dashboardNormalizeModelSelection(raw string) string {
 	case dashboardModelMuse, "muse spark 1.2", "muse-spark-1.2":
 		return dashboardModelMuse
 	default:
+		if dashboardModelIDSafe(trimmed) {
+			return trimmed
+		}
 		return dashboardModelAuto
 	}
-}
-
-func dashboardSelectableModels() []string {
-	return []string{dashboardModelAuto, dashboardModelGLM, dashboardModelQwen, dashboardModelMuse}
 }
 
 func dashboardEmperoTarget(model string) dashboardLLMTarget {
@@ -94,7 +94,8 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 	glm := dashboardEmperoTarget(dashboardModelGLM)
 	qwen := dashboardEmperoTarget(dashboardModelQwen)
 	muse, hasMuse := dashboardMuseTarget()
-	ordered := make([]dashboardLLMTarget, 0, 4)
+	shopDefault, hasShop := dashboardShopAIKeyTarget("")
+	ordered := make([]dashboardLLMTarget, 0, 6)
 	appendTarget := func(target dashboardLLMTarget) {
 		if target.Community && !allowCommunity {
 			return
@@ -111,24 +112,41 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 			appendTarget(muse)
 		}
 	}
+	appendShopDefault := func() {
+		if hasShop {
+			appendTarget(shopDefault)
+		}
+	}
 
 	switch selection {
 	case dashboardModelGLM:
 		appendTarget(glm)
 		appendTarget(qwen)
+		appendShopDefault()
 		appendMuse()
 	case dashboardModelQwen:
 		appendTarget(qwen)
 		appendTarget(glm)
+		appendShopDefault()
 		appendMuse()
 	case dashboardModelMuse:
 		appendMuse()
+		appendShopDefault()
 		appendTarget(glm)
 		appendTarget(qwen)
-	default:
+	case dashboardModelAuto:
+		appendShopDefault()
 		appendTarget(glm)
 		appendTarget(qwen)
 		appendMuse()
+	default:
+		if shop, ok := dashboardShopAIKeyTarget(selection); ok {
+			appendTarget(shop)
+		}
+		appendShopDefault()
+		appendMuse()
+		appendTarget(glm)
+		appendTarget(qwen)
 	}
 	if legacy, ok := dashboardLegacyTarget(); ok {
 		appendTarget(legacy)
