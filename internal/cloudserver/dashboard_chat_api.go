@@ -474,8 +474,20 @@ func dashboardUsesZen(baseURL string) bool {
 	return configuredBaseURL != "" && normalizedBaseURL == configuredBaseURL
 }
 
+func dashboardUsesShopAIKey(baseURL string) bool {
+	normalizedBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
+	if strings.Contains(normalizedBaseURL, "api.shopaikey.com") {
+		return true
+	}
+	configuredBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_SHOPAIKEY_BASE_URL"))), "/")
+	return configuredBaseURL != "" && normalizedBaseURL == configuredBaseURL
+}
+
 func dashboardProtocolForModel(baseURL, model string) dashboardLLMProtocol {
 	if !dashboardUsesZen(baseURL) {
+		if dashboardUsesShopAIKey(baseURL) && strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-") {
+			return dashboardProtocolResponses
+		}
 		return dashboardProtocolChatCompletions
 	}
 	name := strings.ToLower(strings.TrimSpace(model))
@@ -774,7 +786,11 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			if r.Context().Err() != nil || errors.Is(err, context.Canceled) {
 				return
 			}
-			slog.Warn("dashboard chat stream failed after retry", "error", err, "user", identity.User.ID)
+			cause := errors.Unwrap(err)
+			if cause == nil {
+				cause = err
+			}
+			slog.Warn("dashboard chat stream failed after retry", "error", err, "cause", cause, "model", selection, "user", identity.User.ID)
 			writeSSE("error", map[string]string{"error": dashboardFriendlyStreamError(err)})
 		}
 		return

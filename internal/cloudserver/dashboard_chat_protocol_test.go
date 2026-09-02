@@ -58,6 +58,21 @@ func TestDashboardProtocolForShopAIKeyDoesNotInheritZenProvider(t *testing.T) {
 			}
 		})
 	}
+	if got := dashboardProtocolForModel(baseURL, "gpt-5.6-terra"); got != dashboardProtocolResponses {
+		t.Fatalf("dashboardProtocolForModel(gpt-5.6-terra) = %v, want responses", got)
+	}
+}
+
+func TestDashboardProtocolForConfiguredShopAIKeyEndpoint(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://opencode.ai/zen/v1")
+	t.Setenv("CODELOCAL_SHOPAIKEY_BASE_URL", "https://shop-proxy.example.test/v1/")
+	if got := dashboardProtocolForModel("https://shop-proxy.example.test/v1", "gpt-5.6-terra"); got != dashboardProtocolResponses {
+		t.Fatalf("got %v, want responses", got)
+	}
+	if got := dashboardProtocolForModel("https://shop-proxy.example.test/v1", "deepseek-v4-pro"); got != dashboardProtocolChatCompletions {
+		t.Fatalf("got %v, want chat completions", got)
+	}
 }
 
 func TestDashboardProtocolForConfiguredCustomZenEndpoint(t *testing.T) {
