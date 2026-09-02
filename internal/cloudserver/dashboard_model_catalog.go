@@ -383,25 +383,59 @@ func dashboardModelsRankedByOpenRouter(providerModels []dashboardProviderModel, 
 	return selected
 }
 
-func dashboardCuratedModels() []string {
-	return []string{dashboardModelAuto, dashboardModelGLM, dashboardModelQwen, dashboardModelMuse}
+func dashboardUniqueModels(groups ...[]string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, group := range groups {
+		for _, model := range group {
+			model = strings.TrimSpace(model)
+			if !dashboardModelIDSafe(model) || seen[model] {
+				continue
+			}
+			seen[model] = true
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
+func dashboardPoolSelectableModels(ctx context.Context) []string {
+	if _, ok := dashboardAIPoolConfigFromEnv(); !ok {
+		return nil
+	}
+	models, err := dashboardAIPoolModels(ctx)
+	if err != nil {
+		// Pool availability is independent from the dashboard model picker. A
+		// temporary Pool outage must not hide the existing providers.
+		return nil
+	}
+	return dashboardAIPoolModelIDs(models, dashboardPopularModelLimit)
+}
+
+func dashboardCuratedModels(ctx context.Context) []string {
+	return dashboardUniqueModels(
+		[]string{dashboardModelAuto},
+		dashboardPoolSelectableModels(ctx),
+		[]string{dashboardModelGLM, dashboardModelQwen, dashboardModelMuse},
+	)
 }
 
 func dashboardSelectableModels(ctx context.Context) ([]string, error) {
+	poolModels := dashboardPoolSelectableModels(ctx)
 	if _, _, _, ok := dashboardShopAIKeyConfig(); !ok {
-		return dashboardCuratedModels(), nil
+		return dashboardCuratedModels(ctx), nil
 	}
 	providerModels, err := dashboardShopAIKeyModels(ctx)
 	if err != nil {
-		return []string{dashboardModelAuto}, err
+		return dashboardUniqueModels([]string{dashboardModelAuto}, poolModels), err
 	}
 	rankedModels, err := dashboardOpenRouterPopularModels(ctx)
 	if err != nil {
-		return []string{dashboardModelAuto}, err
+		return dashboardUniqueModels([]string{dashboardModelAuto}, poolModels), err
 	}
 	models := dashboardModelsRankedByOpenRouter(providerModels, rankedModels, dashboardPopularModelLimit)
 	if len(models) == 0 {
-		return []string{dashboardModelAuto}, errors.New("no popular OpenRouter models are available through ShopAIKey")
+		return dashboardUniqueModels([]string{dashboardModelAuto}, poolModels), errors.New("no popular OpenRouter models are available through ShopAIKey")
 	}
-	return append([]string{dashboardModelAuto}, models...), nil
+	return dashboardUniqueModels([]string{dashboardModelAuto}, poolModels, models), nil
 }

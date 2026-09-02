@@ -6,6 +6,7 @@ import (
 )
 
 func TestDashboardSelectableModels(t *testing.T) {
+	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
 	t.Setenv("SHOPAIKEY_API_KEY", "")
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
@@ -57,6 +58,7 @@ func TestDashboardCommunityEligibility(t *testing.T) {
 }
 
 func TestDashboardLLMRouteOrder(t *testing.T) {
+	clearAIPoolEnv(t)
 	t.Setenv("OPENCODE_ZEN_API_KEY", "test-key")
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
 	t.Setenv("CODELOCAL_LLM_API_KEY", "test-key")
@@ -76,5 +78,26 @@ func TestDashboardLLMRouteOrder(t *testing.T) {
 	explicitRoute := dashboardLLMRoute(dashboardModelQwen, true)
 	if len(explicitRoute) != 1 || explicitRoute[0].Model != dashboardModelQwen {
 		t.Fatalf("explicit model route must be strict: %#v", explicitRoute)
+	}
+}
+
+func TestDashboardAIPoolRouteIsPrivateAndFirstForAuto(t *testing.T) {
+	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
+	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
+	t.Setenv("SHOPAIKEY_API_KEY", "")
+	t.Setenv("OPENCODE_ZEN_API_KEY", "")
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
+	t.Setenv("CODELOCAL_LLM_API_KEY", "")
+
+	route := dashboardLLMRoute(dashboardModelAuto, false)
+	if len(route) == 0 || route[0].ID != "ai-pool:codelocal-auto" || route[0].Community {
+		t.Fatalf("AI Pool should be the first private auto target: %#v", route)
+	}
+
+	explicit := dashboardLLMRoute("cc/claude-sonnet", false)
+	if len(explicit) != 1 || explicit[0].ID != "ai-pool:cc/claude-sonnet" || explicit[0].Community {
+		t.Fatalf("provider-qualified Pool selection should route strictly through Pool: %#v", explicit)
 	}
 }

@@ -119,8 +119,9 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 	glm := dashboardEmperoTarget(dashboardModelGLM)
 	qwen := dashboardEmperoTarget(dashboardModelQwen)
 	muse, hasMuse := dashboardMuseTarget()
+	poolDefault, hasPool := dashboardAIPoolTarget("")
 	shopDefault, hasShop := dashboardShopAIKeyTarget("")
-	ordered := make([]dashboardLLMTarget, 0, 6)
+	ordered := make([]dashboardLLMTarget, 0, 7)
 	appendTarget := func(target dashboardLLMTarget) {
 		if target.Community && !allowCommunity {
 			return
@@ -142,6 +143,9 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 			appendTarget(muse)
 		}
 	case dashboardModelAuto:
+		if hasPool {
+			appendTarget(poolDefault)
+		}
 		if hasShop {
 			appendTarget(shopDefault)
 		}
@@ -154,8 +158,14 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 			appendTarget(legacy)
 		}
 	default:
-		if shop, ok := dashboardShopAIKeyTarget(selection); ok {
+		if dashboardAIPoolOwnsSelection(selection) {
+			if pool, ok := dashboardAIPoolTarget(selection); ok {
+				appendTarget(pool)
+			}
+		} else if shop, ok := dashboardShopAIKeyTarget(selection); ok {
 			appendTarget(shop)
+		} else if pool, ok := dashboardAIPoolTarget(selection); ok {
+			appendTarget(pool)
 		}
 	}
 	return ordered
