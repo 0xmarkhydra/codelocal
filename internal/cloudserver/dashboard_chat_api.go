@@ -47,7 +47,55 @@ type dashboardChatRequest struct {
 	Image     string                     `json:"image,omitempty"`
 	ImageMeta *dashboardChatImageMeta    `json:"imageMeta,omitempty"`
 	Model     string                     `json:"model,omitempty"`
+	Mode      string                     `json:"mode,omitempty"`
+	Goal      string                     `json:"goal,omitempty"`
 	Workspace *dashboardChatWorkspace    `json:"workspace,omitempty"`
+}
+
+type dashboardChatModeContextKey struct{}
+
+func dashboardChatMode(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "ask", "plan", "agent":
+		return normalized
+	default:
+		return "agent"
+	}
+}
+
+func dashboardChatGoal(value string) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) > 240 {
+		value = string(runes[:240])
+	}
+	return value
+}
+
+func dashboardWithChatMode(r *http.Request, mode string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), dashboardChatModeContextKey{}, dashboardChatMode(mode)))
+}
+
+func dashboardChatModeFromRequest(r *http.Request) string {
+	mode, _ := r.Context().Value(dashboardChatModeContextKey{}).(string)
+	return dashboardChatMode(mode)
+}
+
+func dashboardChatModeInstruction(mode, goal string) string {
+	var instruction string
+	switch dashboardChatMode(mode) {
+	case "ask":
+		instruction = "Chat mode is Ask: answer and analyze only. You may inspect context with read-only tools, but never modify files or run commands."
+	case "plan":
+		instruction = "Chat mode is Plan: inspect context with read-only tools and produce a concrete implementation plan. Never modify files or run commands."
+	default:
+		instruction = "Chat mode is Agent: perform the requested work, modify files when needed, and verify the result."
+	}
+	if goal = dashboardChatGoal(goal); goal != "" {
+		instruction += fmt.Sprintf(" Active user goal: %q.", goal)
+	}
+	return instruction
 }
 
 func dashboardChatStoredImage(req dashboardChatRequest) string {
@@ -349,6 +397,34 @@ var dashboardChatTools = append([]map[string]any{
 	},
 }, dashboardRuntimeChatTools...)
 
+func dashboardChatToolName(tool map[string]any) string {
+	function, _ := tool["function"].(map[string]any)
+	name, _ := function["name"].(string)
+	return strings.TrimSpace(name)
+}
+
+func dashboardChatToolReadOnly(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "list_workspaces", "list_devices", "search_project_brain", "get_workspace_detail":
+		return true
+	}
+	_, sideEffect, _, ok := dashboardRuntimeToolSpec(name, nil)
+	return ok && !sideEffect
+}
+
+func dashboardChatToolsForMode(mode string) []map[string]any {
+	if dashboardChatMode(mode) == "agent" {
+		return dashboardChatTools
+	}
+	tools := make([]map[string]any, 0, len(dashboardChatTools))
+	for _, tool := range dashboardChatTools {
+		if dashboardChatToolReadOnly(dashboardChatToolName(tool)) {
+			tools = append(tools, tool)
+		}
+	}
+	return tools
+}
+
 func dashboardLLMConfig() (apiKey, baseURL, model string) {
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
 	apiKey = strings.TrimSpace(os.Getenv("CODELOCAL_LLM_API_KEY"))
@@ -502,6 +578,10 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": errorCode})
 		return
 	}
+	req.Mode = dashboardChatMode(req.Mode)
+	req.Goal = dashboardChatGoal(req.Goal)
+	r = dashboardWithChatMode(r, req.Mode)
+	chatTools := dashboardChatToolsForMode(req.Mode)
 	msg := strings.TrimSpace(req.Message)
 	storedImage := dashboardChatStoredImage(req)
 	if ephemeralImage {
@@ -660,7 +740,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed.
-		system2 := dashboardChatSystemPrompt(promptWorkspace, autoResolved)
+		system2 := dashboardChatSystemPrompt(promptWorkspace, autoResolved) + "\n\n" + dashboardChatModeInstruction(req.Mode, req.Goal)
 		msgs := []map[string]any{{"role": "system", "content": system2}}
 		for _, h := range req.History {
 			m := map[string]any{"role": h.Role, "content": h.Content}
@@ -683,7 +763,10 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: time.Now().UnixMilli()}); err != nil {
 			slog.Warn("dashboard chat stream save user failed", "error", err)
 		}
-		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, allowCommunity, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
+		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, allowCommunity, msgs, chatTools, r, s, identity.User.ID); err != nil {
+			if r.Context().Err() != nil || errors.Is(err, context.Canceled) {
+				return
+			}
 			slog.Warn("dashboard chat stream failed after retry", "error", err, "user", identity.User.ID)
 			writeSSE("error", map[string]string{"error": dashboardFriendlyStreamError(err)})
 		}
@@ -721,7 +804,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName, "threadId": effectiveThreadID})
 		return
 	}
-	system := dashboardChatSystemPrompt(promptWorkspace, autoResolved)
+	system := dashboardChatSystemPrompt(promptWorkspace, autoResolved) + "\n\n" + dashboardChatModeInstruction(req.Mode, req.Goal)
 	messages := []map[string]any{{"role": "system", "content": system}}
 	for _, h := range req.History {
 		m := map[string]any{"role": h.Role, "content": h.Content}
@@ -741,7 +824,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	} else {
 		messages = append(messages, map[string]any{"role": "user", "content": msg})
 	}
-	target, toolCalls, content, err := callDashboardLLMWithTools(selection, allowCommunity, messages, dashboardChatTools)
+	target, toolCalls, content, err := callDashboardLLMWithTools(selection, allowCommunity, messages, chatTools)
 	if err != nil {
 		webutil.JSON(w, http.StatusBadGateway, map[string]string{"error": "upstream: " + err.Error()})
 		return
@@ -763,7 +846,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		argsMap := map[string]any{}
 		_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
 		resStr := execDashboardTool(r, s, identity.User.ID, tc.Name, argsMap)
-		results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"})
+		results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: dashboardToolResultStatus(resStr)})
 	}
 	follow := append([]map[string]any{}, messages...)
 	toolCallsAny := []map[string]any{}
@@ -827,6 +910,15 @@ func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request)
 }
 
 func execDashboardTool(r *http.Request, s *Server, userID, name string, args map[string]any) string {
+	mode := dashboardChatModeFromRequest(r)
+	if mode != "agent" && !dashboardChatToolReadOnly(name) {
+		payload, _ := json.Marshal(map[string]any{
+			"error": "tool_not_allowed_in_mode",
+			"mode":  mode,
+			"tool":  name,
+		})
+		return string(payload)
+	}
 	const maxToolResult = 5000
 	trunc := func(b []byte) string {
 		if len(b) > maxToolResult {
@@ -1358,7 +1450,7 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 			argsMap := map[string]any{}
 			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
 			resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
-			results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"})
+			results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: dashboardToolResultStatus(resStr)})
 			b2, _ := json.Marshal(map[string]any{"tool_calls": results})
 			_, _ = fmt.Fprintf(w, "event: tool_calls\ndata: %s\n\n", string(b2))
 			if flusher != nil {

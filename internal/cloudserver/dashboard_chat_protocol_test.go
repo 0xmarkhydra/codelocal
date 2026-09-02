@@ -107,6 +107,56 @@ func TestDashboardChatSystemPromptPinsSelectedWorkspace(t *testing.T) {
 	}
 }
 
+func TestDashboardChatModeNormalizesAndBoundsGoal(t *testing.T) {
+	if got := dashboardChatMode(" ASK "); got != "ask" {
+		t.Fatalf("mode=%q want ask", got)
+	}
+	if got := dashboardChatMode("unsafe"); got != "agent" {
+		t.Fatalf("invalid mode=%q want agent", got)
+	}
+	if got := len([]rune(dashboardChatGoal(strings.Repeat("ừ", 300)))); got != 240 {
+		t.Fatalf("goal length=%d want 240", got)
+	}
+	instruction := dashboardChatModeInstruction("plan", "ship\nwithout writes")
+	for _, token := range []string{"Plan", "read-only tools", "Never modify files", `Active user goal: "ship\nwithout writes".`} {
+		if !strings.Contains(instruction, token) {
+			t.Fatalf("plan instruction missing %q: %s", token, instruction)
+		}
+	}
+}
+
+func TestDashboardChatReadOnlyModesExcludeMutationTools(t *testing.T) {
+	for _, mode := range []string{"ask", "plan"} {
+		names := map[string]bool{}
+		for _, tool := range dashboardChatToolsForMode(mode) {
+			names[dashboardChatToolName(tool)] = true
+		}
+		for _, name := range []string{"list_workspaces", "search_project_brain", "read_project_file", "search_project_code", "verify_project_changes"} {
+			if !names[name] {
+				t.Fatalf("%s mode missing read-only tool %q", mode, name)
+			}
+		}
+		for _, name := range []string{"edit_project_file", "write_project_file", "apply_project_patch", "run_project_command"} {
+			if names[name] {
+				t.Fatalf("%s mode exposed mutation tool %q", mode, name)
+			}
+		}
+	}
+	if got := len(dashboardChatToolsForMode("agent")); got != len(dashboardChatTools) {
+		t.Fatalf("agent tools=%d want %d", got, len(dashboardChatTools))
+	}
+}
+
+func TestDashboardChatReadOnlyModeBlocksDirectMutationExecution(t *testing.T) {
+	r := dashboardWithChatMode(httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/chat", nil), "ask")
+	result := execDashboardTool(r, &Server{}, "user-1", "write_project_file", map[string]any{"path": "README.md", "content": "changed"})
+	for _, token := range []string{`"error":"tool_not_allowed_in_mode"`, `"mode":"ask"`, `"tool":"write_project_file"`} {
+		if !strings.Contains(result, token) {
+			t.Fatalf("blocked tool result missing %q: %s", token, result)
+		}
+	}
+}
+
 func TestDashboardChatFindWorkspaceMatchesProjectName(t *testing.T) {
 	catalog := []gateway.WorkspaceView{
 		{WorkspaceID: "MediaUpload-1", WorkspaceName: "MediaUpload", ProjectName: "MediaUpload"},

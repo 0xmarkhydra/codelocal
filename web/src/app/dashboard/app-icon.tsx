@@ -13,6 +13,7 @@ export type AppIconName =
   | "download"
   | "paperclip"
   | "send"
+  | "stop"
   | "search"
   | "chevron-down"
   | "chevron-left"
@@ -67,6 +68,7 @@ export function AppIcon({ name, size = 18, ...props }: Props) {
       {name === "download" && <><path d="M12 3.75v10.5m0 0 4-4m-4 4-4-4" /><path d="M5 17.25v2h14v-2" /></>}
       {name === "paperclip" && <path d="m8.25 12.5 6.7-6.7a3.05 3.05 0 0 1 4.3 4.3l-8.2 8.2a5 5 0 1 1-7.1-7.05l7.85-7.85" />}
       {name === "send" && <><path d="m5 12 7-7 7 7" /><path d="M12 5v14" /></>}
+      {name === "stop" && <rect x="7" y="7" width="10" height="10" rx="1.5" />}
       {name === "search" && <><circle cx="10.75" cy="10.75" r="6" /><path d="m15.25 15.25 4.5 4.5" /></>}
       {name === "chevron-down" && <path d="m7.25 9.5 4.75 4.75 4.75-4.75" />}
       {name === "chevron-left" && <path d="m14.75 6.5-5.5 5.5 5.5 5.5" />}

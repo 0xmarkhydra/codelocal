@@ -33,6 +33,8 @@ type ChatMsg = {
   skills?: SkillBadge[];
 };
 
+type ChatMode = "ask" | "plan" | "agent";
+
 type ChatThread = {
   id: string;
   title: string;
@@ -191,6 +193,8 @@ export function DashboardChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<ChatMode>("agent");
+  const [goal, setGoal] = useState("");
   const [image, setImage] = useState<PreparedChatImage | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -211,6 +215,7 @@ export function DashboardChat() {
   const endRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const quickMessageRef = useRef<string | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const workspaceItems = useMemo(
     () => workspaces.state.kind === "ready" ? workspaces.state.value.items : [],
@@ -455,6 +460,24 @@ export function DashboardChat() {
     });
   }
 
+  function finishStoppedAssistant(index: number, content: string, toolCalls: ToolCall[]) {
+    setMessages((current) => {
+      const copy = [...current];
+      if (!content.trim() && toolCalls.length === 0) {
+        copy.splice(index, 1);
+        return copy;
+      }
+      const preservedSkills = copy[index]?.skills;
+      copy[index] = {
+        role: "assistant",
+        content,
+        tool_calls: [...toolCalls],
+        skills: preservedSkills?.length ? [...preservedSkills] : undefined,
+      };
+      return copy;
+    });
+  }
+
   function submitQuickMessage(message: string) {
     if (loading || historyLoading || threadActionLoading) return;
     quickMessageRef.current = message;
@@ -610,6 +633,12 @@ export function DashboardChat() {
 
     let streamedContent = "";
     let streamedToolCalls: ToolCall[] = [];
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const finishStoppedResponse = () => {
+      finishStoppedAssistant(placeholderIndex, streamedContent, streamedToolCalls);
+      setNotice(streamedContent.trim() || streamedToolCalls.length ? "Đã dừng trả lời; phần đã nhận vẫn được giữ lại." : "Đã dừng trước khi có phản hồi.");
+    };
     try {
       const history = next.slice(-12).map((message) => ({ role: message.role, content: message.content }));
       const payload = {
@@ -617,6 +646,8 @@ export function DashboardChat() {
         message: text || "Phân tích ảnh này",
         history,
         model: selectedModel,
+        mode,
+        goal: goal.trim() || undefined,
         imageMeta: sendImage ? {
           imageRef: sendImage.imageRef,
           sha256: sendImage.sha256,
@@ -645,6 +676,7 @@ export function DashboardChat() {
         credentials: "include",
         headers: requestHeaders,
         body: requestBody,
+        signal: controller.signal,
       });
 
       if (response.status === 401) {
@@ -748,15 +780,31 @@ export function DashboardChat() {
           }
         }
       }
+      if (controller.signal.aborted) {
+        finishStoppedResponse();
+        return;
+      }
     } catch (error) {
+      if (controller.signal.aborted) {
+        finishStoppedResponse();
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       const failure = friendlyChatFailure(message);
       const content = streamedContent ? `${streamedContent}\n\n${failure}` : failure;
       updateAssistant(placeholderIndex, content, streamedToolCalls);
     } finally {
+      if (streamAbortRef.current === controller) streamAbortRef.current = null;
       setLoading(false);
       if (requestThreadId) void refreshThreads(requestThreadId);
     }
+  }
+
+  function stopStream() {
+    const controller = streamAbortRef.current;
+    if (!controller || controller.signal.aborted) return;
+    setNotice("Đang dừng trả lời…");
+    controller.abort("user_stop");
   }
 
   async function clear() {
@@ -915,13 +963,29 @@ export function DashboardChat() {
 
         <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
-          <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={imageUploading}>
-            <AppIcon name="paperclip" size={18} />
-          </button>
           <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
-          <button className={styles.sendBtn} type="submit" disabled={loading || imageUploading || historyLoading || threadActionLoading || (!input.trim() && !image)} aria-label="Gửi">
-            <AppIcon name="send" size={18} />
-          </button>
+          <div className={styles.composerToolbar}>
+            <div className={styles.composerOptions}>
+              <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={loading || imageUploading}>
+                <AppIcon name="paperclip" size={17} />
+              </button>
+              <label className={styles.modePicker} title={mode === "agent" ? "Agent có thể chỉnh sửa và chạy lệnh" : `${mode === "ask" ? "Ask" : "Plan"} chỉ dùng công cụ đọc`}>
+                <select value={mode} onChange={(event) => setMode(event.target.value as ChatMode)} aria-label="Chọn chế độ chat" disabled={loading}>
+                  <option value="ask">Ask</option>
+                  <option value="plan">Plan</option>
+                  <option value="agent">Agent</option>
+                </select>
+              </label>
+              <label className={`${styles.goalField} ${goal ? styles.goalFieldActive : ""}`}>
+                <AppIcon name="target" size={13} />
+                <input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="Thêm mục tiêu" aria-label="Mục tiêu" maxLength={240} disabled={loading} />
+                {goal ? <button className={styles.goalClear} type="button" onClick={() => setGoal("")} aria-label="Xóa mục tiêu" disabled={loading}><AppIcon name="close" size={11} /></button> : null}
+              </label>
+            </div>
+            <button className={`${styles.sendBtn} ${loading ? styles.stopBtn : ""}`} type={loading ? "button" : "submit"} onClick={loading ? stopStream : undefined} disabled={loading ? false : imageUploading || historyLoading || threadActionLoading || (!input.trim() && !image)} aria-label={loading ? "Dừng trả lời" : "Gửi"} title={loading ? "Dừng trả lời" : "Gửi"}>
+              <AppIcon name={loading ? "stop" : "send"} size={loading ? 16 : 18} />
+            </button>
+          </div>
         </form>
         {notice ? <div className={styles.chatHint}>{notice}</div> : null}
       </section>

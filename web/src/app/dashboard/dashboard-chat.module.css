@@ -684,7 +684,7 @@
 .imagePreview {
   position: absolute;
   left: 26px;
-  bottom: 88px;
+  bottom: 120px;
   z-index: 4;
   display: flex;
   align-items: flex-start;
@@ -712,11 +712,10 @@
 .chatForm {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   margin: 0 16px 8px;
-  padding: 7px;
+  padding: 7px 8px 8px;
   border: 1px solid rgba(112, 139, 255, 0.21);
   border-radius: 20px;
   background: rgba(21, 28, 42, 0.79);
@@ -737,7 +736,7 @@
   resize: none;
   border: 0;
   outline: 0;
-  padding: 10px 4px 8px;
+  padding: 8px 5px 6px;
   background: transparent;
   color: rgba(255,255,255,.9);
   font: inherit;
@@ -749,6 +748,21 @@
 
 .fileInput { display: none; }
 
+.composerToolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.composerOptions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .attachBtn,
 .sendBtn {
   width: 42px;
@@ -757,6 +771,10 @@
 }
 
 .attachBtn {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 11px;
   background: rgba(255,255,255,.025);
   color: rgba(221,231,246,.54);
 }
@@ -774,6 +792,89 @@
 }
 
 .sendBtn:not(:disabled):hover { transform: translateY(-1px); }
+
+.stopBtn {
+  border-radius: 50%;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(238, 242, 248, 0.92);
+  color: #111722;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28), inset 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.modePicker {
+  height: 34px;
+  min-width: 82px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.modePicker select {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  padding: 0 24px 0 10px;
+  background: transparent;
+  color: rgba(235, 240, 249, 0.82);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.goalField {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(330px, 38vw);
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  color: rgba(159, 188, 255, 0.65);
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.goalField:focus-within,
+.goalFieldActive {
+  border-color: rgba(113, 143, 255, 0.2);
+  background: rgba(91, 116, 220, 0.07);
+}
+
+.goalField input {
+  min-width: 72px;
+  width: min(230px, 26vw);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: rgba(226, 233, 245, 0.78);
+  font: inherit;
+  font-size: 10.5px;
+}
+
+.goalField input::placeholder { color: rgba(202, 214, 233, 0.32); }
+
+.goalClear {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(205, 216, 236, 0.45);
+  cursor: pointer;
+}
+
+.goalClear:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(239, 243, 250, 0.8);
+}
 
 .chatHint {
   min-height: 22px;
@@ -1241,11 +1342,16 @@
   .threadItemActions { opacity: 1; }
   .threadSelect { min-height: 42px; }
   .chatShell { border-radius: 18px; }
+  .chatForm { margin-inline: 8px; }
+  .composerOptions { flex: 1; }
+  .goalField { flex: 1; max-width: none; }
+  .goalField input { width: 100%; min-width: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .newThreadButton,
   .threadSearch,
   .threadItem,
-  .threadItemActions { transition: none; }
+  .threadItemActions,
+  .goalField { transition: none; }
 }
