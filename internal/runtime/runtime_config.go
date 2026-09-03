@@ -179,10 +179,19 @@ func (r *Runtime) materializeRuntimeSystemProjects(settings map[string]cloud.Run
 	if len(projects) == 0 {
 		return
 	}
+	r.mu.Lock()
+	parent := r.systemProjectCtx
+	if parent == nil {
+		r.mu.Unlock()
+		return
+	}
+	r.systemProjectSyncWG.Add(1)
+	r.mu.Unlock()
 	go func() {
+		defer r.systemProjectSyncWG.Done()
 		r.systemProjectSyncMu.Lock()
 		defer r.systemProjectSyncMu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 		defer cancel()
 		for _, project := range projects {
 			if err := materializeManagedSystemProject(ctx, project); err != nil {

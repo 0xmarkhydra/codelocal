@@ -62,6 +62,8 @@ type Runtime struct {
 	mediaPublisher          *mediatransport.Publisher
 	runtimeSettings         map[string]cloud.RuntimeMaterializedConfig
 	systemProjectSyncMu     sync.Mutex
+	systemProjectSyncWG     sync.WaitGroup
+	systemProjectCtx        context.Context
 }
 
 type WorkspaceWorker struct {
@@ -808,10 +810,19 @@ func (r *Runtime) ackRevocation(ctx context.Context, requestID, workspaceID stri
 }
 
 func (r *Runtime) Run(ctx context.Context) error {
-	brainCtx, cancelBrain := context.WithCancel(ctx)
-	defer cancelBrain()
-	go r.runKnowledgeSyncLoop(brainCtx)
-	return r.runRealtime(ctx)
+	runCtx, cancelRun := context.WithCancel(ctx)
+	r.mu.Lock()
+	r.systemProjectCtx = runCtx
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.systemProjectCtx = nil
+		r.mu.Unlock()
+		cancelRun()
+		r.systemProjectSyncWG.Wait()
+	}()
+	go r.runKnowledgeSyncLoop(runCtx)
+	return r.runRealtime(runCtx)
 }
 
 func (r *Runtime) Stop() {
