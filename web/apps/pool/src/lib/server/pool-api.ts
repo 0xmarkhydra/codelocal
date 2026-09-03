@@ -24,7 +24,7 @@ function adminToken(): string {
 }
 
 function safeAdminPath(path: string): boolean {
-  return /^\/api\/(models|sources(?:\/[A-Za-z0-9_-]{1,96})?)$/.test(path);
+  return /^\/api\/(models(?:\/[A-Za-z0-9._:-]{1,160}\/test)?|sources(?:\/[A-Za-z0-9_-]{1,96})?)$/.test(path);
 }
 
 export type PoolAdminResult = { status: number; data: unknown };
@@ -39,7 +39,7 @@ export async function poolAdminJSON(path: string, init: RequestInit = {}): Promi
       Authorization: `Bearer ${adminToken()}`,
       ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(path.endsWith("/test") ? 95_000 : 12_000),
   });
   const raw = await response.text();
   if (Buffer.byteLength(raw, "utf8") > MAX_ADMIN_RESPONSE_BYTES) throw new Error("Pool admin response is too large");

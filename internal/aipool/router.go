@@ -77,21 +77,52 @@ func (r *Router) sourceModels(ctx context.Context, source Source) ([]UpstreamMod
 	return models, nil
 }
 
+func baseStatusFor(source Source, model UpstreamModel) ModelSourceStatus {
+	if model.Status != nil {
+		status := *model.Status
+		status.SourceID = source.ID()
+		status.Source = source.Name()
+		status.Kind = source.Kind()
+		if status.Upstream == "" {
+			status.Upstream = model.Upstream
+		}
+		if status.TotalRoutes <= 0 {
+			status.TotalRoutes = 1
+		}
+		if sourceUsable(status) && status.AvailableRoutes <= 0 {
+			status.AvailableRoutes = 1
+		}
+		return status
+	}
+	return ModelSourceStatus{
+		SourceID: source.ID(), Source: source.Name(), Kind: source.Kind(), Upstream: model.Upstream,
+		State: SourceHealthy, AvailableRoutes: 1, TotalRoutes: 1,
+	}
+}
+
 func (r *Router) statusFor(source Source, model UpstreamModel) ModelSourceStatus {
+	base := baseStatusFor(source, model)
 	key := routeStateKey(source.ID(), model.Canonical, model.Upstream)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status, ok := r.states[key]
 	if !ok {
-		return ModelSourceStatus{SourceID: source.ID(), Source: source.Name(), Kind: source.Kind(), State: SourceHealthy}
+		return base
 	}
 	if !status.RetryAt.IsZero() && !r.now().Before(status.RetryAt) {
 		delete(r.states, key)
-		return ModelSourceStatus{SourceID: source.ID(), Source: source.Name(), Kind: source.Kind(), State: SourceHealthy}
+		return base
 	}
 	status.SourceID = source.ID()
 	status.Source = source.Name()
 	status.Kind = source.Kind()
+	status.Provider = base.Provider
+	status.Upstream = model.Upstream
+	status.AvailableRoutes = 0
+	status.TotalRoutes = base.TotalRoutes
+	status.QuotaRemainingPercent = base.QuotaRemainingPercent
+	status.QuotaResetAt = base.QuotaResetAt
+	status.LastCheckedAt = base.LastCheckedAt
 	return status
 }
 
@@ -101,6 +132,21 @@ func sourceUsable(status ModelSourceStatus) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func inactiveModelStateRank(state string) int {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "cooldown":
+		return 4
+	case "unauthorized":
+		return 3
+	case "exhausted":
+		return 2
+	case "unavailable":
+		return 1
+	default:
+		return 0
 	}
 }
 
@@ -157,6 +203,8 @@ func (r *Router) Models(ctx context.Context, activeOnly, detailed bool) ([]Canon
 		return nil, err
 	}
 	byID := map[string]*CanonicalModel{}
+	sourceSeen := map[string]map[string]bool{}
+	sourceAvailable := map[string]map[string]bool{}
 	var lastErr error
 	for _, source := range sources {
 		models, modelErr := r.sourceModels(ctx, source)
@@ -170,18 +218,46 @@ func (r *Router) Models(ctx context.Context, activeOnly, detailed bool) ([]Canon
 			}
 			model := byID[upstream.Canonical]
 			if model == nil {
-				model = &CanonicalModel{ID: upstream.Canonical, State: "exhausted"}
+				model = &CanonicalModel{ID: upstream.Canonical, State: "unavailable"}
 				byID[upstream.Canonical] = model
 			}
 			status := r.statusFor(source, upstream)
-			model.TotalSources++
+			if sourceSeen[upstream.Canonical] == nil {
+				sourceSeen[upstream.Canonical] = map[string]bool{}
+				sourceAvailable[upstream.Canonical] = map[string]bool{}
+			}
+			if !sourceSeen[upstream.Canonical][source.ID()] {
+				sourceSeen[upstream.Canonical][source.ID()] = true
+				model.TotalSources++
+			}
+			totalRoutes := status.TotalRoutes
+			if totalRoutes <= 0 {
+				totalRoutes = 1
+			}
+			availableRoutes := status.AvailableRoutes
+			if sourceUsable(status) && availableRoutes <= 0 {
+				availableRoutes = 1
+			}
+			model.TotalRoutes += totalRoutes
+			model.AvailableRoutes += availableRoutes
 			if sourceUsable(status) {
-				model.AvailableSources++
+				if !sourceAvailable[upstream.Canonical][source.ID()] {
+					sourceAvailable[upstream.Canonical][source.ID()] = true
+					model.AvailableSources++
+				}
 				model.Active = true
-				if status.State == SourceDegraded && model.State != "active" {
-					model.State = "degraded"
-				} else {
+				if status.State == SourceHealthy {
 					model.State = "active"
+				} else if model.State != "active" {
+					model.State = "degraded"
+				}
+			} else if !model.Active {
+				candidateState := string(status.State)
+				if status.State == SourceDisabled {
+					candidateState = "unavailable"
+				}
+				if inactiveModelStateRank(candidateState) > inactiveModelStateRank(model.State) {
+					model.State = candidateState
 				}
 			}
 			if detailed {
@@ -343,6 +419,91 @@ func (r *Router) Route(w http.ResponseWriter, req *http.Request) error {
 		}
 	}
 	return &UpstreamsUnavailableError{Model: canonical, Status: lastStatus, Err: lastErr}
+}
+
+func (r *Router) TestModel(ctx context.Context, canonical string) (ModelTestResult, error) {
+	canonical = strings.TrimSpace(canonical)
+	result := ModelTestResult{Model: canonical}
+	if isProviderQualifiedModel(canonical) || !modelIDSafe(canonical) {
+		return result, errors.New("invalid canonical model")
+	}
+	candidates, err := r.candidates(ctx, canonical)
+	if err != nil {
+		return result, err
+	}
+	if len(candidates) == 0 {
+		result.Error = "model is not available in the Pool catalog"
+		return result, nil
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"model":    canonical,
+		"messages": []map[string]string{{"role": "user", "content": "Reply exactly OK."}},
+		"stream":   false,
+	})
+	if err != nil {
+		return result, err
+	}
+
+	for _, candidate := range candidates {
+		if !sourceUsable(candidate.Status) {
+			continue
+		}
+		result.Attempts++
+		result.Source = candidate.Source.Name()
+		result.Provider = candidate.Status.Provider
+		if result.Provider == "" {
+			result.Provider = candidate.Source.Kind()
+		}
+		result.Upstream = candidate.Model.Upstream
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://pool.local/v1/chat/completions", bytes.NewReader(payload))
+		if err != nil {
+			return result, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		started := time.Now()
+		resp, err := candidate.Source.Do(ctx, req, candidate.Model.Upstream)
+		result.LatencyMS = time.Since(started).Milliseconds()
+		if err != nil {
+			r.mark(candidate, SourceCooldown, r.now().Add(30*time.Second), "probe request failed")
+			result.Error = "upstream request failed"
+			continue
+		}
+		result.HTTPStatus = resp.StatusCode
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			r.healthy(candidate)
+			result.OK = true
+			result.Error = ""
+			return result, nil
+		}
+
+		now := r.now()
+		switch resp.StatusCode {
+		case http.StatusTooManyRequests:
+			r.mark(candidate, SourceExhausted, retryAfterAt(now, resp, 10*time.Minute), "quota/rate limit")
+			result.Error = "quota or rate limit reached"
+			continue
+		case http.StatusUnauthorized, http.StatusForbidden:
+			r.mark(candidate, SourceUnauthorized, now.Add(30*time.Minute), "credential rejected")
+			result.Error = "upstream credential rejected"
+			continue
+		case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			r.mark(candidate, SourceCooldown, now.Add(30*time.Second), "upstream unavailable")
+			result.Error = "upstream temporarily unavailable"
+			continue
+		default:
+			result.Error = fmt.Sprintf("upstream returned status %d", resp.StatusCode)
+			return result, nil
+		}
+	}
+	if result.Attempts == 0 {
+		result.Error = "no usable route is currently available"
+	}
+	return result, nil
 }
 
 func copyCanonicalResponse(w io.Writer, resp *http.Response, canonical string) error {

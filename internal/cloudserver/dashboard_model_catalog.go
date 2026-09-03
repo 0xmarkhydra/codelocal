@@ -409,7 +409,11 @@ func dashboardPoolSelectableModels(ctx context.Context) []string {
 		// temporary Pool outage must not hide the existing providers.
 		return nil
 	}
-	return dashboardAIPoolModelIDs(models, dashboardPopularModelLimit)
+	// Pool already exposes only canonical models that have at least one usable
+	// route. Do not apply the generic "popular 20" cap: the CodeLocal picker must
+	// reflect the complete active Pool catalog so an explicit user selection is
+	// always routable.
+	return dashboardAIPoolModelIDs(models, 0)
 }
 
 func dashboardCuratedModels(ctx context.Context) []string {

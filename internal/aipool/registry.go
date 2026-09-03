@@ -107,11 +107,12 @@ func summariesForSources(sources []Source) []SourceSummary {
 	for _, source := range sources {
 		baseURL := ""
 		managedBy := "pool"
-		if item, ok := source.(*OpenAISource); ok {
+		switch item := source.(type) {
+		case *OpenAISource:
 			baseURL = item.BaseURL()
-			if item.Kind() == "9router" {
-				managedBy = "environment"
-			}
+		case *NineRouterSource:
+			baseURL = item.BaseURL()
+			managedBy = "environment"
 		}
 		out = append(out, SourceSummary{
 			ID: source.ID(), Name: source.Name(), Kind: source.Kind(), BaseURL: baseURL,

@@ -80,10 +80,17 @@ func (s *fakeSource) callCount() int {
 
 func TestCanonicalModelIDHides9RouterPrefixes(t *testing.T) {
 	cases := map[string]string{
-		"cx/gpt-5.6-sol":       "gpt-5.6-sol",
-		"cc/claude-sonnet-4-6": "claude-sonnet-4-6",
-		"gc/gemini-3.6-flash":  "gemini-3.6-flash",
-		"gpt-5.6-sol":          "gpt-5.6-sol",
+		"cx/gpt-5.6-sol":                   "gpt-5.6-sol",
+		"ag/gemini-3.6-flash-low":          "gemini-3.6-flash-low",
+		"cbai/glm-5.2":                     "glm-5.2",
+		"xai/grok-4.6":                     "grok-4.6",
+		"cl/openai/gpt-5.4":                "gpt-5.4",
+		"cl/anthropic/claude-sonnet-4.6":   "claude-sonnet-4.6",
+		"cl/google/gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
+		"cl/kwaipilot/kat-coder-pro":       "kat-coder-pro",
+		"cc/claude-sonnet-4-6":             "claude-sonnet-4-6",
+		"gc/gemini-3.6-flash":              "gemini-3.6-flash",
+		"gpt-5.6-sol":                      "gpt-5.6-sol",
 	}
 	for input, want := range cases {
 		if got := CanonicalModelID(input); got != want {
@@ -127,6 +134,27 @@ func TestPublicModelsExposeCanonicalActiveModelsOnly(t *testing.T) {
 	}
 	if len(payload.Data) != 2 || payload.Data[0].ID != "gpt-5.5" || payload.Data[1].ID != "gpt-5.6-sol" {
 		t.Fatalf("unexpected models: %+v", payload.Data)
+	}
+}
+
+func TestCanonicalModelCountsDistinctPoolSourcesAndAllRoutes(t *testing.T) {
+	source := &fakeSource{
+		id: "9router", name: "9Router", kind: "9router", priority: 10,
+		models: []UpstreamModel{
+			{Canonical: "gpt-5.4", Upstream: "cx/gpt-5.4"},
+			{Canonical: "gpt-5.4", Upstream: "cl/openai/gpt-5.4"},
+		},
+	}
+	router := NewRouter(NewSourceRegistry(nil, source))
+	models, err := router.Models(context.Background(), true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("models=%+v", models)
+	}
+	if models[0].TotalSources != 1 || models[0].AvailableSources != 1 || models[0].TotalRoutes != 2 || models[0].AvailableRoutes != 2 {
+		t.Fatalf("expected 1 Pool source and 2 usable routes, model=%+v", models[0])
 	}
 }
 

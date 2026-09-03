@@ -55,6 +55,7 @@ func NewServer(config Config) (*Server, error) {
 	mux.HandleFunc("POST /v1/chat/completions", s.requireClient(s.routeOpenAI))
 	mux.HandleFunc("POST /v1/responses", s.requireClient(s.routeOpenAI))
 	mux.HandleFunc("GET /api/models", s.requireAdmin(s.adminModels))
+	mux.HandleFunc("POST /api/models/{id}/test", s.requireAdmin(s.adminTestModel))
 	mux.HandleFunc("GET /api/sources", s.requireAdmin(s.adminSources))
 	mux.HandleFunc("POST /api/sources", s.requireAdmin(s.adminCreateSource))
 	mux.HandleFunc("PATCH /api/sources/{id}", s.requireAdmin(s.adminUpdateSource))
@@ -90,8 +91,8 @@ func NewServerFromEnv(ctx context.Context) (*Server, error) {
 	}
 
 	static := []Source{}
-	nineRouterURL := firstEnv("POOL_9ROUTER_BASE_URL", "CODELOCAL_AI_POOL_BASE_URL")
-	nineRouterKey := firstEnv("POOL_9ROUTER_API_KEY", "CODELOCAL_AI_POOL_API_KEY")
+	nineRouterURL := strings.TrimSpace(os.Getenv("POOL_9ROUTER_BASE_URL"))
+	nineRouterKey := strings.TrimSpace(os.Getenv("POOL_9ROUTER_API_KEY"))
 	if nineRouterURL != "" || nineRouterKey != "" {
 		if nineRouterURL == "" || nineRouterKey == "" {
 			if store != nil {
@@ -100,14 +101,11 @@ func NewServerFromEnv(ctx context.Context) (*Server, error) {
 			return nil, errors.New("POOL_9ROUTER_BASE_URL and POOL_9ROUTER_API_KEY must be configured together")
 		}
 		priority := envInt("POOL_9ROUTER_PRIORITY", 100)
-		nineRouter, err := NewOpenAISource(OpenAISourceOptions{
-			ID:            "9router",
-			Name:          "9Router",
-			Kind:          "9router",
+		nineRouter, err := NewNineRouterSource(NineRouterSourceOptions{
 			BaseURL:       nineRouterURL,
 			APIKey:        nineRouterKey,
+			AdminPassword: strings.TrimSpace(os.Getenv("POOL_9ROUTER_ADMIN_PASSWORD")),
 			Priority:      priority,
-			StripPrefixes: true,
 		})
 		if err != nil {
 			if store != nil {
@@ -148,15 +146,6 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
-}
-
-func firstEnv(keys ...string) string {
-	for _, key := range keys {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func (s *Server) Handler() http.Handler { return s.http.Handler }
@@ -249,6 +238,22 @@ func (s *Server) adminModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+func (s *Server) adminTestModel(w http.ResponseWriter, r *http.Request) {
+	model := strings.TrimSpace(r.PathValue("id"))
+	if isProviderQualifiedModel(model) || !modelIDSafe(model) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_model"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	result, err := s.router.TestModel(ctx, model)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "model_test_failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) routeOpenAI(w http.ResponseWriter, r *http.Request) {
