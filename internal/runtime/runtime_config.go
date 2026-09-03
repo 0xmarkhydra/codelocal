@@ -171,6 +171,16 @@ func (r *Runtime) materializeRuntimeSystemProjects(settings map[string]cloud.Run
 				slog.Warn("managed system project materialization failed", "projectId", project.ID, "error", err)
 				continue
 			}
+			if r.Registry != nil {
+				workspaceName := strings.TrimSpace(project.Name)
+				if project.ID == "openmontage" {
+					workspaceName = "Video Studio"
+				}
+				if _, err := r.Registry.EnsureSystem(project.ID, workspaceName, project.Path); err != nil {
+					slog.Warn("managed system workspace registration failed", "projectId", project.ID, "error", err)
+					continue
+				}
+			}
 			slog.Debug("managed system project ready", "projectId", project.ID, "path", project.Path)
 		}
 	}()

@@ -19,9 +19,10 @@ func (r *Runtime) outboundMediaPublisher() *mediatransport.Publisher {
 			return deviceauth.SignRequest(request, body, r.Options.Credential.DevicePrivateKey, time.Now())
 		}
 		r.mediaPublisher = mediatransport.New(mediatransport.Config{
-			PrepareURL:     normalizeBase(r.Options.BaseURL) + "/api/client/media/presign",
-			Authorize:      authorize,
-			Base64Fallback: mediatransport.Base64FallbackFromEnvironment(),
+			PrepareURL:         normalizeBase(r.Options.BaseURL) + "/api/client/media/presign",
+			ArtifactPrepareURL: normalizeBase(r.Options.BaseURL) + "/api/client/artifacts/presign",
+			Authorize:          authorize,
+			Base64Fallback:     mediatransport.Base64FallbackFromEnvironment(),
 		}, nil)
 	})
 	return r.mediaPublisher

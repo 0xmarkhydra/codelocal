@@ -97,6 +97,7 @@ var runtimeOperationIDs = map[string]string{
 	"run_command":        "terminal.run",
 	"exec_start":         "terminal.start",
 	"pty_start":          "terminal.start_pty",
+	"artifact_publish":   "terminal.publish_artifact",
 
 	"exec_poll":     "process.poll",
 	"pty_poll":      "process.poll",
@@ -190,7 +191,7 @@ func runtimeToolMutatesState(name string) bool {
 		return true
 	}
 	switch name {
-	case "select_workspace", "approval_mode", "memory_remember", "revoke_device", "rename_device", "exec_write", "pty_write", "process_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
+	case "select_workspace", "approval_mode", "memory_remember", "revoke_device", "rename_device", "artifact_publish", "exec_write", "pty_write", "process_write", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill":
 		return true
 	default:
 		return false
@@ -199,7 +200,7 @@ func runtimeToolMutatesState(name string) bool {
 
 func runtimeToolDestructive(name string) bool {
 	switch name {
-	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "revoke_device", "approval_revoke", "approval_reset", "mcp_call",
+	case "write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "run_command", "exec_start", "pty_start", "artifact_publish", "revoke_device", "approval_revoke", "approval_reset", "mcp_call",
 		"browser_click", "browser_fill", "browser_press", "computer_focus", "computer_click", "computer_type", "computer_key", "computer_scroll", "computer_drag", "computer_run",
 		"computer_launch_app", "computer_terminate_app", "computer_install_app", "computer_uninstall_app", "computer_open_url", "computer_set_orientation", "computer_double_tap", "computer_long_press", "computer_record_start", "computer_record_stop":
 		return true
@@ -210,7 +211,7 @@ func runtimeToolDestructive(name string) bool {
 
 func runtimeToolOpenWorld(name string) bool {
 	switch name {
-	case "run_command", "exec_start", "pty_start", "git_push", "mcp_call", "browser_open", "computer_open_url":
+	case "run_command", "exec_start", "pty_start", "artifact_publish", "git_push", "mcp_call", "browser_open", "computer_open_url":
 		return true
 	default:
 		return false
@@ -219,7 +220,7 @@ func runtimeToolOpenWorld(name string) bool {
 
 func runtimeToolIdempotent(name string) bool {
 	switch name {
-	case "select_workspace", "approval_mode", "memory_remember", "write_file", "git_stage", "git_unstage", "approval_reset", "revoke_device":
+	case "select_workspace", "approval_mode", "memory_remember", "write_file", "artifact_publish", "git_stage", "git_unstage", "approval_reset", "revoke_device":
 		return true
 	default:
 		return false

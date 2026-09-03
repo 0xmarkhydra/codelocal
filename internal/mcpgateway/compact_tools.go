@@ -414,16 +414,16 @@ func compactToolDefinitions() []compactToolDef {
 	}
 
 	terminalActions := map[string]string{
-		"preflight": "terminal_preflight", "history": "terminal_history", "run": "run_command", "start": "exec_start", "start_pty": "pty_start",
+		"preflight": "terminal_preflight", "history": "terminal_history", "run": "run_command", "start": "exec_start", "start_pty": "pty_start", "publish_artifact": "artifact_publish",
 		"process_list": "process_list", "poll": "exec_poll", "write": "exec_write", "resize": "pty_resize", "signal": "exec_signal", "kill": "exec_kill", "cancel": "exec_cancel",
 	}
 	terminal := byName["terminal"]
 	terminal.Title = "Use terminal and processes"
-	terminal.Description = "Run or start guarded commands and manage the lifecycle of CodeLocal-started normal/PTY processes in one tool. Use run for bounded commands; start/start_pty plus poll/write/signal/kill/cancel for long-lived processes."
+	terminal.Description = "Run or start guarded commands, manage CodeLocal-started processes, and publish a finished workspace MP4 as a durable public artifact. Use publish_artifact only after the render is complete."
 	terminal.Schema = actionSchema(
-		[]string{"preflight", "history", "run", "start", "start_pty", "process_list", "poll", "write", "resize", "signal", "kill", "cancel"},
+		[]string{"preflight", "history", "run", "start", "start_pty", "publish_artifact", "process_list", "poll", "write", "resize", "signal", "kill", "cancel"},
 		map[string]any{
-			"command": str("Shell command."), "cwd": path, "approvalToken": approval,
+			"command": str("Shell command."), "cwd": path, "path": path, "approvalToken": approval,
 			"yieldMs": integer("Initial wait milliseconds.", 0, 10000), "timeoutMs": integer("Timeout milliseconds; 0 disables timeout.", 0, 3600000),
 			"query": str("Terminal-history query."), "event": map[string]any{"type": "string", "enum": []string{"started", "finished", "all"}}, "limit": integer("History record limit.", 1, 500),
 			"processId": processID, "stdoutCursor": integer("Stdout byte cursor.", 0, 0), "stderrCursor": integer("Stderr byte cursor.", 0, 0),
@@ -433,7 +433,7 @@ func compactToolDefinitions() []compactToolDef {
 	)
 	terminal.Resolve = func(args map[string]any) (operationInvocation, map[string]any, error) {
 		return resolveAction(args, terminalActions, map[string][]string{
-			"preflight": {"command"}, "run": {"command"}, "start": {"command"}, "start_pty": {"command"},
+			"preflight": {"command"}, "run": {"command"}, "start": {"command"}, "start_pty": {"command"}, "publish_artifact": {"path"},
 			"poll": {"processId"}, "write": {"processId", "input"}, "resize": {"processId", "cols", "rows"}, "signal": {"processId"}, "kill": {"processId"}, "cancel": {"processId"},
 		})
 	}

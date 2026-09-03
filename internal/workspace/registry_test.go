@@ -79,3 +79,38 @@ func TestRegistryRefusesHome(t *testing.T) {
 		t.Fatal("expected home directory grant to be refused")
 	}
 }
+
+func TestRegistryEnsureSystemIsHiddenManagedAndIdempotent(t *testing.T) {
+	old := os.Getenv("CODELOCAL_STATE_DIR")
+	if err := os.Setenv("CODELOCAL_STATE_DIR", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Setenv("CODELOCAL_STATE_DIR", old)
+
+	root := filepath.Join(t.TempDir(), "openmontage")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := New()
+	first, err := reg.EnsureSystem("openmontage", "Video Studio", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := reg.EnsureSystem("openmontage", "Video Studio", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.WorkspaceID != "system-openmontage" || second.WorkspaceID != first.WorkspaceID {
+		t.Fatalf("unexpected system workspace ids: %#v %#v", first, second)
+	}
+	if !second.System || !second.Managed || !second.Hidden || second.WorkspaceName != "Video Studio" {
+		t.Fatalf("unexpected system workspace metadata: %#v", second)
+	}
+	items, err := reg.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].WorkspaceID != first.WorkspaceID {
+		t.Fatalf("system workspace was not idempotent: %#v", items)
+	}
+}
