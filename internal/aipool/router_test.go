@@ -158,7 +158,7 @@ func TestCanonicalModelCountsDistinctPoolSourcesAndAllRoutes(t *testing.T) {
 	}
 }
 
-func TestRouterFailsOverSameCanonicalModelAndHidesOnlyWhenAllSourcesExhausted(t *testing.T) {
+func TestRouterFailsOverSameCanonicalModelAndHidesWhenAllSourcesAreUnavailable(t *testing.T) {
 	byok := &fakeSource{
 		id: "byok-a", name: "OpenAI BYOK", kind: "openai", priority: 10,
 		models: []UpstreamModel{{Canonical: "gpt-5.6-sol", Upstream: "gpt-5.6-sol"}},
@@ -218,8 +218,8 @@ func TestRouterFailsOverSameCanonicalModelAndHidesOnlyWhenAllSourcesExhausted(t 
 	if byok.callCount() != 1 {
 		t.Fatalf("exhausted BYOK source should be skipped, calls=%d", byok.callCount())
 	}
-	if nineRouter.callCount() != 2 {
-		t.Fatalf("9Router should receive second attempt, calls=%d", nineRouter.callCount())
+	if nineRouter.callCount() != 3 {
+		t.Fatalf("9Router should retry the same canonical route once before exhaustion, calls=%d", nineRouter.callCount())
 	}
 
 	active, err = router.Models(context.Background(), true, false)
@@ -227,14 +227,67 @@ func TestRouterFailsOverSameCanonicalModelAndHidesOnlyWhenAllSourcesExhausted(t 
 		t.Fatal(err)
 	}
 	if len(active) != 0 {
-		t.Fatalf("canonical model must disappear only after every source is exhausted: %+v", active)
+		t.Fatalf("canonical model must disappear while every source is unavailable: %+v", active)
 	}
 	all, err := router.Models(context.Background(), false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 1 || all[0].ID != "gpt-5.6-sol" || all[0].Active || all[0].State != "exhausted" || all[0].AvailableSources != 0 {
-		t.Fatalf("admin catalog should retain exhausted model: %+v", all)
+	if len(all) != 1 || all[0].ID != "gpt-5.6-sol" || all[0].Active || all[0].State != "cooldown" || all[0].AvailableSources != 0 {
+		t.Fatalf("admin catalog should retain temporarily unavailable model: %+v", all)
+	}
+}
+
+func TestRouterRetriesTransientFailureBeforeCoolingRoute(t *testing.T) {
+	source := &fakeSource{
+		id: "primary", name: "Primary", kind: "openai", priority: 10,
+		models: []UpstreamModel{{Canonical: "gpt-5.6-sol", Upstream: "gpt-5.6-sol"}},
+		responses: []fakeSourceResponse{
+			{status: http.StatusServiceUnavailable, contentType: "application/json", body: `{"error":{"message":"temporary"}}`},
+			{status: http.StatusOK, contentType: "application/json", body: `{"model":"gpt-5.6-sol","choices":[{"message":{"content":"ok"}}]}`},
+		},
+	}
+	router := NewRouter(NewSourceRegistry(nil, source))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}]}`))
+	out := httptest.NewRecorder()
+	if err := router.Route(out, req); err != nil {
+		t.Fatal(err)
+	}
+	if source.callCount() != 2 {
+		t.Fatalf("transient 503 should be retried on the same canonical route, calls=%d", source.callCount())
+	}
+	if out.Code != http.StatusOK || !strings.Contains(out.Body.String(), `"model":"gpt-5.6-sol"`) {
+		t.Fatalf("unexpected response status=%d body=%s", out.Code, out.Body.String())
+	}
+}
+
+func TestRouterRetriesNineRouter429WithoutQuarantiningCanonicalModel(t *testing.T) {
+	source := &fakeSource{
+		id: "9router", name: "9Router", kind: "9router", priority: 10,
+		models: []UpstreamModel{{Canonical: "gpt-5.6-sol", Upstream: "cx/gpt-5.6-sol"}},
+		responses: []fakeSourceResponse{
+			{status: http.StatusTooManyRequests, contentType: "application/json", body: `{"error":{"message":"route rate limited"}}`},
+			{status: http.StatusOK, contentType: "application/json", body: `{"model":"cx/gpt-5.6-sol","choices":[{"message":{"content":"ok"}}]}`},
+		},
+	}
+	router := NewRouter(NewSourceRegistry(nil, source))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}]}`))
+	out := httptest.NewRecorder()
+	if err := router.Route(out, req); err != nil {
+		t.Fatal(err)
+	}
+	if source.callCount() != 2 {
+		t.Fatalf("9Router 429 should get a short same-model retry, calls=%d", source.callCount())
+	}
+	if strings.Contains(out.Body.String(), "cx/") || !strings.Contains(out.Body.String(), `"model":"gpt-5.6-sol"`) {
+		t.Fatalf("canonical response was not preserved: %s", out.Body.String())
+	}
+	models, err := router.Models(context.Background(), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || !models[0].Active {
+		t.Fatalf("successful retry must keep canonical model active: %+v", models)
 	}
 }
 

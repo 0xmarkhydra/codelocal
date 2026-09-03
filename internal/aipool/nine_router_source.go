@@ -137,6 +137,15 @@ func (s *NineRouterSource) Kind() string    { return "9router" }
 func (s *NineRouterSource) Priority() int   { return s.priority }
 func (s *NineRouterSource) BaseURL() string { return s.inference.BaseURL() }
 
+// InvalidateHealth drops only the short-lived management snapshot. The
+// authenticated dashboard session remains cached, so a runtime failure can
+// refresh connection/quota state without forcing another login.
+func (s *NineRouterSource) InvalidateHealth() {
+	s.snapshotMu.Lock()
+	s.snapshot = nineRouterManagementSnapshot{}
+	s.snapshotMu.Unlock()
+}
+
 func (s *NineRouterSource) Do(ctx context.Context, incoming *http.Request, upstreamModel string) (*http.Response, error) {
 	return s.inference.Do(ctx, incoming, upstreamModel)
 }

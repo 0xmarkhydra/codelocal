@@ -163,8 +163,8 @@ func TestDashboardShopAIKeySelectedModelRetriesWithoutFallback(t *testing.T) {
 	if !errors.As(err, &selectedErr) {
 		t.Fatalf("error=%T %v, want dashboardSelectedModelError", err, err)
 	}
-	if requests != 2 {
-		t.Fatalf("requests=%d, want one initial attempt plus one same-model retry", requests)
+	if requests != dashboardLLMRetryAttempts {
+		t.Fatalf("requests=%d, want %d same-model attempts", requests, dashboardLLMRetryAttempts)
 	}
 	if target.Model != "" {
 		t.Fatalf("unexpected fallback target: %#v", target)

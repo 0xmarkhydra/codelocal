@@ -32,7 +32,7 @@ type dashboardSelectedModelError struct {
 }
 
 func (e *dashboardSelectedModelError) Error() string {
-	return "Thánh Gióng không thể kết nối model đã chọn. CodeLocal không chuyển sang model khác; vui lòng thử lại."
+	return "Thánh Gióng đã tự thử lại model đã chọn nhưng route vẫn chưa khả dụng. CodeLocal không chuyển sang model khác; vui lòng thử lại sau ít giây."
 }
 
 func (e *dashboardSelectedModelError) Unwrap() error {
@@ -240,6 +240,14 @@ func dashboardRetryableLLMError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
+func dashboardLLMRetryDelay(attempt int) time.Duration {
+	delay := 250 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		delay *= 2
+	}
+	return delay
+}
+
 func dashboardValidateToolCalls(calls []llmToolCall) error {
 	for _, call := range calls {
 		arguments := strings.TrimSpace(call.Arguments)
@@ -261,7 +269,7 @@ func callDashboardLLMWithTools(selection string, allowCommunity bool, messages [
 		if dashboardTargetCoolingDown(target) && index < len(route)-1 {
 			continue
 		}
-		for attempt := 0; attempt < 2; attempt++ {
+		for attempt := 0; attempt < dashboardLLMRetryAttempts; attempt++ {
 			calls, content, err := callLLMWithTools(target.BaseURL, target.APIKey, target.Model, messages, tools)
 			if err == nil {
 				err = dashboardValidateToolCalls(calls)
@@ -271,9 +279,10 @@ func callDashboardLLMWithTools(selection string, allowCommunity bool, messages [
 				return target, calls, content, nil
 			}
 			lastErr = err
-			if !dashboardRetryableLLMError(err) || attempt == 1 {
+			if !dashboardRetryableLLMError(err) || attempt == dashboardLLMRetryAttempts-1 {
 				break
 			}
+			time.Sleep(dashboardLLMRetryDelay(attempt))
 		}
 		dashboardMarkTargetFailed(target)
 	}
@@ -309,7 +318,7 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 		if dashboardTargetCoolingDown(target) && index < len(route)-1 {
 			continue
 		}
-		for attempt := 0; attempt < 2; attempt++ {
+		for attempt := 0; attempt < dashboardLLMRetryAttempts; attempt++ {
 			tracked := &dashboardCountingWriter{ResponseWriter: w}
 			err := proxyLLMStream(tracked, flusher, target.BaseURL, target.APIKey, target.Model, messages, tools, r, s, userID)
 			if err == nil {
@@ -320,8 +329,15 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 			if tracked.written > 0 {
 				return target, err
 			}
-			if !dashboardRetryableLLMError(err) || attempt == 1 {
+			if !dashboardRetryableLLMError(err) || attempt == dashboardLLMRetryAttempts-1 {
 				break
+			}
+			timer := time.NewTimer(dashboardLLMRetryDelay(attempt))
+			select {
+			case <-r.Context().Done():
+				timer.Stop()
+				return target, r.Context().Err()
+			case <-timer.C:
 			}
 		}
 		dashboardMarkTargetFailed(target)

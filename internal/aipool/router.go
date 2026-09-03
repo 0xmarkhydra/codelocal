@@ -39,6 +39,12 @@ type Router struct {
 	states   map[string]ModelSourceStatus
 }
 
+const (
+	routeTransientAttempts      = 3
+	nineRouterRateLimitAttempts = 2
+	nineRouterRuntimeCooldown   = 500 * time.Millisecond
+)
+
 func NewRouter(registry *SourceRegistry) *Router {
 	return &Router{
 		registry:   registry,
@@ -298,6 +304,55 @@ func retryAfterAt(now time.Time, resp *http.Response, fallback time.Duration) ti
 	return now.Add(fallback)
 }
 
+func routeRetryDelay(attempt int) time.Duration {
+	delay := 150 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		delay *= 2
+	}
+	return delay
+}
+
+func waitRouteRetry(ctx context.Context, attempt int) error {
+	timer := time.NewTimer(routeRetryDelay(attempt))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func routeRetryableNetworkError(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+func routeRetryableStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+type sourceHealthInvalidator interface {
+	InvalidateHealth()
+}
+
+func (r *Router) invalidateCandidateHealth(candidate routeCandidate) {
+	if invalidator, ok := candidate.Source.(sourceHealthInvalidator); ok {
+		invalidator.InvalidateHealth()
+	}
+	r.mu.Lock()
+	delete(r.catalogs, candidate.Source.ID())
+	r.mu.Unlock()
+}
+
 func (r *Router) mark(candidate routeCandidate, state SourceState, retryAt time.Time, errText string) {
 	r.mu.Lock()
 	r.states[candidate.stateKey] = ModelSourceStatus{
@@ -368,54 +423,89 @@ func (r *Router) Route(w http.ResponseWriter, req *http.Request) error {
 		if !sourceUsable(candidate.Status) {
 			continue
 		}
-		attempt, err := cloneRequestWithBody(req, body)
-		if err != nil {
-			return err
-		}
-		resp, err := candidate.Source.Do(req.Context(), attempt, candidate.Model.Upstream)
-		if err != nil {
-			lastErr = err
-			var netErr net.Error
-			if errors.As(err, &netErr) {
-				r.mark(candidate, SourceCooldown, r.now().Add(30*time.Second), "network error")
-			} else {
-				r.mark(candidate, SourceCooldown, r.now().Add(15*time.Second), "upstream request failed")
+	CandidateAttempts:
+		for attemptIndex := 0; attemptIndex < routeTransientAttempts; attemptIndex++ {
+			attempt, cloneErr := cloneRequestWithBody(req, body)
+			if cloneErr != nil {
+				return cloneErr
 			}
-			continue
-		}
+			resp, requestErr := candidate.Source.Do(req.Context(), attempt, candidate.Model.Upstream)
+			if requestErr != nil {
+				lastErr = requestErr
+				if attemptIndex < routeTransientAttempts-1 && routeRetryableNetworkError(req.Context(), requestErr) {
+					if waitErr := waitRouteRetry(req.Context(), attemptIndex); waitErr != nil {
+						return waitErr
+					}
+					continue
+				}
+				cooldown := 30 * time.Second
+				if candidate.Source.Kind() == "9router" {
+					cooldown = nineRouterRuntimeCooldown
+					r.invalidateCandidateHealth(candidate)
+				}
+				r.mark(candidate, SourceCooldown, r.now().Add(cooldown), "network error")
+				break CandidateAttempts
+			}
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			r.healthy(candidate)
-			defer resp.Body.Close()
-			copyResponseHeaders(w.Header(), resp.Header)
-			w.WriteHeader(resp.StatusCode)
-			return copyCanonicalResponse(w, resp, canonical)
-		}
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				r.healthy(candidate)
+				defer resp.Body.Close()
+				copyResponseHeaders(w.Header(), resp.Header)
+				w.WriteHeader(resp.StatusCode)
+				return copyCanonicalResponse(w, resp, canonical)
+			}
 
-		lastStatus = resp.StatusCode
-		errorBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
-		if readErr != nil {
-			lastErr = readErr
-		} else {
-			lastErr = errors.New(strings.TrimSpace(string(errorBody)))
-		}
-		now := r.now()
-		switch resp.StatusCode {
-		case http.StatusTooManyRequests:
-			r.mark(candidate, SourceExhausted, retryAfterAt(now, resp, 10*time.Minute), "quota/rate limit")
-			continue
-		case http.StatusUnauthorized, http.StatusForbidden:
-			r.mark(candidate, SourceUnauthorized, now.Add(30*time.Minute), "credential rejected")
-			continue
-		case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-			r.mark(candidate, SourceCooldown, now.Add(30*time.Second), "upstream unavailable")
-			continue
-		default:
-			copyResponseHeaders(w.Header(), resp.Header)
-			w.WriteHeader(resp.StatusCode)
-			_, _ = w.Write(errorBody)
-			return nil
+			lastStatus = resp.StatusCode
+			errorBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			if readErr != nil {
+				lastErr = readErr
+			} else {
+				lastErr = errors.New(strings.TrimSpace(string(errorBody)))
+			}
+			now := r.now()
+			switch resp.StatusCode {
+			case http.StatusTooManyRequests:
+				if candidate.Source.Kind() == "9router" {
+					r.invalidateCandidateHealth(candidate)
+					if attemptIndex < nineRouterRateLimitAttempts-1 {
+						if waitErr := waitRouteRetry(req.Context(), attemptIndex); waitErr != nil {
+							return waitErr
+						}
+						continue
+					}
+					// 9Router owns connection-level quota and failover. A single inference
+					// 429 must not quarantine the whole canonical model for ten minutes;
+					// force a management refresh on the next request instead.
+					r.mark(candidate, SourceCooldown, now.Add(nineRouterRuntimeCooldown), "9Router rate limit; health refresh required")
+					break CandidateAttempts
+				}
+				r.mark(candidate, SourceExhausted, retryAfterAt(now, resp, 10*time.Minute), "quota/rate limit")
+				break CandidateAttempts
+			case http.StatusUnauthorized, http.StatusForbidden:
+				r.mark(candidate, SourceUnauthorized, now.Add(30*time.Minute), "credential rejected")
+				break CandidateAttempts
+			default:
+				if routeRetryableStatus(resp.StatusCode) {
+					if attemptIndex < routeTransientAttempts-1 {
+						if waitErr := waitRouteRetry(req.Context(), attemptIndex); waitErr != nil {
+							return waitErr
+						}
+						continue
+					}
+					cooldown := 30 * time.Second
+					if candidate.Source.Kind() == "9router" {
+						cooldown = nineRouterRuntimeCooldown
+						r.invalidateCandidateHealth(candidate)
+					}
+					r.mark(candidate, SourceCooldown, now.Add(cooldown), "upstream unavailable")
+					break CandidateAttempts
+				}
+				copyResponseHeaders(w.Header(), resp.Header)
+				w.WriteHeader(resp.StatusCode)
+				_, _ = w.Write(errorBody)
+				return nil
+			}
 		}
 	}
 	return &UpstreamsUnavailableError{Model: canonical, Status: lastStatus, Err: lastErr}
