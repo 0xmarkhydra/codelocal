@@ -1,7 +1,6 @@
 package cloudserver
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -863,30 +862,78 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": target.Model, "tool_calls": []dashboardToolCall{}, "threadId": effectiveThreadID})
 		return
 	}
-	var results []dashboardToolCall
-	for _, tc := range toolCalls {
-		t0 := time.Now()
-		argsMap := map[string]any{}
-		_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
-		resStr := execDashboardTool(r, s, identity.User.ID, tc.Name, argsMap)
-		results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: dashboardToolResultStatus(resStr)})
-	}
 	follow := append([]map[string]any{}, messages...)
-	toolCallsAny := []map[string]any{}
-	for _, tc := range toolCalls {
-		toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+	allResults := make([]dashboardToolCall, 0, dashboardMaxToolCalls)
+	seenProgress := map[string]int{}
+	currentCalls := toolCalls
+	currentContent := content
+	finalContent := ""
+	stopReason := ""
+
+	for round := 0; round < dashboardMaxToolRounds && len(currentCalls) > 0 && len(allResults) < dashboardMaxToolCalls; round++ {
+		results := make([]dashboardToolCall, 0, len(currentCalls))
+		toolCallsAny := make([]map[string]any, 0, len(currentCalls))
+		noProgress := false
+		for _, tc := range currentCalls {
+			if len(allResults) >= dashboardMaxToolCalls {
+				stopReason = "tool execution budget reached"
+				break
+			}
+			t0 := time.Now()
+			argsMap := map[string]any{}
+			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
+			resStr := execDashboardTool(r, s, identity.User.ID, tc.Name, argsMap)
+			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: dashboardToolResultStatus(resStr)}
+			results = append(results, result)
+			allResults = append(allResults, result)
+			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
+			seenProgress[fingerprint]++
+			if seenProgress[fingerprint] >= dashboardDuplicateResultLimit {
+				noProgress = true
+			}
+		}
+		follow = append(follow, map[string]any{"role": "assistant", "content": currentContent, "tool_calls": toolCallsAny})
+		for _, tr := range results {
+			follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
+		}
+		if noProgress {
+			stopReason = "repeated tool calls produced no new result"
+			break
+		}
+		if stopReason != "" || len(allResults) >= dashboardMaxToolCalls {
+			if stopReason == "" {
+				stopReason = "tool execution budget reached"
+			}
+			break
+		}
+
+		nextCalls, nextContent, err2 := callLLMWithTools(target.BaseURL, target.APIKey, target.Model, follow, chatTools)
+		if err2 == nil {
+			err2 = dashboardValidateToolCalls(nextCalls)
+		}
+		if err2 != nil {
+			stopReason = "model connection interrupted after completed tool work"
+			break
+		}
+		currentCalls = nextCalls
+		currentContent = nextContent
+		if len(currentCalls) == 0 {
+			finalContent = currentContent
+			break
+		}
 	}
-	follow = append(follow, map[string]any{"role": "assistant", "content": content, "tool_calls": toolCallsAny})
-	for _, tr := range results {
-		follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
-	}
-	finalTarget, _, finalContent, err2 := callDashboardLLMWithTools(target.Model, false, follow, nil)
-	if err2 != nil {
-		webutil.JSON(w, http.StatusBadGateway, map[string]any{"error": "upstream2: " + err2.Error(), "tool_calls": results})
-		return
+	if finalContent == "" {
+		if stopReason == "" {
+			stopReason = "tool execution budget reached"
+		}
+		_, finalContent, err = callLLMWithTools(target.BaseURL, target.APIKey, target.Model, dashboardFinalSynthesisMessages(follow, stopReason), nil)
+		if err != nil {
+			finalContent = dashboardFallbackReply(allResults)
+		}
 	}
 	now4 := time.Now().UnixMilli()
-	tcsJSON4, _ := json.Marshal(results)
+	tcsJSON4, _ := json.Marshal(allResults)
 	if len(tcsJSON4) > 5000 {
 		tcsJSON4 = tcsJSON4[:5000]
 	}
@@ -896,7 +943,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
 		slog.Warn("dashboard chat save final assistant failed", "error", err)
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": finalTarget.Model, "tool_calls": results, "threadId": effectiveThreadID})
+	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": target.Model, "tool_calls": allResults, "threadId": effectiveThreadID})
 }
 
 func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request) {
@@ -1348,164 +1395,148 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		return &httpError{Status: http.StatusBadRequest, Body: "unsupported model protocol"}
 	}
 
-	body := map[string]any{"model": model, "messages": messages, "temperature": 0.7, "stream": true, "stream_options": map[string]any{"include_usage": true}}
-	if len(tools) > 0 {
-		body["tools"] = tools
-		body["tool_choice"] = "auto"
-	}
-	b, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	client := &http.Client{Timeout: 0}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return &httpError{Status: resp.StatusCode, Body: string(raw)}
-	}
-	writeRaw := func(data string) {
-		_, _ = fmt.Fprintf(w, "event: delta\ndata: %s\n\n", data)
-		if flusher != nil {
-			flusher.Flush()
+	follow := append([]map[string]any{}, messages...)
+	allResults := make([]dashboardToolCall, 0, 12)
+	seenProgress := map[string]int{}
+	stopReason := ""
+	var visibleContent strings.Builder
+
+	for round := 0; round < dashboardMaxToolRounds && len(allResults) < dashboardMaxToolCalls; round++ {
+		visibleBeforeRound := visibleContent.String()
+		roundTextVisible := false
+		roundUsesTool := false
+		rollbackRoundText := func() {
+			if !roundTextVisible {
+				return
+			}
+			visibleContent.Reset()
+			visibleContent.WriteString(visibleBeforeRound)
+			writeDashboardSSE(w, flusher, "replace", map[string]any{"content": visibleBeforeRound})
+			roundTextVisible = false
 		}
-	}
-	scanner := bufio.NewScanner(resp.Body)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
-	toolCallsByIndex := map[int]*llmToolCall{}
-	var fullContent strings.Builder
-	finishedWithToolCalls := false
-	rolledBackToolPreamble := false
-	for scanner.Scan() {
-		select {
-		case <-r.Context().Done():
-			return r.Context().Err()
-		default:
+		callbacks := dashboardChatCompletionsStreamCallbacks{
+			OnText: func(delta string) {
+				if delta == "" || roundUsesTool {
+					return
+				}
+				roundTextVisible = true
+				visibleContent.WriteString(delta)
+				writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+			},
+			OnToolDelta: func(index int, id, name, arguments string) {
+				if !roundUsesTool {
+					roundUsesTool = true
+					rollbackRoundText()
+				}
+				writeDashboardSSE(w, flusher, "tool_delta", map[string]any{"tool_calls": []map[string]any{{
+					"index": index, "id": id, "name": name, "arguments": arguments,
+				}}})
+			},
 		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "[DONE]" {
+
+		roundResult, err := dashboardStreamChatCompletionsRoundWithRetry(r.Context(), baseURL, apiKey, model, follow, tools, callbacks)
+		if err != nil {
+			if len(allResults) == 0 {
+				return err
+			}
+			rollbackRoundText()
+			stopReason = "model connection interrupted after completed tool work"
 			break
 		}
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content   *string `json:"content"`
-					ToolCalls []struct {
-						Index    int     `json:"index"`
-						ID       *string `json:"id"`
-						Function *struct {
-							Name      *string `json:"name"`
-							Arguments *string `json:"arguments"`
-						} `json:"function"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-				FinishReason *string `json:"finish_reason"`
-			} `json:"choices"`
+		toolCalls := roundResult.ToolCalls
+		if len(toolCalls) > 0 && !roundUsesTool {
+			roundUsesTool = true
+			rollbackRoundText()
 		}
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			continue
-		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		delta := chunk.Choices[0].Delta
-		if delta.Content != nil && *delta.Content != "" {
-			fullContent.WriteString(*delta.Content)
-			b2, _ := json.Marshal(map[string]any{"delta": *delta.Content})
-			writeRaw(string(b2))
-		}
-		if len(delta.ToolCalls) > 0 && !rolledBackToolPreamble && fullContent.Len() > 0 {
-			rolledBackToolPreamble = true
-			writeDashboardSSE(w, flusher, "replace", map[string]any{"content": ""})
-		}
-		for _, tc := range delta.ToolCalls {
-			idx := tc.Index
-			if _, ok := toolCallsByIndex[idx]; !ok {
-				toolCallsByIndex[idx] = &llmToolCall{}
+		if len(toolCalls) == 0 {
+			finalContent := visibleContent.String()
+			if finalContent == "" {
+				finalContent = roundResult.Content
 			}
-			if tc.ID != nil {
-				toolCallsByIndex[idx].ID = *tc.ID
-			}
-			if tc.Function != nil {
-				if tc.Function.Name != nil {
-					toolCallsByIndex[idx].Name = *tc.Function.Name
-				}
-				if tc.Function.Arguments != nil {
-					toolCallsByIndex[idx].Arguments += *tc.Function.Arguments
-				}
-			}
-			// stream tool call delta as event
-			b2, _ := json.Marshal(map[string]any{"tool_calls": []map[string]any{{"index": idx, "id": toolCallsByIndex[idx].ID, "name": toolCallsByIndex[idx].Name, "arguments": toolCallsByIndex[idx].Arguments}}})
-			_, _ = fmt.Fprintf(w, "event: tool_delta\ndata: %s\n\n", string(b2))
-			if flusher != nil {
-				flusher.Flush()
-			}
+			tcsJSON, _ := json.Marshal(allResults)
+			_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "threadId": dashboardChatThreadID(r)})
+			return nil
 		}
-		if chunk.Choices[0].FinishReason != nil && *chunk.Choices[0].FinishReason == "tool_calls" {
-			finishedWithToolCalls = true
-		}
-	}
-	if len(toolCallsByIndex) > 0 && finishedWithToolCalls {
-		var tcs []llmToolCall
-		for i := 0; i < len(toolCallsByIndex); i++ {
-			if tc, ok := toolCallsByIndex[i]; ok {
-				tcs = append(tcs, *tc)
-			}
-		}
-		if err := dashboardValidateToolCalls(tcs); err != nil {
+		if err := dashboardValidateToolCalls(toolCalls); err != nil {
 			return err
 		}
-		// execute tools and stream final answer like opencode second call
-		var results []dashboardToolCall
-		for _, tc := range tcs {
+
+		results := make([]dashboardToolCall, 0, len(toolCalls))
+		toolCallsAny := make([]map[string]any, 0, len(toolCalls))
+		noProgress := false
+		for _, tc := range toolCalls {
+			if len(allResults) >= dashboardMaxToolCalls {
+				stopReason = "tool execution budget reached"
+				break
+			}
 			t0 := time.Now()
 			argsMap := map[string]any{}
 			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
 			resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
-			results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: dashboardToolResultStatus(resStr)})
-			b2, _ := json.Marshal(map[string]any{"tool_calls": results})
-			_, _ = fmt.Fprintf(w, "event: tool_calls\ndata: %s\n\n", string(b2))
-			if flusher != nil {
-				flusher.Flush()
+			status := dashboardToolResultStatus(resStr)
+			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: status}
+			results = append(results, result)
+			allResults = append(allResults, result)
+			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+
+			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
+			seenProgress[fingerprint]++
+			if seenProgress[fingerprint] >= dashboardDuplicateResultLimit {
+				noProgress = true
 			}
 		}
-		// second LLM call streamed
-		follow := append([]map[string]any{}, messages...)
-		toolCallsAny := []map[string]any{}
-		for _, tc := range tcs {
-			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+		if len(results) > 0 {
+			writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
 		}
-		follow = append(follow, map[string]any{"role": "assistant", "content": fullContent.String(), "tool_calls": toolCallsAny})
-		for _, tr := range results {
-			follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
+		follow = append(follow, map[string]any{"role": "assistant", "content": roundResult.Content, "tool_calls": toolCallsAny})
+		for _, result := range results {
+			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
 		}
-		_, _, secondContent, err := callDashboardLLMWithTools(model, false, follow, nil)
-		if err != nil {
-			return err
+		if noProgress {
+			stopReason = "repeated tool calls produced no new result"
+			break
 		}
-		writeDashboardTextDeltas(w, flusher, secondContent)
-		tcsJSON, _ := json.Marshal(results)
-		_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: secondContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+		if stopReason != "" {
+			break
+		}
 	}
-	// persist assistant for non-tool stream
-	if len(toolCallsByIndex) == 0 {
-		_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: fullContent.String(), ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
+
+	if stopReason == "" {
+		stopReason = "tool execution budget reached"
 	}
-	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "threadId": dashboardChatThreadID(r)})
-	if flusher != nil {
-		flusher.Flush()
+	if visibleContent.Len() > 0 {
+		visibleContent.WriteString("\n\n")
+		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": "\n\n"})
 	}
+	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
+	finalCallbacks := dashboardChatCompletionsStreamCallbacks{OnText: func(delta string) {
+		if delta == "" {
+			return
+		}
+		visibleContent.WriteString(delta)
+		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+	}}
+	finalRound, err := dashboardStreamChatCompletionsRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
+	if err != nil {
+		if strings.TrimSpace(finalRound.Content) == "" {
+			fallback := dashboardFallbackReply(allResults)
+			visibleContent.WriteString(fallback)
+			writeDashboardTextDeltas(w, flusher, fallback)
+		} else {
+			suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
+			visibleContent.WriteString(suffix)
+			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+		}
+	}
+	finalContent := visibleContent.String()
+	if strings.TrimSpace(finalContent) == "" {
+		finalContent = dashboardFallbackReply(allResults)
+		writeDashboardTextDeltas(w, flusher, finalContent)
+	}
+	tcsJSON, _ := json.Marshal(allResults)
+	_ = s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true, "threadId": dashboardChatThreadID(r)})
 	return nil
 }
 

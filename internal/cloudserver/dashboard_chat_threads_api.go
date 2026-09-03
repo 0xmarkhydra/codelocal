@@ -35,6 +35,9 @@ func dashboardChatThreadID(r *http.Request) string {
 }
 
 func (s *Server) saveDashboardChatMessage(r *http.Request, msg cloud.DashboardChatMessage) error {
+	if s == nil || s.Store == nil {
+		return errors.New("dashboard chat store unavailable")
+	}
 	if msg.ThreadID == "" {
 		msg.ThreadID = dashboardChatThreadID(r)
 	}
