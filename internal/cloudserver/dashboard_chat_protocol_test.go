@@ -302,10 +302,16 @@ func TestDashboardFinalSynthesisDisablesMoreToolWork(t *testing.T) {
 	messages := dashboardFinalSynthesisMessages([]map[string]any{{"role": "user", "content": "fix it"}}, "repeated tool calls")
 	last := messages[len(messages)-1]
 	content, _ := last["content"].(string)
-	for _, token := range []string{"Do not call any more tools", "Never expose internal orchestration limits", "repeated tool calls"} {
+	for _, token := range []string{"Do not call any more tools", "checkpointed for the next turn", "never misdescribe that condition as a closed runtime session", "repeated tool calls"} {
 		if !strings.Contains(content, token) {
 			t.Fatalf("final synthesis prompt missing %q: %s", token, content)
 		}
+	}
+}
+
+func TestDashboardToolRoundBudgetSupportsSequentialCalls(t *testing.T) {
+	if dashboardMaxToolRounds < dashboardMaxToolCalls {
+		t.Fatalf("tool rounds=%d must cover the %d-call safety budget for models that issue one call per round", dashboardMaxToolRounds, dashboardMaxToolCalls)
 	}
 }
 
@@ -313,6 +319,18 @@ func TestDashboardFallbackReplyNeverExposesHTTP508(t *testing.T) {
 	reply := dashboardFallbackReply([]dashboardToolCall{{Name: "read_project_file", Status: "done"}})
 	if strings.Contains(reply, "508") || strings.Contains(strings.ToLower(reply), "tool loop") {
 		t.Fatalf("fallback leaked internal orchestration error: %s", reply)
+	}
+}
+
+func TestDashboardBudgetFallbackPromisesOnlyCheckpointedResume(t *testing.T) {
+	reply := dashboardFallbackReply([]dashboardToolCall{{Name: "read_project_file", Status: "done"}}, "tool execution budget reached")
+	for _, token := range []string{"ngưỡng thực thi an toàn", "checkpoint", "không cần đọc lại từ đầu"} {
+		if !strings.Contains(reply, token) {
+			t.Fatalf("budget fallback missing %q: %s", token, reply)
+		}
+	}
+	if strings.Contains(strings.ToLower(reply), "phiên thực thi đã bị đóng") {
+		t.Fatalf("budget fallback misreported a closed runtime: %s", reply)
 	}
 }
 

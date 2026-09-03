@@ -17,6 +17,7 @@ type dashboardExecutionState struct {
 	sessionID       string
 	requestID       string
 	toolOccurrences map[string]int
+	resume          dashboardChatExecutionResume
 }
 
 type dashboardExecutionStateKey struct{}
@@ -45,6 +46,19 @@ func dashboardSetExecutionWorkspace(r *http.Request, workspace *gateway.Workspac
 	if state := dashboardExecutionStateFromRequest(r); state != nil {
 		state.workspace = workspace
 	}
+}
+
+func dashboardSetExecutionResume(r *http.Request, resume dashboardChatExecutionResume) {
+	if state := dashboardExecutionStateFromRequest(r); state != nil {
+		state.resume = resume
+	}
+}
+
+func dashboardExecutionResumeFromRequest(r *http.Request) dashboardChatExecutionResume {
+	if state := dashboardExecutionStateFromRequest(r); state != nil {
+		return state.resume
+	}
+	return dashboardChatExecutionResume{}
 }
 
 var dashboardRuntimeChatTools = []map[string]any{

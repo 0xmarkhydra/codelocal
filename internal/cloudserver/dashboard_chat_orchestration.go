@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	dashboardMaxToolRounds        = 14
+	dashboardMaxToolRounds        = 32
 	dashboardMaxToolCalls         = 32
 	dashboardDuplicateResultLimit = 3
 	dashboardLLMRetryAttempts     = 3
@@ -108,14 +108,21 @@ func dashboardToolResultStatus(result string) string {
 
 func dashboardFinalSynthesisMessages(messages []map[string]any, reason string) []map[string]any {
 	follow := append([]map[string]any{}, messages...)
-	instruction := "Tool execution is finished. Do not call any more tools. Give the user a concise final answer based only on the tool results already present. State what was actually completed, what is still pending, and mention a real approval/error only when one exists. Never expose internal orchestration limits or HTTP error codes."
+	instruction := "Tool execution is paused. Do not call any more tools in this response. Give the user a concise final answer based only on the tool results already present. State what was actually completed and what is still pending. If the safe execution budget was reached, say that plainly and tell the user the completed tool work has been checkpointed for the next turn; never misdescribe that condition as a closed runtime session. Mention an approval or runtime error only when one actually exists. Do not expose raw HTTP codes or internal identifiers."
 	if strings.TrimSpace(reason) != "" {
 		instruction += " Execution stopped because: " + reason + "."
 	}
 	return append(follow, map[string]any{"role": "system", "content": instruction})
 }
 
-func dashboardFallbackReply(results []dashboardToolCall) string {
+func dashboardFallbackReply(results []dashboardToolCall, reasons ...string) string {
+	reason := ""
+	if len(reasons) > 0 {
+		reason = strings.ToLower(strings.TrimSpace(reasons[0]))
+	}
+	if strings.Contains(reason, "budget") {
+		return "Lượt này đã chạm ngưỡng thực thi an toàn. Các kết quả tool đã hoàn thành được checkpoint; bạn gửi “tiếp tục” để nối từ đúng trạng thái đó, không cần đọc lại từ đầu."
+	}
 	if len(results) == 0 {
 		return "Kết nối xử lý vừa bị gián đoạn. Thánh Gióng đã thử lại tự động nhưng chưa hoàn tất. Bạn gửi “tiếp tục” là mình nối tiếp ngay."
 	}
