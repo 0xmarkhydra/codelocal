@@ -286,6 +286,8 @@
 }
 
 .chatHead {
+  position: relative;
+  z-index: 30;
   min-height: 78px;
   display: flex;
   align-items: center;
@@ -396,6 +398,7 @@
 
 .modelPickerShell {
   position: relative;
+  z-index: 40;
 }
 
 .modelPicker {
@@ -436,14 +439,14 @@
 
 .modelPickerMenu {
   position: absolute;
-  z-index: 80;
+  z-index: 100;
   top: calc(100% + 8px);
   right: 0;
   width: min(420px, calc(100vw - 32px));
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 16px;
-  background: rgba(15, 21, 34, 0.98);
+  background: rgb(15, 21, 34);
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
   backdrop-filter: blur(20px);
 }
@@ -584,6 +587,8 @@
 }
 
 .chatMessages {
+  position: relative;
+  z-index: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
