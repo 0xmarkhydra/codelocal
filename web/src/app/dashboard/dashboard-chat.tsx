@@ -215,12 +215,42 @@ function threadGroupLabel(updatedAt: number) {
   return "Cũ hơn";
 }
 
+const chatTransportRetryDelays = [350, 900, 1800];
+
+function createChatRequestId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function isRetryableChatTransportError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /load failed|failed to fetch|fetch failed|network request failed|network error|body stream|connection.*lost|terminated|chat_stream_incomplete|HTTP (408|425|429|500|502|503|504)/i.test(message);
+}
+
+function waitForChatRetry(delayMs: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function friendlyChatFailure(message: string) {
   if (/508|tool loop|loop exceeded/i.test(message)) {
     return "Luồng xử lý vừa quá dài. Thánh Gióng đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
   }
-  if (/timeout|429|502|503|504|network|fetch/i.test(message)) {
-    return "Kết nối xử lý vừa gián đoạn. Thánh Gióng đã thử lại tự động; gửi “tiếp tục” nếu bạn muốn nối tiếp.";
+  if (/load failed|chat_stream_incomplete|timeout|429|502|503|504|network|fetch/i.test(message)) {
+    return "Kết nối vừa gián đoạn sau nhiều lần tự nối lại. Phần đã hoàn thành vẫn được giữ nguyên; gửi “tiếp tục” để nối tiếp.";
   }
   return message.startsWith("Thánh Gióng") || message.startsWith("Kết nối") ? message : `Có lỗi khi xử lý yêu cầu: ${message}`;
 }
@@ -711,8 +741,10 @@ export function DashboardChat() {
       setNotice(streamedContent.trim() || streamedToolCalls.length ? "Đã dừng trả lời; phần đã nhận vẫn được giữ lại." : "Đã dừng trước khi có phản hồi.");
     };
     try {
+      const requestId = createChatRequestId();
       const history = messages.slice(-12).map((message) => ({ role: message.role, content: message.content }));
       const payload = {
+        requestId,
         threadId: requestThreadId,
         message: text || "Phân tích ảnh này",
         history,
@@ -731,130 +763,167 @@ export function DashboardChat() {
           workspaceName: selectedWorkspace.workspaceName,
         } : undefined,
       };
-      let requestBody: BodyInit;
-      const requestHeaders: HeadersInit = { accept: "text/event-stream" };
-      if (useMultipartFallback && pendingImage) {
-        const form = new FormData();
-        form.append("payload", JSON.stringify(payload));
-        form.append("image", pendingImage.file, pendingImage.file.name || "pasted-image");
-        requestBody = form;
-      } else {
-        requestHeaders["content-type"] = "application/json";
-        requestBody = JSON.stringify(payload);
-      }
-      const response = await fetch("/api/v1/dashboard/chat?stream=1", {
-        method: "POST",
-        credentials: "include",
-        headers: requestHeaders,
-        body: requestBody,
-        signal: controller.signal,
-      });
+      let activeSkills: SkillBadge[] = [];
+      let completed = false;
+      let lastError: unknown;
 
-      if (response.status === 401) {
-        router.replace("/login");
-        throw new Error("Phiên đăng nhập đã hết hạn");
-      }
-      if (response.status === 429) {
-        const data = (await response.json().catch(() => ({}))) as { retry_after?: number };
-        throw new Error(`Gửi quá nhanh, thử lại sau ${data.retry_after || 60}s`);
-      }
-      if (!response.ok || !response.body) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-      const activeSkills = parseSkillHeader(response.headers.get("x-codelocal-skills"));
-      if (activeSkills.length) {
-        updateAssistant(placeholderIndex, "", [], activeSkills);
-      }
-      setNotice("");
-
-      if (!(response.headers.get("content-type") || "").includes("text/event-stream")) {
-        const data = (await response.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string; threadId?: string };
-        if (data.error) throw new Error(data.error);
-        if (data.threadId) requestThreadId = data.threadId;
-        updateAssistant(placeholderIndex, data.reply || "", data.tool_calls || [], activeSkills);
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let content = "";
-      let toolCalls: ToolCall[] = [];
-      streamedContent = content;
-      streamedToolCalls = toolCalls;
-
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() || "";
-
-        for (const frame of frames) {
-          let eventName = "message";
-          let dataText = "";
-          for (const line of frame.split("\n")) {
-            if (line.startsWith("event:")) eventName = line.slice(6).trim();
-            if (line.startsWith("data:")) dataText += line.slice(5).trim();
-          }
-          if (!dataText) continue;
-
-          let data: StreamData;
-          try {
-            data = JSON.parse(dataText) as StreamData;
-          } catch {
-            continue;
+      for (let attempt = 0; attempt < chatTransportRetryDelays.length; attempt += 1) {
+        if (attempt > 0) {
+          setNotice(`Kết nối chập chờn · đang tự nối lại (${attempt + 1}/${chatTransportRetryDelays.length})…`);
+          await waitForChatRetry(chatTransportRetryDelays[attempt - 1], controller.signal);
+        }
+        try {
+          let requestBody: BodyInit;
+          const requestHeaders: HeadersInit = {
+            accept: "text/event-stream",
+            "x-codelocal-request-id": requestId,
+          };
+          if (useMultipartFallback && pendingImage) {
+            const form = new FormData();
+            form.append("payload", JSON.stringify(payload));
+            form.append("image", pendingImage.file, pendingImage.file.name || "pasted-image");
+            requestBody = form;
+          } else {
+            requestHeaders["content-type"] = "application/json";
+            requestBody = JSON.stringify(payload);
           }
 
-          if (eventName === "error") throw new Error(data.error || "Model trả về lỗi stream");
-          if (eventName === "delta" && typeof data.delta === "string") {
-            content += data.delta;
-            streamedContent = content;
-            updateAssistant(placeholderIndex, content, toolCalls);
-            continue;
+          const response = await fetch("/api/v1/dashboard/chat?stream=1", {
+            method: "POST",
+            credentials: "include",
+            headers: requestHeaders,
+            body: requestBody,
+            signal: controller.signal,
+          });
+
+          if (response.status === 401) {
+            router.replace("/login");
+            throw new Error("Phiên đăng nhập đã hết hạn");
           }
-          if (eventName === "replace" && typeof data.content === "string") {
-            content = data.content;
-            streamedContent = content;
-            updateAssistant(placeholderIndex, content, toolCalls);
-            continue;
+          if (response.status === 429) {
+            const data = (await response.json().catch(() => ({}))) as { retry_after?: number };
+            throw new Error(`Gửi quá nhanh, thử lại sau ${data.retry_after || 60}s`);
           }
-          if (eventName === "tool_calls" && Array.isArray(data.tool_calls)) {
-            toolCalls = data.tool_calls as ToolCall[];
-            streamedToolCalls = toolCalls;
-            updateAssistant(placeholderIndex, content, toolCalls);
-            continue;
+          if (!response.ok || !response.body) {
+            const data = (await response.json().catch(() => ({}))) as { error?: string };
+            const prefix = data.error ? `${data.error} · ` : "";
+            throw new Error(`${prefix}HTTP ${response.status}`);
           }
-          if (eventName === "tool_delta" && Array.isArray(data.tool_calls)) {
-            const deltas = data.tool_calls as Array<{ index: number; name?: string; arguments?: string; id?: string }>;
-            for (const delta of deltas) {
-              const existing = toolCalls[delta.index] || { id: delta.id || `tool_${delta.index}`, name: "", arguments: "", status: "done" as const };
-              toolCalls[delta.index] = {
-                ...existing,
-                id: delta.id || existing.id,
-                name: delta.name || existing.name,
-                arguments: delta.arguments ?? existing.arguments,
-              };
+
+          const responseSkills = parseSkillHeader(response.headers.get("x-codelocal-skills"));
+          if (responseSkills.length) activeSkills = responseSkills;
+          if (activeSkills.length) updateAssistant(placeholderIndex, streamedContent, streamedToolCalls, activeSkills);
+
+          if (!(response.headers.get("content-type") || "").includes("text/event-stream")) {
+            const data = (await response.json()) as { reply?: string; tool_calls?: ToolCall[]; error?: string; threadId?: string };
+            if (data.error) throw new Error(data.error);
+            if (data.threadId) requestThreadId = data.threadId;
+            streamedContent = data.reply || "";
+            streamedToolCalls = data.tool_calls || [];
+            updateAssistant(placeholderIndex, streamedContent, streamedToolCalls, activeSkills);
+            completed = true;
+            setNotice("");
+            break;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let content = "";
+          let toolCalls: ToolCall[] = [];
+          let sawDone = false;
+          streamedContent = content;
+          streamedToolCalls = toolCalls;
+          if (attempt > 0) updateAssistant(placeholderIndex, "", [], activeSkills);
+
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            const frames = buffer.split("\n\n");
+            buffer = frames.pop() || "";
+
+            for (const frame of frames) {
+              let eventName = "message";
+              let dataText = "";
+              for (const line of frame.split("\n")) {
+                if (line.startsWith("event:")) eventName = line.slice(6).trim();
+                if (line.startsWith("data:")) dataText += line.slice(5).trim();
+              }
+              if (!dataText) continue;
+
+              let data: StreamData;
+              try {
+                data = JSON.parse(dataText) as StreamData;
+              } catch {
+                continue;
+              }
+
+              if (eventName === "error") throw new Error(data.error || "Model trả về lỗi stream");
+              if (eventName === "delta" && typeof data.delta === "string") {
+                content += data.delta;
+                streamedContent = content;
+                updateAssistant(placeholderIndex, content, toolCalls, activeSkills);
+                continue;
+              }
+              if (eventName === "replace" && typeof data.content === "string") {
+                content = data.content;
+                streamedContent = content;
+                updateAssistant(placeholderIndex, content, toolCalls, activeSkills);
+                continue;
+              }
+              if (eventName === "tool_calls" && Array.isArray(data.tool_calls)) {
+                toolCalls = data.tool_calls as ToolCall[];
+                streamedToolCalls = toolCalls;
+                updateAssistant(placeholderIndex, content, toolCalls, activeSkills);
+                continue;
+              }
+              if (eventName === "tool_delta" && Array.isArray(data.tool_calls)) {
+                const deltas = data.tool_calls as Array<{ index: number; name?: string; arguments?: string; id?: string }>;
+                for (const delta of deltas) {
+                  const existing = toolCalls[delta.index] || { id: delta.id || `tool_${delta.index}`, name: "", arguments: "", status: "done" as const };
+                  toolCalls[delta.index] = {
+                    ...existing,
+                    id: delta.id || existing.id,
+                    name: delta.name || existing.name,
+                    arguments: delta.arguments ?? existing.arguments,
+                  };
+                }
+                streamedToolCalls = toolCalls;
+                updateAssistant(placeholderIndex, content, toolCalls, activeSkills);
+                continue;
+              }
+              if (eventName === "done") {
+                sawDone = true;
+                if (typeof data.threadId === "string" && data.threadId) requestThreadId = data.threadId;
+                if (typeof data.reply === "string") content = data.reply;
+                if (Array.isArray(data.tool_calls)) toolCalls = data.tool_calls as ToolCall[];
+                streamedContent = content;
+                streamedToolCalls = toolCalls;
+                updateAssistant(placeholderIndex, content, toolCalls, activeSkills);
+              }
             }
-            streamedToolCalls = toolCalls;
-            updateAssistant(placeholderIndex, content, toolCalls);
-            continue;
           }
-          if (eventName === "done") {
-            if (typeof data.threadId === "string" && data.threadId) requestThreadId = data.threadId;
-            if (typeof data.reply === "string") content = data.reply;
-            if (Array.isArray(data.tool_calls)) toolCalls = data.tool_calls as ToolCall[];
-            streamedContent = content;
-            streamedToolCalls = toolCalls;
-            updateAssistant(placeholderIndex, content, toolCalls);
+          if (controller.signal.aborted) {
+            finishStoppedResponse();
+            return;
+          }
+          if (!sawDone) throw new Error("chat_stream_incomplete");
+          completed = true;
+          setNotice("");
+          break;
+        } catch (attemptError) {
+          if (controller.signal.aborted) {
+            finishStoppedResponse();
+            return;
+          }
+          lastError = attemptError;
+          if (!isRetryableChatTransportError(attemptError) || attempt === chatTransportRetryDelays.length - 1) {
+            throw attemptError;
           }
         }
       }
-      if (controller.signal.aborted) {
-        finishStoppedResponse();
-        return;
-      }
+      if (!completed && lastError) throw lastError;
     } catch (error) {
       if (controller.signal.aborted) {
         finishStoppedResponse();

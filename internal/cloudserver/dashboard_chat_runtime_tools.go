@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,14 +13,26 @@ import (
 )
 
 type dashboardExecutionState struct {
-	workspace *gateway.WorkspaceView
-	sessionID string
+	workspace       *gateway.WorkspaceView
+	sessionID       string
+	requestID       string
+	toolOccurrences map[string]int
 }
 
 type dashboardExecutionStateKey struct{}
 
-func dashboardWithExecutionState(r *http.Request, userID string, workspace *gateway.WorkspaceView) *http.Request {
-	state := &dashboardExecutionState{workspace: workspace, sessionID: "dashboard-" + userID + "-" + cloud.RandomHex(8)}
+func dashboardWithExecutionState(r *http.Request, userID, requestID string, workspace *gateway.WorkspaceView) *http.Request {
+	requestID = strings.TrimSpace(requestID)
+	sessionSuffix := requestID
+	if sessionSuffix == "" {
+		sessionSuffix = cloud.RandomHex(8)
+	}
+	state := &dashboardExecutionState{
+		workspace:       workspace,
+		sessionID:       "dashboard-" + userID + "-" + sessionSuffix,
+		requestID:       requestID,
+		toolOccurrences: map[string]int{},
+	}
 	return r.WithContext(context.WithValue(r.Context(), dashboardExecutionStateKey{}, state))
 }
 
@@ -159,6 +172,20 @@ func dashboardResolveRuntimeWorkspace(r *http.Request, s *Server, userID string,
 	return nil, fmt.Errorf("no active project context; call get_workspace_detail first or provide workspace")
 }
 
+func dashboardRuntimeRequestID(state *dashboardExecutionState, runtimeTool string, args map[string]any) string {
+	if state == nil || strings.TrimSpace(state.requestID) == "" {
+		return cloud.RandomHex(16)
+	}
+	encoded, _ := json.Marshal(args)
+	digest := sha256.Sum256([]byte(runtimeTool + "\n" + string(encoded)))
+	fingerprint := fmt.Sprintf("%x", digest[:12])
+	if state.toolOccurrences == nil {
+		state.toolOccurrences = map[string]int{}
+	}
+	state.toolOccurrences[fingerprint]++
+	return fmt.Sprintf("chat-%s-%s-%d", state.requestID, fingerprint, state.toolOccurrences[fingerprint])
+}
+
 func execDashboardRuntimeTool(r *http.Request, s *Server, userID, name string, args map[string]any) (string, bool) {
 	runtimeTool, sideEffect, forward, ok := dashboardRuntimeToolSpec(name, args)
 	if !ok {
@@ -177,7 +204,7 @@ func execDashboardRuntimeTool(r *http.Request, s *Server, userID, name string, a
 	if state != nil && state.sessionID != "" {
 		sessionID = state.sessionID
 	}
-	requestID := cloud.RandomHex(16)
+	requestID := dashboardRuntimeRequestID(state, runtimeTool, forward)
 	result, err := s.Hub.Call(r.Context(), userID, workspace.Key, sessionID, runtimeTool, forward, sideEffect, requestID)
 	if err != nil && !sideEffect && s.Workspaces != nil {
 		// Read-only runtime operations are safe to replay after a route loss. This

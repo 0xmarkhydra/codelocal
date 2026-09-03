@@ -2,6 +2,8 @@ package cloudserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -32,6 +34,15 @@ func dashboardWithChatThread(r *http.Request, threadID string) *http.Request {
 func dashboardChatThreadID(r *http.Request) string {
 	threadID, _ := r.Context().Value(dashboardChatThreadContextKey{}).(string)
 	return strings.TrimSpace(threadID)
+}
+
+func dashboardChatMessageID(r *http.Request, userID, role string) string {
+	state := dashboardExecutionStateFromRequest(r)
+	if state == nil || strings.TrimSpace(state.requestID) == "" {
+		return cloud.RandomHex(16)
+	}
+	digest := sha256.Sum256([]byte(userID + "\n" + state.requestID + "\n" + role))
+	return "chat_" + hex.EncodeToString(digest[:16])
 }
 
 func (s *Server) saveDashboardChatMessage(r *http.Request, msg cloud.DashboardChatMessage) error {

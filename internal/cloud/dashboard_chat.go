@@ -54,7 +54,16 @@ func (s *Store) SaveDashboardChatMessage(ctx context.Context, msg DashboardChatM
 	if msg.ThreadID != "" {
 		threadID = msg.ThreadID
 	}
-	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_dashboard_chat(id, user_id, thread_id, role, content, tool_calls, skills, image, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, msg.ID, msg.UserID, threadID, msg.Role, msg.Content, toolCalls, string(skills), img, msg.CreatedAt)
+	_, err := s.DB.Exec(ctx, `
+INSERT INTO codelocal_dashboard_chat(id, user_id, thread_id, role, content, tool_calls, skills, image, created_at)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+ON CONFLICT (id) DO UPDATE SET
+ thread_id=EXCLUDED.thread_id,
+ content=EXCLUDED.content,
+ tool_calls=EXCLUDED.tool_calls,
+ skills=EXCLUDED.skills,
+ image=EXCLUDED.image
+WHERE codelocal_dashboard_chat.user_id=EXCLUDED.user_id AND codelocal_dashboard_chat.role=EXCLUDED.role`, msg.ID, msg.UserID, threadID, msg.Role, msg.Content, toolCalls, string(skills), img, msg.CreatedAt)
 	return err
 }
 
