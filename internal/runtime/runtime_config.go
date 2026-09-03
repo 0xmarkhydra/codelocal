@@ -87,12 +87,30 @@ func resolveRuntimeSnapshot(snapshot cloud.RuntimeConfigSnapshot) cloud.RuntimeC
 
 func managedRuntimeSystemProjects(settings map[string]cloud.RuntimeMaterializedConfig) []cloud.RuntimeSystemProject {
 	projects := map[string]cloud.RuntimeSystemProject{}
+	seen := map[string]bool{}
 	for _, materialized := range settings {
 		for _, project := range materialized.Snapshot.SystemProjects {
-			if !project.Enabled || !project.Managed || strings.TrimSpace(project.ID) == "" {
+			id := strings.TrimSpace(project.ID)
+			if id == "" {
 				continue
 			}
-			projects[project.ID] = project
+			seen[id] = true
+			if !project.Enabled || !project.Managed {
+				continue
+			}
+			project.ID = id
+			projects[id] = project
+		}
+	}
+	// OpenMontage is a CodeLocal-owned system project, so a transient control-plane
+	// response that omits runtime settings must not make Video Studio disappear.
+	// An explicit OpenMontage entry still wins, including Enabled=false.
+	if !seen["openmontage"] {
+		fallback := resolveRuntimeSnapshot(cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{
+			ID: "openmontage", Name: "OpenMontage", Enabled: true,
+		}}})
+		if len(fallback.SystemProjects) == 1 {
+			projects["openmontage"] = fallback.SystemProjects[0]
 		}
 	}
 	out := make([]cloud.RuntimeSystemProject, 0, len(projects))
