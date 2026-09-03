@@ -1276,6 +1276,15 @@ func callChatCompletionsWithTools(baseURL, apiKey, model string, messages []map[
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
+		trimmed := bytes.TrimSpace(raw)
+		contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+		if strings.Contains(contentType, "text/event-stream") || bytes.HasPrefix(trimmed, []byte("data:")) {
+			round, streamErr := parseChatCompletionsStream(bytes.NewReader(raw), model, dashboardChatCompletionsStreamCallbacks{})
+			if streamErr != nil {
+				return nil, "", streamErr
+			}
+			return round.ToolCalls, round.Content, nil
+		}
 		return nil, "", err
 	}
 	if len(data.Choices) == 0 {

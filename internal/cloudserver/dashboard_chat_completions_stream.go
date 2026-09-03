@@ -59,7 +59,10 @@ func callChatCompletionsStreamWithTools(ctx context.Context, baseURL, apiKey, mo
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return dashboardChatCompletionsStreamRound{}, &httpError{Status: resp.StatusCode, Body: string(raw)}
 	}
+	return parseChatCompletionsStream(resp.Body, model, callbacks)
+}
 
+func parseChatCompletionsStream(body io.Reader, model string, callbacks dashboardChatCompletionsStreamCallbacks) (dashboardChatCompletionsStreamRound, error) {
 	var result dashboardChatCompletionsStreamRound
 	var content strings.Builder
 	toolsByIndex := map[int]*dashboardChatCompletionsToolState{}
@@ -128,7 +131,7 @@ func callChatCompletionsStreamWithTools(ctx context.Context, baseURL, apiKey, mo
 		}
 	}
 
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), 4<<20)
 	dataLines := make([]string, 0, 2)
 	flushFrame := func() {

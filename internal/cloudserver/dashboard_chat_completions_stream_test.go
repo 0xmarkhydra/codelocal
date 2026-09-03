@@ -48,3 +48,29 @@ func TestProxyChatCompletionsStreamKeepsToolsAcrossRounds(t *testing.T) {
 		t.Fatalf("final streamed answer missing: %s", out.Body.String())
 	}
 }
+
+func TestCallChatCompletionsWithToolsAcceptsUnexpectedSSE(t *testing.T) {
+	requestUsedStream := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		requestUsedStream = strings.Contains(string(raw), `"stream":true`)
+		// Some OpenAI-compatible gateways return SSE even when the request did not
+		// opt into streaming, and may omit the matching Content-Type header.
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"đã \"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"xong\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	calls, content, err := callChatCompletionsWithTools(server.URL, "test-key", "gemini-3.7-flash-high", []map[string]any{{"role": "user", "content": "continue"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestUsedStream {
+		t.Fatal("non-stream request unexpectedly enabled streaming")
+	}
+	if len(calls) != 0 {
+		t.Fatalf("calls=%#v want none", calls)
+	}
+	if content != "đã xong" {
+		t.Fatalf("content=%q want %q", content, "đã xong")
+	}
+}
