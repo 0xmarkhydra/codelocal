@@ -119,5 +119,6 @@ func skillIntelligenceSchemaMigrations() []schemaMigration {
 	migrations = append(migrations, mediaAssetSchemaMigrations()...)
 	migrations = append(migrations, blogSeriesSchemaMigrations()...)
 	migrations = append(migrations, schemaMigration{58, dashboardChatThreadMigrationSQL})
+	migrations = append(migrations, screenshotShareSchemaMigrations()...)
 	return migrations
 }
