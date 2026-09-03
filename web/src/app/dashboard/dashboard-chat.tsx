@@ -16,7 +16,7 @@ type ToolCall = {
   arguments: string;
   result?: string;
   durationMs?: number;
-  status: "done" | "error" | "approval_required";
+  status: "running" | "done" | "error" | "approval_required";
 };
 
 type SkillBadge = {
@@ -131,22 +131,27 @@ function workspaceKey(workspace: WorkspaceItem) {
   return `${workspace.deviceId}::${workspace.workspaceId}`;
 }
 
-function toolLabel(name: string) {
-  switch (name) {
-    case "list_workspaces": return "Đang xem workspaces";
-    case "list_devices": return "Đang kiểm tra thiết bị";
-    case "search_project_brain": return "Đang truy vấn Brain";
-    case "get_workspace_detail": return "Đang đọc dự án";
-    case "list_project_files": return "Đang xem mã nguồn";
-    case "read_project_file": return "Đang đọc file";
-    case "search_project_code": return "Đang tìm trong code";
-    case "edit_project_file": return "Đang sửa code";
-    case "write_project_file": return "Đang cập nhật file";
-    case "apply_project_patch": return "Đang áp dụng thay đổi";
-    case "run_project_command": return "Đang chạy lệnh";
-    case "verify_project_changes": return "Đang kiểm tra thay đổi";
-    default: return name.replaceAll("_", " ");
-  }
+function toolLabel(name: string, status: ToolCall["status"]) {
+  const labels: Record<string, [string, string, string]> = {
+    list_workspaces: ["Đang xem workspaces", "Đã xem workspaces", "Xem workspaces"],
+    list_devices: ["Đang kiểm tra thiết bị", "Đã kiểm tra thiết bị", "Kiểm tra thiết bị"],
+    search_project_brain: ["Đang truy vấn Brain", "Đã truy vấn Brain", "Truy vấn Brain"],
+    get_workspace_detail: ["Đang đọc dự án", "Đã đọc dự án", "Đọc dự án"],
+    list_project_files: ["Đang xem mã nguồn", "Đã xem mã nguồn", "Xem mã nguồn"],
+    read_project_file: ["Đang đọc file", "Đã đọc file", "Đọc file"],
+    search_project_code: ["Đang tìm trong code", "Đã tìm trong code", "Tìm trong code"],
+    edit_project_file: ["Đang sửa code", "Đã sửa code", "Sửa code"],
+    write_project_file: ["Đang cập nhật file", "Đã cập nhật file", "Cập nhật file"],
+    apply_project_patch: ["Đang áp dụng thay đổi", "Đã áp dụng thay đổi", "Áp dụng thay đổi"],
+    run_project_command: ["Đang chạy lệnh", "Đã chạy lệnh", "Chạy lệnh"],
+    poll_project_command: ["Đang chờ lệnh", "Lệnh đã kết thúc", "Chờ lệnh"],
+    verify_project_changes: ["Đang kiểm tra thay đổi", "Đã kiểm tra thay đổi", "Kiểm tra thay đổi"],
+  };
+  const label = labels[name];
+  if (!label) return name.replaceAll("_", " ");
+  if (status === "running") return label[0];
+  if (status === "done") return label[1];
+  return label[2];
 }
 
 function parseSkillBadges(value: unknown): SkillBadge[] {
@@ -881,7 +886,7 @@ export function DashboardChat() {
               if (eventName === "tool_delta" && Array.isArray(data.tool_calls)) {
                 const deltas = data.tool_calls as Array<{ index: number; name?: string; arguments?: string; id?: string }>;
                 for (const delta of deltas) {
-                  const existing = toolCalls[delta.index] || { id: delta.id || `tool_${delta.index}`, name: "", arguments: "", status: "done" as const };
+                  const existing = toolCalls[delta.index] || { id: delta.id || `tool_${delta.index}`, name: "", arguments: "", status: "running" as const };
                   toolCalls[delta.index] = {
                     ...existing,
                     id: delta.id || existing.id,
@@ -1121,7 +1126,7 @@ export function DashboardChat() {
                       <div key={tool.id} className={styles.toolActionRow}>
                         <details className={styles.toolPill}>
                           <summary>
-                            <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name)}</span>
+                            <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name, tool.status)}</span>
                             {tool.status === "error" ? <span className={styles.toolMeta}>Lỗi</span> : null}
                             {tool.status === "approval_required" ? <span className={styles.toolMeta}>Cần quyền</span> : null}
                           </summary>

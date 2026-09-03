@@ -228,7 +228,7 @@ func TestDashboardWorkspaceToolViewHidesSleepingLifecycle(t *testing.T) {
 
 func TestDashboardPromptRequiresRealRuntimeExecution(t *testing.T) {
 	prompt := dashboardChatSystemPrompt(&dashboardChatWorkspace{WorkspaceID: "workspace-1", WorkspaceName: "BitArena"}, false)
-	for _, token := range []string{"runtime execution tools", "Never claim that you read, edited, ran, tested, or verified"} {
+	for _, token := range []string{"runtime execution tools", "running=true represents an existing process", "call poll_project_command", "never relaunch the same command", "Never claim that you read, edited, ran, tested, or verified"} {
 		if !strings.Contains(prompt, token) {
 			t.Fatalf("execution prompt missing %q: %s", token, prompt)
 		}
@@ -236,7 +236,7 @@ func TestDashboardPromptRequiresRealRuntimeExecution(t *testing.T) {
 }
 
 func TestDashboardChatExposesExecutionTools(t *testing.T) {
-	wanted := map[string]bool{"read_project_file": false, "edit_project_file": false, "run_project_command": false, "verify_project_changes": false}
+	wanted := map[string]bool{"read_project_file": false, "edit_project_file": false, "run_project_command": false, "poll_project_command": false, "verify_project_changes": false}
 	for _, tool := range dashboardChatTools {
 		fn, _ := tool["function"].(map[string]any)
 		name, _ := fn["name"].(string)
@@ -265,6 +265,7 @@ func TestDashboardRuntimeToolSpecMapsToNativeRuntime(t *testing.T) {
 		{"write_project_file", map[string]any{"path": "a.go", "content": "x"}, "write_file", true},
 		{"apply_project_patch", map[string]any{"patch": "diff --git"}, "apply_patch", true},
 		{"run_project_command", map[string]any{"command": "go test ./..."}, "run_command", true},
+		{"poll_project_command", map[string]any{"processId": "process-1"}, "process_poll", false},
 		{"verify_project_changes", map[string]any{}, "verify_changes", false},
 	}
 	for _, test := range tests {
@@ -312,6 +313,19 @@ func TestDashboardFinalSynthesisDisablesMoreToolWork(t *testing.T) {
 func TestDashboardToolRoundBudgetSupportsSequentialCalls(t *testing.T) {
 	if dashboardMaxToolRounds < dashboardMaxToolCalls {
 		t.Fatalf("tool rounds=%d must cover the %d-call safety budget for models that issue one call per round", dashboardMaxToolRounds, dashboardMaxToolCalls)
+	}
+	if dashboardMaxToolCalls != dashboardToolCallsPerSegment*dashboardMaxAutoSegments {
+		t.Fatalf("tool calls=%d, want %d auto segments of %d", dashboardMaxToolCalls, dashboardMaxAutoSegments, dashboardToolCallsPerSegment)
+	}
+	if dashboardMaxToolCalls <= dashboardToolCallsPerSegment {
+		t.Fatalf("tool execution still stops after one %d-call segment", dashboardToolCallsPerSegment)
+	}
+}
+
+func TestDashboardRunningToolResultStatus(t *testing.T) {
+	result := `{"ok":true,"result":{"processId":"process-1","running":true,"status":"running"}}`
+	if got := dashboardToolResultStatus(result); got != "running" {
+		t.Fatalf("status = %q, want running", got)
 	}
 }
 

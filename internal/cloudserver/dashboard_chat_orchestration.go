@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	dashboardMaxToolRounds        = 32
-	dashboardMaxToolCalls         = 32
+	dashboardToolCallsPerSegment  = 32
+	dashboardMaxAutoSegments      = 4
+	dashboardMaxToolRounds        = dashboardToolCallsPerSegment * dashboardMaxAutoSegments
+	dashboardMaxToolCalls         = dashboardToolCallsPerSegment * dashboardMaxAutoSegments
 	dashboardDuplicateResultLimit = 3
 	dashboardLLMRetryAttempts     = 3
 )
@@ -78,7 +80,11 @@ func dashboardCanonicalJSON(raw string) string {
 }
 
 func dashboardToolProgressFingerprint(call llmToolCall, result string) string {
-	raw := call.Name + "\n" + dashboardCanonicalJSON(call.Arguments) + "\n" + strings.TrimSpace(result)
+	progress := strings.TrimSpace(result)
+	if processProgress := dashboardRunningProcessProgress(result); processProgress != "" {
+		progress = processProgress
+	}
+	raw := call.Name + "\n" + dashboardCanonicalJSON(call.Arguments) + "\n" + progress
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
@@ -90,6 +96,9 @@ func dashboardToolResultStatus(result string) string {
 	}
 	if nested, ok := payload["result"].(map[string]any); ok {
 		status, _ := nested["status"].(string)
+		if running, _ := nested["running"].(bool); running {
+			return "running"
+		}
 		if status == "approval_required" {
 			return "approval_required"
 		}
