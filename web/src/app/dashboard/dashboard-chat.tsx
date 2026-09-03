@@ -89,6 +89,44 @@ function modelLabel(model: string) {
   }
 }
 
+function modelStrengthScore(model: string) {
+  const id = model.toLowerCase();
+  let score = 500;
+
+  if (id.includes("gpt-5.6")) score = 1100;
+  else if (id.includes("claude-opus")) score = 1080;
+  else if (id.includes("gpt-5.4")) score = 1040;
+  else if (id.includes("gemini") && id.includes("pro")) score = 1010;
+  else if (id.includes("claude-sonnet")) score = 990;
+  else if (id.includes("kimi")) score = 930;
+  else if (id.includes("qwen")) score = 900;
+  else if (id.includes("glm")) score = 880;
+  else if (id.includes("deepseek")) score = 860;
+  else if (id.includes("minimax")) score = 820;
+  else if (id.includes("gemini")) score = 800;
+  else if (id.includes("gpt")) score = 790;
+  else if (id.includes("claude")) score = 780;
+
+  if (id.includes("sol")) score += 35;
+  if (id.includes("opus")) score += 30;
+  if (id.includes("reasoning") || id.includes("thinking")) score += 24;
+  if (id.includes("pro")) score += 18;
+  if (id.includes("high")) score += 12;
+  if (id.includes("agent")) score += 5;
+  if (id.includes("flash")) score -= 28;
+  if (id.includes("low")) score -= 45;
+  if (id.includes("mini")) score -= 70;
+  if (id.includes("lite")) score -= 90;
+  if (id.includes("nano")) score -= 110;
+
+  return score;
+}
+
+function compareModelsByStrength(left: string, right: string) {
+  const scoreDelta = modelStrengthScore(right) - modelStrengthScore(left);
+  return scoreDelta || left.localeCompare(right, "en", { numeric: true, sensitivity: "base" });
+}
+
 function workspaceKey(workspace: WorkspaceItem) {
   return `${workspace.deviceId}::${workspace.workspaceId}`;
 }
@@ -205,6 +243,8 @@ export function DashboardChat() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [models, setModels] = useState<string[]>(["auto"]);
   const [selectedModel, setSelectedModel] = useState("auto");
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState(() => {
     const deviceId = searchParams.get("deviceId");
     const workspaceId = searchParams.get("workspaceId");
@@ -216,6 +256,7 @@ export function DashboardChat() {
   const formRef = useRef<HTMLFormElement>(null);
   const quickMessageRef = useRef<string | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
 
   const workspaceItems = useMemo(
     () => workspaces.state.kind === "ready" ? workspaces.state.value.items : [],
@@ -225,7 +266,15 @@ export function DashboardChat() {
     () => workspaceItems.find((workspace) => workspaceKey(workspace) === selectedWorkspaceKey),
     [selectedWorkspaceKey, workspaceItems],
   );
-  const popularModels = useMemo(() => models.filter((model) => model !== "auto").slice(0, 20), [models]);
+  const poolModels = useMemo(
+    () => models.filter((model) => model !== "auto").sort(compareModelsByStrength),
+    [models],
+  );
+  const visiblePoolModels = useMemo(() => {
+    const query = modelSearch.trim().toLocaleLowerCase("vi");
+    if (!query) return poolModels;
+    return poolModels.filter((model) => `${model} ${modelLabel(model)}`.toLocaleLowerCase("vi").includes(query));
+  }, [modelSearch, poolModels]);
   const threadGroups = useMemo(() => {
     const query = threadSearch.trim().toLocaleLowerCase("vi");
     const visible = query ? threads.filter((thread) => thread.title.toLocaleLowerCase("vi").includes(query)) : threads;
@@ -335,6 +384,28 @@ export function DashboardChat() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(event.target as Node)) {
+        setModelPickerOpen(false);
+        setModelSearch("");
+      }
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setModelPickerOpen(false);
+        setModelSearch("");
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [modelPickerOpen]);
 
   async function sha256Hex(file: File) {
     const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
@@ -873,16 +944,71 @@ export function DashboardChat() {
             <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
           </div>
           <div className={styles.chatActions}>
-            <label className={`${styles.projectPicker} ${styles.modelPicker}`}>
-              <select value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} aria-label="Chọn model">
-                <option value="auto">Auto</option>
-                {popularModels.length ? (
-                  <optgroup label="Top 20 phổ biến · OpenRouter">
-                    {popularModels.map((model) => <option key={model} value={model}>{modelLabel(model)}</option>)}
-                  </optgroup>
-                ) : null}
-              </select>
-            </label>
+            <div className={styles.modelPickerShell} ref={modelPickerRef}>
+              <button
+                className={`${styles.projectPicker} ${styles.modelPicker}`}
+                type="button"
+                aria-label="Chọn model"
+                aria-haspopup="listbox"
+                aria-expanded={modelPickerOpen}
+                onClick={() => setModelPickerOpen((open) => !open)}
+              >
+                <span className={styles.modelPickerName}>{modelLabel(selectedModel)}</span>
+                <span className={styles.modelPickerCount}>{poolModels.length}</span>
+                <span className={styles.modelPickerChevron} aria-hidden="true">⌄</span>
+              </button>
+              {modelPickerOpen ? (
+                <div className={styles.modelPickerMenu} role="dialog" aria-label="Tìm và chọn model">
+                  <label className={styles.modelSearch}>
+                    <AppIcon name="search" size={15} />
+                    <input
+                      autoFocus
+                      value={modelSearch}
+                      onChange={(event) => setModelSearch(event.target.value)}
+                      placeholder="Tìm GPT, Claude, Gemini..."
+                      aria-label="Tìm model"
+                    />
+                  </label>
+                  <div className={styles.modelPickerSummary}>CodeLocal Pool · {poolModels.length} Active · mạnh → nhẹ</div>
+                  <div className={styles.modelOptionList} role="listbox" aria-label="Model đang hoạt động">
+                    {!modelSearch.trim() ? (
+                      <button
+                        className={`${styles.modelOption} ${selectedModel === "auto" ? styles.modelOptionActive : ""}`}
+                        type="button"
+                        role="option"
+                        aria-selected={selectedModel === "auto"}
+                        onClick={() => {
+                          setSelectedModel("auto");
+                          setModelPickerOpen(false);
+                          setModelSearch("");
+                        }}
+                      >
+                        <span>Auto</span>
+                        <small>Pool tự chọn model mặc định</small>
+                      </button>
+                    ) : null}
+                    {visiblePoolModels.map((model) => (
+                      <button
+                        className={`${styles.modelOption} ${selectedModel === model ? styles.modelOptionActive : ""}`}
+                        type="button"
+                        role="option"
+                        aria-selected={selectedModel === model}
+                        key={model}
+                        onClick={() => {
+                          setSelectedModel(model);
+                          setModelPickerOpen(false);
+                          setModelSearch("");
+                        }}
+                      >
+                        <span>{modelLabel(model)}</span>
+                        {modelLabel(model) !== model ? <small>{model}</small> : null}
+                      </button>
+                    ))}
+                    {visiblePoolModels.length === 0 ? <p className={styles.modelEmpty}>Không tìm thấy model Active.</p> : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <label className={styles.projectPicker}>
               <span className={styles.projectPickerIcon} aria-hidden="true">
                 <AppIcon name="folder" size={17} />

@@ -394,8 +394,145 @@
   stroke-width: 1.7;
 }
 
+.modelPickerShell {
+  position: relative;
+}
+
 .modelPicker {
-  min-width: 150px;
+  min-width: 190px;
+  justify-content: flex-start;
+  color: rgba(255, 255, 255, 0.88);
+  font: inherit;
+  cursor: pointer;
+}
+
+.modelPickerName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 620;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelPickerCount {
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(111, 143, 255, 0.13);
+  color: rgba(182, 199, 255, 0.88);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.modelPickerChevron {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.modelPickerMenu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 16px;
+  background: rgba(15, 21, 34, 0.98);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(20px);
+}
+
+.modelSearch {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(155, 177, 255, 0.9);
+}
+
+.modelSearch input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font: inherit;
+  font-size: 12px;
+}
+
+.modelSearch input::placeholder {
+  color: rgba(255, 255, 255, 0.34);
+}
+
+.modelPickerSummary {
+  padding: 0 14px 8px;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.modelOptionList {
+  max-height: min(430px, 56vh);
+  overflow-y: auto;
+  padding: 4px 7px 8px;
+}
+
+.modelOption {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(239, 244, 252, 0.82);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.modelOption:hover,
+.modelOptionActive {
+  background: rgba(111, 143, 255, 0.11);
+  color: #fff;
+}
+
+.modelOption span {
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelOption small {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelEmpty {
+  margin: 0;
+  padding: 24px 12px;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  text-align: center;
 }
 
 .projectPicker select {
