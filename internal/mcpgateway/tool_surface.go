@@ -13,11 +13,12 @@ import (
 )
 
 // PublicToolSurfaceVersion is the compatibility generation of the public MCP
-// contract. Generation 6 keeps the compact 14-tool catalog and adds managed
-// iOS/Android automation behind the existing computer tool without exposing a
-// second Mobile MCP tool surface. Older desktop calls remain translatable.
+// contract. Generation 7 keeps the compact 14-tool catalog and adds durable
+// video artifact publishing through terminal(action=publish_artifact). Bump the
+// generation whenever a public tool schema changes so AI hosts invalidate cached
+// tools/list catalogs. Older calls remain translatable.
 const (
-	PublicToolSurfaceVersion = 6
+	PublicToolSurfaceVersion = 7
 
 	// Version 1.5.16 was the generation-2 MCP identity. Keep the same release
 	// line and derive the patch from the surface generation so every future
