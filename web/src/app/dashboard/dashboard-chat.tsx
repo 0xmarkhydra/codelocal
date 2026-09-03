@@ -77,7 +77,12 @@ type MediaPrepareResponse = ChatImageMeta & {
   };
 };
 
-const suggestions = ["Tóm tắt dự án hiện tại", "Tìm file liên quan", "Kiểm tra workspace đang online"];
+const suggestions = [
+  { icon: "search", label: "Tóm tắt dự án", prompt: "Tóm tắt cấu trúc và mục đích của dự án này" },
+  { icon: "code", label: "Tìm file liên quan", prompt: "Tìm các file quan trọng nhất trong codebase và giải thích vai trò" },
+  { icon: "cpu", label: "Kiểm tra Workspace", prompt: "Kiểm tra trạng thái workspace và runtime hiện tại" },
+  { icon: "zap", label: "Review & Refactor", prompt: "Kiểm tra chất lượng code và đề xuất cải tiến thông minh" },
+];
 
 function modelLabel(model: string) {
   switch (model) {
@@ -902,9 +907,15 @@ export function DashboardChat() {
           {historyLoading ? <div className={styles.historyLoading}>Đang tải cuộc trò chuyện…</div> : messages.length === 0 ? (
             <div className={styles.emptyState}>
               <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="thanh-giong" size={27} /></span>
-              <strong>Bạn muốn làm gì?</strong>
+              <strong>Trợ lý Lập trình Thông minh Thánh Gióng</strong>
+              <p className={styles.emptySubtext}>Kết nối trực tiếp với runtime local, đọc hiểu codebase & tự động hóa thao tác phức tạp.</p>
               <div className={styles.suggestions}>
-                {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
+                {suggestions.map((item) => (
+                  <button key={item.label} type="button" onClick={() => setInput(item.prompt)}>
+                    <AppIcon name={item.icon} size={15} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
           ) : messages.map((message, index) => (
@@ -976,9 +987,9 @@ export function DashboardChat() {
                   <option value="agent">Agent</option>
                 </select>
               </label>
-              <label className={`${styles.goalField} ${goal ? styles.goalFieldActive : ""}`}>
+              <label className={`${styles.goalField} ${goal ? styles.goalFieldActive : ""}`} title="Đặt mục tiêu cho câu trả lời này">
                 <AppIcon name="target" size={13} />
-                <input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="Thêm mục tiêu" aria-label="Mục tiêu" maxLength={240} disabled={loading} />
+                <input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="Mục tiêu phiên làm việc…" aria-label="Mục tiêu" maxLength={240} disabled={loading} />
                 {goal ? <button className={styles.goalClear} type="button" onClick={() => setGoal("")} aria-label="Xóa mục tiêu" disabled={loading}><AppIcon name="close" size={11} /></button> : null}
               </label>
             </div>

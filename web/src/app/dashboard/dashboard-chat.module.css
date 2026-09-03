@@ -362,22 +362,24 @@
 }
 
 .projectPicker {
-  height: 42px;
-  min-width: 230px;
+  height: 36px;
+  min-width: 200px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 11px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.035);
-  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  backdrop-filter: blur(12px);
+  transition: all 160ms ease;
 }
 
 .projectPicker:focus-within,
 .projectPicker:hover {
-  border-color: rgba(123, 151, 255, 0.32);
-  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(125, 155, 255, 0.35);
+  background: rgba(40, 55, 100, 0.22);
+  box-shadow: 0 0 12px rgba(80, 115, 255, 0.1);
 }
 
 .projectPickerIcon {
@@ -387,15 +389,15 @@
 }
 
 .projectPickerIcon svg {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.7;
 }
 
 .modelPicker {
-  min-width: 150px;
+  min-width: 130px;
 }
 
 .projectPicker select {
@@ -404,10 +406,10 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: rgba(255, 255, 255, 0.88);
+  color: rgba(245, 248, 255, 0.9);
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 560;
+  font-size: 12px;
+  font-weight: 540;
   cursor: pointer;
 }
 
@@ -417,21 +419,22 @@
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: transform 150ms ease, background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+  transition: transform 150ms ease, background 150ms ease, border-color 150ms ease, opacity 150ms ease, box-shadow 150ms ease;
 }
 
 .clearBtn {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.025);
   color: rgba(230, 237, 247, 0.46);
+  cursor: pointer;
 }
 
-.clearBtn:hover,
-.attachBtn:hover {
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.065);
+.clearBtn:hover {
+  color: #ff8080;
+  border-color: rgba(255, 100, 100, 0.3);
+  background: rgba(255, 100, 100, 0.1);
 }
 
 .clearBtn svg,
@@ -506,30 +509,46 @@
   font-size: 13px;
 }
 
+.emptySubtext {
+  max-width: 480px;
+  margin: 10px 0 0;
+  color: rgba(224, 233, 246, 0.55);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
 .suggestions {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
-  margin-top: 24px;
+  gap: 10px;
+  margin-top: 26px;
+  max-width: 680px;
 }
 
 .suggestions button {
-  min-height: 36px;
-  padding: 0 13px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.035);
-  color: rgba(229, 237, 249, 0.65);
-  font-size: 11.5px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(229, 237, 249, 0.75);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: transform 150ms ease, background 150ms ease, color 150ms ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .suggestions button:hover {
-  transform: translateY(-1px);
-  background: rgba(98, 119, 255, 0.1);
-  color: rgba(255, 255, 255, 0.9);
+  transform: translateY(-2px);
+  border-color: rgba(120, 150, 255, 0.35);
+  background: linear-gradient(135deg, rgba(80, 115, 245, 0.16), rgba(120, 95, 255, 0.08));
+  color: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 20px rgba(70, 90, 240, 0.18);
 }
 
 .msgBlock {
@@ -715,36 +734,36 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   margin: 0 16px 8px;
-  padding: 7px 8px 8px;
-  border: 1px solid rgba(112, 139, 255, 0.21);
+  padding: 10px 12px 10px;
+  border: 1px solid rgba(115, 145, 255, 0.18);
   border-radius: 20px;
-  background: rgba(21, 28, 42, 0.79);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28), inset 0 1px rgba(255,255,255,.04);
-  backdrop-filter: blur(24px);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  background: linear-gradient(180deg, rgba(22, 30, 48, 0.85), rgba(16, 22, 36, 0.92));
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(28px);
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .chatForm:focus-within {
-  border-color: rgba(108, 135, 255, 0.44);
-  box-shadow: 0 18px 44px rgba(0,0,0,.28), 0 0 0 3px rgba(75, 101, 255, 0.06);
+  border-color: rgba(120, 155, 255, 0.45);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.38), 0 0 0 3px rgba(85, 120, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .chatForm textarea {
   width: 100%;
-  min-height: 42px;
-  max-height: 150px;
+  min-height: 44px;
+  max-height: 160px;
   resize: none;
   border: 0;
   outline: 0;
-  padding: 8px 5px 6px;
+  padding: 6px 6px;
   background: transparent;
-  color: rgba(255,255,255,.9);
+  color: rgba(255, 255, 255, 0.95);
   font: inherit;
-  font-size: 13.5px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-.chatForm textarea::placeholder { color: rgba(221, 230, 244, 0.32); }
+.chatForm textarea::placeholder { color: rgba(215, 225, 245, 0.35); }
 
 .fileInput { display: none; }
 
@@ -753,62 +772,78 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  padding-top: 4px;
 }
 
 .composerOptions {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .attachBtn,
 .sendBtn {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
 }
 
 .attachBtn {
-  width: 36px;
-  height: 36px;
   flex: 0 0 auto;
-  border-radius: 11px;
-  background: rgba(255,255,255,.025);
-  color: rgba(221,231,246,.54);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(220, 230, 248, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.attachBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .sendBtn {
-  border-color: rgba(113, 137, 255, 0.28);
-  background: linear-gradient(145deg, #5178ff, #5a45ee);
+  border-color: rgba(125, 150, 255, 0.35);
+  background: linear-gradient(135deg, #4f73ff, #6345ee);
   color: #fff;
-  box-shadow: 0 8px 22px rgba(63, 81, 226, 0.32), inset 0 1px rgba(255,255,255,.2);
+  box-shadow: 0 6px 18px rgba(75, 95, 240, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  cursor: pointer;
 }
 
 .sendBtn:disabled {
-  opacity: .35;
+  opacity: 0.32;
   box-shadow: none;
+  cursor: not-allowed;
 }
 
-.sendBtn:not(:disabled):hover { transform: translateY(-1px); }
+.sendBtn:not(:disabled):hover {
+  transform: translateY(-1.5px);
+  box-shadow: 0 8px 24px rgba(75, 95, 240, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
 
 .stopBtn {
-  border-radius: 50%;
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(238, 242, 248, 0.92);
-  color: #111722;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28), inset 0 1px rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(240, 245, 255, 0.95);
+  color: #0c121e;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 }
 
 .modePicker {
-  height: 34px;
-  min-width: 82px;
+  height: 32px;
+  min-width: 78px;
   flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
+  transition: all 160ms ease;
+}
+
+.modePicker:hover,
+.modePicker:focus-within {
+  border-color: rgba(115, 145, 255, 0.3);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .modePicker select {
@@ -826,54 +861,62 @@
 
 .goalField {
   min-width: 0;
-  min-height: 34px;
-  display: flex;
+  min-height: 32px;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: min(330px, 38vw);
-  padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 10px;
+  gap: 7px;
+  max-width: min(340px, 40vw);
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.025);
-  color: rgba(159, 188, 255, 0.65);
-  transition: border-color 150ms ease, background 150ms ease;
+  color: rgba(160, 185, 255, 0.6);
+  backdrop-filter: blur(8px);
+  transition: all 180ms ease;
 }
 
 .goalField:focus-within,
 .goalFieldActive {
-  border-color: rgba(113, 143, 255, 0.2);
-  background: rgba(91, 116, 220, 0.07);
+  border-color: rgba(100, 140, 255, 0.4);
+  background: rgba(30, 45, 90, 0.25);
+  box-shadow: 0 0 14px rgba(70, 110, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  color: rgba(140, 180, 255, 0.95);
 }
 
 .goalField input {
-  min-width: 72px;
-  width: min(230px, 26vw);
+  min-width: 90px;
+  width: min(240px, 28vw);
   border: 0;
   outline: 0;
   background: transparent;
-  color: rgba(226, 233, 245, 0.78);
+  color: rgba(240, 245, 255, 0.9);
   font: inherit;
-  font-size: 10.5px;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
 }
 
-.goalField input::placeholder { color: rgba(202, 214, 233, 0.32); }
+.goalField input::placeholder {
+  color: rgba(210, 225, 250, 0.35);
+  font-weight: 400;
+}
 
 .goalClear {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: rgba(205, 216, 236, 0.45);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(210, 220, 240, 0.5);
   cursor: pointer;
+  transition: all 140ms ease;
 }
 
 .goalClear:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
-  color: rgba(239, 243, 250, 0.8);
+  background: rgba(255, 100, 100, 0.2);
+  color: #ff8080;
 }
 
 .chatHint {
