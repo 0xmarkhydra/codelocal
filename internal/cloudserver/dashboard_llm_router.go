@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -17,6 +18,8 @@ const (
 	dashboardModelGLM  = "glm-5.3-flash"
 	dashboardModelQwen = "qwen3.8-flash"
 	dashboardModelMuse = "muse-spark-1.2-contributor-free"
+
+	dashboardMaxFallbackTargets = 6
 )
 
 type dashboardLLMTarget struct {
@@ -32,7 +35,7 @@ type dashboardSelectedModelError struct {
 }
 
 func (e *dashboardSelectedModelError) Error() string {
-	return "Thánh Gióng đã tự thử lại model đã chọn nhưng route vẫn chưa khả dụng. CodeLocal không chuyển sang model khác; vui lòng thử lại sau ít giây."
+	return "Thánh Gióng đã tự thử lại các route khả dụng nhưng hiện chưa có route nào sẵn sàng để tiếp tục. Vui lòng thử lại sau ít giây."
 }
 
 func (e *dashboardSelectedModelError) Unwrap() error {
@@ -178,6 +181,70 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 	return ordered
 }
 
+// dashboardLLMRouteWithContext expands the strict route only when autonomous
+// agent continuity is enabled. Pool already fails over across accounts and
+// upstream sources for the same canonical model; this adds a bounded fallback
+// across other active canonical models so a long-running task can continue.
+func dashboardLLMRouteWithContext(ctx context.Context, selection string, allowCommunity, allowModelFallback bool) []dashboardLLMTarget {
+	route := dashboardLLMRoute(selection, allowCommunity)
+	if !allowModelFallback {
+		return route
+	}
+	if _, ok := dashboardAIPoolConfigFromEnv(); !ok {
+		return route
+	}
+
+	appendTarget := func(target dashboardLLMTarget) {
+		for _, existing := range route {
+			if existing.BaseURL == target.BaseURL && existing.Model == target.Model {
+				return
+			}
+		}
+		if len(route) < dashboardMaxFallbackTargets {
+			route = append(route, target)
+		}
+	}
+	if fallback, ok := dashboardAIPoolTarget(""); ok {
+		appendTarget(fallback)
+	}
+	models, err := dashboardAIPoolModels(ctx)
+	if err != nil {
+		return route
+	}
+
+	selection = dashboardNormalizeModelSelection(selection)
+	family := dashboardModelFamily(selection)
+	for _, sameFamily := range []bool{true, false} {
+		for _, model := range models {
+			if len(route) >= dashboardMaxFallbackTargets {
+				return route
+			}
+			if model.ID == selection {
+				continue
+			}
+			isSameFamily := family != "" && dashboardModelFamily(model.ID) == family
+			if isSameFamily != sameFamily {
+				continue
+			}
+			if target, ok := dashboardAIPoolTarget(model.ID); ok {
+				appendTarget(target)
+			}
+		}
+	}
+	return route
+}
+
+func dashboardModelFamily(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" || model == dashboardModelAuto {
+		return ""
+	}
+	if index := strings.IndexByte(model, '-'); index > 0 {
+		return model[:index]
+	}
+	return model
+}
+
 func dashboardLooksSensitive(value string) bool {
 	lower := strings.ToLower(value)
 	for _, pattern := range []string{"authorization: bearer", "-----begin private key-----", "api_key=", "apikey=", "access_token=", "refresh_token=", "token=", "secret=", "password=", "client_secret", "private_key", ".env"} {
@@ -248,6 +315,17 @@ func dashboardLLMRetryDelay(attempt int) time.Duration {
 	return delay
 }
 
+func dashboardWaitLLMRetry(ctx context.Context, attempt int) error {
+	timer := time.NewTimer(dashboardLLMRetryDelay(attempt))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func dashboardValidateToolCalls(calls []llmToolCall) error {
 	for _, call := range calls {
 		arguments := strings.TrimSpace(call.Arguments)
@@ -259,8 +337,12 @@ func dashboardValidateToolCalls(calls []llmToolCall) error {
 }
 
 func callDashboardLLMWithTools(selection string, allowCommunity bool, messages []map[string]any, tools []map[string]any) (dashboardLLMTarget, []llmToolCall, string, error) {
+	return callDashboardLLMWithToolsContext(context.Background(), selection, allowCommunity, false, messages, tools)
+}
+
+func callDashboardLLMWithToolsContext(ctx context.Context, selection string, allowCommunity, allowModelFallback bool, messages []map[string]any, tools []map[string]any) (dashboardLLMTarget, []llmToolCall, string, error) {
 	messages = dashboardWithSkillContext(messages)
-	route := dashboardLLMRoute(selection, allowCommunity)
+	route := dashboardLLMRouteWithContext(ctx, selection, allowCommunity, allowModelFallback)
 	if len(route) == 0 {
 		return dashboardLLMTarget{}, nil, "", dashboardRouteError(selection, errors.New("no configured LLM route"))
 	}
@@ -282,7 +364,9 @@ func callDashboardLLMWithTools(selection string, allowCommunity bool, messages [
 			if !dashboardRetryableLLMError(err) || attempt == dashboardLLMRetryAttempts-1 {
 				break
 			}
-			time.Sleep(dashboardLLMRetryDelay(attempt))
+			if waitErr := dashboardWaitLLMRetry(ctx, attempt); waitErr != nil {
+				return target, nil, "", waitErr
+			}
 		}
 		dashboardMarkTargetFailed(target)
 	}
@@ -300,6 +384,40 @@ func (w *dashboardCountingWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
+type dashboardLLMExecutionRoute struct {
+	Selection          string
+	AllowCommunity     bool
+	AllowModelFallback bool
+}
+
+type dashboardLLMExecutionRouteKey struct{}
+
+func dashboardWithLLMExecutionRoute(r *http.Request, selection string, allowCommunity, allowModelFallback bool) *http.Request {
+	state := dashboardLLMExecutionRoute{
+		Selection:          dashboardNormalizeModelSelection(selection),
+		AllowCommunity:     allowCommunity,
+		AllowModelFallback: allowModelFallback,
+	}
+	return r.WithContext(context.WithValue(r.Context(), dashboardLLMExecutionRouteKey{}, state))
+}
+
+func dashboardLLMExecutionRouteFromRequest(r *http.Request) (dashboardLLMExecutionRoute, bool) {
+	if r == nil {
+		return dashboardLLMExecutionRoute{}, false
+	}
+	state, ok := r.Context().Value(dashboardLLMExecutionRouteKey{}).(dashboardLLMExecutionRoute)
+	return state, ok
+}
+
+func dashboardRecoverAgentRound(r *http.Request, messages []map[string]any, tools []map[string]any) (dashboardLLMTarget, []llmToolCall, string, error, bool) {
+	state, ok := dashboardLLMExecutionRouteFromRequest(r)
+	if !ok {
+		return dashboardLLMTarget{}, nil, "", nil, false
+	}
+	target, calls, content, err := callDashboardLLMWithToolsContext(r.Context(), state.Selection, state.AllowCommunity, state.AllowModelFallback, messages, tools)
+	return target, calls, content, err, true
+}
+
 func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, selection string, allowCommunity bool, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) (dashboardLLMTarget, error) {
 	skillPlan := dashboardSkillPlanForUser(r.Context(), s, userID, messages)
 	if value := dashboardSkillHeaderValue(skillPlan); value != "" {
@@ -309,7 +427,9 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 	}
 	r = r.WithContext(cloud.WithDashboardChatSkills(r.Context(), dashboardSkillMetadata(skillPlan)))
 	messages = dashboardWithSkillPlan(messages, skillPlan)
-	route := dashboardLLMRoute(selection, allowCommunity)
+	allowModelFallback := dashboardChatModeFromRequest(r) == "agent"
+	r = dashboardWithLLMExecutionRoute(r, selection, allowCommunity, allowModelFallback)
+	route := dashboardLLMRouteWithContext(r.Context(), selection, allowCommunity, allowModelFallback)
 	if len(route) == 0 {
 		return dashboardLLMTarget{}, dashboardRouteError(selection, errors.New("no configured LLM route"))
 	}
@@ -326,7 +446,7 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 				return target, nil
 			}
 			lastErr = err
-			if tracked.written > 0 {
+			if tracked.written > 0 && !dashboardSafeToReroute(err) {
 				return target, err
 			}
 			if !dashboardRetryableLLMError(err) || attempt == dashboardLLMRetryAttempts-1 {

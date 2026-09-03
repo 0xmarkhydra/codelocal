@@ -63,10 +63,15 @@ func callChatCompletionsStreamWithTools(ctx context.Context, baseURL, apiKey, mo
 	var result dashboardChatCompletionsStreamRound
 	var content strings.Builder
 	toolsByIndex := map[int]*dashboardChatCompletionsToolState{}
+	completed := false
 
 	process := func(raw string) {
 		raw = strings.TrimSpace(raw)
-		if raw == "" || raw == "[DONE]" {
+		if raw == "" {
+			return
+		}
+		if raw == "[DONE]" {
+			completed = true
 			return
 		}
 		var chunk struct {
@@ -82,10 +87,14 @@ func callChatCompletionsStreamWithTools(ctx context.Context, baseURL, apiKey, mo
 						} `json:"function"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
 		}
 		if json.Unmarshal([]byte(raw), &chunk) != nil || len(chunk.Choices) == 0 {
 			return
+		}
+		if chunk.Choices[0].FinishReason != nil && strings.TrimSpace(*chunk.Choices[0].FinishReason) != "" {
+			completed = true
 		}
 		delta := chunk.Choices[0].Delta
 		if delta.Content != nil && *delta.Content != "" {
@@ -141,9 +150,7 @@ func callChatCompletionsStreamWithTools(ctx context.Context, baseURL, apiKey, mo
 	}
 	flushFrame()
 	result.Content = content.String()
-	if err := scanner.Err(); err != nil {
-		return result, err
-	}
+	scanErr := scanner.Err()
 
 	indexes := make([]int, 0, len(toolsByIndex))
 	for index := range toolsByIndex {
@@ -160,6 +167,12 @@ func callChatCompletionsStreamWithTools(ctx context.Context, baseURL, apiKey, mo
 			id = "call_" + strings.TrimSpace(model) + "_" + time.Now().Format("150405.000000000")
 		}
 		result.ToolCalls = append(result.ToolCalls, llmToolCall{ID: id, Name: state.name, Arguments: state.arguments})
+	}
+	if scanErr != nil {
+		return result, scanErr
+	}
+	if !completed {
+		return result, io.ErrUnexpectedEOF
 	}
 	return result, nil
 }

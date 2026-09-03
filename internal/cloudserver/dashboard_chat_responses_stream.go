@@ -90,6 +90,10 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 	byIndex := map[int]*dashboardResponsesStreamToolState{}
 	ordered := make([]*dashboardResponsesStreamToolState, 0, 4)
 	textDeltaSeen := false
+	textDone := false
+	toolStarted := false
+	toolDone := false
+	explicitDone := false
 
 	ensureTool := func(outputIndex int, itemID string) *dashboardResponsesStreamToolState {
 		if itemID != "" {
@@ -126,7 +130,11 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 
 	process := func(raw string) error {
 		raw = strings.TrimSpace(raw)
-		if raw == "" || raw == "[DONE]" {
+		if raw == "" {
+			return nil
+		}
+		if raw == "[DONE]" {
+			explicitDone = true
 			return nil
 		}
 		var event dashboardResponsesStreamEvent
@@ -145,6 +153,7 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 				callbacks.OnText(event.Delta)
 			}
 		case "response.output_text.done":
+			textDone = true
 			if !textDeltaSeen && event.Text != "" {
 				result.Progressed = true
 				content.WriteString(event.Text)
@@ -155,6 +164,10 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 		case "response.output_item.added", "response.output_item.done":
 			if event.Item == nil || event.Item.Type != "function_call" {
 				return nil
+			}
+			toolStarted = true
+			if event.Type == "response.output_item.done" {
+				toolDone = true
 			}
 			state := ensureTool(event.OutputIndex, event.Item.ID)
 			if event.Item.CallID != "" {
@@ -169,11 +182,14 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 			result.Progressed = true
 			emitTool(state)
 		case "response.function_call_arguments.delta":
+			toolStarted = true
 			state := ensureTool(event.OutputIndex, event.ItemID)
 			state.arguments += event.Delta
 			result.Progressed = true
 			emitTool(state)
 		case "response.function_call_arguments.done":
+			toolStarted = true
+			toolDone = true
 			state := ensureTool(event.OutputIndex, event.ItemID)
 			if event.Name != "" {
 				state.name = event.Name
@@ -183,6 +199,8 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 			}
 			result.Progressed = true
 			emitTool(state)
+		case "response.completed":
+			explicitDone = true
 		case "error":
 			if event.Message == "" {
 				event.Message = "responses stream error"
@@ -251,6 +269,9 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 		result.ToolCalls = append(result.ToolCalls, llmToolCall{ID: id, Name: state.name, Arguments: state.arguments})
 	}
 	result.Content = content.String()
+	if !explicitDone && !((toolStarted && toolDone) || (!toolStarted && textDone)) {
+		return result, io.ErrUnexpectedEOF
+	}
 	return result, nil
 }
 

@@ -846,7 +846,8 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	} else {
 		messages = append(messages, map[string]any{"role": "user", "content": msg})
 	}
-	target, toolCalls, content, err := callDashboardLLMWithTools(selection, allowCommunity, messages, chatTools)
+	allowModelFallback := dashboardChatModeFromRequest(r) == "agent"
+	target, toolCalls, content, err := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, messages, chatTools)
 	if err != nil {
 		webutil.JSON(w, http.StatusBadGateway, map[string]string{"error": "upstream: " + err.Error()})
 		return
@@ -908,14 +909,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		nextCalls, nextContent, err2 := callLLMWithTools(target.BaseURL, target.APIKey, target.Model, follow, chatTools)
-		if err2 == nil {
-			err2 = dashboardValidateToolCalls(nextCalls)
-		}
+		nextTarget, nextCalls, nextContent, err2 := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, follow, chatTools)
 		if err2 != nil {
 			stopReason = "model connection interrupted after completed tool work"
 			break
 		}
+		target = nextTarget
 		currentCalls = nextCalls
 		currentContent = nextContent
 		if len(currentCalls) == 0 {
@@ -927,9 +926,12 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		if stopReason == "" {
 			stopReason = "tool execution budget reached"
 		}
-		_, finalContent, err = callLLMWithTools(target.BaseURL, target.APIKey, target.Model, dashboardFinalSynthesisMessages(follow, stopReason), nil)
-		if err != nil {
+		finalTarget, _, synthesized, synthErr := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, dashboardFinalSynthesisMessages(follow, stopReason), nil)
+		if synthErr != nil {
 			finalContent = dashboardFallbackReply(allResults)
+		} else {
+			target = finalTarget
+			finalContent = synthesized
 		}
 	}
 	now4 := time.Now().UnixMilli()
@@ -1288,12 +1290,26 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 
 		roundResult, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, follow, tools, callbacks)
 		if err != nil {
-			if len(allResults) == 0 {
-				return err
-			}
 			rollbackRoundText()
-			stopReason = "model connection interrupted after completed tool work"
-			break
+			_, recoveredCalls, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, follow, tools)
+			if routed && recoverErr == nil {
+				roundResult.ToolCalls = recoveredCalls
+				roundResult.Content = recoveredContent
+				roundResult.Progressed = len(recoveredCalls) > 0 || strings.TrimSpace(recoveredContent) != ""
+				if len(recoveredCalls) == 0 && recoveredContent != "" {
+					visibleContent.WriteString(recoveredContent)
+					writeDashboardTextDeltas(w, flusher, recoveredContent)
+				}
+			} else {
+				if routed && recoverErr != nil {
+					err = recoverErr
+				}
+				if len(allResults) == 0 {
+					return &dashboardSafeRerouteError{Err: err}
+				}
+				stopReason = "model connection interrupted after completed tool work"
+				break
+			}
 		}
 		toolCalls := roundResult.ToolCalls
 		content := roundResult.Content
@@ -1357,23 +1373,34 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": "\n\n"})
 	}
 	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
-	finalCallbacks := dashboardResponsesStreamCallbacks{OnText: func(delta string) {
-		if delta == "" {
-			return
-		}
-		visibleContent.WriteString(delta)
-		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
-	}}
-	finalRound, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
-	if err != nil {
-		if strings.TrimSpace(finalRound.Content) == "" {
+	if _, _, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, finalMessages, nil); routed {
+		if recoverErr == nil && strings.TrimSpace(recoveredContent) != "" {
+			visibleContent.WriteString(recoveredContent)
+			writeDashboardTextDeltas(w, flusher, recoveredContent)
+		} else {
 			fallback := dashboardFallbackReply(allResults)
 			visibleContent.WriteString(fallback)
 			writeDashboardTextDeltas(w, flusher, fallback)
-		} else {
-			suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
-			visibleContent.WriteString(suffix)
-			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+		}
+	} else {
+		finalCallbacks := dashboardResponsesStreamCallbacks{OnText: func(delta string) {
+			if delta == "" {
+				return
+			}
+			visibleContent.WriteString(delta)
+			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+		}}
+		finalRound, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
+		if err != nil {
+			if strings.TrimSpace(finalRound.Content) == "" {
+				fallback := dashboardFallbackReply(allResults)
+				visibleContent.WriteString(fallback)
+				writeDashboardTextDeltas(w, flusher, fallback)
+			} else {
+				suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
+				visibleContent.WriteString(suffix)
+				writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+			}
 		}
 	}
 	finalContent := visibleContent.String()
@@ -1436,12 +1463,26 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 
 		roundResult, err := dashboardStreamChatCompletionsRoundWithRetry(r.Context(), baseURL, apiKey, model, follow, tools, callbacks)
 		if err != nil {
-			if len(allResults) == 0 {
-				return err
-			}
 			rollbackRoundText()
-			stopReason = "model connection interrupted after completed tool work"
-			break
+			_, recoveredCalls, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, follow, tools)
+			if routed && recoverErr == nil {
+				roundResult.ToolCalls = recoveredCalls
+				roundResult.Content = recoveredContent
+				roundResult.Progressed = len(recoveredCalls) > 0 || strings.TrimSpace(recoveredContent) != ""
+				if len(recoveredCalls) == 0 && recoveredContent != "" {
+					visibleContent.WriteString(recoveredContent)
+					writeDashboardTextDeltas(w, flusher, recoveredContent)
+				}
+			} else {
+				if routed && recoverErr != nil {
+					err = recoverErr
+				}
+				if len(allResults) == 0 {
+					return &dashboardSafeRerouteError{Err: err}
+				}
+				stopReason = "model connection interrupted after completed tool work"
+				break
+			}
 		}
 		toolCalls := roundResult.ToolCalls
 		if len(toolCalls) > 0 && !roundUsesTool {
@@ -1510,23 +1551,34 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": "\n\n"})
 	}
 	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
-	finalCallbacks := dashboardChatCompletionsStreamCallbacks{OnText: func(delta string) {
-		if delta == "" {
-			return
-		}
-		visibleContent.WriteString(delta)
-		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
-	}}
-	finalRound, err := dashboardStreamChatCompletionsRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
-	if err != nil {
-		if strings.TrimSpace(finalRound.Content) == "" {
+	if _, _, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, finalMessages, nil); routed {
+		if recoverErr == nil && strings.TrimSpace(recoveredContent) != "" {
+			visibleContent.WriteString(recoveredContent)
+			writeDashboardTextDeltas(w, flusher, recoveredContent)
+		} else {
 			fallback := dashboardFallbackReply(allResults)
 			visibleContent.WriteString(fallback)
 			writeDashboardTextDeltas(w, flusher, fallback)
-		} else {
-			suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
-			visibleContent.WriteString(suffix)
-			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+		}
+	} else {
+		finalCallbacks := dashboardChatCompletionsStreamCallbacks{OnText: func(delta string) {
+			if delta == "" {
+				return
+			}
+			visibleContent.WriteString(delta)
+			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+		}}
+		finalRound, err := dashboardStreamChatCompletionsRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
+		if err != nil {
+			if strings.TrimSpace(finalRound.Content) == "" {
+				fallback := dashboardFallbackReply(allResults)
+				visibleContent.WriteString(fallback)
+				writeDashboardTextDeltas(w, flusher, fallback)
+			} else {
+				suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
+				visibleContent.WriteString(suffix)
+				writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+			}
 		}
 	}
 	finalContent := visibleContent.String()

@@ -17,6 +17,29 @@ const (
 	dashboardLLMRetryAttempts     = 3
 )
 
+type dashboardSafeRerouteError struct {
+	Err error
+}
+
+func (e *dashboardSafeRerouteError) Error() string {
+	if e == nil || e.Err == nil {
+		return "safe reroute"
+	}
+	return e.Err.Error()
+}
+
+func (e *dashboardSafeRerouteError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func dashboardSafeToReroute(err error) bool {
+	var safe *dashboardSafeRerouteError
+	return errors.As(err, &safe)
+}
+
 func dashboardIsTransientLLMError(err error) bool {
 	if err == nil {
 		return false

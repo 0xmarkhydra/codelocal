@@ -177,7 +177,18 @@ func execDashboardRuntimeTool(r *http.Request, s *Server, userID, name string, a
 	if state != nil && state.sessionID != "" {
 		sessionID = state.sessionID
 	}
-	result, err := s.Hub.Call(r.Context(), userID, workspace.Key, sessionID, runtimeTool, forward, sideEffect, cloud.RandomHex(16))
+	requestID := cloud.RandomHex(16)
+	result, err := s.Hub.Call(r.Context(), userID, workspace.Key, sessionID, runtimeTool, forward, sideEffect, requestID)
+	if err != nil && !sideEffect && s.Workspaces != nil {
+		// Read-only runtime operations are safe to replay after a route loss. This
+		// mirrors the MCP gateway rebind behavior while keeping mutations strictly
+		// single-shot unless the runtime itself provides an approval/retry flow.
+		if rebound, rebindErr := s.Workspaces.Activate(r.Context(), userID, workspace.Key); rebindErr == nil && rebound != nil {
+			workspace = rebound
+			dashboardSetExecutionWorkspace(r, rebound)
+			result, err = s.Hub.Call(r.Context(), userID, workspace.Key, sessionID, runtimeTool, forward, sideEffect, requestID)
+		}
+	}
 	if err != nil {
 		b, _ := json.Marshal(map[string]any{"error": "runtime_call_failed", "message": err.Error()})
 		return string(b), true
