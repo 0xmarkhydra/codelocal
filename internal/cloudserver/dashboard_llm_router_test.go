@@ -81,24 +81,31 @@ func TestDashboardLLMRouteOrder(t *testing.T) {
 	}
 }
 
-func TestDashboardAIPoolRouteIsPrivateAndFirstForAuto(t *testing.T) {
+func TestDashboardAIPoolRouteIsExclusiveWhenConfigured(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
-	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
-	t.Setenv("SHOPAIKEY_API_KEY", "")
-	t.Setenv("OPENCODE_ZEN_API_KEY", "")
-	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
-	t.Setenv("CODELOCAL_LLM_API_KEY", "")
+	// Deliberately configure every legacy provider too. Pool must still be the
+	// only execution plane once enabled.
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "shop-key")
+	t.Setenv("SHOPAIKEY_API_KEY", "shop-key")
+	t.Setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_API_KEY", "legacy-key")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://legacy.example.test/v1")
 
-	route := dashboardLLMRoute(dashboardModelAuto, false)
-	if len(route) == 0 || route[0].ID != "ai-pool:codelocal-auto" || route[0].Community {
-		t.Fatalf("AI Pool should be the first private auto target: %#v", route)
+	route := dashboardLLMRoute(dashboardModelAuto, true)
+	if len(route) != 1 || route[0].ID != "ai-pool:codelocal-auto" || route[0].Community {
+		t.Fatalf("AI Pool must be the only auto target: %#v", route)
 	}
 
-	explicit := dashboardLLMRoute("gpt-5.6-sol", false)
+	explicit := dashboardLLMRoute("gpt-5.6-sol", true)
 	if len(explicit) != 1 || explicit[0].ID != "ai-pool:gpt-5.6-sol" || explicit[0].Community {
 		t.Fatalf("canonical Pool selection should route strictly through Pool: %#v", explicit)
+	}
+	legacyNamed := dashboardLLMRoute(dashboardModelGLM, true)
+	if len(legacyNamed) != 1 || legacyNamed[0].ID != "ai-pool:"+dashboardModelGLM {
+		t.Fatalf("legacy-named selections must still go through Pool: %#v", legacyNamed)
 	}
 	providerQualified := dashboardLLMRoute("cc/claude-sonnet", false)
 	if len(providerQualified) != 0 {

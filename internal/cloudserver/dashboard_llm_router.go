@@ -116,11 +116,7 @@ func dashboardLegacyTarget() (dashboardLLMTarget, bool) {
 
 func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarget {
 	selection = dashboardNormalizeModelSelection(selection)
-	glm := dashboardEmperoTarget(dashboardModelGLM)
-	qwen := dashboardEmperoTarget(dashboardModelQwen)
-	muse, hasMuse := dashboardMuseTarget()
 	poolDefault, hasPool := dashboardAIPoolTarget("")
-	shopDefault, hasShop := dashboardShopAIKeyTarget("")
 	ordered := make([]dashboardLLMTarget, 0, 7)
 	appendTarget := func(target dashboardLLMTarget) {
 		if target.Community && !allowCommunity {
@@ -133,6 +129,26 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 		}
 		ordered = append(ordered, target)
 	}
+
+	// Once CodeLocal Pool is configured it is the only chat execution plane.
+	// Auto uses the Pool default model, while explicit canonical selections are
+	// forwarded to Pool unchanged. Legacy providers remain available only for
+	// environments that have not enabled Pool yet.
+	if hasPool {
+		if selection == dashboardModelAuto {
+			appendTarget(poolDefault)
+			return ordered
+		}
+		if pool, ok := dashboardAIPoolTarget(selection); ok {
+			appendTarget(pool)
+		}
+		return ordered
+	}
+
+	glm := dashboardEmperoTarget(dashboardModelGLM)
+	qwen := dashboardEmperoTarget(dashboardModelQwen)
+	muse, hasMuse := dashboardMuseTarget()
+	shopDefault, hasShop := dashboardShopAIKeyTarget("")
 	switch selection {
 	case dashboardModelGLM:
 		appendTarget(glm)
@@ -143,9 +159,6 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 			appendTarget(muse)
 		}
 	case dashboardModelAuto:
-		if hasPool {
-			appendTarget(poolDefault)
-		}
 		if hasShop {
 			appendTarget(shopDefault)
 		}
@@ -158,14 +171,8 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 			appendTarget(legacy)
 		}
 	default:
-		if dashboardAIPoolOwnsSelection(selection) {
-			if pool, ok := dashboardAIPoolTarget(selection); ok {
-				appendTarget(pool)
-			}
-		} else if shop, ok := dashboardShopAIKeyTarget(selection); ok {
+		if shop, ok := dashboardShopAIKeyTarget(selection); ok {
 			appendTarget(shop)
-		} else if pool, ok := dashboardAIPoolTarget(selection); ok {
-			appendTarget(pool)
 		}
 	}
 	return ordered

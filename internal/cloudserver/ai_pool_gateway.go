@@ -71,39 +71,6 @@ func dashboardAIPoolTarget(model string) (dashboardLLMTarget, bool) {
 	}, true
 }
 
-func dashboardAIPoolOwnsSelection(model string) bool {
-	config, ok := dashboardAIPoolConfigFromEnv()
-	if !ok {
-		return false
-	}
-	model = strings.TrimSpace(model)
-	if model == "" || model == dashboardModelAuto {
-		return false
-	}
-	if config.DefaultModel != "" && model == config.DefaultModel {
-		return true
-	}
-
-	// Combo aliases may be unqualified. If the dashboard already discovered the
-	// model from this Pool, the cache is authoritative enough for routing the
-	// user's selection without another network request on the chat hot path.
-	cacheKey := "ai-pool:" + dashboardModelCatalogCacheKey(config.BaseURL, config.APIKey)
-	dashboardModelCatalogCache.Lock()
-	cached := dashboardModelCatalogCache.Entries[cacheKey]
-	dashboardModelCatalogCache.Unlock()
-	for _, candidate := range cached.Models {
-		if candidate.ID == model {
-			return true
-		}
-	}
-
-	// Provider-qualified IDs belong behind CodeLocal Pool and must never become
-	// part of the CodeLocal model contract. Explicit Pool selections are routed
-	// only after the canonical ID has been discovered from /v1/models (or when it
-	// is the configured default model).
-	return false
-}
-
 func dashboardFetchAIPoolModels(ctx context.Context, config dashboardAIPoolConfig) ([]dashboardProviderModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(config.BaseURL, "/")+"/models", nil)
 	if err != nil {

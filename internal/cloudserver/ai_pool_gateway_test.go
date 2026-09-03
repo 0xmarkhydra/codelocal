@@ -45,14 +45,12 @@ func TestDashboardAIPoolTargetIsPrivateAndModelScoped(t *testing.T) {
 	if target.BaseURL != "https://pool.example.test/v1" || target.APIKey != "pool-key" || target.Model != "codelocal-auto" || target.Community {
 		t.Fatalf("unexpected target: %#v", target)
 	}
-	if !dashboardAIPoolOwnsSelection("codelocal-auto") {
-		t.Fatal("configured canonical default should route through AI Pool")
-	}
-	if dashboardAIPoolOwnsSelection("cc/claude-sonnet") {
+	if _, ok := dashboardAIPoolTarget("cc/claude-sonnet"); ok {
 		t.Fatal("provider-qualified models must stay behind CodeLocal Pool")
 	}
-	if dashboardAIPoolOwnsSelection("claude-sonnet") {
-		t.Fatal("unknown canonical model must not be hijacked before Pool discovery")
+	canonical, ok := dashboardAIPoolTarget("claude-sonnet")
+	if !ok || canonical.Model != "claude-sonnet" {
+		t.Fatalf("canonical selections must be forwarded to Pool: %#v", canonical)
 	}
 }
 
@@ -91,7 +89,16 @@ func TestDashboardAIPoolCatalogMakesUnqualifiedComboRoutable(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("models=%v want=%v", got, want)
 	}
-	if !dashboardAIPoolOwnsSelection("premium-coding") {
-		t.Fatal("discovered unqualified combo should route through AI Pool")
+	selectable, err := dashboardSelectableModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSelectable := []string{dashboardModelAuto, "premium-coding", "claude-sonnet"}
+	if !reflect.DeepEqual(selectable, wantSelectable) {
+		t.Fatalf("selectable=%v want=%v", selectable, wantSelectable)
+	}
+	route := dashboardLLMRoute("premium-coding", false)
+	if len(route) != 1 || route[0].ID != "ai-pool:premium-coding" {
+		t.Fatalf("discovered canonical model must route only through Pool: %#v", route)
 	}
 }
