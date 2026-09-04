@@ -37,6 +37,8 @@ type CapabilityLease struct {
 	ActorID         string      `json:"actorId"`
 	AllowedAgentIDs []string    `json:"allowedAgentIds,omitempty"`
 	ApprovalKey     string      `json:"approvalKey"`
+	ParentID        string      "parentId,omitempty"
+	DelegatedBy     string      "delegatedBy,omitempty"
 	Status          LeaseStatus `json:"status"`
 	IssuedAt        time.Time   `json:"issuedAt"`
 	ExpiresAt       time.Time   `json:"expiresAt"`
