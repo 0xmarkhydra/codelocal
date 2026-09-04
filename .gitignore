@@ -23,3 +23,17 @@ grap/
 # Next.js / TypeScript build artifacts
 .next/
 *.tsbuildinfo
+
+# Release/build artifacts must not live in the repo root.
+*.tgz
+package/
+.release-main-clean/
+
+# Ephemeral deploy/SSH material must never be committed.
+.railway-codelocal-ephemeral
+.railway-codelocal-ephemeral.pub
+
+# Stray local-only scratch trees (hyphenated, not the canonical .codelocal/).
+.codelocal-artifacts/
+.codelocal-worktrees/
+.video-publish-e2e/
