@@ -44,6 +44,12 @@ type ChatThread = {
   updatedAt: number;
 };
 
+type ChatTokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
 type StreamData = {
   delta?: string;
   content?: string;
@@ -51,6 +57,7 @@ type StreamData = {
   error?: string;
   threadId?: string;
   tool_calls?: ToolCall[] | Array<{ index: number; name?: string; arguments?: string; id?: string }>;
+  usage?: ChatTokenUsage;
 };
 
 type WorkspaceItem = WorkspacesResource["items"][number];
@@ -272,6 +279,7 @@ export function DashboardChat() {
   const [image, setImage] = useState<PreparedChatImage | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [tokenUsage, setTokenUsage] = useState<ChatTokenUsage | null>(null);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [threadSearch, setThreadSearch] = useState("");
@@ -904,6 +912,7 @@ export function DashboardChat() {
                 if (typeof data.threadId === "string" && data.threadId) requestThreadId = data.threadId;
                 if (typeof data.reply === "string") content = data.reply;
                 if (Array.isArray(data.tool_calls)) toolCalls = data.tool_calls as ToolCall[];
+                if (data.usage) setTokenUsage(data.usage);
                 streamedContent = content;
                 streamedToolCalls = toolCalls;
                 updateAssistant(placeholderIndex, content, toolCalls, activeSkills);
@@ -1019,6 +1028,11 @@ export function DashboardChat() {
             <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
           </div>
           <div className={styles.chatActions}>
+            {tokenUsage ? (
+              <span className={styles.tokenUsage} title={`${tokenUsage.inputTokens.toLocaleString()} input · ${tokenUsage.outputTokens.toLocaleString()} output`}>
+                {tokenUsage.totalTokens.toLocaleString()} tokens
+              </span>
+            ) : null}
             <div className={styles.modelPickerShell} ref={modelPickerRef}>
               <button
                 className={`${styles.projectPicker} ${styles.modelPicker}`}

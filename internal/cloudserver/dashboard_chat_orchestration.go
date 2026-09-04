@@ -19,6 +19,25 @@ const (
 	dashboardLLMRetryAttempts     = 3
 )
 
+type dashboardChatTokenUsage struct {
+	InputTokens  int64 `json:"inputTokens"`
+	OutputTokens int64 `json:"outputTokens"`
+	TotalTokens  int64 `json:"totalTokens"`
+}
+
+func (u *dashboardChatTokenUsage) normalize() {
+	if u.TotalTokens == 0 {
+		u.TotalTokens = u.InputTokens + u.OutputTokens
+	}
+}
+
+func (u *dashboardChatTokenUsage) add(other dashboardChatTokenUsage) {
+	u.InputTokens += other.InputTokens
+	u.OutputTokens += other.OutputTokens
+	u.TotalTokens += other.TotalTokens
+	u.normalize()
+}
+
 type dashboardSafeRerouteError struct {
 	Err error
 }

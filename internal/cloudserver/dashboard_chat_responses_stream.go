@@ -22,6 +22,7 @@ type dashboardResponsesStreamRound struct {
 	ToolCalls  []llmToolCall
 	Content    string
 	Progressed bool
+	Usage      dashboardChatTokenUsage
 }
 
 type dashboardResponsesStreamToolState struct {
@@ -50,6 +51,11 @@ type dashboardResponsesStreamEvent struct {
 		Arguments string `json:"arguments"`
 	} `json:"item"`
 	Response *struct {
+		Usage *struct {
+			InputTokens  int64 `json:"input_tokens"`
+			OutputTokens int64 `json:"output_tokens"`
+			TotalTokens  int64 `json:"total_tokens"`
+		} `json:"usage"`
 		Error *struct {
 			Message string `json:"message"`
 		} `json:"error"`
@@ -201,6 +207,10 @@ func callResponsesStreamWithTools(ctx context.Context, baseURL, apiKey, model st
 			emitTool(state)
 		case "response.completed":
 			explicitDone = true
+			if event.Response != nil && event.Response.Usage != nil {
+				result.Usage = dashboardChatTokenUsage{InputTokens: event.Response.Usage.InputTokens, OutputTokens: event.Response.Usage.OutputTokens, TotalTokens: event.Response.Usage.TotalTokens}
+				result.Usage.normalize()
+			}
 		case "error":
 			if event.Message == "" {
 				event.Message = "responses stream error"

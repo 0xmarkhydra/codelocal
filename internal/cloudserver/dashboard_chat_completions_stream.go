@@ -21,6 +21,7 @@ type dashboardChatCompletionsStreamRound struct {
 	ToolCalls  []llmToolCall
 	Content    string
 	Progressed bool
+	Usage      dashboardChatTokenUsage
 }
 
 type dashboardChatCompletionsToolState struct {
@@ -78,6 +79,11 @@ func parseChatCompletionsStream(body io.Reader, model string, callbacks dashboar
 			return
 		}
 		var chunk struct {
+			Usage *struct {
+				PromptTokens     int64 `json:"prompt_tokens"`
+				CompletionTokens int64 `json:"completion_tokens"`
+				TotalTokens      int64 `json:"total_tokens"`
+			} `json:"usage"`
 			Choices []struct {
 				Delta struct {
 					Content   *string `json:"content"`
@@ -93,7 +99,14 @@ func parseChatCompletionsStream(body io.Reader, model string, callbacks dashboar
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
 		}
-		if json.Unmarshal([]byte(raw), &chunk) != nil || len(chunk.Choices) == 0 {
+		if json.Unmarshal([]byte(raw), &chunk) != nil {
+			return
+		}
+		if chunk.Usage != nil {
+			result.Usage = dashboardChatTokenUsage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
+			result.Usage.normalize()
+		}
+		if len(chunk.Choices) == 0 {
 			return
 		}
 		if chunk.Choices[0].FinishReason != nil && strings.TrimSpace(*chunk.Choices[0].FinishReason) != "" {
