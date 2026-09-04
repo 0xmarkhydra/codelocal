@@ -87,6 +87,11 @@ Target migration:
 
 This must not be implemented until PatchSet/base provenance and reconciliation tests are available.
 
+> Resolution status (2026-09-04): implemented on main. Dirty checkouts are
+> snapshotted (`snapshotSourceChanges`) instead of rejected; provenance is
+> recorded (`SourceRevision`, `SourceDirty`, `SourceStatusFingerprint`);
+> `ErrDirtyRepository` is retained only as a compatibility symbol.
+
 ### 2. Task execution leases exist but task mutations are not CAS-versioned
 
 `taskexecution.Bundle` already has a lease and atomic JSON persistence. This is valuable and should stay.
@@ -98,6 +103,10 @@ Missing:
 - lease generation/token to prevent an expired owner from committing a stale mutation;
 - durable transition validation;
 - dependency DAG ownership.
+
+> Resolution status (2026-09-04): implemented. `Bundle` carries `Revision`,
+> mutations go through the expected-revision API with transition validation,
+> leases are fenced by generation, and task dependencies live in `TaskDAG`.
 
 Target invariant:
 

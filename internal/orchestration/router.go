@@ -10,6 +10,8 @@ const (
 	LaneShell    Lane = "shell"
 	LaneBrowser  Lane = "browser"
 	LaneComputer Lane = "computer"
+	LaneMobile   Lane = "mobile"
+	LaneUnit     Lane = "unit"
 )
 
 type Capabilities struct {
