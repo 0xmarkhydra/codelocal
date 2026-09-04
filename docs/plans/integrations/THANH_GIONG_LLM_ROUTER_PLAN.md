@@ -2,6 +2,12 @@
 
 ## Product decision
 
+> Temporary bypass (2026-09-05): Pool is inert unless
+> `CODELOCAL_AI_POOL_ENABLED=1`. Dashboard chat runs direct OpenCode Zen
+> (`muse-spark-1.3-contributor-free` via `https://opencode.ai/zen/v1`).
+> Re-enable Pool by setting `CODELOCAL_AI_POOL_ENABLED=1` with
+> `CODELOCAL_AI_POOL_BASE_URL` + `CODELOCAL_AI_POOL_API_KEY`.
+
 Dashboard chat exposes a user-selectable model picker while keeping `Auto` as the default.
 
 Built-in fallback models:

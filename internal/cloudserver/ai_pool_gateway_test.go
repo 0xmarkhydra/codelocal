@@ -15,11 +15,13 @@ func clearAIPoolEnv(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "")
 }
 
 func TestDashboardAIPoolConfigNormalizesGateway(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
 
 	config, ok := dashboardAIPoolConfigFromEnv()
@@ -37,6 +39,7 @@ func TestDashboardAIPoolConfigNormalizesGateway(t *testing.T) {
 func TestDashboardAIPoolConfigDefaultsAutoToMuseSpark13(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
 
 	config, ok := dashboardAIPoolConfigFromEnv()
@@ -57,6 +60,7 @@ func TestDashboardAIPoolConfigDefaultsAutoToMuseSpark13(t *testing.T) {
 func TestDashboardAIPoolTargetIsPrivateAndModelScoped(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test/v1")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
 
 	target, ok := dashboardAIPoolTarget("")
@@ -99,6 +103,7 @@ func TestDashboardAIPoolCatalogMakesUnqualifiedComboRoutable(t *testing.T) {
 
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", server.URL+"/v1")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
 
 	models, err := dashboardAIPoolModels(context.Background())
@@ -139,8 +144,27 @@ func TestDashboardPoolSelectableModelsDoesNotTruncateOnlineCatalog(t *testing.T)
 
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", server.URL+"/v1")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	models := dashboardPoolSelectableModels(context.Background())
 	if len(models) != 26 || models[len(models)-1] != dashboardModelMuse {
 		t.Fatalf("online Pool catalog was truncated: len=%d models=%v", len(models), models)
+	}
+}
+
+func TestDashboardAIPoolBypassedUnlessExplicitlyEnabled(t *testing.T) {
+	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test/v1")
+	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "")
+	if _, ok := dashboardAIPoolConfigFromEnv(); ok {
+		t.Fatal("Pool must stay bypassed without explicit opt-in")
+	}
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "0")
+	if _, ok := dashboardAIPoolConfigFromEnv(); ok {
+		t.Fatal("Pool must stay bypassed when explicitly disabled")
+	}
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
+	if _, ok := dashboardAIPoolConfigFromEnv(); !ok {
+		t.Fatal("Pool must engage with explicit opt-in plus base URL and API key")
 	}
 }

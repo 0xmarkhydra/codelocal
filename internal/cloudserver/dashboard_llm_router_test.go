@@ -93,6 +93,7 @@ func TestDashboardLLMRouteOrder(t *testing.T) {
 func TestDashboardAIPoolDefaultsAutoToMuseSpark13(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test/v1")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
 
 	route := dashboardLLMRoute(dashboardModelAuto, false)
@@ -104,6 +105,7 @@ func TestDashboardAIPoolDefaultsAutoToMuseSpark13(t *testing.T) {
 func TestDashboardAIPoolRouteIsExclusiveWhenConfigured(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
 	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
 	// Deliberately configure every legacy provider too. Pool must still be the
 	// only execution plane once enabled.

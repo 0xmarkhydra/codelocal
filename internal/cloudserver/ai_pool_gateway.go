@@ -22,7 +22,25 @@ func dashboardAIPoolCanonicalModelIDSafe(model string) bool {
 	return dashboardModelIDSafe(model) && !strings.Contains(strings.TrimSpace(model), "/")
 }
 
+// dashboardAIPoolEnabled reports whether the canonical Pool execution plane is
+// enabled. Pool is temporarily bypassed: dashboard chat uses direct OpenCode
+// Zen (muse-spark-1.3-contributor-free via https://opencode.ai/zen/v1) unless
+// CODELOCAL_AI_POOL_ENABLED is explicitly set to 1/true/on/yes.
+// Re-enable Pool with CODELOCAL_AI_POOL_ENABLED=1 plus
+// CODELOCAL_AI_POOL_BASE_URL and CODELOCAL_AI_POOL_API_KEY.
+func dashboardAIPoolEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_AI_POOL_ENABLED"))) {
+	case "1", "true", "on", "yes", "enabled":
+		return true
+	default:
+		return false
+	}
+}
+
 func dashboardAIPoolConfigFromEnv() (dashboardAIPoolConfig, bool) {
+	if !dashboardAIPoolEnabled() {
+		return dashboardAIPoolConfig{}, false
+	}
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("CODELOCAL_AI_POOL_BASE_URL")), "/")
 	apiKey := strings.TrimSpace(os.Getenv("CODELOCAL_AI_POOL_API_KEY"))
 	if baseURL == "" || apiKey == "" {
