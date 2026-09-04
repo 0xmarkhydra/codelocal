@@ -298,9 +298,37 @@ export function DashboardChat() {
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const quickMessageRef = useRef<string | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const updateViewport = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty("--app-viewport-height", `${height}px`);
+      document.documentElement.dataset.keyboardOpen = height < window.innerHeight * 0.78 ? "true" : "false";
+    };
+    updateViewport();
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("orientationchange", updateViewport);
+    return () => {
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("orientationchange", updateViewport);
+      delete document.documentElement.dataset.keyboardOpen;
+      document.documentElement.style.removeProperty("--app-viewport-height");
+    };
+  }, []);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+  }, [input]);
 
   const workspaceItems = useMemo(
     () => workspaces.state.kind === "ready" ? workspaces.state.value.items : [],
@@ -556,7 +584,8 @@ export function DashboardChat() {
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey) return;
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 620) return;
     event.preventDefault();
     formRef.current?.requestSubmit();
   }
@@ -1178,7 +1207,7 @@ export function DashboardChat() {
 
         <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
-          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" rows={1} />
+          <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" enterKeyHint="enter" rows={1} />
           <div className={styles.composerToolbar}>
             <div className={styles.composerOptions}>
               <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={loading || imageUploading}>

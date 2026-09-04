@@ -20,7 +20,13 @@ export const metadata: Metadata = {
   },
   description:
     "Connect AI coding clients to an authorized local runtime and durable Project Brain without moving raw source execution into the cloud.",
+  manifest: "/manifest.webmanifest",
+  applicationName: "CodeLocal",
+  appleWebApp: { capable: true, title: "CodeLocal", statusBarStyle: "black-translucent" },
+  icons: { icon: "/codelocal-icon.png", apple: "/codelocal-icon.png" },
 };
+
+export const viewport = { themeColor: "#07101a", width: "device-width", initialScale: 1, viewportFit: "cover" as const };
 
 export default function RootLayout({
   children,

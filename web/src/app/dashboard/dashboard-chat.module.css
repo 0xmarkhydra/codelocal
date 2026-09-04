@@ -1596,3 +1596,11 @@
   .threadItemActions,
   .goalField { transition: none; }
 }
+
+@media (max-width: 620px) {
+  .chatWorkspace { height: 100%; }
+  .chatForm { margin-bottom: max(5px, env(safe-area-inset-bottom)); }
+  .chatForm textarea { min-height: 42px; max-height: 144px; overflow-y: auto; resize: none; }
+  :global(html[data-keyboard-open="true"]) .threadSidebar { display: none; }
+  :global(html[data-keyboard-open="true"]) .chatWorkspace { grid-template-rows: minmax(0, 1fr); gap: 0; }
+}
