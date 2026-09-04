@@ -4,7 +4,7 @@ Status: **Approved direction / implementation blueprint**
 Date: **2026-08-19**  
 Owner: **CodeLocal**  
 Scope: **All user-facing CodeLocal surfaces**  
-Related: `NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`, `DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md`, `PROJECT_BRAIN_MASTER_PLAN.md`, `UNIVERSAL_AGENT_RUNTIME_PLAN.md`
+Related: `EXECUTIVE_CODEX_COMPANY_OS_UX_MASTER_PLAN.md`, `NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`, `DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md`, `PROJECT_BRAIN_MASTER_PLAN.md`, `UNIVERSAL_AGENT_RUNTIME_PLAN.md`
 
 > Product goal: CodeLocal must stop looking like a collection of individually styled web pages and become one recognizable product system: a cinematic technical environment built around real project intelligence, while forms, security and operational controls remain fast, clear and trustworthy.
 >

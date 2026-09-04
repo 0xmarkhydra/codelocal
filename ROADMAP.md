@@ -11,6 +11,8 @@
 > The web-first Neural Control Plane / living Project Brain dashboard redesign, including the explicit boundary between web-only phases and later npm/native realtime telemetry, is tracked in [`NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md`](./docs/plans/ui/NEURAL_CONTROL_PLANE_DASHBOARD_MASTER_PLAN.md).
 >
 > The local/open design-recipe architecture — reusable Composition + Style + Assets + Motion/3D specifications, provenance-aware recipe storage, retrieval, framework adaptation, preview/verification, and durable design state — is tracked in [`DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md`](./docs/plans/ui/DESIGN_RECIPE_LIBRARY_MASTER_PLAN.md). It explicitly excludes scraping/bypassing paid libraries and only permits user-provided, licensed, open-source, or original recipes.
+>
+> The accepted Autonomous Project OS direction — one Codex-like direct workspace plus an autonomous Company OS behind the same Chat/Project/Task/Brain, with Global Executive Chat, Chief Agent, Tester-DONE semantics, requirement-change propagation, Feedback loop and cross-domain project support — is tracked in [`AUTONOMOUS_PROJECT_OS_MASTER_PLAN.md`](./docs/plans/product/AUTONOMOUS_PROJECT_OS_MASTER_PLAN.md). The canonical UX is defined in [`EXECUTIVE_CODEX_COMPANY_OS_UX_MASTER_PLAN.md`](./docs/plans/ui/EXECUTIVE_CODEX_COMPANY_OS_UX_MASTER_PLAN.md), and the first end-to-end build slice is defined in [`AUTONOMOUS_PROJECT_OS_24H_IMPLEMENTATION_PLAN.md`](./docs/plans/execution/AUTONOMOUS_PROJECT_OS_24H_IMPLEMENTATION_PLAN.md).
 
 ## Goal
 
