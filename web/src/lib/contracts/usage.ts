@@ -5,13 +5,38 @@ export type UsageWindow = {
   totalTokensEstimated: number;
 };
 
-export type UsageResource = {
-  estimated: true;
-  scope: string;
+export type ReportedUsageWindow = {
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
+export type ReportedUsage = {
+  source: "provider_reported";
+  last1h: ReportedUsageWindow;
+  last24h: ReportedUsageWindow;
+  last30d: ReportedUsageWindow;
+  allTime: ReportedUsageWindow;
+};
+
+export type EstimatedUsage = {
+  source: "payload_estimated";
   last1h: UsageWindow;
   last24h: UsageWindow;
   last30d: UsageWindow;
   allTime: UsageWindow;
+};
+
+export type UsageResource = {
+  estimated: true;
+  scope: string;
+  last1h?: UsageWindow;
+  last24h: UsageWindow;
+  last30d: UsageWindow;
+  allTime: UsageWindow;
+  webChat: ReportedUsage;
+  mcp: EstimatedUsage;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -32,14 +57,38 @@ function isUsageWindow(value: unknown): value is UsageWindow {
   );
 }
 
+function isReportedUsageWindow(value: unknown): value is ReportedUsageWindow {
+  if (!isRecord(value)) return false;
+  return (
+    isFiniteNumber(value.turns) &&
+    isFiniteNumber(value.inputTokens) &&
+    isFiniteNumber(value.outputTokens) &&
+    isFiniteNumber(value.totalTokens)
+  );
+}
+
+function isReportedUsage(value: unknown): value is ReportedUsage {
+  return isRecord(value) && value.source === "provider_reported" &&
+    isReportedUsageWindow(value.last1h) && isReportedUsageWindow(value.last24h) &&
+    isReportedUsageWindow(value.last30d) && isReportedUsageWindow(value.allTime);
+}
+
+function isEstimatedUsage(value: unknown): value is EstimatedUsage {
+  return isRecord(value) && value.source === "payload_estimated" &&
+    isUsageWindow(value.last1h) && isUsageWindow(value.last24h) &&
+    isUsageWindow(value.last30d) && isUsageWindow(value.allTime);
+}
+
 export function isUsageResource(value: unknown): value is UsageResource {
   if (!isRecord(value)) return false;
   return (
     value.estimated === true &&
     typeof value.scope === "string" &&
-    isUsageWindow(value.last1h) &&
+    (value.last1h === undefined || isUsageWindow(value.last1h)) &&
     isUsageWindow(value.last24h) &&
     isUsageWindow(value.last30d) &&
-    isUsageWindow(value.allTime)
+    isUsageWindow(value.allTime) &&
+    isReportedUsage(value.webChat) &&
+    isEstimatedUsage(value.mcp)
   );
 }

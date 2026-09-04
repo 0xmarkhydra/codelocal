@@ -40,19 +40,19 @@ type ExperienceCandidate struct {
 }
 
 type VerifiedOutcome struct {
-	TaskID              string `json:"taskId"`
-	VerificationPassed  bool   `json:"verificationPassed"`
-	SecurityPassed      bool   `json:"securityPassed"`
-	RegressionFree      bool   `json:"regressionFree"`
-	RequiredChecks      int    `json:"requiredChecks"`
-	PassedRequiredChecks int   `json:"passedRequiredChecks"`
+	TaskID               string `json:"taskId"`
+	VerificationPassed   bool   `json:"verificationPassed"`
+	SecurityPassed       bool   `json:"securityPassed"`
+	RegressionFree       bool   `json:"regressionFree"`
+	RequiredChecks       int    `json:"requiredChecks"`
+	PassedRequiredChecks int    `json:"passedRequiredChecks"`
 }
 
 type ExperienceDecision struct {
-	Status     ExperienceStatus `json:"status"`
+	Status     ExperienceStatus    `json:"status"`
 	Candidate  ExperienceCandidate `json:"candidate"`
-	Trust      string           `json:"trust,omitempty"`
-	ReasonCode string           `json:"reasonCode"`
+	Trust      string              `json:"trust,omitempty"`
+	ReasonCode string              `json:"reasonCode"`
 }
 
 // EvaluateExperience is the promotion gate between runtime outcomes and Project
@@ -104,21 +104,35 @@ func EvaluateExperience(input ExperienceCandidate, outcome VerifiedOutcome) (Exp
 func SelectExperiences(decisions []ExperienceDecision, branch, trigger string, limit int) []ExperienceCandidate {
 	branch = strings.TrimSpace(branch)
 	trigger = strings.ToLower(strings.TrimSpace(trigger))
-	if limit <= 0 { limit = 8 }
-	if limit > 32 { limit = 32 }
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 32 {
+		limit = 32
+	}
 	out := []ExperienceCandidate{}
 	for _, decision := range decisions {
-		if decision.Status != ExperiencePromoted || decision.Trust != "verified" { continue }
+		if decision.Status != ExperiencePromoted || decision.Trust != "verified" {
+			continue
+		}
 		candidate := decision.Candidate
-		if candidate.BranchScope != "" && branch != "" && candidate.BranchScope != branch { continue }
-		if trigger != "" && candidate.Trigger != "" && !strings.Contains(trigger, strings.ToLower(candidate.Trigger)) && !strings.Contains(strings.ToLower(candidate.Trigger), trigger) { continue }
+		if candidate.BranchScope != "" && branch != "" && candidate.BranchScope != branch {
+			continue
+		}
+		if trigger != "" && candidate.Trigger != "" && !strings.Contains(trigger, strings.ToLower(candidate.Trigger)) && !strings.Contains(strings.ToLower(candidate.Trigger), trigger) {
+			continue
+		}
 		out = append(out, candidate)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Confidence != out[j].Confidence { return out[i].Confidence > out[j].Confidence }
+		if out[i].Confidence != out[j].Confidence {
+			return out[i].Confidence > out[j].Confidence
+		}
 		return out[i].ID < out[j].ID
 	})
-	if len(out) > limit { out = out[:limit] }
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out
 }
 
@@ -132,10 +146,20 @@ func normalizeExperience(candidate ExperienceCandidate) (ExperienceCandidate, er
 	candidate.Preconditions = experienceStrings(candidate.Preconditions)
 	candidate.EvidenceRefs = experienceStrings(candidate.EvidenceRefs)
 	candidate.VerificationRefs = experienceStrings(candidate.VerificationRefs)
-	if candidate.ID == "" { candidate.ID = "experience:" + experienceDigest(string(candidate.Kind), candidate.Statement, candidate.BranchScope) }
-	if candidate.Statement == "" || !validExperienceKind(candidate.Kind) || candidate.Confidence < 0 || candidate.Confidence > 1 { return ExperienceCandidate{}, ErrInvalidExperience }
-	if len(candidate.Statement) > 4096 { candidate.Statement = candidate.Statement[:4096] }
-	if candidate.CreatedAt.IsZero() { candidate.CreatedAt = time.Now().UTC() } else { candidate.CreatedAt = candidate.CreatedAt.UTC() }
+	if candidate.ID == "" {
+		candidate.ID = "experience:" + experienceDigest(string(candidate.Kind), candidate.Statement, candidate.BranchScope)
+	}
+	if candidate.Statement == "" || !validExperienceKind(candidate.Kind) || candidate.Confidence < 0 || candidate.Confidence > 1 {
+		return ExperienceCandidate{}, ErrInvalidExperience
+	}
+	if len(candidate.Statement) > 4096 {
+		candidate.Statement = candidate.Statement[:4096]
+	}
+	if candidate.CreatedAt.IsZero() {
+		candidate.CreatedAt = time.Now().UTC()
+	} else {
+		candidate.CreatedAt = candidate.CreatedAt.UTC()
+	}
 	return candidate, nil
 }
 
@@ -144,9 +168,15 @@ func experienceStrings(values []string) []string {
 	out := []string{}
 	for _, value := range values {
 		value = strings.Join(strings.Fields(value), " ")
-		if value == "" { continue }
-		if len(value) > 256 { value = value[:256] }
-		if _, ok := seen[value]; ok { continue }
+		if value == "" {
+			continue
+		}
+		if len(value) > 256 {
+			value = value[:256]
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
 		seen[value] = struct{}{}
 		out = append(out, value)
 	}
@@ -154,5 +184,14 @@ func experienceStrings(values []string) []string {
 	return out
 }
 
-func validExperienceKind(kind ExperienceKind) bool { return kind == ExperienceFact || kind == ExperienceWorkflow || kind == ExperienceFailureRecovery }
-func experienceDigest(parts ...string) string { h := sha256.New(); for _, part := range parts { _, _ = h.Write([]byte(strings.TrimSpace(part))); _, _ = h.Write([]byte{0}) }; return hex.EncodeToString(h.Sum(nil))[:20] }
+func validExperienceKind(kind ExperienceKind) bool {
+	return kind == ExperienceFact || kind == ExperienceWorkflow || kind == ExperienceFailureRecovery
+}
+func experienceDigest(parts ...string) string {
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = h.Write([]byte(strings.TrimSpace(part)))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:20]
+}

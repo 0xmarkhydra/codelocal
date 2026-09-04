@@ -37,14 +37,14 @@ var (
 )
 
 type AgentGraphNode struct {
-	ID        string               "id"
-	Revision  uint64               "revision"
-	AgentID   string               "agentId"
-	Role      string               "role,omitempty"
-	Status    AgentGraphNodeStatus "status"
-	ParentID  string               "parentId,omitempty"
-	CreatedAt time.Time            "createdAt"
-	UpdatedAt time.Time            "updatedAt"
+	ID        string               `json:"id"`
+	Revision  uint64               `json:"revision"`
+	AgentID   string               `json:"agentId"`
+	Role      string               `json:"role,omitempty"`
+	Status    AgentGraphNodeStatus `json:"status"`
+	ParentID  string               `json:"parentId,omitempty"`
+	CreatedAt time.Time            `json:"createdAt"`
+	UpdatedAt time.Time            `json:"updatedAt"`
 }
 
 func (n AgentGraphNode) Clone() AgentGraphNode {
@@ -52,12 +52,12 @@ func (n AgentGraphNode) Clone() AgentGraphNode {
 }
 
 type AgentGraphEdge struct {
-	ID        string    "id"
-	Revision  uint64    "revision"
-	FromID    string    "fromId"
-	ToID      string    "toId"
-	Kind      string    "kind"
-	CreatedAt time.Time "createdAt"
+	ID        string    `json:"id"`
+	Revision  uint64    `json:"revision"`
+	FromID    string    `json:"fromId"`
+	ToID      string    `json:"toId"`
+	Kind      string    `json:"kind"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 func (e AgentGraphEdge) Clone() AgentGraphEdge {

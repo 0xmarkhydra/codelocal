@@ -55,12 +55,12 @@ func NewShadowRuntime(events *runtimeevents.Store, workspaceKey, taskID string, 
 	return &ShadowRuntime{graph: graph, activations: activations, dag: dag, mailbox: mailbox, verification: verification, recovery: recovery}, nil
 }
 
-func (r *ShadowRuntime) Graph() *agentruntime.AgentGraph { return r.graph }
+func (r *ShadowRuntime) Graph() *agentruntime.AgentGraph              { return r.graph }
 func (r *ShadowRuntime) Activations() *agentruntime.ActivationManager { return r.activations }
-func (r *ShadowRuntime) DAG() *TaskDAG { return r.dag }
-func (r *ShadowRuntime) Mailbox() *Mailbox { return r.mailbox }
-func (r *ShadowRuntime) Verification() *VerificationGate { return r.verification }
-func (r *ShadowRuntime) Recovery() *RecoveryLedger { return r.recovery }
+func (r *ShadowRuntime) DAG() *TaskDAG                                { return r.dag }
+func (r *ShadowRuntime) Mailbox() *Mailbox                            { return r.mailbox }
+func (r *ShadowRuntime) Verification() *VerificationGate              { return r.verification }
+func (r *ShadowRuntime) Recovery() *RecoveryLedger                    { return r.recovery }
 
 // PrepareRunnableAssignments creates compact durable mailbox references for
 // runnable nodes. The node payload remains in the DAG, avoiding duplicated task

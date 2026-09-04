@@ -3,37 +3,37 @@ package releasegate
 // BoardSignals carries measurements that task samples do not capture on their
 // own: cost, call volumes, waste ratios and lane verification rates.
 type BoardSignals struct {
-	CostPerVerifiedTask     float64 "costPerVerifiedTask"
-	TimePerVerifiedTaskMs   int64   "timePerVerifiedTaskMs"
-	ModelCallsPerTask       float64 "modelCallsPerTask"
-	ToolCallsPerTask        float64 "toolCallsPerTask"
-	RetryWaste              int64   "retryWaste"
-	DuplicateContextRatio   float64 "duplicateContextRatio"
-	ContextCacheHitRate     float64 "contextCacheHitRate"
-	BrainReuseRate          float64 "brainReuseRate"
-	BrowserVerificationRate float64 "browserVerificationRate"
-	MobileVerificationRate  float64 "mobileVerificationRate"
+	CostPerVerifiedTask     float64 `json:"costPerVerifiedTask"`
+	TimePerVerifiedTaskMs   int64   `json:"timePerVerifiedTaskMs"`
+	ModelCallsPerTask       float64 `json:"modelCallsPerTask"`
+	ToolCallsPerTask        float64 `json:"toolCallsPerTask"`
+	RetryWaste              int64   `json:"retryWaste"`
+	DuplicateContextRatio   float64 `json:"duplicateContextRatio"`
+	ContextCacheHitRate     float64 `json:"contextCacheHitRate"`
+	BrainReuseRate          float64 `json:"brainReuseRate"`
+	BrowserVerificationRate float64 `json:"browserVerificationRate"`
+	MobileVerificationRate  float64 `json:"mobileVerificationRate"`
 }
 
 // MeasurementBoard is the plan X tracking contract. Rate math comes from
 // AggregateSamples so the board can never disagree with the release gate.
 type MeasurementBoard struct {
-	VerifiedSuccessRate     float64 "verifiedSuccessRate"
-	TokensPerVerifiedTask   int64   "tokensPerVerifiedTask"
-	CostPerVerifiedTask     float64 "costPerVerifiedTask"
-	TimePerVerifiedTaskMs   int64   "timePerVerifiedTaskMs"
-	ModelCallsPerTask       float64 "modelCallsPerTask"
-	ToolCallsPerTask        float64 "toolCallsPerTask"
-	RetryWaste              int64   "retryWaste"
-	DuplicateContextRatio   float64 "duplicateContextRatio"
-	ContextCacheHitRate     float64 "contextCacheHitRate"
-	BrainReuseRate          float64 "brainReuseRate"
-	HumanInterventions      float64 "humanInterventionsPerTask"
-	ResumeSuccessRate       float64 "resumeSuccessRate"
-	LostUpdateCount         int64   "lostUpdateCount"
-	SecurityRegressionCount int64   "securityRegressionCount"
-	BrowserVerificationRate float64 "browserVerificationRate"
-	MobileVerificationRate  float64 "mobileVerificationRate"
+	VerifiedSuccessRate     float64 `json:"verifiedSuccessRate"`
+	TokensPerVerifiedTask   int64   `json:"tokensPerVerifiedTask"`
+	CostPerVerifiedTask     float64 `json:"costPerVerifiedTask"`
+	TimePerVerifiedTaskMs   int64   `json:"timePerVerifiedTaskMs"`
+	ModelCallsPerTask       float64 `json:"modelCallsPerTask"`
+	ToolCallsPerTask        float64 `json:"toolCallsPerTask"`
+	RetryWaste              int64   `json:"retryWaste"`
+	DuplicateContextRatio   float64 `json:"duplicateContextRatio"`
+	ContextCacheHitRate     float64 `json:"contextCacheHitRate"`
+	BrainReuseRate          float64 `json:"brainReuseRate"`
+	HumanInterventions      float64 `json:"humanInterventionsPerTask"`
+	ResumeSuccessRate       float64 `json:"resumeSuccessRate"`
+	LostUpdateCount         int64   `json:"lostUpdateCount"`
+	SecurityRegressionCount int64   `json:"securityRegressionCount"`
+	BrowserVerificationRate float64 `json:"browserVerificationRate"`
+	MobileVerificationRate  float64 `json:"mobileVerificationRate"`
 }
 
 func SummarizeBoard(samples []TaskSample, signals BoardSignals) (MeasurementBoard, error) {

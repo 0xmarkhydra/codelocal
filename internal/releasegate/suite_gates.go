@@ -18,8 +18,8 @@ const (
 var ErrBenchmarkSuiteTooSmall = errors.New("benchmark suite has too few samples")
 
 type SuiteReport struct {
-	Suite  BenchmarkSuite  "suite"
-	Report BenchmarkReport "report"
+	Suite  BenchmarkSuite  `json:"suite"`
+	Report BenchmarkReport `json:"report"`
 }
 
 // EvaluateSuite runs the shared release gate for one benchmark suite (plan

@@ -28,11 +28,11 @@ func (o Outcome) Validate() error {
 type CandidateState string
 
 const (
-	CandidateProposed  CandidateState = "proposed"
+	CandidateProposed   CandidateState = "proposed"
 	CandidateEvaluating CandidateState = "evaluating"
-	CandidateCanary    CandidateState = "canary"
-	CandidatePromoted  CandidateState = "promoted"
-	CandidateRejected  CandidateState = "rejected"
+	CandidateCanary     CandidateState = "canary"
+	CandidatePromoted   CandidateState = "promoted"
+	CandidateRejected   CandidateState = "rejected"
 	CandidateRolledBack CandidateState = "rolled_back"
 )
 

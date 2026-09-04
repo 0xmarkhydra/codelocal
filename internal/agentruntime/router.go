@@ -13,33 +13,33 @@ import (
 var ErrNoRoutableEngine = errors.New("no routable agent engine")
 
 type EngineHistory struct {
-	EngineID         string  `json:"engineId"`
-	Quality          float64 `json:"quality,omitempty"`
-	HistoricSuccess  float64 `json:"historicSuccess,omitempty"`
-	TokenEfficiency  float64 `json:"tokenEfficiency,omitempty"`
-	Reliability      float64 `json:"reliability,omitempty"`
-	CostEfficiency   float64 `json:"costEfficiency,omitempty"`
-	LatencyScore     float64 `json:"latencyScore,omitempty"`
-	Samples          int64   `json:"samples,omitempty"`
+	EngineID        string  `json:"engineId"`
+	Quality         float64 `json:"quality,omitempty"`
+	HistoricSuccess float64 `json:"historicSuccess,omitempty"`
+	TokenEfficiency float64 `json:"tokenEfficiency,omitempty"`
+	Reliability     float64 `json:"reliability,omitempty"`
+	CostEfficiency  float64 `json:"costEfficiency,omitempty"`
+	LatencyScore    float64 `json:"latencyScore,omitempty"`
+	Samples         int64   `json:"samples,omitempty"`
 }
 
 type RouteRequest struct {
-	Mode            Mode                 `json:"mode"`
-	EngineProfile   string               `json:"engineProfile,omitempty"`
-	RequireResume   bool                 `json:"requireResume,omitempty"`
-	RequireMCP      bool                 `json:"requireMcp,omitempty"`
-	RequirePlan     bool                 `json:"requirePlan,omitempty"`
-	Budget          usage.BudgetDecision `json:"budget"`
-	History         []EngineHistory      `json:"history,omitempty"`
+	Mode          Mode                 `json:"mode"`
+	EngineProfile string               `json:"engineProfile,omitempty"`
+	RequireResume bool                 `json:"requireResume,omitempty"`
+	RequireMCP    bool                 `json:"requireMcp,omitempty"`
+	RequirePlan   bool                 `json:"requirePlan,omitempty"`
+	Budget        usage.BudgetDecision `json:"budget"`
+	History       []EngineHistory      `json:"history,omitempty"`
 }
 
 type EngineCandidate struct {
-	EngineID      string       `json:"engineId"`
-	Score         float64      `json:"score"`
-	CapabilityFit float64      `json:"capabilityFit"`
-	Probe         ProbeResult  `json:"probe"`
+	EngineID      string        `json:"engineId"`
+	Score         float64       `json:"score"`
+	CapabilityFit float64       `json:"capabilityFit"`
+	Probe         ProbeResult   `json:"probe"`
 	History       EngineHistory `json:"history"`
-	Reasons       []string     `json:"reasons,omitempty"`
+	Reasons       []string      `json:"reasons,omitempty"`
 }
 
 // RankEngines is provider-neutral. It rejects incompatible engines first, then
@@ -49,58 +49,111 @@ func RankEngines(probes []ProbeResult, input RouteRequest) []EngineCandidate {
 	history := map[string]EngineHistory{}
 	for _, item := range input.History {
 		id := strings.ToLower(strings.TrimSpace(item.EngineID))
-		if id != "" { item.EngineID = id; history[id] = normalizeEngineHistory(item) }
+		if id != "" {
+			item.EngineID = id
+			history[id] = normalizeEngineHistory(item)
+		}
 	}
 	out := []EngineCandidate{}
 	for _, probe := range probes {
 		id := strings.ToLower(strings.TrimSpace(probe.EngineID))
-		if id == "" || !probe.Installed || !probe.Compatible || probe.Auth == AuthRequired { continue }
+		if id == "" || !probe.Installed || !probe.Compatible || probe.Auth == AuthRequired {
+			continue
+		}
 		fit, reasons, ok := routeCapabilityFit(probe.Capabilities, input)
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		h := history[id]
-		if h.EngineID == "" { h = neutralEngineHistory(id) }
+		if h.EngineID == "" {
+			h = neutralEngineHistory(id)
+		}
 		weights := routeWeights(input.Budget)
 		score := weights[0]*fit + weights[1]*h.Quality + weights[2]*h.HistoricSuccess + weights[3]*h.TokenEfficiency + weights[4]*h.Reliability + weights[5]*h.CostEfficiency + weights[6]*h.LatencyScore
 		out = append(out, EngineCandidate{EngineID: id, Score: score, CapabilityFit: fit, Probe: probe, History: h, Reasons: reasons})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if math.Abs(out[i].Score-out[j].Score) > 1e-9 { return out[i].Score > out[j].Score }
+		if math.Abs(out[i].Score-out[j].Score) > 1e-9 {
+			return out[i].Score > out[j].Score
+		}
 		return out[i].EngineID < out[j].EngineID
 	})
 	return out
 }
 
 func SelectEngine(ctx context.Context, registry *Registry, input RouteRequest) (EngineCandidate, error) {
-	if registry == nil { return EngineCandidate{}, ErrNoRoutableEngine }
+	if registry == nil {
+		return EngineCandidate{}, ErrNoRoutableEngine
+	}
 	ranked := RankEngines(registry.ProbeAll(ctx), input)
-	if len(ranked) == 0 { return EngineCandidate{}, ErrNoRoutableEngine }
+	if len(ranked) == 0 {
+		return EngineCandidate{}, ErrNoRoutableEngine
+	}
 	return ranked[0], nil
 }
 
 func routeCapabilityFit(cap Capabilities, input RouteRequest) (float64, []string, bool) {
 	mode := input.Mode
-	if mode == "" { mode = ModeReview }
-	if mode == ModeMutate && (!cap.FileEditing || !mutationIsolationAllowed(cap)) { return 0, nil, false }
-	if input.RequireResume && !cap.Resume { return 0, nil, false }
-	if input.RequireMCP && !cap.MCP { return 0, nil, false }
-	if input.RequirePlan && !cap.PlanMode { return 0, nil, false }
+	if mode == "" {
+		mode = ModeReview
+	}
+	if mode == ModeMutate && (!cap.FileEditing || !mutationIsolationAllowed(cap)) {
+		return 0, nil, false
+	}
+	if input.RequireResume && !cap.Resume {
+		return 0, nil, false
+	}
+	if input.RequireMCP && !cap.MCP {
+		return 0, nil, false
+	}
+	if input.RequirePlan && !cap.PlanMode {
+		return 0, nil, false
+	}
 	fit := .55
 	reasons := []string{}
-	if cap.StructuredOutput { fit += .1; reasons = append(reasons, "structured") }
-	if cap.Streaming { fit += .05; reasons = append(reasons, "streaming") }
-	if cap.Resume { fit += .05; reasons = append(reasons, "resume") }
+	if cap.StructuredOutput {
+		fit += .1
+		reasons = append(reasons, "structured")
+	}
+	if cap.Streaming {
+		fit += .05
+		reasons = append(reasons, "streaming")
+	}
+	if cap.Resume {
+		fit += .05
+		reasons = append(reasons, "resume")
+	}
 	profile := strings.ToLower(strings.TrimSpace(input.EngineProfile))
 	switch profile {
 	case "fast":
-		if cap.NonInteractive { fit += .15 }
+		if cap.NonInteractive {
+			fit += .15
+		}
 	case "coding":
-		if cap.FileEditing { fit += .15 }; if cap.ShellExecution { fit += .1 }
+		if cap.FileEditing {
+			fit += .15
+		}
+		if cap.ShellExecution {
+			fit += .1
+		}
 	case "reasoning":
-		if cap.PlanMode { fit += .1 }; if cap.ReviewMode { fit += .1 }
+		if cap.PlanMode {
+			fit += .1
+		}
+		if cap.ReviewMode {
+			fit += .1
+		}
 	case "strong":
-		if cap.StructuredOutput { fit += .1 }; if cap.PlanMode { fit += .1 }
+		if cap.StructuredOutput {
+			fit += .1
+		}
+		if cap.PlanMode {
+			fit += .1
+		}
 	}
-	if fit > 1 { fit = 1 }
+	if fit > 1 {
+		fit = 1
+	}
 	return fit, reasons, true
 }
 
@@ -131,4 +184,12 @@ func normalizeEngineHistory(value EngineHistory) EngineHistory {
 	return value
 }
 
-func clamp01(value float64) float64 { if value < 0 { return 0 }; if value > 1 { return 1 }; return value }
+func clamp01(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}

@@ -17,13 +17,13 @@ var ErrInvalidTaskResume = errors.New("invalid task resume snapshot")
 // that replays fewer events than the mark, or a different bundle, fails
 // closed instead of resuming into a split-brain execution.
 type TaskResumeSnapshot struct {
-	SchemaVersion  int       "schemaVersion"
-	TaskID         string    "taskId"
-	WorkspaceKey   string    "workspaceKey"
-	Bundle         Bundle    "bundle"
-	EventHighWater uint64    "eventHighWater"
-	ExportedAt     time.Time "exportedAt"
-	Digest         string    "digest"
+	SchemaVersion  int       `json:"schemaVersion"`
+	TaskID         string    `json:"taskId"`
+	WorkspaceKey   string    `json:"workspaceKey"`
+	Bundle         Bundle    `json:"bundle"`
+	EventHighWater uint64    `json:"eventHighWater"`
+	ExportedAt     time.Time `json:"exportedAt"`
+	Digest         string    `json:"digest"`
 }
 
 func ExportTaskResume(bundle Bundle, eventHighWater uint64) (TaskResumeSnapshot, error) {

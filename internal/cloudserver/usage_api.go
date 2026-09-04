@@ -15,33 +15,52 @@ type usageWindowDTO struct {
 	TotalTokensEstimated  int64 `json:"totalTokensEstimated"`
 }
 
+type reportedUsageWindowDTO struct {
+	Turns        int64 `json:"turns"`
+	InputTokens  int64 `json:"inputTokens"`
+	OutputTokens int64 `json:"outputTokens"`
+	TotalTokens  int64 `json:"totalTokens"`
+}
+
+type reportedUsageDTO struct {
+	Source  string                 `json:"source"`
+	Last1h  reportedUsageWindowDTO `json:"last1h"`
+	Last24h reportedUsageWindowDTO `json:"last24h"`
+	Last30d reportedUsageWindowDTO `json:"last30d"`
+	AllTime reportedUsageWindowDTO `json:"allTime"`
+}
+
+type estimatedUsageDTO struct {
+	Source  string         `json:"source"`
+	Last1h  usageWindowDTO `json:"last1h"`
+	Last24h usageWindowDTO `json:"last24h"`
+	Last30d usageWindowDTO `json:"last30d"`
+	AllTime usageWindowDTO `json:"allTime"`
+}
+
 type usageResourceDTO struct {
-	Estimated bool           `json:"estimated"`
-	Scope     string         `json:"scope"`
-	Last1h    usageWindowDTO `json:"last1h"`
-	Last24h   usageWindowDTO `json:"last24h"`
-	Last30d   usageWindowDTO `json:"last30d"`
-	AllTime   usageWindowDTO `json:"allTime"`
+	// Legacy MCP fields remain during rolling deployments.
+	Estimated bool              `json:"estimated"`
+	Scope     string            `json:"scope"`
+	Last1h    usageWindowDTO    `json:"last1h"`
+	Last24h   usageWindowDTO    `json:"last24h"`
+	Last30d   usageWindowDTO    `json:"last30d"`
+	AllTime   usageWindowDTO    `json:"allTime"`
+	WebChat   reportedUsageDTO  `json:"webChat"`
+	MCP       estimatedUsageDTO `json:"mcp"`
 }
 
-func usageWindow(value cloud.MCPUsageSummary) usageWindowDTO {
-	return usageWindowDTO{
-		Calls:                 value.Calls,
-		InputTokensEstimated:  value.InputTokensEst,
-		OutputTokensEstimated: value.OutputTokensEst,
-		TotalTokensEstimated:  value.TotalTokensEst,
-	}
+func usageWindow(v cloud.MCPUsageSummary) usageWindowDTO {
+	return usageWindowDTO{v.Calls, v.InputTokensEst, v.OutputTokensEst, v.TotalTokensEst}
+}
+func reportedUsageWindow(v cloud.DashboardChatUsageSummary) reportedUsageWindowDTO {
+	return reportedUsageWindowDTO{v.Turns, v.InputTokens, v.OutputTokens, v.TotalTokens}
 }
 
-func buildUsageResourceDTO(last1h, last24h, last30d, allTime cloud.MCPUsageSummary) usageResourceDTO {
-	return usageResourceDTO{
-		Estimated: true,
-		Scope:     dashboardUsageScope,
-		Last1h:    usageWindow(last1h),
-		Last24h:   usageWindow(last24h),
-		Last30d:   usageWindow(last30d),
-		AllTime:   usageWindow(allTime),
-	}
+func buildUsageResourceDTO(m1, m24, m30, mall cloud.MCPUsageSummary, w1, w24, w30, wall cloud.DashboardChatUsageSummary) usageResourceDTO {
+	return usageResourceDTO{true, dashboardUsageScope, usageWindow(m1), usageWindow(m24), usageWindow(m30), usageWindow(mall),
+		reportedUsageDTO{"provider_reported", reportedUsageWindow(w1), reportedUsageWindow(w24), reportedUsageWindow(w30), reportedUsageWindow(wall)},
+		estimatedUsageDTO{"payload_estimated", usageWindow(m1), usageWindow(m24), usageWindow(m30), usageWindow(mall)}}
 }
 
 func (s *Server) usageResourceAPI(w http.ResponseWriter, r *http.Request) {
@@ -49,28 +68,20 @@ func (s *Server) usageResourceAPI(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
 	now := time.Now()
-	last1h, err := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, now.Add(-time.Hour).UnixMilli())
-	if err != nil {
-		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "usage_unavailable"})
-		return
+	since := []int64{now.Add(-time.Hour).UnixMilli(), now.Add(-24 * time.Hour).UnixMilli(), now.Add(-30 * 24 * time.Hour).UnixMilli(), 0}
+	m := make([]cloud.MCPUsageSummary, 4)
+	c := make([]cloud.DashboardChatUsageSummary, 4)
+	for i, start := range since {
+		var err error
+		m[i], err = s.Store.MCPUsageSummary(r.Context(), identity.User.ID, start)
+		if err == nil {
+			c[i], err = s.Store.DashboardChatUsageSummary(r.Context(), identity.User.ID, start)
+		}
+		if err != nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "usage_unavailable"})
+			return
+		}
 	}
-	last24h, err := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, now.Add(-24*time.Hour).UnixMilli())
-	if err != nil {
-		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "usage_unavailable"})
-		return
-	}
-	last30d, err := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, now.Add(-30*24*time.Hour).UnixMilli())
-	if err != nil {
-		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "usage_unavailable"})
-		return
-	}
-	allTime, err := s.Store.MCPUsageSummary(r.Context(), identity.User.ID, 0)
-	if err != nil {
-		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "usage_unavailable"})
-		return
-	}
-
-	webutil.JSON(w, http.StatusOK, buildUsageResourceDTO(last1h, last24h, last30d, allTime))
+	webutil.JSON(w, http.StatusOK, buildUsageResourceDTO(m[0], m[1], m[2], m[3], c[0], c[1], c[2], c[3]))
 }

@@ -8,7 +8,7 @@ import (
 
 func brainPacket() projectbrain.ContextPacket {
 	return projectbrain.ContextPacket{
-		Fingerprint:      "brain-fingerprint",
+		Fingerprint:     "brain-fingerprint",
 		MutationAllowed: true,
 		EffectiveRules: []projectbrain.CompiledRule{
 			{ID: "required", Text: "Never expose secrets to the model.", Required: true, Lane: "mandatory", AuthorityRank: 100, Trust: "trusted"},
@@ -19,7 +19,7 @@ func brainPacket() projectbrain.ContextPacket {
 
 func TestCompilePrioritizesRequiredThenActiveEvidence(t *testing.T) {
 	surface := Compile(Input{
-		Brain: brainPacket(),
+		Brain:  brainPacket(),
 		Active: []Item{{ID: "failure", Text: "TestRefreshToken fails in auth/service_test.go", Priority: 100}},
 		Recent: []Item{{ID: "old", Text: "Earlier unrelated investigation detail", Priority: 1}},
 	}, 100)
@@ -68,7 +68,7 @@ func TestCompileDeduplicatesLaneItemsByIDAndUsesPriority(t *testing.T) {
 
 func TestCompileDropsLowerPriorityLanesUnderPressure(t *testing.T) {
 	surface := Compile(Input{
-		Brain: projectbrain.ContextPacket{Fingerprint: "brain", MutationAllowed: true},
+		Brain:  projectbrain.ContextPacket{Fingerprint: "brain", MutationAllowed: true},
 		Active: []Item{{ID: "active", Text: "active evidence"}},
 		Recent: []Item{{ID: "recent", Text: "recent history that should be dropped first when budget is tight"}},
 	}, 6)

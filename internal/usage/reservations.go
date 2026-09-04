@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	ErrReservationExists      = errors.New("usage reservation already exists")
-	ErrReservationNotFound    = errors.New("usage reservation not found")
+	ErrReservationExists       = errors.New("usage reservation already exists")
+	ErrReservationNotFound     = errors.New("usage reservation not found")
 	ErrBudgetReservationDenied = errors.New("usage reservation would exceed hard budget")
 )
 

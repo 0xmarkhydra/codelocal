@@ -189,16 +189,36 @@ func (s *Server) blogPostResourceAPI(w http.ResponseWriter, r *http.Request) {
 		CoverAssetID: post.CoverAssetID, Category: post.Category, Tags: post.Tags,
 		Visibility: post.Visibility, SeriesID: post.SeriesID, SeriesPart: post.SeriesPart,
 	}
-	if input.Slug != nil { update.Slug = *input.Slug }
-	if input.Title != nil { update.Title = *input.Title }
-	if input.Excerpt != nil { update.Excerpt = *input.Excerpt }
-	if input.Content != nil { update.Content = append(json.RawMessage(nil), (*input.Content)...)}
-	if input.CoverAssetID != nil { update.CoverAssetID = *input.CoverAssetID }
-	if input.Category != nil { update.Category = *input.Category }
-	if input.Tags != nil { update.Tags = append([]string(nil), (*input.Tags)...)}
-	if input.Visibility != nil { update.Visibility = *input.Visibility }
-	if input.SeriesID != nil { update.SeriesID = *input.SeriesID }
-	if input.SeriesPart != nil { update.SeriesPart = *input.SeriesPart }
+	if input.Slug != nil {
+		update.Slug = *input.Slug
+	}
+	if input.Title != nil {
+		update.Title = *input.Title
+	}
+	if input.Excerpt != nil {
+		update.Excerpt = *input.Excerpt
+	}
+	if input.Content != nil {
+		update.Content = append(json.RawMessage(nil), (*input.Content)...)
+	}
+	if input.CoverAssetID != nil {
+		update.CoverAssetID = *input.CoverAssetID
+	}
+	if input.Category != nil {
+		update.Category = *input.Category
+	}
+	if input.Tags != nil {
+		update.Tags = append([]string(nil), (*input.Tags)...)
+	}
+	if input.Visibility != nil {
+		update.Visibility = *input.Visibility
+	}
+	if input.SeriesID != nil {
+		update.SeriesID = *input.SeriesID
+	}
+	if input.SeriesPart != nil {
+		update.SeriesPart = *input.SeriesPart
+	}
 	post, err = s.Store.UpdateBlogPost(r.Context(), identity.User.ID, admin, post.ID, update)
 	if err != nil {
 		writeBlogAPIError(w, err)
@@ -209,23 +229,35 @@ func (s *Server) blogPostResourceAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) blogPublishAPI(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.blogAPIIdentity(w, r, true)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	post, err := s.Store.SetBlogPostPublished(r.Context(), identity.User.ID, cloud.IsAdminEmail(identity.User.Email), r.PathValue("postID"), true)
-	if err != nil { writeBlogAPIError(w, err); return }
+	if err != nil {
+		writeBlogAPIError(w, err)
+		return
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"post": post})
 }
 
 func (s *Server) blogUnpublishAPI(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.blogAPIIdentity(w, r, true)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	post, err := s.Store.SetBlogPostPublished(r.Context(), identity.User.ID, cloud.IsAdminEmail(identity.User.Email), r.PathValue("postID"), false)
-	if err != nil { writeBlogAPIError(w, err); return }
+	if err != nil {
+		writeBlogAPIError(w, err)
+		return
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"post": post})
 }
 
 func (s *Server) blogDeleteAPI(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.blogAPIIdentity(w, r, true)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	if err := s.Store.DeleteBlogPost(r.Context(), identity.User.ID, cloud.IsAdminEmail(identity.User.Email), r.PathValue("postID")); err != nil {
 		writeBlogAPIError(w, err)
 		return
@@ -235,7 +267,9 @@ func (s *Server) blogDeleteAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) blogDistributionAPI(w http.ResponseWriter, r *http.Request) {
 	identity, ok := s.blogAPIIdentity(w, r, true)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	if !cloud.IsAdminEmail(identity.User.Email) {
 		writeBlogAPIError(w, cloud.ErrBlogForbidden)
 		return
@@ -249,7 +283,10 @@ func (s *Server) blogDistributionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	post, err := s.Store.SetBlogPostDistribution(r.Context(), r.PathValue("postID"), input.Featured, input.ShowOnLanding, input.ModerationStatus)
-	if err != nil { writeBlogAPIError(w, err); return }
+	if err != nil {
+		writeBlogAPIError(w, err)
+		return
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"post": post})
 }
 
@@ -276,14 +313,17 @@ func (s *Server) publicBlogPostsAPI(w http.ResponseWriter, r *http.Request) {
 	limit := publicBlogPageLimit(r.URL.Query().Get("limit"))
 	offset := publicBlogPageOffset(r.URL.Query().Get("offset"))
 	posts, err := s.Store.ListPublicBlogPostsPage(r.Context(), limit+1, offset)
-	if err != nil { writeBlogAPIError(w, err); return }
+	if err != nil {
+		writeBlogAPIError(w, err)
+		return
+	}
 	hasMore := len(posts) > limit
 	if hasMore {
 		posts = posts[:limit]
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"posts": blogPostSummaries(posts),
-		"hasMore": hasMore,
+		"posts":      blogPostSummaries(posts),
+		"hasMore":    hasMore,
 		"nextOffset": offset + len(posts),
 	})
 }
@@ -291,10 +331,13 @@ func (s *Server) publicBlogPostsAPI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) publicBlogPostAPI(w http.ResponseWriter, r *http.Request) {
 	requestedSlug := cloud.NormalizeBlogSlug(r.PathValue("slug"))
 	post, err := s.Store.PublicBlogPostBySlug(r.Context(), requestedSlug)
-	if err != nil { writeBlogAPIError(w, err); return }
+	if err != nil {
+		writeBlogAPIError(w, err)
+		return
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"post": blogPublicPost(post),
-		"official": cloud.IsAdminEmail(post.AuthorEmail),
+		"post":       blogPublicPost(post),
+		"official":   cloud.IsAdminEmail(post.AuthorEmail),
 		"redirected": requestedSlug != post.Slug,
 	})
 }

@@ -11,16 +11,16 @@ func strongCandidate() Candidate {
 		Name:       "Reversible Context Ledger",
 		Capability: CapabilityContext,
 		Source: Source{
-			Kind:      SourceGitHubRepo,
+			Kind:       SourceGitHubRepo,
 			Repository: "example/repo",
-			CommitSHA: "0123456789abcdef",
+			CommitSHA:  "0123456789abcdef",
 		},
 		LicenseSPDX:  "MIT",
 		LicenseClass: LicensePermissive,
 		Evidence: Evidence{
-			TestsPresent:        true,
-			BenchmarkPresent:    true,
-			SecurityReview:      true,
+			TestsPresent:       true,
+			BenchmarkPresent:   true,
+			SecurityReview:     true,
 			ReproductionPassed: true,
 		},
 		Scores: Scores{

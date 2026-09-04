@@ -9,7 +9,7 @@ import (
 type CapabilityVisibility string
 
 const (
-	CapabilityAvailable CapabilityVisibility = "available"
+	CapabilityAvailable  CapabilityVisibility = "available"
 	CapabilityPromptable CapabilityVisibility = "promptable"
 )
 

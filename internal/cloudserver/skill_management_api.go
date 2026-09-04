@@ -25,9 +25,9 @@ func (s *Server) skillsManagementResourceAPI(w http.ResponseWriter, r *http.Requ
 	}
 	services := skillServicesForServer(s)
 	webutil.JSON(w, http.StatusOK, skillManagementResponseDTO{
-		AutoUse: true,
+		AutoUse:           true,
 		StorageConfigured: services.Configured && services.Err == nil,
-		Items: items,
+		Items:             items,
 	})
 }
 

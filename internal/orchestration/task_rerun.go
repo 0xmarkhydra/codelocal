@@ -14,16 +14,16 @@ var (
 )
 
 type RerunNodeReset struct {
-	ID               string         "id"
-	ExpectedRevision uint64         "expectedRevision"
-	FromStatus       TaskNodeStatus "fromStatus"
+	ID               string         `json:"id"`
+	ExpectedRevision uint64         `json:"expectedRevision"`
+	FromStatus       TaskNodeStatus `json:"fromStatus"`
 }
 
 type RerunPlan struct {
-	RootID     string           "rootId"
-	AttemptID  string           "attemptId"
-	EvidenceID string           "evidenceId,omitempty"
-	Resets     []RerunNodeReset "resets"
+	RootID     string           `json:"rootId"`
+	AttemptID  string           `json:"attemptId"`
+	EvidenceID string           `json:"evidenceId,omitempty"`
+	Resets     []RerunNodeReset `json:"resets"`
 }
 
 // PlanBranchRerun computes a single-use plan that returns every failed node

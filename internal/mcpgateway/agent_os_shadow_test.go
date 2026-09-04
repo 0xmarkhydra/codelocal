@@ -25,7 +25,7 @@ func TestAgentOSV2SnapshotCapabilitiesAreMediated(t *testing.T) {
 func TestAgentOSV2TaskShapeDetectsCrossSubsystemProductWork(t *testing.T) {
 	plan := orchestration.AgentPlan{
 		TaskKind: orchestration.TaskKindDebug,
-		Route: orchestration.Decision{Primary: orchestration.LaneCode, Fallbacks: []orchestration.Lane{orchestration.LaneBrowser}},
+		Route:    orchestration.Decision{Primary: orchestration.LaneCode, Fallbacks: []orchestration.Lane{orchestration.LaneBrowser}},
 	}
 	state := taskstate.State{TouchedFiles: []string{"internal/auth/login.go", "web/app/login.tsx", "web/app/login.test.tsx"}}
 	shape := agentOSV2TaskShape("Fix authentication UI toàn bộ", orchestration.Capabilities{Filesystem: true, Browser: true}, plan, state)
@@ -43,8 +43,8 @@ func TestAgentOSV2TaskShapeDetectsCrossSubsystemProductWork(t *testing.T) {
 func TestPrepareAgentOSV2ShadowPersistsPredictionWithoutStartingAdapter(t *testing.T) {
 	events := runtimeevents.NewStore(filepath.Join(t.TempDir(), "events"))
 	plan := orchestration.AgentPlan{
-		TaskKind: orchestration.TaskKindDebug,
-		Route: orchestration.Decision{Primary: orchestration.LaneCode},
+		TaskKind:     orchestration.TaskKindDebug,
+		Route:        orchestration.Decision{Primary: orchestration.LaneCode},
 		Verification: orchestration.VerificationPlan{Mode: "required"},
 	}
 	state := taskstate.State{TouchedFiles: []string{"internal/auth/a.go", "web/auth/b.ts", "tests/auth/c_test.go"}}

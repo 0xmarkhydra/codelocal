@@ -15,14 +15,14 @@ import (
 const MinSkillEvaluationScore = 0.80
 
 type SkillEvaluation struct {
-	EvaluationID   string         `json:"evaluationId"`
-	SkillID        string         `json:"skillId"`
-	Version        string         `json:"version"`
-	EvaluatorUserID string        `json:"evaluatorUserId,omitempty"`
-	Decision       string         `json:"decision"`
-	Score          float64        `json:"score"`
-	Checks         map[string]any `json:"checks,omitempty"`
-	CreatedAt      int64          `json:"createdAt"`
+	EvaluationID    string         `json:"evaluationId"`
+	SkillID         string         `json:"skillId"`
+	Version         string         `json:"version"`
+	EvaluatorUserID string         `json:"evaluatorUserId,omitempty"`
+	Decision        string         `json:"decision"`
+	Score           float64        `json:"score"`
+	Checks          map[string]any `json:"checks,omitempty"`
+	CreatedAt       int64          `json:"createdAt"`
 }
 
 func (s *Store) StartSkillEvaluation(ctx context.Context, skillID, version string) (SkillVersionRecord, error) {
@@ -99,7 +99,7 @@ func (s *Store) CompleteSkillEvaluation(ctx context.Context, evaluatorUserID, sk
 	now := time.Now().UnixMilli()
 	evaluation := SkillEvaluation{
 		EvaluationID: skillRegistryID("evaluation", record.Manifest.ID, record.Manifest.Version, evaluatorUserID, strconv.FormatInt(time.Now().UnixNano(), 10)),
-		SkillID: record.Manifest.ID, Version: record.Manifest.Version, EvaluatorUserID: evaluatorUserID,
+		SkillID:      record.Manifest.ID, Version: record.Manifest.Version, EvaluatorUserID: evaluatorUserID,
 		Decision: decision, Score: score, Checks: checks, CreatedAt: now,
 	}
 	if _, err := tx.Exec(ctx, `

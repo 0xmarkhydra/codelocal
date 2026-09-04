@@ -9,17 +9,17 @@ import (
 // unit, browser, computer or mobile) of a task verification graph. Optional
 // checks are reported but never gate lane readiness.
 type VerificationLane struct {
-	Lane     string   "lane"
-	Required []string "required"
-	Passed   []string "passed"
-	Failed   []string "failed"
-	Pending  []string "pending"
-	Ready    bool     "ready"
+	Lane     string   `json:"lane"`
+	Required []string `json:"required"`
+	Passed   []string `json:"passed"`
+	Failed   []string `json:"failed"`
+	Pending  []string `json:"pending"`
+	Ready    bool     `json:"ready"`
 }
 
 type VerificationGraph struct {
-	Lanes []VerificationLane "lanes"
-	Ready bool               "ready"
+	Lanes []VerificationLane `json:"lanes"`
+	Ready bool               `json:"ready"`
 }
 
 // SummarizeVerification folds requirements and evidence into a lane graph.

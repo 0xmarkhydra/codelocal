@@ -27,8 +27,8 @@ var (
 // destroys resumable state: entering sleeping requires a checkpoint digest
 // produced by ExportTaskResume, so a woken runtime replays from known truth.
 type RuntimeLifecycle struct {
-	State            LifecycleState "state"
-	CheckpointDigest string         "checkpointDigest,omitempty"
+	State            LifecycleState `json:"state"`
+	CheckpointDigest string         `json:"checkpointDigest,omitempty"`
 }
 
 func (l RuntimeLifecycle) transition(to LifecycleState) (RuntimeLifecycle, error) {

@@ -13,11 +13,11 @@ import (
 type ProgressStatus string
 
 const (
-	ProgressPending ProgressStatus = "pending"
-	ProgressRunning ProgressStatus = "running"
-	ProgressWaiting ProgressStatus = "waiting"
-	ProgressPassed  ProgressStatus = "passed"
-	ProgressFailed  ProgressStatus = "failed"
+	ProgressPending   ProgressStatus = "pending"
+	ProgressRunning   ProgressStatus = "running"
+	ProgressWaiting   ProgressStatus = "waiting"
+	ProgressPassed    ProgressStatus = "passed"
+	ProgressFailed    ProgressStatus = "failed"
 	ProgressCancelled ProgressStatus = "cancelled"
 )
 
@@ -49,37 +49,57 @@ func BuildFlightSnapshot(events []runtimeevents.Event) FlightSnapshot {
 	latest := map[string]ProgressItem{}
 	order := []string{}
 	for _, event := range ordered {
-		if snapshot.TaskID == "" { snapshot.TaskID = event.TaskID }
-		if event.Sequence > snapshot.LastSequence { snapshot.LastSequence = event.Sequence }
-		if event.TraceID != "" { traces[event.TraceID] = struct{}{} }
+		if snapshot.TaskID == "" {
+			snapshot.TaskID = event.TaskID
+		}
+		if event.Sequence > snapshot.LastSequence {
+			snapshot.LastSequence = event.Sequence
+		}
+		if event.TraceID != "" {
+			traces[event.TraceID] = struct{}{}
+		}
 		item, key, ok := progressFromEvent(event)
-		if !ok { continue }
-		if _, exists := latest[key]; !exists { order = append(order, key) }
+		if !ok {
+			continue
+		}
+		if _, exists := latest[key]; !exists {
+			order = append(order, key)
+		}
 		latest[key] = item
 	}
-	for _, key := range order { snapshot.Progress = append(snapshot.Progress, latest[key]) }
-	for trace := range traces { snapshot.TraceIDs = append(snapshot.TraceIDs, trace) }
+	for _, key := range order {
+		snapshot.Progress = append(snapshot.Progress, latest[key])
+	}
+	for trace := range traces {
+		snapshot.TraceIDs = append(snapshot.TraceIDs, trace)
+	}
 	sort.Strings(snapshot.TraceIDs)
 	return snapshot
 }
 
 func progressFromEvent(event runtimeevents.Event) (ProgressItem, string, bool) {
-	base := ProgressItem{Sequence:event.Sequence, AgentID:event.AgentID, Timestamp:event.Timestamp}
+	base := ProgressItem{Sequence: event.Sequence, AgentID: event.AgentID, Timestamp: event.Timestamp}
 	switch event.Type {
 	case "taskdag.node_added", "taskdag.node_updated":
 		value := payloadObject(event.Payload["node"])
 		id := stringField(value, "id")
-		if id == "" { return ProgressItem{}, "", false }
+		if id == "" {
+			return ProgressItem{}, "", false
+		}
 		base.Kind = "task_node"
 		base.Label = stringField(value, "subject")
-		if base.Label == "" { base.Label = id }
+		if base.Label == "" {
+			base.Label = id
+		}
 		base.Status = progressStatus(stringField(value, "status"))
-		base.Reference = "task-node:"+id
+		base.Reference = "task-node:" + id
 		return base, base.Reference, true
 	case "codingkernel.initialized", "codingkernel.transitioned", "codingkernel.failure_handled":
 		value := payloadObject(event.Payload["kernel"])
 		stage := stringField(value, "stage")
-		if stage == "" { return ProgressItem{}, "", false }
+		if stage == "" {
+			return ProgressItem{}, "", false
+		}
 		base.Kind = "coding_kernel"
 		base.Label = "Coding: " + stage
 		base.Status = kernelProgressStatus(stage)
@@ -104,41 +124,80 @@ func progressFromEvent(event runtimeevents.Event) (ProgressItem, string, bool) {
 
 func progressStatus(value string) ProgressStatus {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "completed", "passed", "ok": return ProgressPassed
-	case "running", "active", "starting": return ProgressRunning
-	case "waiting", "waiting_user", "blocked": return ProgressWaiting
-	case "failed", "error": return ProgressFailed
-	case "cancelled": return ProgressCancelled
-	default: return ProgressPending
+	case "completed", "passed", "ok":
+		return ProgressPassed
+	case "running", "active", "starting":
+		return ProgressRunning
+	case "waiting", "waiting_user", "blocked":
+		return ProgressWaiting
+	case "failed", "error":
+		return ProgressFailed
+	case "cancelled":
+		return ProgressCancelled
+	default:
+		return ProgressPending
 	}
 }
 
 func kernelProgressStatus(stage string) ProgressStatus {
 	switch strings.ToLower(stage) {
-	case "complete": return ProgressPassed
-	case "failed": return ProgressFailed
-	case "blocked": return ProgressWaiting
-	default: return ProgressRunning
+	case "complete":
+		return ProgressPassed
+	case "failed":
+		return ProgressFailed
+	case "blocked":
+		return ProgressWaiting
+	default:
+		return ProgressRunning
 	}
 }
 
 func verificationProgressStatus(value map[string]any) ProgressStatus {
 	results, _ := value["results"].([]any)
-	if len(results) == 0 { return ProgressPending }
+	if len(results) == 0 {
+		return ProgressPending
+	}
 	passed, failed, running := 0, 0, 0
 	for _, raw := range results {
 		status := stringField(payloadObject(raw), "status")
-		switch status { case "passed": passed++; case "failed": failed++; case "running": running++ }
+		switch status {
+		case "passed":
+			passed++
+		case "failed":
+			failed++
+		case "running":
+			running++
+		}
 	}
-	if failed > 0 { return ProgressFailed }
-	if running > 0 { return ProgressRunning }
-	if passed == len(results) { return ProgressPassed }
+	if failed > 0 {
+		return ProgressFailed
+	}
+	if running > 0 {
+		return ProgressRunning
+	}
+	if passed == len(results) {
+		return ProgressPassed
+	}
 	return ProgressPending
 }
 
 func payloadObject(value any) map[string]any {
-	if typed, ok := value.(map[string]any); ok { return typed }
-	raw, err := json.Marshal(value); if err != nil { return nil }
-	var out map[string]any; if json.Unmarshal(raw, &out) != nil { return nil }; return out
+	if typed, ok := value.(map[string]any); ok {
+		return typed
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil
+	}
+	return out
 }
-func stringField(value map[string]any, key string) string { if value == nil { return "" }; return strings.TrimSpace(fmt.Sprint(value[key])) }
+func stringField(value map[string]any, key string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value[key]))
+}

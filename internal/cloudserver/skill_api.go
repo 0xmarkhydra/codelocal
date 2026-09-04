@@ -236,7 +236,9 @@ func (s *Server) skillRatingAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	skillID := strings.TrimSpace(r.PathValue("skillID"))
-	var input struct{ Rating int `json:"rating"` }
+	var input struct {
+		Rating int `json:"rating"`
+	}
 	if skillID == "" || webutil.DecodeJSON(r, 16<<10, &input) != nil {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_skill_rating"})
 		return

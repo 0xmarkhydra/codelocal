@@ -11,6 +11,7 @@ Start here:
 - [Hybrid Local + Cloud Runtime Master Plan](./plans/runtime/HYBRID_LOCAL_CLOUD_RUNTIME_MASTER_PLAN.md) — keep Local Runtime first-class while adding a managed, lazy-provisioned Cloud Sandbox with CodeLocal auto-running, managed Git, lifecycle/cost controls, GUI layers and provider-neutral compute.
 - [Repository Structure](./architecture/REPOSITORY_STRUCTURE.md) — source ownership, documentation taxonomy, legacy quarantine and migration rules.
 - [Beta Channel](./operations/BETA_CHANNEL.md) — how beta differs from stable, how to test it without misunderstanding the release channel.
+- [npm Release Operations](./operations/NPM_RELEASE.md) — canonical maintainer command for stable/beta packaging, publishing, verification and failure handling.
 - [Global Billing & International Payments Master Plan](./plans/platform/GLOBAL_BILLING_AND_INTERNATIONAL_PAYMENTS_MASTER_PLAN.md) — Vietnam-to-global SaaS billing, Lemon Squeezy launch path, provider-neutral architecture, webhooks, entitlements, payouts, compliance and production proof.
 - [Code Graph + Technical Debt Master Plan](./plans/intelligence/CODE_GRAPH_AND_TECH_DEBT_MASTER_PLAN.md) — BA flows, Code Graph accuracy/UX contracts, technical-debt backlog, rollout phases and acceptance criteria.
 - [Database Migration Rollout](./operations/MIGRATION_ROLLOUT.md) — staged Railway `startup -> only -> external` migration lifecycle, canary checks and rollback path.

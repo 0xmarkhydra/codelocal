@@ -10,29 +10,29 @@ import (
 
 // LaneStatus is the user-facing slice of one verification lane.
 type LaneStatus struct {
-	Lane    string "lane"
-	Ready   bool   "ready"
-	Pending int    "pending"
-	Failed  int    "failed"
+	Lane    string `json:"lane"`
+	Ready   bool   `json:"ready"`
+	Pending int    `json:"pending"`
+	Failed  int    `json:"failed"`
 }
 
 // TaskStatusSnapshot is the single read model behind the usage/cost
 // dashboard (plan P2) and the user task view (plan Q0). It aggregates only;
 // it never mutates bundle, budget or verification state.
 type TaskStatusSnapshot struct {
-	TaskID            string                          "taskId"
-	WorkspaceKey      string                          "workspaceKey"
-	State             taskexecution.State             "state"
-	Generation        taskexecution.RuntimeGeneration "generation,omitempty"
-	BudgetState       usage.BudgetState               "budgetState"
-	BudgetReason      string                          "budgetReason,omitempty"
-	RemainingTotal    int64                           "remainingTotal,omitempty"
-	RemainingCost     int64                           "remainingCost,omitempty"
-	VerificationReady bool                            "verificationReady"
-	Lanes             []LaneStatus                    "lanes"
-	Bindings          int                             "bindings"
-	Healthy           bool                            "healthy"
-	ExportedAt        time.Time                       "exportedAt"
+	TaskID            string                          `json:"taskId"`
+	WorkspaceKey      string                          `json:"workspaceKey"`
+	State             taskexecution.State             `json:"state"`
+	Generation        taskexecution.RuntimeGeneration `json:"generation,omitempty"`
+	BudgetState       usage.BudgetState               `json:"budgetState"`
+	BudgetReason      string                          `json:"budgetReason,omitempty"`
+	RemainingTotal    int64                           `json:"remainingTotal,omitempty"`
+	RemainingCost     int64                           `json:"remainingCost,omitempty"`
+	VerificationReady bool                            `json:"verificationReady"`
+	Lanes             []LaneStatus                    `json:"lanes"`
+	Bindings          int                             `json:"bindings"`
+	Healthy           bool                            `json:"healthy"`
+	ExportedAt        time.Time                       `json:"exportedAt"`
 }
 
 // SummarizeTask folds bundle, budget decision and verification graph into

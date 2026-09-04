@@ -15,9 +15,13 @@ func TestProgramUsesOnlyProjectedBindingsAndReducesOutput(t *testing.T) {
 		return HandlerResult{Kind: contextsurface.ObservationTests, Text: strings.Repeat("noise line\n", 1000) + "--- FAIL: TestAuth\nexpected 200 got 500\nauth/service_test.go:42\n"}, nil
 	}}
 	runtime, err := New([]Binding{binding}, Limits{MaxOperations: 4, MaxStepTokens: 64}, nil)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	report, err := runtime.Execute(context.Background(), Program{ID: "p", Steps: []Step{{ID: "s1", CapabilityID: "tests"}}})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !report.Completed || len(report.Steps) != 1 || report.ReducedTokens >= report.OriginalTokens || report.AvoidedTokens <= 0 {
 		t.Fatalf("unexpected reduction report: %+v", report)
 	}

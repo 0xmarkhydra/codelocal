@@ -292,10 +292,17 @@ Usage writes never block an MCP response. They flow through the local queue and
 Redis Stream to a single leased, idempotent PostgreSQL batch consumer. File and
 search reads can fan out; edits, Git mutations and process writes remain ordered.
 
-Build the cross-platform npm staging package:
+Validate and build the cross-platform npm CLI staging package without publishing:
 
 ```bash
-go run ./cmd/release
+npm run release:npm:prepare
+```
+
+This npm-specific gate checks repository structure and Go code, builds `.release/npm`, and runs `npm pack --dry-run`. It intentionally does not install, lint, typecheck, build, or audit the web applications. To run the full repository gate including web checks, use `npm run release:prepare`.
+
+Inspect an already generated package with:
+
+```bash
 npm pack --dry-run ./.release/npm
 ```
 
@@ -309,11 +316,13 @@ The production container runs `cmd/codelocal-cloud`; Railway is configured throu
 
 ## Publishing a new npm release
 
-Maintainers can publish stable or beta with one command:
+The canonical maintainer command—and the default meaning of publishing/releasing npm in this repository—is:
 
 ```bash
 npm run release:npm
 ```
+
+This command publishes the CLI package only. It does not install, lint, typecheck, build, or audit either web application. Use `npm run release:npm:prepare` only when explicitly validating/building the npm package without publishing; use `npm run release:prepare` only when explicitly requesting the full repository gate including web.
 
 The release helper asks for the channel:
 
@@ -326,7 +335,8 @@ CodeLocal npm release
 Choose channel [1]:
 ```
 
-Press **Enter** to publish `latest`, or choose `2` for `beta`.
+Press **Enter** or choose `1` for the production `latest` release. Choose `2` only for `beta`.
+Do not run a standalone `npm publish` for the normal release flow.
 
 The helper automatically:
 
@@ -337,6 +347,9 @@ The helper automatically:
 - generates the correct install command in the npm README
 - runs tests/vet and package validation
 - publishes with the correct `latest` or `beta` npm dist-tag
+- verifies that npm exposes the published version and selected dist-tag
+
+See the [npm release operations runbook](docs/operations/NPM_RELEASE.md) for validation-only commands, post-release verification, and failure handling.
 
 For a stable release, the generated npm README contains:
 

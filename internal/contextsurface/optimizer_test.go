@@ -10,7 +10,7 @@ import (
 
 func TestCompileOptimizedReducesRawObservationsAndCompactsHistory(t *testing.T) {
 	input := Input{
-		Brain: projectbrain.ContextPacket{Fingerprint: "brain", MutationAllowed: true},
+		Brain:  projectbrain.ContextPacket{Fingerprint: "brain", MutationAllowed: true},
 		Active: []Item{{ID: "active", Lane: LaneActive, Text: "Fix auth refresh regression without touching unrelated user edits.", Priority: 100}},
 		Recent: []Item{
 			{ID: "old-a", Lane: LaneRecent, Text: strings.Repeat("old unrelated context A ", 80)},
@@ -54,7 +54,7 @@ func TestCompileOptimizedReducesRawObservationsAndCompactsHistory(t *testing.T) 
 
 func TestCompileOptimizedRejectsImpossibleMandatoryBudget(t *testing.T) {
 	input := Input{Brain: projectbrain.ContextPacket{
-		Fingerprint:      "brain",
+		Fingerprint:     "brain",
 		MutationAllowed: true,
 		EffectiveRules: []projectbrain.CompiledRule{{
 			ID:            "required",

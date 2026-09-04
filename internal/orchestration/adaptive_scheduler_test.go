@@ -22,7 +22,9 @@ func TestAdaptiveTeamAddsBoundedRolesForComplexTask(t *testing.T) {
 		t.Fatalf("unexpected complex team: %+v", plan)
 	}
 	roles := map[Specialist]bool{}
-	for _, member := range plan.Members { roles[member.Role] = true }
+	for _, member := range plan.Members {
+		roles[member.Role] = true
+	}
 	if !roles[SpecialistInvestigator] || !roles[SpecialistImplementer] || !roles[SpecialistReviewer] || !roles[SpecialistSecurity] || !roles[SpecialistTester] {
 		t.Fatalf("missing bounded specialist roles: %+v", plan)
 	}

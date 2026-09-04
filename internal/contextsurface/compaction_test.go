@@ -58,7 +58,7 @@ func TestCompactPreservesRequiredEvidenceAndIsReversible(t *testing.T) {
 func TestCompactFailsClosedWhenMandatoryEvidenceCannotFit(t *testing.T) {
 	surface := Surface{
 		Fingerprint: "surface",
-		Items: []Item{{ID: "required", Lane: LaneBrainMandatory, Text: strings.Repeat("mandatory rule ", 50), Required: true}},
+		Items:       []Item{{ID: "required", Lane: LaneBrainMandatory, Text: strings.Repeat("mandatory rule ", 50), Required: true}},
 	}
 	if _, _, err := Compact(surface, 1); !errors.Is(err, ErrCompactionMandatoryOverflow) {
 		t.Fatalf("expected mandatory overflow, got %v", err)

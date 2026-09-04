@@ -65,6 +65,8 @@ func (b Bundle) Clone() Bundle {
 }
 
 func (b Bundle) EffectiveRuntimeGeneration() RuntimeGeneration {
-	if b.RuntimeGeneration == RuntimeV2 { return RuntimeV2 }
+	if b.RuntimeGeneration == RuntimeV2 {
+		return RuntimeV2
+	}
 	return RuntimeV1
 }

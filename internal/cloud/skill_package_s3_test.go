@@ -50,9 +50,9 @@ func (f *fakeSkillS3) GetObject(_ context.Context, input *s3.GetObjectInput, _ .
 
 type fakeSkillS3Error struct{ code string }
 
-func (e fakeSkillS3Error) Error() string              { return e.code }
-func (e fakeSkillS3Error) ErrorCode() string          { return e.code }
-func (e fakeSkillS3Error) ErrorMessage() string       { return e.code }
+func (e fakeSkillS3Error) Error() string                 { return e.code }
+func (e fakeSkillS3Error) ErrorCode() string             { return e.code }
+func (e fakeSkillS3Error) ErrorMessage() string          { return e.code }
 func (e fakeSkillS3Error) ErrorFault() smithy.ErrorFault { return smithy.FaultClient }
 
 func TestS3SkillPackageStoreRoundTrip(t *testing.T) {

@@ -14,6 +14,7 @@ func TestUsageResourceDTOKeepsEstimatedMCPPayloadSemantics(t *testing.T) {
 		cloud.MCPUsageSummary{Calls: 7, InputTokensEst: 100, OutputTokensEst: 50, TotalTokensEst: 150},
 		cloud.MCPUsageSummary{Calls: 20, InputTokensEst: 600, OutputTokensEst: 300, TotalTokensEst: 900},
 		cloud.MCPUsageSummary{Calls: 30, InputTokensEst: 900, OutputTokensEst: 500, TotalTokensEst: 1400},
+		cloud.DashboardChatUsageSummary{}, cloud.DashboardChatUsageSummary{}, cloud.DashboardChatUsageSummary{}, cloud.DashboardChatUsageSummary{},
 	)
 
 	if !payload.Estimated || payload.Scope != dashboardUsageScope {

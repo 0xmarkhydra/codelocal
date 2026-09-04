@@ -34,10 +34,10 @@ var (
 // either the exact hash it was based on or that the path was expected to be
 // absent. Unguarded writes are not valid PatchSet V2 mutations.
 type PatchFile struct {
-	Path           string `json:"path"`
-	ExpectedHash   string `json:"expectedHash,omitempty"`
-	ExpectedAbsent bool   `json:"expectedAbsent,omitempty"`
-	Edits          []Edit `json:"edits,omitempty"`
+	Path           string  `json:"path"`
+	ExpectedHash   string  `json:"expectedHash,omitempty"`
+	ExpectedAbsent bool    `json:"expectedAbsent,omitempty"`
+	Edits          []Edit  `json:"edits,omitempty"`
 	Content        *string `json:"content,omitempty"`
 }
 

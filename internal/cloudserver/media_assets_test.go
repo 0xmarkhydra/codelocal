@@ -54,11 +54,11 @@ func TestResizeImageMaxEdgePreservesAspectAndNeverUpscales(t *testing.T) {
 
 func TestMediaAssetErrorCodeIsStable(t *testing.T) {
 	cases := map[string]string{
-		"media source sha256 mismatch": "sha256_mismatch",
+		"media source sha256 mismatch":        "sha256_mismatch",
 		"image dimensions exceed safe limits": "dimensions_invalid",
-		"decode image: broken": "decode_failed",
-		"encode large webp: broken": "encode_failed",
-		"storage unavailable": "processing_failed",
+		"decode image: broken":                "decode_failed",
+		"encode large webp: broken":           "encode_failed",
+		"storage unavailable":                 "processing_failed",
 	}
 	for message, want := range cases {
 		if got := mediaAssetErrorCode(assertError(message)); got != want {
@@ -69,5 +69,5 @@ func TestMediaAssetErrorCodeIsStable(t *testing.T) {
 
 type stringError string
 
-func (e stringError) Error() string { return string(e) }
+func (e stringError) Error() string  { return string(e) }
 func assertError(value string) error { return stringError(value) }

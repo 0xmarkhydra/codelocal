@@ -22,7 +22,7 @@ func ExperienceItems(decisions []projectbrain.ExperienceDecision, branch, trigge
 			text += " Verified recovery: " + experience.RecoveryAction + "."
 		}
 		priority := 800 + int(experience.Confidence*100)
-		out = append(out, Item{ID:"experience:"+experience.ID, Lane:LaneActive, Text:text, Source:fmt.Sprintf("projectbrain:%s",experience.Kind), Priority:priority, Trust:"verified"})
+		out = append(out, Item{ID: "experience:" + experience.ID, Lane: LaneActive, Text: text, Source: fmt.Sprintf("projectbrain:%s", experience.Kind), Priority: priority, Trust: "verified"})
 	}
 	return out
 }

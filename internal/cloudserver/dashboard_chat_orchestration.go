@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/http"
 	"strings"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
 )
 
 const (
@@ -36,6 +39,18 @@ func (u *dashboardChatTokenUsage) add(other dashboardChatTokenUsage) {
 	u.OutputTokens += other.OutputTokens
 	u.TotalTokens += other.TotalTokens
 	u.normalize()
+}
+
+func (s *Server) recordDashboardChatUsage(r *http.Request, userID, model, protocol string, usage dashboardChatTokenUsage) {
+	usage.normalize()
+	if s == nil || s.Store == nil || (usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.TotalTokens == 0) {
+		return
+	}
+	_ = s.Store.RecordDashboardChatUsage(context.Background(), cloud.DashboardChatUsageEvent{
+		EventID: dashboardChatMessageID(r, userID, "usage:"+protocol), UserID: userID,
+		ThreadID: dashboardChatThreadID(r), Model: model, Protocol: protocol,
+		InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, TotalTokens: usage.TotalTokens,
+	})
 }
 
 type dashboardSafeRerouteError struct {

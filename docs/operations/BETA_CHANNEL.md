@@ -1,5 +1,7 @@
 # CodeLocal Beta Channel
 
+> Maintainers publish both production and beta releases with `npm run release:npm`. Press **Enter**/choose `1` for production `latest`, or choose `2` for `beta`. See [npm Release Operations](./NPM_RELEASE.md).
+
 ## Stable vs beta
 
 CodeLocal uses npm distribution tags so a new runtime can be tested without immediately moving every user to it.

@@ -45,6 +45,14 @@ CodeLocal Cloud verifies the GitHub OIDC signature plus issuer, audience, reposi
 
 ## Release flow
 
+For a maintainer-triggered npm release, the canonical local entry point is:
+
+```bash
+npm run release:npm
+```
+
+Press **Enter**/choose `1` for production `latest`, or choose `2` for `beta`. The full local runbook is [npm Release Operations](./NPM_RELEASE.md). The automated GitHub path below uses an immutable two-stage transaction for provenance and release notifications.
+
 The npm workflow is two-stage so `main` itself is not mutated just to reserve a release version:
 
 ```text

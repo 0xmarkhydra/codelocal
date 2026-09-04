@@ -40,13 +40,13 @@ type Input struct {
 }
 
 type Budget struct {
-	MaxTokens       int `json:"maxTokens"`
-	EstimatedTokens int `json:"estimatedTokens"`
-	BrainTokens     int `json:"brainTokens"`
-	ActiveTokens    int `json:"activeTokens"`
-	RecentTokens    int `json:"recentTokens"`
+	MaxTokens         int `json:"maxTokens"`
+	EstimatedTokens   int `json:"estimatedTokens"`
+	BrainTokens       int `json:"brainTokens"`
+	ActiveTokens      int `json:"activeTokens"`
+	RecentTokens      int `json:"recentTokens"`
 	ObservationTokens int `json:"observationTokens"`
-	DroppedItems    int `json:"droppedItems"`
+	DroppedItems      int `json:"droppedItems"`
 }
 
 type Surface struct {

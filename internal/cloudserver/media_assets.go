@@ -36,7 +36,7 @@ type mediaAssetPrepareRequest struct {
 }
 
 type mediaAssetResponse struct {
-	Asset cloud.MediaAsset `json:"asset"`
+	Asset cloud.MediaAsset  `json:"asset"`
 	URLs  map[string]string `json:"urls"`
 }
 

@@ -7,46 +7,46 @@ const SchemaVersion = 1
 type SourceKind string
 
 const (
-	SourceGitHubRepo SourceKind = "github_repo"
+	SourceGitHubRepo  SourceKind = "github_repo"
 	SourceGitHubTopic SourceKind = "github_topic"
-	SourcePaper      SourceKind = "paper"
-	SourcePackage    SourceKind = "package"
-	SourceManual     SourceKind = "manual"
+	SourcePaper       SourceKind = "paper"
+	SourcePackage     SourceKind = "package"
+	SourceManual      SourceKind = "manual"
 )
 
 type CapabilityClass string
 
 const (
-	CapabilityContext       CapabilityClass = "context"
-	CapabilityMemory        CapabilityClass = "memory"
-	CapabilityTokenCost     CapabilityClass = "token_cost"
-	CapabilityAgentRuntime  CapabilityClass = "agent_runtime"
-	CapabilitySecurity      CapabilityClass = "security"
-	CapabilityDebug         CapabilityClass = "debug"
-	CapabilityVerification  CapabilityClass = "verification"
-	CapabilityDevice        CapabilityClass = "device"
-	CapabilityPluginInfra   CapabilityClass = "plugin_infra"
-	CapabilityRouting       CapabilityClass = "routing"
-	CapabilityDeveloperUX   CapabilityClass = "developer_ux"
-	CapabilityOther         CapabilityClass = "other"
+	CapabilityContext      CapabilityClass = "context"
+	CapabilityMemory       CapabilityClass = "memory"
+	CapabilityTokenCost    CapabilityClass = "token_cost"
+	CapabilityAgentRuntime CapabilityClass = "agent_runtime"
+	CapabilitySecurity     CapabilityClass = "security"
+	CapabilityDebug        CapabilityClass = "debug"
+	CapabilityVerification CapabilityClass = "verification"
+	CapabilityDevice       CapabilityClass = "device"
+	CapabilityPluginInfra  CapabilityClass = "plugin_infra"
+	CapabilityRouting      CapabilityClass = "routing"
+	CapabilityDeveloperUX  CapabilityClass = "developer_ux"
+	CapabilityOther        CapabilityClass = "other"
 )
 
 type LicenseClass string
 
 const (
-	LicensePermissive LicenseClass = "permissive"
-	LicenseReciprocal LicenseClass = "reciprocal"
+	LicensePermissive  LicenseClass = "permissive"
+	LicenseReciprocal  LicenseClass = "reciprocal"
 	LicenseProprietary LicenseClass = "proprietary"
 	LicenseUnknown     LicenseClass = "unknown"
 )
 
 type Source struct {
-	Kind        SourceKind `json:"kind"`
-	Repository  string     `json:"repository,omitempty"`
-	URL         string     `json:"url,omitempty"`
-	CommitSHA   string     `json:"commitSha,omitempty"`
-	Version     string     `json:"version,omitempty"`
-	DiscoveredAt time.Time `json:"discoveredAt,omitempty"`
+	Kind         SourceKind `json:"kind"`
+	Repository   string     `json:"repository,omitempty"`
+	URL          string     `json:"url,omitempty"`
+	CommitSHA    string     `json:"commitSha,omitempty"`
+	Version      string     `json:"version,omitempty"`
+	DiscoveredAt time.Time  `json:"discoveredAt,omitempty"`
 }
 
 type RiskSignals struct {
@@ -60,11 +60,11 @@ type RiskSignals struct {
 }
 
 type Evidence struct {
-	TestsPresent        bool `json:"testsPresent,omitempty"`
-	CIObserved          bool `json:"ciObserved,omitempty"`
-	BenchmarkPresent    bool `json:"benchmarkPresent,omitempty"`
-	SecurityReview      bool `json:"securityReview,omitempty"`
-	ProductionClaims    bool `json:"productionClaims,omitempty"`
+	TestsPresent       bool `json:"testsPresent,omitempty"`
+	CIObserved         bool `json:"ciObserved,omitempty"`
+	BenchmarkPresent   bool `json:"benchmarkPresent,omitempty"`
+	SecurityReview     bool `json:"securityReview,omitempty"`
+	ProductionClaims   bool `json:"productionClaims,omitempty"`
 	ReproductionPassed bool `json:"reproductionPassed,omitempty"`
 }
 
@@ -72,14 +72,14 @@ type Evidence struct {
 // from README prose. Untrusted repository text must never be treated as an
 // instruction to CodeLocal or as sufficient evidence by itself.
 type Scores struct {
-	Relevance    float64 `json:"relevance"`
-	Novelty      float64 `json:"novelty"`
-	Maturity     float64 `json:"maturity"`
-	TestQuality  float64 `json:"testQuality"`
-	SecurityFit  float64 `json:"securityFit"`
-	TokenImpact  float64 `json:"tokenImpact"`
+	Relevance     float64 `json:"relevance"`
+	Novelty       float64 `json:"novelty"`
+	Maturity      float64 `json:"maturity"`
+	TestQuality   float64 `json:"testQuality"`
+	SecurityFit   float64 `json:"securityFit"`
+	TokenImpact   float64 `json:"tokenImpact"`
 	QualityImpact float64 `json:"qualityImpact"`
-	UXImpact     float64 `json:"uxImpact"`
+	UXImpact      float64 `json:"uxImpact"`
 }
 
 type Candidate struct {
@@ -110,13 +110,13 @@ const (
 )
 
 type Assessment struct {
-	CandidateID        string      `json:"candidateId"`
-	Fingerprint        string      `json:"fingerprint"`
-	Score              float64     `json:"score"`
-	Disposition        Disposition `json:"disposition"`
-	ReadyForLab        bool        `json:"readyForLab"`
-	ReadyForProduction bool        `json:"readyForProduction"`
-	RequiresLicenseReview bool      `json:"requiresLicenseReview,omitempty"`
-	RequiresSecurityReview bool     `json:"requiresSecurityReview,omitempty"`
-	Reasons            []string    `json:"reasons"`
+	CandidateID            string      `json:"candidateId"`
+	Fingerprint            string      `json:"fingerprint"`
+	Score                  float64     `json:"score"`
+	Disposition            Disposition `json:"disposition"`
+	ReadyForLab            bool        `json:"readyForLab"`
+	ReadyForProduction     bool        `json:"readyForProduction"`
+	RequiresLicenseReview  bool        `json:"requiresLicenseReview,omitempty"`
+	RequiresSecurityReview bool        `json:"requiresSecurityReview,omitempty"`
+	Reasons                []string    `json:"reasons"`
 }

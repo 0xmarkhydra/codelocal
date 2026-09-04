@@ -1,6 +1,6 @@
 {
   "name": "codex-mcp",
-  "version": "1.5.60",
+  "version": "1.5.61",
   "private": true,
   "description": "CodeLocal Go backend/CLI runtime with a Next.js web product.",
   "license": "UNLICENSED",
@@ -24,6 +24,7 @@
     "ci:pool-web": "npm ci --prefix web/apps/pool && npm run check --prefix web/apps/pool && npm audit --omit=dev --prefix web/apps/pool",
     "ci": "npm run check:repo && npm run ci:go && npm run ci:web && npm run ci:pool-web",
     "build:npm": "go run ./cmd/release",
+    "release:npm:prepare": "npm run check:repo && npm run ci:go && go run ./cmd/release && npm pack --dry-run ./.release/npm",
     "release:prepare": "npm run ci && go run ./cmd/release && npm pack --dry-run ./.release/npm",
     "release:npm": "(npm whoami --registry=https://registry.npmjs.org/ >/dev/null 2>&1 || npm login --registry=https://registry.npmjs.org/) && npm whoami --registry=https://registry.npmjs.org/ && bash ./release.sh"
   },

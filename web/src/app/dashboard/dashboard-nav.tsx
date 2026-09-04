@@ -41,9 +41,9 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavLink({ item, pathname }: { item: NavigationItem; pathname: string }) {
+function NavLink({ item, pathname, onNavigate }: { item: NavigationItem; pathname: string; onNavigate?: () => void }) {
   const active = isActive(pathname, item.href);
-  return <Link className={active ? styles.activeNav : undefined} href={item.href} aria-current={active ? "page" : undefined}>
+  return <Link onClick={onNavigate} className={active ? styles.activeNav : undefined} href={item.href} aria-current={active ? "page" : undefined}>
     <AppIcon className={styles.navIcon} name={item.icon} size={18} /><span>{item.label}</span>
   </Link>;
 }
@@ -59,13 +59,13 @@ function NavGroup({ group, pathname, mobileMain = false }: { group: NavigationGr
   </details>;
 }
 
-export function DashboardNav() {
+export function DashboardNav({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const readyAccount = account.state.kind === "ready" ? account.state.value : undefined;
   const moreItems = readyAccount?.isAdmin ? [...more.items, { label: "Admin", href: "/dashboard/admin", icon: "admin" as const }] : more.items;
   return <>
-    <nav className={styles.nav} aria-label="Dashboard navigation">
+    <nav className={styles.nav} aria-label="Dashboard navigation" onClick={(event) => { if ((event.target as HTMLElement).closest("a")) onNavigate?.(); }}>
       <div className={styles.navPrimary}>
         <NavLink item={chat} pathname={pathname} />
         <NavGroup group={intelligence} pathname={pathname} mobileMain />

@@ -22,17 +22,17 @@ const (
 // its result is verified at join time. The brief is the join key — results
 // that do not reference a known brief are ignored, never merged silently.
 type ChildBrief struct {
-	ID            string     "id"
-	TaskID        string     "taskId"
-	ParentAgentID string     "parentAgentId"
-	Role          Specialist "role"
-	Objective     string     "objective"
-	ReadPaths     []string   "readPaths,omitempty"
-	WritePaths    []string   "writePaths,omitempty"
-	TokenBudget   int64      "tokenBudget"
-	Verification  []string   "verification,omitempty"
-	EdgeID        string     "edgeId,omitempty"
-	CreatedAt     time.Time  "createdAt"
+	ID            string     `json:"id"`
+	TaskID        string     `json:"taskId"`
+	ParentAgentID string     `json:"parentAgentId"`
+	Role          Specialist `json:"role"`
+	Objective     string     `json:"objective"`
+	ReadPaths     []string   `json:"readPaths,omitempty"`
+	WritePaths    []string   `json:"writePaths,omitempty"`
+	TokenBudget   int64      `json:"tokenBudget"`
+	Verification  []string   `json:"verification,omitempty"`
+	EdgeID        string     `json:"edgeId,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
 }
 
 func IssueChildBrief(brief ChildBrief) (ChildBrief, error) {
@@ -58,18 +58,18 @@ func IssueChildBrief(brief ChildBrief) (ChildBrief, error) {
 }
 
 type MemberOutcome struct {
-	BriefID            string "briefId"
-	Status             string "status"
-	Summary            string "summary,omitempty"
-	VerificationPassed bool   "verificationPassed"
+	BriefID            string `json:"briefId"`
+	Status             string `json:"status"`
+	Summary            string `json:"summary,omitempty"`
+	VerificationPassed bool   `json:"verificationPassed"`
 }
 
 type TeamJoin struct {
-	Verdict  JoinVerdict "verdict"
-	Complete []string    "complete,omitempty"
-	Failed   []string    "failed,omitempty"
-	Unvered  []string    "unverified,omitempty"
-	Unknown  []string    "unknown,omitempty"
+	Verdict  JoinVerdict `json:"verdict"`
+	Complete []string    `json:"complete,omitempty"`
+	Failed   []string    `json:"failed,omitempty"`
+	Unvered  []string    `json:"unverified,omitempty"`
+	Unknown  []string    `json:"unknown,omitempty"`
 }
 
 // JoinTeamResults aggregates child outcomes against issued briefs. The join

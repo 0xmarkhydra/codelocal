@@ -13,11 +13,11 @@ import (
 )
 
 var (
-	ErrInvalidProgram       = errors.New("invalid tool program")
+	ErrInvalidProgram        = errors.New("invalid tool program")
 	ErrCapabilityUnavailable = errors.New("tool program capability unavailable")
-	ErrApprovalRequired     = errors.New("tool program capability requires approval")
-	ErrProgramLimit         = errors.New("tool program resource limit exceeded")
-	ErrProgramStep          = errors.New("tool program step failed")
+	ErrApprovalRequired      = errors.New("tool program capability requires approval")
+	ErrProgramLimit          = errors.New("tool program resource limit exceeded")
+	ErrProgramStep           = errors.New("tool program step failed")
 )
 
 type Step struct {
@@ -136,7 +136,7 @@ func (r *Runtime) Execute(parent context.Context, input Program) (Report, error)
 		}
 		result.Text = boundRaw(result.Text, r.limits.MaxRawBytes)
 		reduced := contextsurface.ReduceObservation(contextsurface.ToolObservation{
-			ID: "toolprogram:" + program.ID + ":" + step.ID,
+			ID:   "toolprogram:" + program.ID + ":" + step.ID,
 			Kind: result.Kind, Tool: binding.Capability.Tool, Operation: binding.Capability.Action,
 			Text: result.Text, Source: result.Source, RawArtifactRef: result.ArtifactRef, ExitCode: result.ExitCode,
 		}, r.limits.MaxStepTokens)
@@ -179,30 +179,58 @@ func normalizeProgram(program Program, limits Limits) (Program, error) {
 }
 
 func normalizeLimits(limits Limits) Limits {
-	if limits.MaxOperations <= 0 { limits.MaxOperations = 32 }
-	if limits.MaxOperations > 256 { limits.MaxOperations = 256 }
-	if limits.MaxArgsBytes <= 0 { limits.MaxArgsBytes = 64 * 1024 }
-	if limits.MaxArgsBytes > 1024*1024 { limits.MaxArgsBytes = 1024 * 1024 }
-	if limits.MaxRawBytes <= 0 { limits.MaxRawBytes = 1024 * 1024 }
-	if limits.MaxRawBytes > 8*1024*1024 { limits.MaxRawBytes = 8 * 1024 * 1024 }
-	if limits.MaxStepTokens <= 0 { limits.MaxStepTokens = 512 }
-	if limits.MaxStepTokens > 4096 { limits.MaxStepTokens = 4096 }
-	if limits.Timeout <= 0 { limits.Timeout = 30 * time.Second }
-	if limits.Timeout > 10*time.Minute { limits.Timeout = 10 * time.Minute }
+	if limits.MaxOperations <= 0 {
+		limits.MaxOperations = 32
+	}
+	if limits.MaxOperations > 256 {
+		limits.MaxOperations = 256
+	}
+	if limits.MaxArgsBytes <= 0 {
+		limits.MaxArgsBytes = 64 * 1024
+	}
+	if limits.MaxArgsBytes > 1024*1024 {
+		limits.MaxArgsBytes = 1024 * 1024
+	}
+	if limits.MaxRawBytes <= 0 {
+		limits.MaxRawBytes = 1024 * 1024
+	}
+	if limits.MaxRawBytes > 8*1024*1024 {
+		limits.MaxRawBytes = 8 * 1024 * 1024
+	}
+	if limits.MaxStepTokens <= 0 {
+		limits.MaxStepTokens = 512
+	}
+	if limits.MaxStepTokens > 4096 {
+		limits.MaxStepTokens = 4096
+	}
+	if limits.Timeout <= 0 {
+		limits.Timeout = 30 * time.Second
+	}
+	if limits.Timeout > 10*time.Minute {
+		limits.Timeout = 10 * time.Minute
+	}
 	return limits
 }
 
 func boundRaw(value string, maxBytes int) string {
-	if maxBytes <= 0 || len(value) <= maxBytes { return value }
-	if maxBytes <= 64 { return value[:maxBytes] }
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	if maxBytes <= 64 {
+		return value[:maxBytes]
+	}
 	head := maxBytes * 3 / 4
 	tail := maxBytes - head - len("\n… raw output bounded …\n")
-	if tail < 0 { tail = 0 }
+	if tail < 0 {
+		tail = 0
+	}
 	return value[:head] + "\n… raw output bounded …\n" + value[len(value)-tail:]
 }
 
 func cloneArgs(input map[string]any) map[string]any {
-	if input == nil { return nil }
+	if input == nil {
+		return nil
+	}
 	raw, _ := json.Marshal(input)
 	var out map[string]any
 	_ = json.Unmarshal(raw, &out)

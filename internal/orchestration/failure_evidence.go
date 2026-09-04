@@ -16,27 +16,27 @@ const eventFailureEvidence = "failure.evidence_recorded"
 var ErrInvalidFailureEvidence = errors.New("invalid failure evidence")
 
 type FailureEvidenceBundle struct {
-	OccurrenceID       string   `json:"occurrenceId"`
-	AgentID            string   `json:"agentId,omitempty"`
-	NodeID             string   `json:"nodeId,omitempty"`
-	KernelRevision     uint64   `json:"kernelRevision,omitempty"`
-	KernelStage        string   `json:"kernelStage,omitempty"`
-	ContextFingerprint string   `json:"contextFingerprint,omitempty"`
-	ToolRefs           []string `json:"toolRefs,omitempty"`
-	PatchRefs          []string `json:"patchRefs,omitempty"`
-	VerificationRefs   []string `json:"verificationRefs,omitempty"`
-	DecisionRefs       []string `json:"decisionRefs,omitempty"`
-	LastMutationRef    string   `json:"lastMutationRef,omitempty"`
-	FailureSignature   string   `json:"failureSignature"`
+	OccurrenceID       string    `json:"occurrenceId"`
+	AgentID            string    `json:"agentId,omitempty"`
+	NodeID             string    `json:"nodeId,omitempty"`
+	KernelRevision     uint64    `json:"kernelRevision,omitempty"`
+	KernelStage        string    `json:"kernelStage,omitempty"`
+	ContextFingerprint string    `json:"contextFingerprint,omitempty"`
+	ToolRefs           []string  `json:"toolRefs,omitempty"`
+	PatchRefs          []string  `json:"patchRefs,omitempty"`
+	VerificationRefs   []string  `json:"verificationRefs,omitempty"`
+	DecisionRefs       []string  `json:"decisionRefs,omitempty"`
+	LastMutationRef    string    `json:"lastMutationRef,omitempty"`
+	FailureSignature   string    `json:"failureSignature"`
 	CapturedAt         time.Time `json:"capturedAt"`
 }
 
 type FailureAttribution struct {
-	OccurrenceID  string  `json:"occurrenceId"`
-	AgentID       string  `json:"agentId,omitempty"`
-	ResponsibleRef string `json:"responsibleRef,omitempty"`
-	Confidence    float64 `json:"confidence"`
-	ReasonCode    string  `json:"reasonCode"`
+	OccurrenceID   string  `json:"occurrenceId"`
+	AgentID        string  `json:"agentId,omitempty"`
+	ResponsibleRef string  `json:"responsibleRef,omitempty"`
+	Confidence     float64 `json:"confidence"`
+	ReasonCode     string  `json:"reasonCode"`
 }
 
 type FailureEvidenceStore struct {
@@ -92,7 +92,7 @@ func (s *FailureEvidenceStore) Record(input FailureEvidenceBundle) (FailureEvide
 		stored, appended, err := s.events.Append(s.workspaceKey, s.taskID, runtimeevents.Event{
 			Type: eventFailureEvidence, TaskID: s.taskID, AgentID: bundle.AgentID,
 			IdempotencyKey: "failure-evidence:" + bundle.OccurrenceID,
-			Payload: map[string]any{"evidence": failureEvidencePayload(bundle)},
+			Payload:        map[string]any{"evidence": failureEvidencePayload(bundle)},
 		})
 		if err != nil {
 			return FailureEvidenceBundle{}, err

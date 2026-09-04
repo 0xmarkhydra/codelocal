@@ -17,7 +17,7 @@ func TestBlogMediaSlotsExtractsCoverAndImageBlocks(t *testing.T) {
 		t.Fatalf("blogMediaSlots error: %v", err)
 	}
 	want := map[string]string{
-		"cover": "media_cover",
+		"cover":   "media_cover",
 		"image:1": "media_a1",
 		"image:2": "media_b2",
 	}

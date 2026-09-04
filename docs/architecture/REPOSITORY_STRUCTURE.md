@@ -473,9 +473,19 @@ Verification:
 
 ```text
 npm run ci
-go test ./...
-go run ./cmd/release
-npm pack --dry-run ./.release/npm
+npm run release:prepare
+```
+
+For npm CLI-only staging (without web checks), use:
+
+```bash
+npm run release:npm:prepare
+```
+
+For an actual stable or beta npm release, use the canonical end-to-end command documented in `docs/operations/NPM_RELEASE.md`. Its npm release gate checks repository structure and Go code, but intentionally excludes the unrelated web applications:
+
+```bash
+npm run release:npm
 ```
 
 ### RA3 — Next.js web migration

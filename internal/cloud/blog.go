@@ -17,7 +17,7 @@ var (
 )
 
 var reservedOfficialBlogPostSlugs = map[string]struct{}{
-	"why-local-execution-matters-for-ai-coding-agents":        {},
+	"why-local-execution-matters-for-ai-coding-agents":       {},
 	"connect-ai-clients-without-giving-up-workspace-control": {},
 	"project-brain-durable-context-for-coding-agents":        {},
 	"a-practical-security-model-for-local-coding-agents":     {},

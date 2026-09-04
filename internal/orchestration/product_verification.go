@@ -20,17 +20,17 @@ const (
 var ErrInvalidProductVerification = errors.New("invalid product verification")
 
 type ProductCheck struct {
-	CheckID    string         `json:"checkId"`
-	Surface    ProductSurface `json:"surface"`
-	Objective  string         `json:"objective"`
-	AgentID    string         `json:"agentId,omitempty"`
-	ArtifactHint string       `json:"artifactHint,omitempty"`
+	CheckID      string         `json:"checkId"`
+	Surface      ProductSurface `json:"surface"`
+	Objective    string         `json:"objective"`
+	AgentID      string         `json:"agentId,omitempty"`
+	ArtifactHint string         `json:"artifactHint,omitempty"`
 }
 
 type ProductObservation struct {
-	Passed      bool   `json:"passed"`
-	ArtifactRef string `json:"artifactRef,omitempty"`
-	FailureCode string `json:"failureCode,omitempty"`
+	Passed      bool      `json:"passed"`
+	ArtifactRef string    `json:"artifactRef,omitempty"`
+	FailureCode string    `json:"failureCode,omitempty"`
 	StartedAt   time.Time `json:"startedAt,omitempty"`
 	FinishedAt  time.Time `json:"finishedAt,omitempty"`
 }
@@ -66,9 +66,13 @@ func RunProductVerification(ctx context.Context, verifier ProductVerifier, input
 	return VerificationEvidence{CheckID: input.CheckID, AgentID: input.AgentID, Status: status, ArtifactRef: strings.TrimSpace(observation.ArtifactRef), FailureSignature: productFailureSignature(input.Surface, failure), StartedAt: observation.StartedAt, FinishedAt: observation.FinishedAt}, nil
 }
 
-func validProductSurface(surface ProductSurface) bool { return surface == ProductBrowser || surface == ProductComputer || surface == ProductMobile }
+func validProductSurface(surface ProductSurface) bool {
+	return surface == ProductBrowser || surface == ProductComputer || surface == ProductMobile
+}
 func productFailureSignature(surface ProductSurface, code string) string {
-	if strings.TrimSpace(code) == "" { return "" }
-	sum := sha256.Sum256([]byte(string(surface)+"\x00"+strings.ToLower(strings.TrimSpace(code))))
+	if strings.TrimSpace(code) == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(string(surface) + "\x00" + strings.ToLower(strings.TrimSpace(code))))
 	return "product_" + hex.EncodeToString(sum[:8])
 }

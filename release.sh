@@ -63,7 +63,11 @@ const tuple = (v) => {
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 const stable = versions.map(tuple).filter(Boolean).sort(compare);
-let base = stable.length ? stable[stable.length - 1] : tuple(localVersion.replace(/-.+$/, "")) || [0, 0, 0];
+const localBase = tuple(localVersion.replace(/-.+$/, "")) || [0, 0, 0];
+const publishedBase = stable.length ? stable[stable.length - 1] : [0, 0, 0];
+// Never let a stale/incomplete registry response make a release move backwards.
+// The next base must be at least the version currently declared by the repository.
+let base = compare(localBase, publishedBase) >= 0 ? localBase : publishedBase;
 
 if (channel === "latest") {
   process.stdout.write(`${base[0]}.${base[1]}.${base[2] + 1}`);
@@ -117,7 +121,7 @@ fs.writeFileSync(path, source);
 NODE
 
 rm -rf .release
-CODELOCAL_RELEASE_CHANNEL="$channel" npm run release:prepare
+CODELOCAL_RELEASE_CHANNEL="$channel" npm run release:npm:prepare
 
 staged_version="$(node -p "require('./.release/npm/package.json').version")"
 if [[ "$staged_version" != "$next_version" ]]; then
