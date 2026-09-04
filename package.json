@@ -1,6 +1,6 @@
 {
   "name": "codex-mcp",
-  "version": "1.5.53",
+  "version": "1.5.60",
   "private": true,
   "description": "CodeLocal Go backend/CLI runtime with a Next.js web product.",
   "license": "UNLICENSED",
