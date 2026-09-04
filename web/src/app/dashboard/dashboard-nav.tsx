@@ -12,7 +12,10 @@ import { useDashboardResource } from "./use-dashboard-resource";
 type NavigationItem = { label: string; href: string; icon: AppIconName };
 
 const navigation: NavigationItem[] = [
+  { label: "Executive", href: "/dashboard/executive", icon: "chat" },
   { label: "Chat", href: "/dashboard", icon: "chat" },
+  { label: "Work", href: "/dashboard/work", icon: "folder" },
+  { label: "Company", href: "/dashboard/company", icon: "brain" },
   { label: "Shots", href: "/dashboard/shots", icon: "image" },
   { label: "Blogs", href: "/dashboard/blogs", icon: "file" },
   { label: "Brain", href: "/dashboard/knowledge", icon: "brain" },
