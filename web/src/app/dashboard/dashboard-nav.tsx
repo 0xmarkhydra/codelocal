@@ -20,6 +20,7 @@ const navigation: NavigationItem[] = [
   { label: "Connections", href: "/dashboard/connect", icon: "connection" },
   { label: "Workspaces", href: "/dashboard/workspaces", icon: "folder" },
   { label: "Devices", href: "/dashboard/devices", icon: "device" },
+  { label: "Usage", href: "/dashboard/usage", icon: "usage" },
   { label: "Settings", href: "/dashboard/settings", icon: "settings" },
   { label: "Invite", href: "/dashboard/invite", icon: "invite" },
 ];
@@ -71,7 +72,6 @@ export function DashboardNav() {
           <div className={controls.sidebarAccountMenu}>
             <Link href="/dashboard/account">Account</Link>
             <Link href="/dashboard/security">Security</Link>
-            <Link href="/dashboard/usage">Usage</Link>
             <form method="post" action="/logout">
               <input type="hidden" name="csrf" value={readyAccount.csrf} />
               <input type="hidden" name="next" value="/dashboard" />

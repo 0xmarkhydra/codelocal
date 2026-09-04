@@ -6,6 +6,7 @@ export type AppIconName =
   | "connection"
   | "folder"
   | "device"
+  | "usage"
   | "invite"
   | "user"
   | "admin"
@@ -65,6 +66,7 @@ export function AppIcon({ name, size = 18, ...props }: Props) {
       {name === "connection" && <><path d="m9.45 14.55-1.8 1.8a3.55 3.55 0 0 1-5.02-5.02l3.05-3.05A3.55 3.55 0 0 1 10.7 8" /><path d="m14.55 9.45 1.8-1.8a3.55 3.55 0 1 1 5.02 5.02l-3.05 3.05A3.55 3.55 0 0 1 13.3 16" /><path d="m8.6 15.4 6.8-6.8" /></>}
       {name === "folder" && <><path d="M3.25 7.25A2.25 2.25 0 0 1 5.5 5h4.1l2.15 2.4h6.75a2.25 2.25 0 0 1 2.25 2.25v7.1A2.25 2.25 0 0 1 18.5 19H5.5a2.25 2.25 0 0 1-2.25-2.25Z" /><path d="M3.5 9h17" /></>}
       {name === "device" && <><rect x="3.25" y="4.25" width="17.5" height="12.25" rx="2.1" /><path d="M8.25 20h7.5M12 16.5V20" /></>}
+      {name === "usage" && <><path d="M4.25 20V10.75h4V20M10 20V4.25h4V20m1.75 0v-7h4v7" /><path d="M2.75 20.25h18.5" /></>}
       {name === "invite" && <><circle cx="8.75" cy="8" r="3.5" /><path d="M2.75 20.25a6 6 0 0 1 12 0M18.5 8.25v6.5m-3.25-3.25h6.5" /></>}
       {name === "user" && <><circle cx="12" cy="8" r="3.75" /><path d="M5.25 20.25a6.75 6.75 0 0 1 13.5 0" /></>}
       {name === "admin" && <><path d="M12 3.25 4.4 7.1v4.75c0 4.7 3.13 7.7 7.6 8.9 4.47-1.2 7.6-4.2 7.6-8.9V7.1Z" /><path d="M9 12h6m-3-3v6" /></>}

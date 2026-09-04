@@ -10,6 +10,7 @@ import (
 
 func TestUsageResourceDTOKeepsEstimatedMCPPayloadSemantics(t *testing.T) {
 	payload := buildUsageResourceDTO(
+		cloud.MCPUsageSummary{Calls: 2, InputTokensEst: 20, OutputTokensEst: 10, TotalTokensEst: 30},
 		cloud.MCPUsageSummary{Calls: 7, InputTokensEst: 100, OutputTokensEst: 50, TotalTokensEst: 150},
 		cloud.MCPUsageSummary{Calls: 20, InputTokensEst: 600, OutputTokensEst: 300, TotalTokensEst: 900},
 		cloud.MCPUsageSummary{Calls: 30, InputTokensEst: 900, OutputTokensEst: 500, TotalTokensEst: 1400},
@@ -17,6 +18,9 @@ func TestUsageResourceDTOKeepsEstimatedMCPPayloadSemantics(t *testing.T) {
 
 	if !payload.Estimated || payload.Scope != dashboardUsageScope {
 		t.Fatalf("unexpected usage metadata: %#v", payload)
+	}
+	if payload.Last1h.TotalTokensEstimated != 30 {
+		t.Fatalf("unexpected last1h payload: %#v", payload.Last1h)
 	}
 	if payload.Last24h.Calls != 7 || payload.Last24h.InputTokensEstimated != 100 || payload.Last24h.OutputTokensEstimated != 50 || payload.Last24h.TotalTokensEstimated != 150 {
 		t.Fatalf("unexpected last24h payload: %#v", payload.Last24h)

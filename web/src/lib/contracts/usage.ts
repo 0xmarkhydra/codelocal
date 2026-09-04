@@ -8,6 +8,7 @@ export type UsageWindow = {
 export type UsageResource = {
   estimated: true;
   scope: string;
+  last1h: UsageWindow;
   last24h: UsageWindow;
   last30d: UsageWindow;
   allTime: UsageWindow;
@@ -36,6 +37,7 @@ export function isUsageResource(value: unknown): value is UsageResource {
   return (
     value.estimated === true &&
     typeof value.scope === "string" &&
+    isUsageWindow(value.last1h) &&
     isUsageWindow(value.last24h) &&
     isUsageWindow(value.last30d) &&
     isUsageWindow(value.allTime)

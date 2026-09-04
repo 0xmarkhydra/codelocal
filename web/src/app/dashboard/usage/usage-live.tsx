@@ -12,7 +12,8 @@ const compactNumber = new Intl.NumberFormat("en-US", {
 
 const exactNumber = new Intl.NumberFormat("en-US");
 
-const windows: Array<{ key: "last24h" | "last30d" | "allTime"; label: string }> = [
+const windows: Array<{ key: "last1h" | "last24h" | "last30d" | "allTime"; label: string }> = [
+  { key: "last1h", label: "Last hour" },
   { key: "last24h", label: "Last 24 hours" },
   { key: "last30d", label: "Last 30 days" },
   { key: "allTime", label: "All time" },
@@ -26,7 +27,9 @@ function UsageBreakdown({ label, value }: { label: string; value: UsageWindow })
         <span>{exactNumber.format(value.calls)} tool calls</span>
       </div>
       <dl>
-        <div><dt>Tokens</dt><dd>{exactNumber.format(value.totalTokensEstimated)}</dd></div>
+        <div><dt>Input</dt><dd>{exactNumber.format(value.inputTokensEstimated)}</dd></div>
+        <div><dt>Output</dt><dd>{exactNumber.format(value.outputTokensEstimated)}</dd></div>
+        <div><dt>Total</dt><dd>{exactNumber.format(value.totalTokensEstimated)}</dd></div>
       </dl>
     </article>
   );
@@ -54,7 +57,8 @@ export function LiveUsage() {
         <span className={styles.liveBadge}>Live</span>
       </div>
 
-      <div className={styles.metricGrid}>
+      <div className={`${styles.metricGrid} ${styles.usageMetricGrid}`}>
+        <article className={styles.metricCard}><span>1h</span><strong>{compactNumber.format(resource.last1h.totalTokensEstimated)}</strong></article>
         <article className={styles.metricCard}><span>24h</span><strong>{compactNumber.format(resource.last24h.totalTokensEstimated)}</strong></article>
         <article className={styles.metricCard}><span>30d</span><strong>{compactNumber.format(resource.last30d.totalTokensEstimated)}</strong></article>
         <article className={styles.metricCard}><span>All time</span><strong>{compactNumber.format(resource.allTime.totalTokensEstimated)}</strong></article>

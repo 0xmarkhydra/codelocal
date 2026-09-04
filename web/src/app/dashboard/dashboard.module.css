@@ -658,6 +658,10 @@
   text-align: right;
 }
 
+.usageMetricGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .usageList {
   display: grid;
   margin-top: 18px;
@@ -667,7 +671,7 @@
 .usageRow {
   min-height: 86px;
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(150px, 0.7fr) minmax(180px, 1.3fr);
   align-items: center;
   gap: 22px;
   padding: 14px 0;
