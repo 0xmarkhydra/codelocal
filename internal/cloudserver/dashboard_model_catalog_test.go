@@ -173,3 +173,47 @@ func TestDashboardShopAIKeySelectedModelRetriesWithoutFallback(t *testing.T) {
 		t.Fatalf("friendly error=%q want=%q", got, selectedErr.Error())
 	}
 }
+
+func TestDashboardSelectableModelsPinsZenLane(t *testing.T) {
+	clearAIPoolEnv(t)
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
+	t.Setenv("SHOPAIKEY_API_KEY", "")
+	t.Setenv("CODELOCAL_SHOPAIKEY_BASE_URL", "")
+	t.Setenv("CODELOCAL_SHOPAIKEY_MODEL", "")
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://opencode.ai/zen/v1")
+	t.Setenv("CODELOCAL_LLM_MODEL", dashboardModelMuse)
+	t.Setenv("OPENCODE_ZEN_API_KEY", "")
+	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
+
+	models, err := dashboardSelectableModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{dashboardModelAuto, dashboardModelMuse}
+	if !reflect.DeepEqual(models, want) {
+		t.Fatalf("pinned zen models=%v want=%v", models, want)
+	}
+
+	// A ShopAIKey credential must not widen the pinned picker.
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "shop-key")
+	models, err = dashboardSelectableModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(models, want) {
+		t.Fatalf("pinned zen models with shop key=%v want=%v", models, want)
+	}
+
+	// Without a Zen credential the pin drops and curated models return.
+	t.Setenv("CODELOCAL_LLM_API_KEY", "")
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
+	models, err = dashboardSelectableModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCurated := []string{dashboardModelAuto, dashboardModelGLM, dashboardModelQwen, dashboardModelMuse}
+	if !reflect.DeepEqual(models, wantCurated) {
+		t.Fatalf("unpinned models=%v want=%v", models, wantCurated)
+	}
+}

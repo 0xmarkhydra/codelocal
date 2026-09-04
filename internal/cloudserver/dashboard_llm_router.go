@@ -118,6 +118,18 @@ func dashboardMuseTarget(model string) (dashboardLLMTarget, bool) {
 	return dashboardLLMTarget{ID: "zen:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: true}, true
 }
 
+// dashboardZenLanePinned reports whether dashboard chat is temporarily pinned
+// to the direct OpenCode Zen lane. While Pool is bypassed and Zen is
+// explicitly configured with a credential, the model picker offers only Auto
+// and Muse Spark 1.3 instead of the ShopAIKey/curated catalogs.
+func dashboardZenLanePinned() bool {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")), "zen") {
+		return false
+	}
+	_, ok := dashboardMuseTarget(dashboardModelMuse)
+	return ok
+}
+
 func dashboardLegacyTarget() (dashboardLLMTarget, bool) {
 	apiKey, baseURL, model := dashboardLLMConfig()
 	if strings.TrimSpace(apiKey) == "" {

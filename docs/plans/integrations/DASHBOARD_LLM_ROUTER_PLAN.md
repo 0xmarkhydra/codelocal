@@ -7,6 +7,8 @@
 > (`muse-spark-1.3-contributor-free` via `https://opencode.ai/zen/v1`).
 > Re-enable Pool by setting `CODELOCAL_AI_POOL_ENABLED=1` with
 > `CODELOCAL_AI_POOL_BASE_URL` + `CODELOCAL_AI_POOL_API_KEY`.
+> While `CODELOCAL_LLM_PROVIDER=zen` with a Zen credential, the picker is
+> pinned to `auto` + `muse-spark-1.3-contributor-free`.
 
 Dashboard chat exposes a user-selectable model picker while keeping `Auto` as the default.
 

@@ -443,6 +443,13 @@ func dashboardSelectableModels(ctx context.Context) ([]string, error) {
 		), nil
 	}
 
+	// Temporary direct-Zen lane: an explicitly configured Zen credential pins
+	// the picker to Auto + Muse Spark 1.3 so chat stays on the single
+	// temporary model instead of the ShopAIKey/curated catalogs.
+	if dashboardZenLanePinned() {
+		return []string{dashboardModelAuto, dashboardModelMuse}, nil
+	}
+
 	if _, _, _, ok := dashboardShopAIKeyConfig(); !ok {
 		return dashboardCuratedModels(ctx), nil
 	}
