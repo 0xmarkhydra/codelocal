@@ -3,6 +3,8 @@ package taskexecution
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +15,12 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/repository"
 	codelocalstate "github.com/0xmarkhydra/codelocal/internal/state"
 )
+
+// ErrDirtyRepository is retained for source compatibility with callers that
+// referenced the old V1 behavior. V2 no longer rejects dirty authoritative
+// checkouts; agents branch from committed HEAD and never copy dirty user state
+// into their isolated worktree implicitly.
+var ErrDirtyRepository = errors.New("repository has uncommitted changes")
 
 type PrepareRequest struct {
 	TaskID       string
@@ -27,6 +35,12 @@ type LocalWorktreeProvider struct{ baseDir string }
 type createdWorktree struct {
 	repo repository.Checkout
 	path string
+}
+
+type sourceCheckoutState struct {
+	head              string
+	dirty             bool
+	statusFingerprint string
 }
 
 func NewLocalWorktreeProvider(baseDir string) *LocalWorktreeProvider {
@@ -92,8 +106,29 @@ func (p *LocalWorktreeProvider) worktreePath(workspaceKey, taskID string, repo r
 		digestKey("repository", repo.ID, repo.RelativePath))
 }
 
-func sourceRevision(ctx context.Context, repo repository.Checkout) (string, error) {
-	return gitCommand(ctx, repo.Root, "rev-parse", "HEAD")
+func sourceState(ctx context.Context, repo repository.Checkout) (sourceCheckoutState, error) {
+	head, err := gitCommand(ctx, repo.Root, "rev-parse", "HEAD")
+	if err != nil {
+		return sourceCheckoutState{}, err
+	}
+	status, err := gitCommand(ctx, repo.Root, "status", "--porcelain=v1", "--untracked-files=all")
+	if err != nil {
+		return sourceCheckoutState{}, err
+	}
+	// The fingerprint is provenance/observability, not a merge authorization.
+	// Reconciliation still uses per-file expected hashes/base revisions so an
+	// untracked or subsequently changed user file can never be overwritten just
+	// because this status fingerprint happened to match.
+	diff, err := gitCommand(ctx, repo.Root, "diff", "--binary", "HEAD")
+	if err != nil {
+		return sourceCheckoutState{}, err
+	}
+	sum := sha256.Sum256([]byte(status + "\x00" + diff))
+	return sourceCheckoutState{
+		head:              strings.TrimSpace(head),
+		dirty:             strings.TrimSpace(status) != "",
+		statusFingerprint: hex.EncodeToString(sum[:]),
+	}, nil
 }
 
 func safeSnapshotPath(root, relative string) (string, error) {
@@ -201,9 +236,12 @@ func (p *LocalWorktreeProvider) ensureWorktree(ctx context.Context, req PrepareR
 	return path, true, nil
 }
 
-func repositoryBinding(req PrepareRequest, repo repository.Checkout, branch, head, path string) RepositoryBinding {
-	return RepositoryBinding{RepositoryID: repo.ID, RepositoryPath: repo.RelativePath, SourceRevision: head,
-		BranchName: branch, BindingID: "binding_" + digestKey(req.TaskID, repo.ID, repo.RelativePath), LocalPath: path}
+func repositoryBinding(req PrepareRequest, repo repository.Checkout, branch string, source sourceCheckoutState, path string) RepositoryBinding {
+	return RepositoryBinding{
+		RepositoryID: repo.ID, RepositoryPath: repo.RelativePath, SourceRevision: source.head,
+		SourceDirty: source.dirty, SourceStatusFingerprint: source.statusFingerprint,
+		BranchName: branch, BindingID: "binding_" + digestKey(req.TaskID, repo.ID, repo.RelativePath), LocalPath: path,
+	}
 }
 
 func rollbackWorktrees(created []createdWorktree) {
@@ -213,18 +251,19 @@ func rollbackWorktrees(created []createdWorktree) {
 }
 
 func (p *LocalWorktreeProvider) prepareRepository(ctx context.Context, req PrepareRequest, repo repository.Checkout, branch string) (RepositoryBinding, *createdWorktree, error) {
-	head, err := sourceRevision(ctx, repo)
+	source, err := sourceState(ctx, repo)
 	if err != nil {
 		return RepositoryBinding{}, nil, err
 	}
-	path, created, err := p.ensureWorktree(ctx, req, repo, branch, head)
+	path, created, err := p.ensureWorktree(ctx, req, repo, branch, source.head)
 	if err != nil {
 		return RepositoryBinding{}, nil, err
 	}
+	binding := repositoryBinding(req, repo, branch, source, path)
 	if created {
-		return repositoryBinding(req, repo, branch, head, path), &createdWorktree{repo: repo, path: path}, nil
+		return binding, &createdWorktree{repo: repo, path: path}, nil
 	}
-	return repositoryBinding(req, repo, branch, head, path), nil, nil
+	return binding, nil, nil
 }
 
 func (p *LocalWorktreeProvider) Prepare(ctx context.Context, req PrepareRequest) (Bundle, error) {

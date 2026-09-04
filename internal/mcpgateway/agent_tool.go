@@ -525,6 +525,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 		plan = s.tenantAgentPlanFromState(ctx, userID, currentAgentState(userID, session, workspaceKey), caps, project)
 	}
 	initialPlan := plan
+	shadow := prepareAgentOSV2Shadow(ctx, userID, session, workspaceKey, objective, caps, plan, currentAgentState(userID, session, workspaceKey))
 	dirtySinceVerify := false
 	haltReason := ""
 	var lastResult *mcp.CallToolResult = contextResult
@@ -719,6 +720,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	}
 	efficiency := orchestration.EvaluateExecutionEfficiency(initialPlan, trace)
 	traceSummary := orchestration.SummarizeExecutionTrace(trace)
+	shadowSummary := finalizeAgentOSV2Shadow(shadow, status, state.QualityStatus, state.QualityScore, ops, replans, haltReason != "")
 	payload := map[string]any{
 		"status":            status,
 		"objective":         objective,
@@ -757,6 +759,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	if responseMode == "full" {
 		payload["plan"] = plan
 		payload["efficiency"] = efficiency
+		payload["agentOSV2Shadow"] = shadowSummary
 		payload["agentLoop"] = map[string]any{
 			"phase":             state.AgentPhase,
 			"iteration":         state.AgentIteration,
