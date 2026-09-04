@@ -43,7 +43,7 @@ func TestCompactToolSurfaceContract(t *testing.T) {
 	if compactBytes >= previousPublicSchemaBytes {
 		t.Fatalf("generation-5 schema should be smaller than generation 4: compact=%d previous=%d", compactBytes, previousPublicSchemaBytes)
 	}
-	t.Logf("MCP surface bytes: generation4=%d generation6=%d reduction=%.1f%%", previousPublicSchemaBytes, compactBytes, 100*(1-float64(compactBytes)/float64(previousPublicSchemaBytes)))
+	t.Logf("MCP surface bytes: generation4=%d generation7=%d reduction=%.1f%%", previousPublicSchemaBytes, compactBytes, 100*(1-float64(compactBytes)/float64(previousPublicSchemaBytes)))
 }
 
 func allCompactActions(t *testing.T, def compactToolDef) []string {
@@ -291,6 +291,7 @@ func TestRepresentativeCompactCallsMatchRuntimeOperations(t *testing.T) {
 		{tool: "context", action: "definition", runtimeTool: "find_definition", args: map[string]any{"path": "main.go", "line": 10, "column": 3}},
 		{tool: "edit", action: "apply", runtimeTool: "apply_edits", args: map[string]any{"files": []any{map[string]any{"path": "main.go", "edits": []any{}}}}},
 		{tool: "terminal", action: "start_pty", runtimeTool: "pty_start", args: map[string]any{"command": "go test ./..."}},
+		{tool: "terminal", action: "publish_artifact", runtimeTool: "artifact_publish", args: map[string]any{"path": "render.mp4"}},
 		{tool: "terminal", action: "poll", runtimeTool: "exec_poll", args: map[string]any{"processId": "process"}},
 		{tool: "git", action: "push", runtimeTool: "git_push", args: map[string]any{"remote": "origin", "branch": "dev"}},
 		{tool: "mcp", action: "call", runtimeTool: "mcp_call", args: map[string]any{"server": "github", "tool": "search", "arguments": map[string]any{}}},

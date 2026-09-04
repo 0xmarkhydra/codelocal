@@ -24,6 +24,9 @@ type Workspace struct {
 	LocalPath       string `json:"localPath"`
 	GrantedAt       int64  `json:"grantedAt"`
 	LastActivatedAt int64  `json:"lastActivatedAt,omitempty"`
+	System          bool   `json:"system,omitempty"`
+	Managed         bool   `json:"managed,omitempty"`
+	Hidden          bool   `json:"hidden,omitempty"`
 }
 
 type fileState struct {
@@ -209,6 +212,67 @@ func (r *Registry) Grant(path, name string) (Workspace, error) {
 			name = name[:120]
 		}
 		out = Workspace{WorkspaceID: id, WorkspaceName: name, LocalPath: real, GrantedAt: grantedAt, LastActivatedAt: activated}
+		next := make([]Workspace, 0, len(data.Workspaces)+1)
+		for _, ws := range data.Workspaces {
+			if ws.WorkspaceID != id {
+				next = append(next, ws)
+			}
+		}
+		next = append(next, out)
+		sort.Slice(next, func(i, j int) bool { return next[i].WorkspaceName < next[j].WorkspaceName })
+		return state.WriteJSONAtomic(r.File, fileState{Version: 1, Workspaces: next})
+	})
+	return out, err
+}
+
+func (r *Registry) EnsureSystem(projectID, name, path string) (Workspace, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return Workspace{}, errors.New("system workspace project id is required")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return Workspace{}, err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return Workspace{}, err
+	}
+	info, err := os.Stat(real)
+	if err != nil || !info.IsDir() {
+		return Workspace{}, errors.New("system workspace must reference an existing directory")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = projectID
+	}
+	if len(name) > 120 {
+		name = name[:120]
+	}
+	idPart := strings.Trim(slugRE.ReplaceAllString(projectID, "-"), "-")
+	if idPart == "" {
+		idPart = "workspace"
+	}
+	id := "system-" + idPart
+	var out Workspace
+	err = r.withLock(func() error {
+		data, err := r.read()
+		if err != nil {
+			return err
+		}
+		grantedAt := time.Now().UnixMilli()
+		var activated int64
+		for _, ws := range data.Workspaces {
+			if ws.WorkspaceID == id {
+				grantedAt = ws.GrantedAt
+				activated = ws.LastActivatedAt
+			}
+		}
+		out = Workspace{
+			WorkspaceID: id, WorkspaceName: name, LocalPath: real,
+			GrantedAt: grantedAt, LastActivatedAt: activated,
+			System: true, Managed: true, Hidden: true,
+		}
 		next := make([]Workspace, 0, len(data.Workspaces)+1)
 		for _, ws := range data.Workspaces {
 			if ws.WorkspaceID != id {

@@ -23,7 +23,7 @@ concurrency:
 jobs:
   prepare:
     if: >-
-      github.repository == '0xmarkhydra/codex-mcp' &&
+      github.repository == '0xmarkhydra/codelocal' &&
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
@@ -176,7 +176,7 @@ jobs:
           echo "Dispatched publish stage from $TAG."
 
   native-macos:
-    if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    if: github.repository == '0xmarkhydra/codelocal' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     strategy:
       fail-fast: false
       matrix:
@@ -237,7 +237,7 @@ jobs:
 
   sign-native-macos:
     needs: native-macos
-    if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    if: github.repository == '0xmarkhydra/codelocal' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -342,7 +342,7 @@ jobs:
 
   publish:
     needs: sign-native-macos
-    if: github.repository == '0xmarkhydra/codex-mcp' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    if: github.repository == '0xmarkhydra/codelocal' && github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -470,7 +470,7 @@ jobs:
             echo "Staged version mismatch: expected $VERSION, got $staged_version" >&2
             exit 1
           fi
-          if [[ "$repository_url" != 'https://github.com/0xmarkhydra/codex-mcp.git' ]]; then
+          if [[ "$repository_url" != 'https://github.com/0xmarkhydra/codelocal.git' ]]; then
             echo "Unexpected repository.url: $repository_url" >&2
             exit 1
           fi

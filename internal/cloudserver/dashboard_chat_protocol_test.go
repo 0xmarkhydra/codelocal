@@ -20,6 +20,7 @@ func TestDashboardProtocolForZenModels(t *testing.T) {
 		model string
 		want  dashboardLLMProtocol
 	}{
+		{"muse-spark-1.3-contributor-free", dashboardProtocolResponses},
 		{"muse-spark-1.2-contributor-free", dashboardProtocolResponses},
 		{"gpt-5.6-sol", dashboardProtocolResponses},
 		{"grok-code", dashboardProtocolResponses},
@@ -40,10 +41,53 @@ func TestDashboardProtocolForZenModels(t *testing.T) {
 	}
 }
 
+func TestDashboardProtocolForMuseThroughPoolUsesResponses(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
+	if got := dashboardProtocolForModel("https://pool.example.test/v1", dashboardModelMuse); got != dashboardProtocolResponses {
+		t.Fatalf("Muse through Pool protocol=%v want Responses", got)
+	}
+}
+
 func TestDashboardProtocolForNonZenProviderUsesChatCompletions(t *testing.T) {
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
 	if got := dashboardProtocolForModel("https://api.openai.com/v1", "custom-model"); got != dashboardProtocolChatCompletions {
 		t.Fatalf("got %v, want chat completions", got)
+	}
+}
+
+func TestDashboardProtocolForShopAIKeyDoesNotInheritZenProvider(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://opencode.ai/zen/v1")
+	baseURL := "https://api.shopaikey.com/v1"
+	for _, model := range []string{"claude-opus-5", "gemini-3-flash-preview", "qwen3.5-plus"} {
+		t.Run(model, func(t *testing.T) {
+			if got := dashboardProtocolForModel(baseURL, model); got != dashboardProtocolChatCompletions {
+				t.Fatalf("dashboardProtocolForModel(%q) = %v, want chat completions", model, got)
+			}
+		})
+	}
+	if got := dashboardProtocolForModel(baseURL, "gpt-5.6-terra"); got != dashboardProtocolResponses {
+		t.Fatalf("dashboardProtocolForModel(gpt-5.6-terra) = %v, want responses", got)
+	}
+}
+
+func TestDashboardProtocolForConfiguredShopAIKeyEndpoint(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://opencode.ai/zen/v1")
+	t.Setenv("CODELOCAL_SHOPAIKEY_BASE_URL", "https://shop-proxy.example.test/v1/")
+	if got := dashboardProtocolForModel("https://shop-proxy.example.test/v1", "gpt-5.6-terra"); got != dashboardProtocolResponses {
+		t.Fatalf("got %v, want responses", got)
+	}
+	if got := dashboardProtocolForModel("https://shop-proxy.example.test/v1", "deepseek-v4-pro"); got != dashboardProtocolChatCompletions {
+		t.Fatalf("got %v, want chat completions", got)
+	}
+}
+
+func TestDashboardProtocolForConfiguredCustomZenEndpoint(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://zen-proxy.example.test/v1/")
+	if got := dashboardProtocolForModel("https://zen-proxy.example.test/v1", "claude-opus-5"); got != dashboardProtocolUnsupported {
+		t.Fatalf("got %v, want unsupported Zen protocol", got)
 	}
 }
 
@@ -107,6 +151,56 @@ func TestDashboardChatSystemPromptPinsSelectedWorkspace(t *testing.T) {
 	}
 }
 
+func TestDashboardChatModeNormalizesAndBoundsGoal(t *testing.T) {
+	if got := dashboardChatMode(" ASK "); got != "ask" {
+		t.Fatalf("mode=%q want ask", got)
+	}
+	if got := dashboardChatMode("unsafe"); got != "agent" {
+		t.Fatalf("invalid mode=%q want agent", got)
+	}
+	if got := len([]rune(dashboardChatGoal(strings.Repeat("ừ", 300)))); got != 240 {
+		t.Fatalf("goal length=%d want 240", got)
+	}
+	instruction := dashboardChatModeInstruction("plan", "ship\nwithout writes")
+	for _, token := range []string{"Plan", "read-only tools", "Never modify files", `Active user goal: "ship\nwithout writes".`} {
+		if !strings.Contains(instruction, token) {
+			t.Fatalf("plan instruction missing %q: %s", token, instruction)
+		}
+	}
+}
+
+func TestDashboardChatReadOnlyModesExcludeMutationTools(t *testing.T) {
+	for _, mode := range []string{"ask", "plan"} {
+		names := map[string]bool{}
+		for _, tool := range dashboardChatToolsForMode(mode) {
+			names[dashboardChatToolName(tool)] = true
+		}
+		for _, name := range []string{"list_workspaces", "search_project_brain", "read_project_file", "search_project_code", "verify_project_changes"} {
+			if !names[name] {
+				t.Fatalf("%s mode missing read-only tool %q", mode, name)
+			}
+		}
+		for _, name := range []string{"edit_project_file", "write_project_file", "apply_project_patch", "run_project_command"} {
+			if names[name] {
+				t.Fatalf("%s mode exposed mutation tool %q", mode, name)
+			}
+		}
+	}
+	if got := len(dashboardChatToolsForMode("agent")); got != len(dashboardChatTools) {
+		t.Fatalf("agent tools=%d want %d", got, len(dashboardChatTools))
+	}
+}
+
+func TestDashboardChatReadOnlyModeBlocksDirectMutationExecution(t *testing.T) {
+	r := dashboardWithChatMode(httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/chat", nil), "ask")
+	result := execDashboardTool(r, &Server{}, "user-1", "write_project_file", map[string]any{"path": "README.md", "content": "changed"})
+	for _, token := range []string{`"error":"tool_not_allowed_in_mode"`, `"mode":"ask"`, `"tool":"write_project_file"`} {
+		if !strings.Contains(result, token) {
+			t.Fatalf("blocked tool result missing %q: %s", token, result)
+		}
+	}
+}
+
 func TestDashboardChatFindWorkspaceMatchesProjectName(t *testing.T) {
 	catalog := []gateway.WorkspaceView{
 		{WorkspaceID: "MediaUpload-1", WorkspaceName: "MediaUpload", ProjectName: "MediaUpload"},
@@ -142,7 +236,7 @@ func TestDashboardWorkspaceToolViewHidesSleepingLifecycle(t *testing.T) {
 
 func TestDashboardPromptRequiresRealRuntimeExecution(t *testing.T) {
 	prompt := dashboardChatSystemPrompt(&dashboardChatWorkspace{WorkspaceID: "workspace-1", WorkspaceName: "BitArena"}, false)
-	for _, token := range []string{"runtime execution tools", "Never claim that you read, edited, ran, tested, or verified"} {
+	for _, token := range []string{"runtime execution tools", "running=true represents an existing process", "call poll_project_command", "never relaunch the same command", "Never claim that you read, edited, ran, tested, or verified"} {
 		if !strings.Contains(prompt, token) {
 			t.Fatalf("execution prompt missing %q: %s", token, prompt)
 		}
@@ -150,7 +244,7 @@ func TestDashboardPromptRequiresRealRuntimeExecution(t *testing.T) {
 }
 
 func TestDashboardChatExposesExecutionTools(t *testing.T) {
-	wanted := map[string]bool{"read_project_file": false, "edit_project_file": false, "run_project_command": false, "verify_project_changes": false}
+	wanted := map[string]bool{"read_project_file": false, "edit_project_file": false, "run_project_command": false, "poll_project_command": false, "verify_project_changes": false}
 	for _, tool := range dashboardChatTools {
 		fn, _ := tool["function"].(map[string]any)
 		name, _ := fn["name"].(string)
@@ -179,6 +273,7 @@ func TestDashboardRuntimeToolSpecMapsToNativeRuntime(t *testing.T) {
 		{"write_project_file", map[string]any{"path": "a.go", "content": "x"}, "write_file", true},
 		{"apply_project_patch", map[string]any{"patch": "diff --git"}, "apply_patch", true},
 		{"run_project_command", map[string]any{"command": "go test ./..."}, "run_command", true},
+		{"poll_project_command", map[string]any{"processId": "process-1"}, "process_poll", false},
 		{"verify_project_changes", map[string]any{}, "verify_changes", false},
 	}
 	for _, test := range tests {
@@ -216,10 +311,29 @@ func TestDashboardFinalSynthesisDisablesMoreToolWork(t *testing.T) {
 	messages := dashboardFinalSynthesisMessages([]map[string]any{{"role": "user", "content": "fix it"}}, "repeated tool calls")
 	last := messages[len(messages)-1]
 	content, _ := last["content"].(string)
-	for _, token := range []string{"Do not call any more tools", "Never expose internal orchestration limits", "repeated tool calls"} {
+	for _, token := range []string{"Do not call any more tools", "checkpointed for the next turn", "never misdescribe that condition as a closed runtime session", "repeated tool calls"} {
 		if !strings.Contains(content, token) {
 			t.Fatalf("final synthesis prompt missing %q: %s", token, content)
 		}
+	}
+}
+
+func TestDashboardToolRoundBudgetSupportsSequentialCalls(t *testing.T) {
+	if dashboardMaxToolRounds < dashboardMaxToolCalls {
+		t.Fatalf("tool rounds=%d must cover the %d-call safety budget for models that issue one call per round", dashboardMaxToolRounds, dashboardMaxToolCalls)
+	}
+	if dashboardMaxToolCalls != dashboardToolCallsPerSegment*dashboardMaxAutoSegments {
+		t.Fatalf("tool calls=%d, want %d auto segments of %d", dashboardMaxToolCalls, dashboardMaxAutoSegments, dashboardToolCallsPerSegment)
+	}
+	if dashboardMaxToolCalls <= dashboardToolCallsPerSegment {
+		t.Fatalf("tool execution still stops after one %d-call segment", dashboardToolCallsPerSegment)
+	}
+}
+
+func TestDashboardRunningToolResultStatus(t *testing.T) {
+	result := `{"ok":true,"result":{"processId":"process-1","running":true,"status":"running"}}`
+	if got := dashboardToolResultStatus(result); got != "running" {
+		t.Fatalf("status = %q, want running", got)
 	}
 }
 
@@ -227,6 +341,18 @@ func TestDashboardFallbackReplyNeverExposesHTTP508(t *testing.T) {
 	reply := dashboardFallbackReply([]dashboardToolCall{{Name: "read_project_file", Status: "done"}})
 	if strings.Contains(reply, "508") || strings.Contains(strings.ToLower(reply), "tool loop") {
 		t.Fatalf("fallback leaked internal orchestration error: %s", reply)
+	}
+}
+
+func TestDashboardBudgetFallbackPromisesOnlyCheckpointedResume(t *testing.T) {
+	reply := dashboardFallbackReply([]dashboardToolCall{{Name: "read_project_file", Status: "done"}}, "tool execution budget reached")
+	for _, token := range []string{"ngưỡng thực thi an toàn", "checkpoint", "không cần đọc lại từ đầu"} {
+		if !strings.Contains(reply, token) {
+			t.Fatalf("budget fallback missing %q: %s", token, reply)
+		}
+	}
+	if strings.Contains(strings.ToLower(reply), "phiên thực thi đã bị đóng") {
+		t.Fatalf("budget fallback misreported a closed runtime: %s", reply)
 	}
 }
 
@@ -340,6 +466,17 @@ func TestDashboardChatStoredImageKeepsLegacyValue(t *testing.T) {
 	}
 	if _, ok := dashboardChatImageMetaFromStored(legacy); ok {
 		t.Fatal("legacy image must not be parsed as compact metadata")
+	}
+}
+
+func TestDashboardChatThreadContextFollowsRequestCopies(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/chat", nil)
+	threadRequest := dashboardWithChatThread(r, "  thr_test  ")
+	if got := dashboardChatThreadID(threadRequest); got != "thr_test" {
+		t.Fatalf("thread id=%q want thr_test", got)
+	}
+	if got := dashboardChatThreadID(r); got != "" {
+		t.Fatalf("original request unexpectedly changed: %q", got)
 	}
 }
 

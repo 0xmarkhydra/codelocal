@@ -22,6 +22,7 @@ func TestNextDashboardRoutingUsesCompletePresentationWhitelist(t *testing.T) {
 		"/dashboard/settings",
 		"/dashboard/account",
 		"/dashboard/admin",
+		"/dashboard/shots",
 		"/dashboard/blogs",
 		"/dashboard/blogs/blog_123",
 	} {
@@ -48,12 +49,13 @@ func TestNextPresentationOwnsPublicAndFreshSecurityPages(t *testing.T) {
 		"/", "/login", "/register", "/signup", "/signup/verify", "/forgot-password", "/reset-password",
 		"/privacy", "/terms", "/support", "/security", "/healthz", "/sitemap.xml", "/robots.txt",
 		"/blogs", "/blogs/example", "/blogs/series", "/blogs/series/example", "/blogs/category/ai", "/blogs/tag/agents",
+		"/s/AbCdEf0123_-",
 	} {
 		if !isNextPublicPagePath(path) {
 			t.Fatalf("expected %q to be a Next public page", path)
 		}
 	}
-	for _, path := range []string{"/blogger", "/blogs-private", "/api/v1/blog/public"} {
+	for _, path := range []string{"/blogger", "/blogs-private", "/screens", "/api/v1/blog/public"} {
 		if isNextPublicPagePath(path) {
 			t.Fatalf("expected %q to stay outside the public Next presentation family", path)
 		}
@@ -145,6 +147,7 @@ func TestWebFrontendMiddlewareProxiesPublicNextPages(t *testing.T) {
 	for _, path := range []string{
 		"/", "/privacy", "/terms", "/support", "/security", "/forgot-password", "/reset-password", "/healthz",
 		"/sitemap.xml", "/robots.txt", "/blogs", "/blogs/demo", "/blogs/series/demo", "/_next/static/app.js",
+		"/s/AbCdEf0123_-",
 	} {
 		t.Run(path, func(t *testing.T) {
 			calledNext := false

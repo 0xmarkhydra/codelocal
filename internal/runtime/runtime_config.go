@@ -87,12 +87,30 @@ func resolveRuntimeSnapshot(snapshot cloud.RuntimeConfigSnapshot) cloud.RuntimeC
 
 func managedRuntimeSystemProjects(settings map[string]cloud.RuntimeMaterializedConfig) []cloud.RuntimeSystemProject {
 	projects := map[string]cloud.RuntimeSystemProject{}
+	seen := map[string]bool{}
 	for _, materialized := range settings {
 		for _, project := range materialized.Snapshot.SystemProjects {
-			if !project.Enabled || !project.Managed || strings.TrimSpace(project.ID) == "" {
+			id := strings.TrimSpace(project.ID)
+			if id == "" {
 				continue
 			}
-			projects[project.ID] = project
+			seen[id] = true
+			if !project.Enabled || !project.Managed {
+				continue
+			}
+			project.ID = id
+			projects[id] = project
+		}
+	}
+	// OpenMontage is a CodeLocal-owned system project, so a transient control-plane
+	// response that omits runtime settings must not make Video Studio disappear.
+	// An explicit OpenMontage entry still wins, including Enabled=false.
+	if !seen["openmontage"] {
+		fallback := resolveRuntimeSnapshot(cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{
+			ID: "openmontage", Name: "OpenMontage", Enabled: true,
+		}}})
+		if len(fallback.SystemProjects) == 1 {
+			projects["openmontage"] = fallback.SystemProjects[0]
 		}
 	}
 	out := make([]cloud.RuntimeSystemProject, 0, len(projects))
@@ -161,15 +179,34 @@ func (r *Runtime) materializeRuntimeSystemProjects(settings map[string]cloud.Run
 	if len(projects) == 0 {
 		return
 	}
+	r.mu.Lock()
+	parent := r.systemProjectCtx
+	if parent == nil {
+		r.mu.Unlock()
+		return
+	}
+	r.systemProjectSyncWG.Add(1)
+	r.mu.Unlock()
 	go func() {
+		defer r.systemProjectSyncWG.Done()
 		r.systemProjectSyncMu.Lock()
 		defer r.systemProjectSyncMu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 		defer cancel()
 		for _, project := range projects {
 			if err := materializeManagedSystemProject(ctx, project); err != nil {
 				slog.Warn("managed system project materialization failed", "projectId", project.ID, "error", err)
 				continue
+			}
+			if r.Registry != nil {
+				workspaceName := strings.TrimSpace(project.Name)
+				if project.ID == "openmontage" {
+					workspaceName = "Video Studio"
+				}
+				if _, err := r.Registry.EnsureSystem(project.ID, workspaceName, project.Path); err != nil {
+					slog.Warn("managed system workspace registration failed", "projectId", project.ID, "error", err)
+					continue
+				}
 			}
 			slog.Debug("managed system project ready", "projectId", project.ID, "path", project.Path)
 		}

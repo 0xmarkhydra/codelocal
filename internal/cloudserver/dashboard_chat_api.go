@@ -1,7 +1,6 @@
 package cloudserver
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
@@ -41,12 +41,76 @@ type dashboardChatImageMeta struct {
 }
 
 type dashboardChatRequest struct {
+	RequestID string                     `json:"requestId,omitempty"`
+	ThreadID  string                     `json:"threadId,omitempty"`
 	Message   string                     `json:"message"`
 	History   []dashboardChatHistoryItem `json:"history"`
 	Image     string                     `json:"image,omitempty"`
 	ImageMeta *dashboardChatImageMeta    `json:"imageMeta,omitempty"`
 	Model     string                     `json:"model,omitempty"`
+	Mode      string                     `json:"mode,omitempty"`
+	Goal      string                     `json:"goal,omitempty"`
 	Workspace *dashboardChatWorkspace    `json:"workspace,omitempty"`
+}
+
+type dashboardChatModeContextKey struct{}
+
+func dashboardChatMode(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "ask", "plan", "agent":
+		return normalized
+	default:
+		return "agent"
+	}
+}
+
+func dashboardChatGoal(value string) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) > 240 {
+		value = string(runes[:240])
+	}
+	return value
+}
+
+func dashboardChatRequestID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) < 8 || len(value) > 128 {
+		return cloud.RandomHex(16)
+	}
+	for _, ch := range value {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' {
+			continue
+		}
+		return cloud.RandomHex(16)
+	}
+	return value
+}
+
+func dashboardWithChatMode(r *http.Request, mode string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), dashboardChatModeContextKey{}, dashboardChatMode(mode)))
+}
+
+func dashboardChatModeFromRequest(r *http.Request) string {
+	mode, _ := r.Context().Value(dashboardChatModeContextKey{}).(string)
+	return dashboardChatMode(mode)
+}
+
+func dashboardChatModeInstruction(mode, goal string) string {
+	var instruction string
+	switch dashboardChatMode(mode) {
+	case "ask":
+		instruction = "Chat mode is Ask: answer and analyze only. You may inspect context with read-only tools, but never modify files or run commands."
+	case "plan":
+		instruction = "Chat mode is Plan: inspect context with read-only tools and produce a concrete implementation plan. Never modify files or run commands."
+	default:
+		instruction = "Chat mode is Agent: perform the requested work, modify files when needed, and verify the result."
+	}
+	if goal = dashboardChatGoal(goal); goal != "" {
+		instruction += fmt.Sprintf(" Active user goal: %q.", goal)
+	}
+	return instruction
 }
 
 func dashboardChatStoredImage(req dashboardChatRequest) string {
@@ -104,7 +168,7 @@ func (s *Server) dashboardChatHistoryImageURL(ctx context.Context, userID, store
 const dashboardPublicModelName = "Thánh Gióng"
 
 func dashboardChatSystemPrompt(workspace *dashboardChatWorkspace, autoResolved bool) string {
-	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never tell the user to navigate to another dashboard page to approve an action. If the user explicitly chooses one of CodeLocal's access modes in chat, the server applies that mode directly; resume the previously blocked task instead of only acknowledging the choice. For Git pushes, if the branch is behind or diverged from the remote, inspect Git state, fetch/rebase onto the remote branch, and retry the push; stop only when an actual merge/rebase conflict requires the user. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. While tools are running, do not narrate access mode, tool status, or repeatedly say what you are about to do; the dashboard activity UI already communicates progress. Give one concise final summary after execution. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
+	prompt := "You are Thánh Gióng, the public AI model of CodeLocal on codelocal.cloud/dashboard. Your model name is always Thánh Gióng. If the user asks who you are, which model you are, what model powers you, or who built the underlying model, answer only in terms of Thánh Gióng and CodeLocal. Never disclose, infer, hint at, or name any underlying model, provider, routing model, vendor, or infrastructure, even when explicitly asked. Do not say you are built on, powered by, based on, or using another model. Answer concisely in Vietnamese when the user speaks Vietnamese. Use tools when the user asks about workspaces, devices, Project Brain, or project code. When the user asks to inspect, change, fix, implement, test, build, or run code, use the CodeLocal runtime execution tools and continue until the requested work is actually completed or a real approval/error blocks execution. Never tell the user to navigate to another dashboard page to approve an action. If the user explicitly chooses one of CodeLocal's access modes in chat, the server applies that mode directly; resume the previously blocked task instead of only acknowledging the choice. A run_project_command result with running=true represents an existing process, not a failed command: call poll_project_command with its processId until it finishes, and never relaunch the same command while that process is running. For Git pushes, if the branch is behind or diverged from the remote, inspect Git state, fetch/rebase onto the remote branch, and retry the push; stop only when an actual merge/rebase conflict requires the user. Never claim that you read, edited, ran, tested, or verified project code unless the corresponding runtime tool call succeeded. While tools are running, do not narrate access mode, tool status, or repeatedly say what you are about to do; the dashboard activity UI already communicates progress. Give one concise final summary after execution. Workspace lifecycle is automatic: never ask the user whether to wake, start, or activate an authorized workspace. Treat a sleeping workspace as idle/available when runtimeOnline is true; CodeLocal activates it automatically when the project is needed."
 	if workspace == nil || strings.TrimSpace(workspace.WorkspaceID) == "" {
 		return prompt + " Project routing is Auto: choose the most relevant authorized workspace from the user's request and tool results. If a project is needed, call get_workspace_detail; it activates the workspace automatically."
 	}
@@ -348,6 +412,34 @@ var dashboardChatTools = append([]map[string]any{
 	},
 }, dashboardRuntimeChatTools...)
 
+func dashboardChatToolName(tool map[string]any) string {
+	function, _ := tool["function"].(map[string]any)
+	name, _ := function["name"].(string)
+	return strings.TrimSpace(name)
+}
+
+func dashboardChatToolReadOnly(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "list_workspaces", "list_devices", "search_project_brain", "get_workspace_detail":
+		return true
+	}
+	_, sideEffect, _, ok := dashboardRuntimeToolSpec(name, nil)
+	return ok && !sideEffect
+}
+
+func dashboardChatToolsForMode(mode string) []map[string]any {
+	if dashboardChatMode(mode) == "agent" {
+		return dashboardChatTools
+	}
+	tools := make([]map[string]any, 0, len(dashboardChatTools))
+	for _, tool := range dashboardChatTools {
+		if dashboardChatToolReadOnly(dashboardChatToolName(tool)) {
+			tools = append(tools, tool)
+		}
+	}
+	return tools
+}
+
 func dashboardLLMConfig() (apiKey, baseURL, model string) {
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
 	apiKey = strings.TrimSpace(os.Getenv("CODELOCAL_LLM_API_KEY"))
@@ -369,7 +461,7 @@ func dashboardLLMConfig() (apiKey, baseURL, model string) {
 	model = strings.TrimSpace(os.Getenv("CODELOCAL_LLM_MODEL"))
 	if model == "" {
 		if provider == "zen" {
-			model = "muse-spark-1.2-contributor-free"
+			model = dashboardModelMuse
 		} else {
 			model = "gpt-4o-mini"
 		}
@@ -386,15 +478,37 @@ const (
 )
 
 func dashboardUsesZen(baseURL string) bool {
-	provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")))
-	return provider == "zen" || strings.Contains(strings.ToLower(baseURL), "opencode.ai/zen")
+	normalizedBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
+	if strings.Contains(normalizedBaseURL, "opencode.ai/zen") {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")), "zen") {
+		return false
+	}
+	configuredBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_BASE_URL"))), "/")
+	return configuredBaseURL != "" && normalizedBaseURL == configuredBaseURL
+}
+
+func dashboardUsesShopAIKey(baseURL string) bool {
+	normalizedBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
+	if strings.Contains(normalizedBaseURL, "api.shopaikey.com") {
+		return true
+	}
+	configuredBaseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_SHOPAIKEY_BASE_URL"))), "/")
+	return configuredBaseURL != "" && normalizedBaseURL == configuredBaseURL
 }
 
 func dashboardProtocolForModel(baseURL, model string) dashboardLLMProtocol {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if strings.HasPrefix(name, "muse-") {
+		return dashboardProtocolResponses
+	}
 	if !dashboardUsesZen(baseURL) {
+		if dashboardUsesShopAIKey(baseURL) && strings.HasPrefix(name, "gpt-") {
+			return dashboardProtocolResponses
+		}
 		return dashboardProtocolChatCompletions
 	}
-	name := strings.ToLower(strings.TrimSpace(model))
 	switch {
 	case strings.HasPrefix(name, "gpt-"), strings.HasPrefix(name, "grok-"), strings.HasPrefix(name, "muse-"):
 		return dashboardProtocolResponses
@@ -407,11 +521,58 @@ func dashboardProtocolForModel(baseURL, model string) dashboardLLMProtocol {
 	}
 }
 
+type dashboardSSEWriter struct {
+	http.ResponseWriter
+	mu sync.Mutex
+}
+
+func (w *dashboardSSEWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *dashboardSSEWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func writeDashboardSSE(w http.ResponseWriter, flusher http.Flusher, event string, data any) {
 	payload, _ := json.Marshal(data)
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
 	if flusher != nil {
 		flusher.Flush()
+	}
+}
+
+func startDashboardSSEHeartbeat(ctx context.Context, w http.ResponseWriter, flusher http.Flusher) func() {
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(12 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				_, _ = fmt.Fprint(w, ": codelocal-ping\n\n")
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		wg.Wait()
 	}
 }
 
@@ -467,8 +628,12 @@ func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authenticatedAPIIdentity(w, r); !ok {
 		return
 	}
+	models, err := dashboardSelectableModels(r.Context())
+	if err != nil {
+		slog.Warn("dashboard ranked model catalog unavailable; using Auto only", "error", err)
+	}
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"models":        dashboardSelectableModels(),
+		"models":        models,
 		"default_model": dashboardModelAuto,
 	})
 }
@@ -497,6 +662,11 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": errorCode})
 		return
 	}
+	req.RequestID = dashboardChatRequestID(req.RequestID)
+	req.Mode = dashboardChatMode(req.Mode)
+	req.Goal = dashboardChatGoal(req.Goal)
+	r = dashboardWithChatMode(r, req.Mode)
+	chatTools := dashboardChatToolsForMode(req.Mode)
 	msg := strings.TrimSpace(req.Message)
 	storedImage := dashboardChatStoredImage(req)
 	if ephemeralImage {
@@ -520,6 +690,42 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.History) > 12 {
 		req.History = req.History[len(req.History)-12:]
+	}
+
+	nowMs := time.Now().UnixMilli()
+	effectiveThreadID, err := s.Store.EnsureDashboardChatThreadForMessage(r.Context(), identity.User.ID, req.ThreadID, nowMs)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "thread_unavailable"})
+		return
+	}
+	workspaceKeyForThread := ""
+	if req.Workspace != nil && strings.TrimSpace(req.Workspace.WorkspaceID) != "" {
+		workspaceKeyForThread = strings.TrimSpace(req.Workspace.DeviceID) + "::" + strings.TrimSpace(req.Workspace.WorkspaceID)
+	}
+	modelForThread := strings.TrimSpace(req.Model)
+	if modelForThread == "" {
+		modelForThread = "auto"
+	}
+	if err := s.Store.UpdateDashboardChatThreadMeta(r.Context(), identity.User.ID, effectiveThreadID, modelForThread, workspaceKeyForThread, nowMs); err != nil {
+		slog.Warn("dashboard chat thread metadata update failed", "error", err, "user", identity.User.ID, "thread", effectiveThreadID)
+	}
+	if thr, err := s.Store.GetDashboardChatThread(r.Context(), identity.User.ID, effectiveThreadID); err == nil && thr != nil && strings.TrimSpace(thr.Title) == "Cuộc trò chuyện mới" {
+		title := cloud.DashboardChatAutoTitle(msg)
+		if title != "Cuộc trò chuyện mới" {
+			if err := s.Store.UpdateDashboardChatThreadTitle(r.Context(), identity.User.ID, effectiveThreadID, title, nowMs); err != nil {
+				slog.Warn("dashboard chat thread title update failed", "error", err, "user", identity.User.ID, "thread", effectiveThreadID)
+			}
+		}
+	} else {
+		if err := s.Store.TouchDashboardChatThread(r.Context(), identity.User.ID, effectiveThreadID, nowMs); err != nil {
+			slog.Warn("dashboard chat thread touch failed", "error", err, "user", identity.User.ID, "thread", effectiveThreadID)
+		}
+	}
+	r = dashboardWithChatThread(r, effectiveThreadID)
+	r = dashboardWithExecutionState(r, identity.User.ID, req.RequestID, nil)
+	modelHistory := s.dashboardExecutionHistory(r, identity.User.ID, effectiveThreadID, req.History)
+	if dashboardReplayCompletedExecution(w, r) {
+		return
 	}
 
 	promptWorkspace := req.Workspace
@@ -548,7 +754,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			autoResolved = resolvedByAuto
 		}
 	}
-	r = dashboardWithExecutionState(r, identity.User.ID, executionWorkspace)
+	dashboardSetExecutionWorkspace(r, executionWorkspace)
 
 	accessChoice, accessRequested := dashboardRequestedAccessChoice(msg)
 	accessLabel := ""
@@ -577,9 +783,16 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
 		w.Header().Set("Connection", "keep-alive")
-		flusher, _ := w.(http.Flusher)
+		w.Header().Set("X-Accel-Buffering", "no")
+		sseWriter := &dashboardSSEWriter{ResponseWriter: w}
+		w = sseWriter
+		flusher := http.Flusher(sseWriter)
+		_, _ = fmt.Fprint(w, ": codelocal-connected\n\n")
+		flusher.Flush()
+		stopHeartbeat := startDashboardSSEHeartbeat(r.Context(), w, flusher)
+		defer stopHeartbeat()
 		writeSSE := func(event string, data any) {
 			writeDashboardSSE(w, flusher, event, data)
 		}
@@ -612,30 +825,21 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 				writeSSE("delta", map[string]any{"delta": wrd + " "})
 				time.Sleep(35 * time.Millisecond)
 			}
-			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName})
+			writeSSE("done", map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName, "threadId": effectiveThreadID})
 			now2 := time.Now().UnixMilli()
 			tcsJSON2, _ := json.Marshal(tcs)
-			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now2}); err != nil {
+			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now2}); err != nil {
 				slog.Warn("dashboard chat stream mock save user failed", "error", err)
 			}
-			if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1}); err != nil {
+			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "assistant"), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON2), CreatedAt: now2 + 1}); err != nil {
 				slog.Warn("dashboard chat stream mock save assistant failed", "error", err)
 			}
 			return
 		}
 		// Real LLM stream: proxy OpenAI SSE, handle tool_calls and second call if needed.
-		system2 := dashboardChatSystemPrompt(promptWorkspace, autoResolved)
+		system2 := dashboardChatSystemPrompt(promptWorkspace, autoResolved) + "\n\n" + dashboardChatModeInstruction(req.Mode, req.Goal)
 		msgs := []map[string]any{{"role": "system", "content": system2}}
-		for _, h := range req.History {
-			m := map[string]any{"role": h.Role, "content": h.Content}
-			if h.ToolCallID != "" {
-				m["tool_call_id"] = h.ToolCallID
-			}
-			if h.Name != "" {
-				m["name"] = h.Name
-			}
-			msgs = append(msgs, m)
-		}
+		msgs = append(msgs, modelHistory...)
 		if accessRequested {
 			msgs = append(msgs, dashboardAccessResumeInstruction(accessChoice, accessLabel, executionWorkspace))
 		}
@@ -644,11 +848,23 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		} else {
 			msgs = append(msgs, map[string]any{"role": "user", "content": msg})
 		}
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: time.Now().UnixMilli()}); err != nil {
+		resume := dashboardExecutionResumeFromRequest(r)
+		msgs = append(msgs, dashboardToolTranscript(resume.Results, "resume_"+req.RequestID)...)
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: time.Now().UnixMilli()}); err != nil {
 			slog.Warn("dashboard chat stream save user failed", "error", err)
 		}
-		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, allowCommunity, msgs, dashboardChatTools, r, s, identity.User.ID); err != nil {
-			slog.Warn("dashboard chat stream failed after retry", "error", err, "user", identity.User.ID)
+		if len(resume.Results) > 0 {
+			writeSSE("tool_calls", map[string]any{"tool_calls": resume.Results})
+		}
+		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, allowCommunity, msgs, chatTools, r, s, identity.User.ID); err != nil {
+			if r.Context().Err() != nil || errors.Is(err, context.Canceled) {
+				return
+			}
+			cause := errors.Unwrap(err)
+			if cause == nil {
+				cause = err
+			}
+			slog.Warn("dashboard chat stream failed after retry", "error", err, "cause", cause, "model", selection, "user", identity.User.ID)
 			writeSSE("error", map[string]string{"error": dashboardFriendlyStreamError(err)})
 		}
 		return
@@ -676,27 +892,18 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMilli()
 		tcsJSON, _ := json.Marshal(tcs)
 		// image handled: save with image field for backend history
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now}); err != nil {
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now}); err != nil {
 			slog.Warn("dashboard chat save user failed", "error", err, "user", identity.User.ID)
 		}
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1}); err != nil {
+		if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "assistant"), UserID: identity.User.ID, Role: "assistant", Content: reply, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now + 1}); err != nil {
 			slog.Warn("dashboard chat save assistant failed", "error", err)
 		}
-		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName})
+		webutil.JSON(w, http.StatusOK, map[string]any{"reply": reply, "tool_calls": tcs, "mock": true, "model": dashboardPublicModelName, "threadId": effectiveThreadID})
 		return
 	}
-	system := dashboardChatSystemPrompt(promptWorkspace, autoResolved)
+	system := dashboardChatSystemPrompt(promptWorkspace, autoResolved) + "\n\n" + dashboardChatModeInstruction(req.Mode, req.Goal)
 	messages := []map[string]any{{"role": "system", "content": system}}
-	for _, h := range req.History {
-		m := map[string]any{"role": h.Role, "content": h.Content}
-		if h.ToolCallID != "" {
-			m["tool_call_id"] = h.ToolCallID
-		}
-		if h.Name != "" {
-			m["name"] = h.Name
-		}
-		messages = append(messages, m)
-	}
+	messages = append(messages, modelHistory...)
 	if accessRequested {
 		messages = append(messages, dashboardAccessResumeInstruction(accessChoice, accessLabel, executionWorkspace))
 	}
@@ -705,56 +912,107 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	} else {
 		messages = append(messages, map[string]any{"role": "user", "content": msg})
 	}
-	target, toolCalls, content, err := callDashboardLLMWithTools(selection, allowCommunity, messages, dashboardChatTools)
+	resume := dashboardExecutionResumeFromRequest(r)
+	messages = append(messages, dashboardToolTranscript(resume.Results, "resume_"+req.RequestID)...)
+	if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: time.Now().UnixMilli()}); err != nil {
+		slog.Warn("dashboard chat save user before execution failed", "error", err)
+	}
+	allowModelFallback := dashboardChatModeFromRequest(r) == "agent"
+	target, toolCalls, content, err := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, messages, chatTools)
 	if err != nil {
 		webutil.JSON(w, http.StatusBadGateway, map[string]string{"error": "upstream: " + err.Error()})
 		return
 	}
 	if len(toolCalls) == 0 {
 		now3 := time.Now().UnixMilli()
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now3}); err != nil {
-			slog.Warn("dashboard chat save no-tool user failed", "error", err)
-		}
-		if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(`[]`), CreatedAt: now3 + 1}); err != nil {
+		tcsJSON, _ := json.Marshal(resume.Results)
+		if err := s.saveDashboardChatMessageDurably(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "assistant"), UserID: identity.User.ID, Role: "assistant", Content: content, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: now3 + 1}); err != nil {
 			slog.Warn("dashboard chat save no-tool assistant failed", "error", err)
 		}
-		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": target.Model, "tool_calls": []dashboardToolCall{}})
+		webutil.JSON(w, http.StatusOK, map[string]any{"reply": content, "model": target.Model, "tool_calls": resume.Results, "threadId": effectiveThreadID})
 		return
-	}
-	var results []dashboardToolCall
-	for _, tc := range toolCalls {
-		t0 := time.Now()
-		argsMap := map[string]any{}
-		_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
-		resStr := execDashboardTool(r, s, identity.User.ID, tc.Name, argsMap)
-		results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"})
 	}
 	follow := append([]map[string]any{}, messages...)
-	toolCallsAny := []map[string]any{}
-	for _, tc := range toolCalls {
-		toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+	allResults := append(make([]dashboardToolCall, 0, dashboardMaxToolCalls), resume.Results...)
+	seenProgress := dashboardSeedToolProgress(allResults)
+	currentCalls := toolCalls
+	currentContent := content
+	finalContent := ""
+	stopReason := ""
+
+	for round := 0; round < dashboardMaxToolRounds && len(currentCalls) > 0 && len(allResults) < dashboardMaxToolCalls; round++ {
+		results := make([]dashboardToolCall, 0, len(currentCalls))
+		toolCallsAny := make([]map[string]any, 0, len(currentCalls))
+		noProgress := false
+		for _, tc := range currentCalls {
+			if len(allResults) >= dashboardMaxToolCalls {
+				stopReason = "tool execution budget reached"
+				break
+			}
+			t0 := time.Now()
+			argsMap := map[string]any{}
+			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
+			resStr := execDashboardTool(r, s, identity.User.ID, tc.Name, argsMap)
+			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: dashboardToolResultStatus(resStr)}
+			results = append(results, result)
+			allResults = append(allResults, result)
+			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
+			seenProgress[fingerprint]++
+			if seenProgress[fingerprint] >= dashboardDuplicateResultLimit {
+				noProgress = true
+			}
+		}
+		follow = append(follow, map[string]any{"role": "assistant", "content": currentContent, "tool_calls": toolCallsAny})
+		for _, tr := range results {
+			follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
+		}
+		s.saveDashboardChatToolCheckpoint(r, identity.User.ID, allResults)
+		if noProgress {
+			stopReason = "repeated tool calls produced no new result"
+			break
+		}
+		if stopReason != "" || len(allResults) >= dashboardMaxToolCalls {
+			if stopReason == "" {
+				stopReason = "tool execution budget reached"
+			}
+			break
+		}
+
+		nextTarget, nextCalls, nextContent, err2 := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, follow, chatTools)
+		if err2 != nil {
+			stopReason = "model connection interrupted after completed tool work"
+			break
+		}
+		target = nextTarget
+		currentCalls = nextCalls
+		currentContent = nextContent
+		if len(currentCalls) == 0 {
+			finalContent = currentContent
+			break
+		}
 	}
-	follow = append(follow, map[string]any{"role": "assistant", "content": content, "tool_calls": toolCallsAny})
-	for _, tr := range results {
-		follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
-	}
-	finalTarget, _, finalContent, err2 := callDashboardLLMWithTools(target.Model, false, follow, nil)
-	if err2 != nil {
-		webutil.JSON(w, http.StatusBadGateway, map[string]any{"error": "upstream2: " + err2.Error(), "tool_calls": results})
-		return
+	if finalContent == "" {
+		if stopReason == "" {
+			stopReason = "tool execution budget reached"
+		}
+		finalTarget, _, synthesized, synthErr := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, dashboardFinalSynthesisMessages(follow, stopReason), nil)
+		if synthErr != nil {
+			finalContent = dashboardFallbackReply(allResults, stopReason)
+		} else {
+			target = finalTarget
+			finalContent = synthesized
+		}
 	}
 	now4 := time.Now().UnixMilli()
-	tcsJSON4, _ := json.Marshal(results)
-	if len(tcsJSON4) > 5000 {
-		tcsJSON4 = tcsJSON4[:5000]
-	}
-	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now4}); err != nil {
+	tcsJSON4, _ := json.Marshal(allResults)
+	if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: now4}); err != nil {
 		slog.Warn("dashboard chat save final user failed", "error", err)
 	}
-	if err := s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(16), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
+	if err := s.saveDashboardChatMessageDurably(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "assistant"), UserID: identity.User.ID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON4), CreatedAt: now4 + 1}); err != nil {
 		slog.Warn("dashboard chat save final assistant failed", "error", err)
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": finalTarget.Model, "tool_calls": results})
+	webutil.JSON(w, http.StatusOK, map[string]any{"reply": finalContent, "model": target.Model, "tool_calls": allResults, "threadId": effectiveThreadID})
 }
 
 func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request) {
@@ -762,12 +1020,22 @@ func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	threadID := strings.TrimSpace(r.URL.Query().Get("threadId"))
+	if threadID != "" {
+		if _, err := s.Store.GetDashboardChatThread(r.Context(), identity.User.ID, threadID); err != nil {
+			writeDashboardChatThreadError(w, err)
+			return
+		}
+	}
 	if r.Method == http.MethodDelete {
-		_ = s.Store.ClearDashboardChatHistory(r.Context(), identity.User.ID)
+		if err := s.Store.ClearDashboardChatHistoryForThread(r.Context(), identity.User.ID, threadID); err != nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "history_unavailable"})
+			return
+		}
 		webutil.JSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	msgs, err := s.Store.ListDashboardChatHistory(r.Context(), identity.User.ID, 50)
+	msgs, err := s.Store.ListDashboardChatHistoryForThread(r.Context(), identity.User.ID, threadID, 50)
 	if err != nil {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "history_unavailable"})
 		return
@@ -777,10 +1045,19 @@ func (s *Server) dashboardChatHistoryAPI(w http.ResponseWriter, r *http.Request)
 			msgs[i].Image = s.dashboardChatHistoryImageURL(r.Context(), identity.User.ID, msgs[i].Image)
 		}
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"messages": msgs})
+	webutil.JSON(w, http.StatusOK, map[string]any{"messages": msgs, "threadId": threadID})
 }
 
 func execDashboardTool(r *http.Request, s *Server, userID, name string, args map[string]any) string {
+	mode := dashboardChatModeFromRequest(r)
+	if mode != "agent" && !dashboardChatToolReadOnly(name) {
+		payload, _ := json.Marshal(map[string]any{
+			"error": "tool_not_allowed_in_mode",
+			"mode":  mode,
+			"tool":  name,
+		})
+		return string(payload)
+	}
 	const maxToolResult = 5000
 	trunc := func(b []byte) string {
 		if len(b) > maxToolResult {
@@ -995,6 +1272,15 @@ func callChatCompletionsWithTools(baseURL, apiKey, model string, messages []map[
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
+		trimmed := bytes.TrimSpace(raw)
+		contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+		if strings.Contains(contentType, "text/event-stream") || bytes.HasPrefix(trimmed, []byte("data:")) {
+			round, streamErr := parseChatCompletionsStream(bytes.NewReader(raw), model, dashboardChatCompletionsStreamCallbacks{})
+			if streamErr != nil {
+				return nil, "", streamErr
+			}
+			return round.ToolCalls, round.Content, nil
+		}
 		return nil, "", err
 	}
 	if len(data.Choices) == 0 {
@@ -1040,8 +1326,9 @@ func writeDashboardTextDeltas(w http.ResponseWriter, flusher http.Flusher, conte
 
 func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) error {
 	follow := append([]map[string]any{}, messages...)
-	allResults := make([]dashboardToolCall, 0, 12)
-	seenProgress := map[string]int{}
+	resume := dashboardExecutionResumeFromRequest(r)
+	allResults := append(make([]dashboardToolCall, 0, dashboardMaxToolCalls), resume.Results...)
+	seenProgress := dashboardSeedToolProgress(allResults)
 	stopReason := ""
 	var visibleContent strings.Builder
 
@@ -1073,19 +1360,33 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 					rollbackRoundText()
 				}
 				writeDashboardSSE(w, flusher, "tool_delta", map[string]any{"tool_calls": []map[string]any{{
-					"index": index, "id": id, "name": name, "arguments": arguments,
+					"index": len(allResults) + index, "id": id, "name": name, "arguments": arguments,
 				}}})
 			},
 		}
 
 		roundResult, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, follow, tools, callbacks)
 		if err != nil {
-			if len(allResults) == 0 {
-				return err
-			}
 			rollbackRoundText()
-			stopReason = "model connection interrupted after completed tool work"
-			break
+			_, recoveredCalls, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, follow, tools)
+			if routed && recoverErr == nil {
+				roundResult.ToolCalls = recoveredCalls
+				roundResult.Content = recoveredContent
+				roundResult.Progressed = len(recoveredCalls) > 0 || strings.TrimSpace(recoveredContent) != ""
+				if len(recoveredCalls) == 0 && recoveredContent != "" {
+					visibleContent.WriteString(recoveredContent)
+					writeDashboardTextDeltas(w, flusher, recoveredContent)
+				}
+			} else {
+				if routed && recoverErr != nil {
+					err = recoverErr
+				}
+				if len(allResults) == 0 {
+					return &dashboardSafeRerouteError{Err: err}
+				}
+				stopReason = "model connection interrupted after completed tool work"
+				break
+			}
 		}
 		toolCalls := roundResult.ToolCalls
 		content := roundResult.Content
@@ -1099,8 +1400,8 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 				finalContent = content
 			}
 			tcsJSON, _ := json.Marshal(allResults)
-			_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
-			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName})
+			_ = s.saveDashboardChatMessageDurably(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, userID, "assistant"), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "threadId": dashboardChatThreadID(r)})
 			return nil
 		}
 
@@ -1129,12 +1430,13 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 			}
 		}
 		if len(results) > 0 {
-			writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": results})
+			writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": allResults})
 		}
 		follow = append(follow, map[string]any{"role": "assistant", "content": "", "tool_calls": toolCallsAny})
 		for _, result := range results {
 			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
 		}
+		s.saveDashboardChatToolCheckpoint(r, userID, allResults)
 		if noProgress {
 			stopReason = "repeated tool calls produced no new result"
 			break
@@ -1149,33 +1451,44 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": "\n\n"})
 	}
 	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
-	finalCallbacks := dashboardResponsesStreamCallbacks{OnText: func(delta string) {
-		if delta == "" {
-			return
-		}
-		visibleContent.WriteString(delta)
-		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
-	}}
-	finalRound, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
-	if err != nil {
-		if strings.TrimSpace(finalRound.Content) == "" {
-			fallback := dashboardFallbackReply(allResults)
+	if _, _, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, finalMessages, nil); routed {
+		if recoverErr == nil && strings.TrimSpace(recoveredContent) != "" {
+			visibleContent.WriteString(recoveredContent)
+			writeDashboardTextDeltas(w, flusher, recoveredContent)
+		} else {
+			fallback := dashboardFallbackReply(allResults, stopReason)
 			visibleContent.WriteString(fallback)
 			writeDashboardTextDeltas(w, flusher, fallback)
-		} else {
-			suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
-			visibleContent.WriteString(suffix)
-			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+		}
+	} else {
+		finalCallbacks := dashboardResponsesStreamCallbacks{OnText: func(delta string) {
+			if delta == "" {
+				return
+			}
+			visibleContent.WriteString(delta)
+			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+		}}
+		finalRound, err := dashboardStreamResponsesRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
+		if err != nil {
+			if strings.TrimSpace(finalRound.Content) == "" {
+				fallback := dashboardFallbackReply(allResults, stopReason)
+				visibleContent.WriteString(fallback)
+				writeDashboardTextDeltas(w, flusher, fallback)
+			} else {
+				suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
+				visibleContent.WriteString(suffix)
+				writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+			}
 		}
 	}
 	finalContent := visibleContent.String()
 	if strings.TrimSpace(finalContent) == "" {
-		finalContent = dashboardFallbackReply(allResults)
+		finalContent = dashboardFallbackReply(allResults, stopReason)
 		writeDashboardTextDeltas(w, flusher, finalContent)
 	}
 	tcsJSON, _ := json.Marshal(allResults)
-	_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
-	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true})
+	_ = s.saveDashboardChatMessageDurably(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, userID, "assistant"), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true, "threadId": dashboardChatThreadID(r)})
 	return nil
 }
 
@@ -1187,164 +1500,175 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 		return &httpError{Status: http.StatusBadRequest, Body: "unsupported model protocol"}
 	}
 
-	body := map[string]any{"model": model, "messages": messages, "temperature": 0.7, "stream": true, "stream_options": map[string]any{"include_usage": true}}
-	if len(tools) > 0 {
-		body["tools"] = tools
-		body["tool_choice"] = "auto"
-	}
-	b, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	client := &http.Client{Timeout: 0}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return &httpError{Status: resp.StatusCode, Body: string(raw)}
-	}
-	writeRaw := func(data string) {
-		_, _ = fmt.Fprintf(w, "event: delta\ndata: %s\n\n", data)
-		if flusher != nil {
-			flusher.Flush()
-		}
-	}
-	scanner := bufio.NewScanner(resp.Body)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
-	toolCallsByIndex := map[int]*llmToolCall{}
-	var fullContent strings.Builder
-	finishedWithToolCalls := false
-	rolledBackToolPreamble := false
-	for scanner.Scan() {
-		select {
-		case <-r.Context().Done():
-			return r.Context().Err()
-		default:
-		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "[DONE]" {
-			break
-		}
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content   *string `json:"content"`
-					ToolCalls []struct {
-						Index    int     `json:"index"`
-						ID       *string `json:"id"`
-						Function *struct {
-							Name      *string `json:"name"`
-							Arguments *string `json:"arguments"`
-						} `json:"function"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-				FinishReason *string `json:"finish_reason"`
-			} `json:"choices"`
-		}
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			continue
-		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		delta := chunk.Choices[0].Delta
-		if delta.Content != nil && *delta.Content != "" {
-			fullContent.WriteString(*delta.Content)
-			b2, _ := json.Marshal(map[string]any{"delta": *delta.Content})
-			writeRaw(string(b2))
-		}
-		if len(delta.ToolCalls) > 0 && !rolledBackToolPreamble && fullContent.Len() > 0 {
-			rolledBackToolPreamble = true
-			writeDashboardSSE(w, flusher, "replace", map[string]any{"content": ""})
-		}
-		for _, tc := range delta.ToolCalls {
-			idx := tc.Index
-			if _, ok := toolCallsByIndex[idx]; !ok {
-				toolCallsByIndex[idx] = &llmToolCall{}
+	follow := append([]map[string]any{}, messages...)
+	resume := dashboardExecutionResumeFromRequest(r)
+	allResults := append(make([]dashboardToolCall, 0, dashboardMaxToolCalls), resume.Results...)
+	seenProgress := dashboardSeedToolProgress(allResults)
+	stopReason := ""
+	var visibleContent strings.Builder
+
+	for round := 0; round < dashboardMaxToolRounds && len(allResults) < dashboardMaxToolCalls; round++ {
+		visibleBeforeRound := visibleContent.String()
+		roundTextVisible := false
+		roundUsesTool := false
+		rollbackRoundText := func() {
+			if !roundTextVisible {
+				return
 			}
-			if tc.ID != nil {
-				toolCallsByIndex[idx].ID = *tc.ID
-			}
-			if tc.Function != nil {
-				if tc.Function.Name != nil {
-					toolCallsByIndex[idx].Name = *tc.Function.Name
+			visibleContent.Reset()
+			visibleContent.WriteString(visibleBeforeRound)
+			writeDashboardSSE(w, flusher, "replace", map[string]any{"content": visibleBeforeRound})
+			roundTextVisible = false
+		}
+		callbacks := dashboardChatCompletionsStreamCallbacks{
+			OnText: func(delta string) {
+				if delta == "" || roundUsesTool {
+					return
 				}
-				if tc.Function.Arguments != nil {
-					toolCallsByIndex[idx].Arguments += *tc.Function.Arguments
+				roundTextVisible = true
+				visibleContent.WriteString(delta)
+				writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+			},
+			OnToolDelta: func(index int, id, name, arguments string) {
+				if !roundUsesTool {
+					roundUsesTool = true
+					rollbackRoundText()
 				}
-			}
-			// stream tool call delta as event
-			b2, _ := json.Marshal(map[string]any{"tool_calls": []map[string]any{{"index": idx, "id": toolCallsByIndex[idx].ID, "name": toolCallsByIndex[idx].Name, "arguments": toolCallsByIndex[idx].Arguments}}})
-			_, _ = fmt.Fprintf(w, "event: tool_delta\ndata: %s\n\n", string(b2))
-			if flusher != nil {
-				flusher.Flush()
+				writeDashboardSSE(w, flusher, "tool_delta", map[string]any{"tool_calls": []map[string]any{{
+					"index": len(allResults) + index, "id": id, "name": name, "arguments": arguments,
+				}}})
+			},
+		}
+
+		roundResult, err := dashboardStreamChatCompletionsRoundWithRetry(r.Context(), baseURL, apiKey, model, follow, tools, callbacks)
+		if err != nil {
+			rollbackRoundText()
+			_, recoveredCalls, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, follow, tools)
+			if routed && recoverErr == nil {
+				roundResult.ToolCalls = recoveredCalls
+				roundResult.Content = recoveredContent
+				roundResult.Progressed = len(recoveredCalls) > 0 || strings.TrimSpace(recoveredContent) != ""
+				if len(recoveredCalls) == 0 && recoveredContent != "" {
+					visibleContent.WriteString(recoveredContent)
+					writeDashboardTextDeltas(w, flusher, recoveredContent)
+				}
+			} else {
+				if routed && recoverErr != nil {
+					err = recoverErr
+				}
+				if len(allResults) == 0 {
+					return &dashboardSafeRerouteError{Err: err}
+				}
+				stopReason = "model connection interrupted after completed tool work"
+				break
 			}
 		}
-		if chunk.Choices[0].FinishReason != nil && *chunk.Choices[0].FinishReason == "tool_calls" {
-			finishedWithToolCalls = true
+		toolCalls := roundResult.ToolCalls
+		if len(toolCalls) > 0 && !roundUsesTool {
+			roundUsesTool = true
+			rollbackRoundText()
 		}
-	}
-	if len(toolCallsByIndex) > 0 && finishedWithToolCalls {
-		var tcs []llmToolCall
-		for i := 0; i < len(toolCallsByIndex); i++ {
-			if tc, ok := toolCallsByIndex[i]; ok {
-				tcs = append(tcs, *tc)
+		if len(toolCalls) == 0 {
+			finalContent := visibleContent.String()
+			if finalContent == "" {
+				finalContent = roundResult.Content
 			}
+			tcsJSON, _ := json.Marshal(allResults)
+			_ = s.saveDashboardChatMessageDurably(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, userID, "assistant"), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+			writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "threadId": dashboardChatThreadID(r)})
+			return nil
 		}
-		if err := dashboardValidateToolCalls(tcs); err != nil {
+		if err := dashboardValidateToolCalls(toolCalls); err != nil {
 			return err
 		}
-		// execute tools and stream final answer like opencode second call
-		var results []dashboardToolCall
-		for _, tc := range tcs {
+
+		results := make([]dashboardToolCall, 0, len(toolCalls))
+		toolCallsAny := make([]map[string]any, 0, len(toolCalls))
+		noProgress := false
+		for _, tc := range toolCalls {
+			if len(allResults) >= dashboardMaxToolCalls {
+				stopReason = "tool execution budget reached"
+				break
+			}
 			t0 := time.Now()
 			argsMap := map[string]any{}
 			_ = json.Unmarshal([]byte(tc.Arguments), &argsMap)
 			resStr := execDashboardTool(r, s, userID, tc.Name, argsMap)
-			results = append(results, dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: "done"})
-			b2, _ := json.Marshal(map[string]any{"tool_calls": results})
-			_, _ = fmt.Fprintf(w, "event: tool_calls\ndata: %s\n\n", string(b2))
-			if flusher != nil {
-				flusher.Flush()
+			status := dashboardToolResultStatus(resStr)
+			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: status}
+			results = append(results, result)
+			allResults = append(allResults, result)
+			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+
+			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
+			seenProgress[fingerprint]++
+			if seenProgress[fingerprint] >= dashboardDuplicateResultLimit {
+				noProgress = true
 			}
 		}
-		// second LLM call streamed
-		follow := append([]map[string]any{}, messages...)
-		toolCallsAny := []map[string]any{}
-		for _, tc := range tcs {
-			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
+		if len(results) > 0 {
+			writeDashboardSSE(w, flusher, "tool_calls", map[string]any{"tool_calls": allResults})
 		}
-		follow = append(follow, map[string]any{"role": "assistant", "content": fullContent.String(), "tool_calls": toolCallsAny})
-		for _, tr := range results {
-			follow = append(follow, map[string]any{"role": "tool", "content": tr.Result, "tool_call_id": tr.ID, "name": tr.Name})
+		follow = append(follow, map[string]any{"role": "assistant", "content": roundResult.Content, "tool_calls": toolCallsAny})
+		for _, result := range results {
+			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
 		}
-		_, _, secondContent, err := callDashboardLLMWithTools(model, false, follow, nil)
+		s.saveDashboardChatToolCheckpoint(r, userID, allResults)
+		if noProgress {
+			stopReason = "repeated tool calls produced no new result"
+			break
+		}
+		if stopReason != "" {
+			break
+		}
+	}
+
+	if stopReason == "" {
+		stopReason = "tool execution budget reached"
+	}
+	if visibleContent.Len() > 0 {
+		visibleContent.WriteString("\n\n")
+		writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": "\n\n"})
+	}
+	finalMessages := dashboardFinalSynthesisMessages(follow, stopReason)
+	if _, _, recoveredContent, recoverErr, routed := dashboardRecoverAgentRound(r, finalMessages, nil); routed {
+		if recoverErr == nil && strings.TrimSpace(recoveredContent) != "" {
+			visibleContent.WriteString(recoveredContent)
+			writeDashboardTextDeltas(w, flusher, recoveredContent)
+		} else {
+			fallback := dashboardFallbackReply(allResults, stopReason)
+			visibleContent.WriteString(fallback)
+			writeDashboardTextDeltas(w, flusher, fallback)
+		}
+	} else {
+		finalCallbacks := dashboardChatCompletionsStreamCallbacks{OnText: func(delta string) {
+			if delta == "" {
+				return
+			}
+			visibleContent.WriteString(delta)
+			writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": delta})
+		}}
+		finalRound, err := dashboardStreamChatCompletionsRoundWithRetry(r.Context(), baseURL, apiKey, model, finalMessages, nil, finalCallbacks)
 		if err != nil {
-			return err
+			if strings.TrimSpace(finalRound.Content) == "" {
+				fallback := dashboardFallbackReply(allResults, stopReason)
+				visibleContent.WriteString(fallback)
+				writeDashboardTextDeltas(w, flusher, fallback)
+			} else {
+				suffix := "\n\nKết nối phần tổng hợp vừa gián đoạn; các thay đổi đã thực hiện vẫn được giữ nguyên."
+				visibleContent.WriteString(suffix)
+				writeDashboardSSE(w, flusher, "delta", map[string]any{"delta": suffix})
+			}
 		}
-		writeDashboardTextDeltas(w, flusher, secondContent)
-		tcsJSON, _ := json.Marshal(results)
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: secondContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
 	}
-	// persist assistant for non-tool stream
-	if len(toolCallsByIndex) == 0 {
-		_ = s.Store.SaveDashboardChatMessage(r.Context(), cloud.DashboardChatMessage{ID: cloud.RandomHex(12), UserID: userID, Role: "assistant", Content: fullContent.String(), ToolCalls: json.RawMessage(`[]`), CreatedAt: time.Now().UnixMilli()})
+	finalContent := visibleContent.String()
+	if strings.TrimSpace(finalContent) == "" {
+		finalContent = dashboardFallbackReply(allResults, stopReason)
+		writeDashboardTextDeltas(w, flusher, finalContent)
 	}
-	_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", `{"done":true}`)
-	if flusher != nil {
-		flusher.Flush()
-	}
+	tcsJSON, _ := json.Marshal(allResults)
+	_ = s.saveDashboardChatMessageDurably(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, userID, "assistant"), UserID: userID, Role: "assistant", Content: finalContent, ToolCalls: json.RawMessage(tcsJSON), CreatedAt: time.Now().UnixMilli()})
+	writeDashboardSSE(w, flusher, "done", map[string]any{"done": true, "reply": finalContent, "tool_calls": allResults, "model": dashboardPublicModelName, "recovered": true, "threadId": dashboardChatThreadID(r)})
 	return nil
 }
 

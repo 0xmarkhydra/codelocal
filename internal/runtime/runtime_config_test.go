@@ -50,6 +50,25 @@ func TestManagedRuntimeSystemProjectsFiltersDisabledProjects(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimeSystemProjectsBootstrapsOpenMontageWithoutCloudSettings(t *testing.T) {
+	projects := managedRuntimeSystemProjects(nil)
+	if len(projects) != 1 || projects[0].ID != "openmontage" || !projects[0].Enabled || !projects[0].Managed || !projects[0].Hidden {
+		t.Fatalf("projects=%#v", projects)
+	}
+	if !strings.Contains(projects[0].Source, "OpenMontage") {
+		t.Fatalf("project=%#v", projects[0])
+	}
+}
+
+func TestManagedRuntimeSystemProjectsRespectsExplicitOpenMontageDisable(t *testing.T) {
+	settings := map[string]cloud.RuntimeMaterializedConfig{
+		"one": {Snapshot: cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{ID: "openmontage", Managed: true, Enabled: false}}}},
+	}
+	if projects := managedRuntimeSystemProjects(settings); len(projects) != 0 {
+		t.Fatalf("projects=%#v", projects)
+	}
+}
+
 func TestValidateManagedSystemProjectRejectsUnexpectedSource(t *testing.T) {
 	project := resolveRuntimeSnapshot(cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{ID: "openmontage", Enabled: true}}}).SystemProjects[0]
 	project.Source = "https://example.com/not-openmontage.git"

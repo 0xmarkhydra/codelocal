@@ -61,15 +61,17 @@ async function proxyUpload(file: File, assetID: string, csrf: string) {
   if (!response.ok) throw new Error(`Image upload failed (${response.status}).`);
 }
 
-export function privateMediaVariantURL(assetID: string, variant: "thumb" | "medium" | "large" = "medium") {
+type MediaVariantName = "original" | "thumb" | "medium" | "large";
+
+export function privateMediaVariantURL(assetID: string, variant: MediaVariantName = "medium") {
   return `/api/v1/media/assets/${encodeURIComponent(assetID)}/variants/${variant}`;
 }
 
-export function publicMediaVariantURL(assetID: string, variant: "thumb" | "medium" | "large" = "large") {
+export function publicMediaVariantURL(assetID: string, variant: MediaVariantName = "large") {
   return `/api/v1/public/media/${encodeURIComponent(assetID)}/${variant}`;
 }
 
-export async function uploadMediaAsset(file: File, csrf: string): Promise<MediaAsset> {
+export async function uploadMediaAsset(file: File, csrf: string, options: { preserveOriginal?: boolean } = {}): Promise<MediaAsset> {
   if (!SUPPORTED_MEDIA_TYPES.has(file.type)) throw new Error("Use a JPEG, PNG, or WebP image.");
   if (file.size <= 0 || file.size > MAX_MEDIA_BYTES) throw new Error("Image must be smaller than 25 MB.");
 
@@ -82,7 +84,7 @@ export async function uploadMediaAsset(file: File, csrf: string): Promise<MediaA
       "Content-Type": "application/json",
       "X-CSRF-Token": csrf,
     },
-    body: JSON.stringify({ sha256, contentType: file.type, size: file.size, preserveOriginal: false }),
+    body: JSON.stringify({ sha256, contentType: file.type, size: file.size, preserveOriginal: Boolean(options.preserveOriginal) }),
   });
   const preparedBody = await readJSON(prepare);
   if (!prepare.ok || !isMediaAssetPrepareResponse(preparedBody)) {

@@ -19,3 +19,7 @@ grap/
 !.codelocal/skills/**
 
 .codelocal/worktrees/
+
+# Next.js / TypeScript build artifacts
+.next/
+*.tsbuildinfo

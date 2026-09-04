@@ -42,6 +42,19 @@ func (s *Store) EnsureMediaAsset(ctx context.Context, ownerUserID, sha256, conte
 		return MediaAsset{}, false, ErrMediaAssetInvalid
 	}
 	if existing, err := s.MediaAssetByOwnerHash(ctx, ownerUserID, sha256); err == nil {
+		if preserveOriginal && !existing.PreserveOriginal {
+			_, updateErr := s.DB.Exec(ctx, `
+UPDATE codelocal_media_assets
+SET preserve_original=TRUE,status='processing',error_code='',updated_at=$1
+WHERE asset_id=$2 AND owner_user_id=$3 AND deleted_at=0 AND preserve_original=FALSE`, time.Now().UnixMilli(), existing.ID, ownerUserID)
+			if updateErr != nil {
+				return MediaAsset{}, false, updateErr
+			}
+			existing, err = s.MediaAssetByID(ctx, existing.ID)
+			if err != nil {
+				return MediaAsset{}, false, err
+			}
+		}
 		return existing, true, nil
 	} else if !errors.Is(err, ErrMediaAssetNotFound) {
 		return MediaAsset{}, false, err

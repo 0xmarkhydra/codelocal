@@ -30,9 +30,10 @@ var ErrNotConfigured = errors.New("CodeLocal visual media is not configured on t
 type AuthorizeFunc func(*http.Request, []byte) error
 
 type Config struct {
-	PrepareURL     string
-	Authorize      AuthorizeFunc
-	Base64Fallback bool
+	PrepareURL         string
+	ArtifactPrepareURL string
+	Authorize          AuthorizeFunc
+	Base64Fallback     bool
 }
 
 type ImageRef struct {
@@ -288,6 +289,11 @@ func refMap(ref ImageRef) map[string]any {
 }
 
 func (p *Publisher) Transform(ctx context.Context, result any) (any, error) {
+	if p != nil {
+		if output, handled, err := p.transformArtifact(ctx, result); handled {
+			return output, err
+		}
+	}
 	root, marker, ok := imageMarker(result)
 	if !ok || !p.Enabled() {
 		return result, nil

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile.pool-api",
+    "watchPatterns": [
+      "cmd/codelocal-pool/**",
+      "internal/aipool/**",
+      "go.mod",
+      "go.sum",
+      "Dockerfile.pool-api",
+      "railway.pool-api.json"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

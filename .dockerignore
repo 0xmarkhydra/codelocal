@@ -5,6 +5,9 @@ node_modules
 web/node_modules
 web/.next
 web/tsconfig.tsbuildinfo
+web/apps/pool/node_modules
+web/apps/pool/.next
+web/apps/pool/tsconfig.tsbuildinfo
 .release
 .go-check
 .codelocal-go-test.log

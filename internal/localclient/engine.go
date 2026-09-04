@@ -1439,6 +1439,8 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 		return e.History.Query(e.WorkspaceKey, asString(args["query"]), defaultString(asString(args["event"]), "started"), asInt(args["limit"], 50))
 	case "run_command":
 		return e.runCommand(ctx, args, opts)
+	case "artifact_publish":
+		return e.publishArtifactMarker(asString(args["path"]))
 	case "exec_start":
 		return e.startProcess(asString(args["command"]), args, opts, false)
 	case "pty_start":

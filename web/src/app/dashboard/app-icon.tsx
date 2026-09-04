@@ -13,6 +13,7 @@ export type AppIconName =
   | "download"
   | "paperclip"
   | "send"
+  | "stop"
   | "search"
   | "chevron-down"
   | "chevron-left"
@@ -33,7 +34,11 @@ export type AppIconName =
   | "check"
   | "thanh-giong"
   | "shield"
-  | "refresh";
+  | "refresh"
+  | "image"
+  | "upload"
+  | "copy"
+  | "external";
 
 type Props = Omit<SVGProps<SVGSVGElement>, "name"> & {
   name: AppIconName;
@@ -67,6 +72,7 @@ export function AppIcon({ name, size = 18, ...props }: Props) {
       {name === "download" && <><path d="M12 3.75v10.5m0 0 4-4m-4 4-4-4" /><path d="M5 17.25v2h14v-2" /></>}
       {name === "paperclip" && <path d="m8.25 12.5 6.7-6.7a3.05 3.05 0 0 1 4.3 4.3l-8.2 8.2a5 5 0 1 1-7.1-7.05l7.85-7.85" />}
       {name === "send" && <><path d="m5 12 7-7 7 7" /><path d="M12 5v14" /></>}
+      {name === "stop" && <rect x="7" y="7" width="10" height="10" rx="1.5" />}
       {name === "search" && <><circle cx="10.75" cy="10.75" r="6" /><path d="m15.25 15.25 4.5 4.5" /></>}
       {name === "chevron-down" && <path d="m7.25 9.5 4.75 4.75 4.75-4.75" />}
       {name === "chevron-left" && <path d="m14.75 6.5-5.5 5.5 5.5 5.5" />}
@@ -88,6 +94,10 @@ export function AppIcon({ name, size = 18, ...props }: Props) {
       {name === "thanh-giong" && <><path d="M12 2.7 5.2 6.15v5.1c0 4.25 2.72 7.25 6.8 8.95 4.08-1.7 6.8-4.7 6.8-8.95v-5.1Z" /><path d="M12 6.15v10.7" /><path d="m8.8 10.15 3.2-3 3.2 3" /><path d="M9.2 13.7h5.6" /><path d="M7.65 7.4h8.7" /></>}
       {name === "shield" && <><path d="M12 3.25 4.5 7v5c0 4.4 2.95 7.35 7.5 8.75 4.55-1.4 7.5-4.35 7.5-8.75V7Z" /><path d="m9.2 12 1.8 1.8 3.9-4" /></>}
       {name === "refresh" && <><path d="M19.5 7.8V3.75l-2.2 2.2A7.5 7.5 0 1 0 19 14.7" /><path d="M15.5 7.8h4V3.75" /></>}
+      {name === "image" && <><rect x="3.25" y="4.25" width="17.5" height="15.5" rx="2.25" /><circle cx="8.25" cy="9" r="1.6" /><path d="m4.5 17 4.65-4.6 3.2 3 2.15-2.1 5 4.7" /></>}
+      {name === "upload" && <><path d="M12 15.25V4.75m0 0-4 4m4-4 4 4" /><path d="M5 17.25v2h14v-2" /></>}
+      {name === "copy" && <><rect x="8" y="8" width="11.5" height="11.5" rx="2" /><path d="M16 8V6.5a2 2 0 0 0-2-2H6.5a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2H8" /></>}
+      {name === "external" && <><path d="M13 5h6v6M19 5l-8 8" /><path d="M10 7H6.5A1.5 1.5 0 0 0 5 8.5v9A1.5 1.5 0 0 0 6.5 19h9a1.5 1.5 0 0 0 1.5-1.5V14" /></>}
     </svg>
   );
 }

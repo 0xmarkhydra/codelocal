@@ -270,6 +270,11 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/v1/dashboard/media/upload", s.dashboardMediaUpload)
 	mux.HandleFunc("GET /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
 	mux.HandleFunc("DELETE /api/v1/dashboard/chat/history", s.dashboardChatHistoryAPI)
+	mux.HandleFunc("GET /api/v1/dashboard/chat/threads", s.dashboardChatThreadsAPI)
+	mux.HandleFunc("POST /api/v1/dashboard/chat/threads", s.dashboardChatThreadsAPI)
+	mux.HandleFunc("GET /api/v1/dashboard/chat/threads/{id}", s.dashboardChatThreadAPI)
+	mux.HandleFunc("PATCH /api/v1/dashboard/chat/threads/{id}", s.dashboardChatThreadAPI)
+	mux.HandleFunc("DELETE /api/v1/dashboard/chat/threads/{id}", s.dashboardChatThreadAPI)
 	s.registerSkillRoutes(mux)
 	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspacesResourceAPI)
@@ -321,6 +326,8 @@ func (s *Server) routes() {
 		Subject: func(r *http.Request) string { id, _ := deviceAuth(r); return id },
 	}, http.HandlerFunc(s.mediaPresign))
 	mux.Handle("POST /api/client/media/presign", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "media-presign-ip", Limit: 600, Window: time.Minute}, mediaPresign))
+	mux.Handle("POST /api/client/artifacts/presign", videoArtifactPresignHandler(s))
+	mux.HandleFunc("GET /api/public/artifacts/{owner}/{file}", s.publicVideoArtifact)
 	mux.HandleFunc("POST /api/client/workspaces/sync", s.workspaceSync)
 	mux.HandleFunc("POST /api/client/knowledge/sync", s.knowledgeSync)
 	mux.HandleFunc("POST /api/client/runtime/poll", s.runtimePoll)
@@ -831,6 +838,25 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 			runtimeSettings[item.WorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets}
 		}
 		synced++
+	}
+
+	// Runtime-level managed system projects must bootstrap even when the user has
+	// not granted a normal project workspace yet. Resolve the reserved Video
+	// Studio workspace config on every sync so the client can materialize and
+	// register OpenMontage automatically, then include it in the next registry sync.
+	const openMontageSystemWorkspaceID = "system-openmontage"
+	if _, exists := runtimeSettings[openMontageSystemWorkspaceID]; !exists {
+		snapshot, settingsErr := s.Store.ResolveRuntimeConfig(r.Context(), device.UserID, device.DeviceID, openMontageSystemWorkspaceID)
+		if settingsErr != nil {
+			slog.Warn("system workspace runtime config lookup failed", "workspaceId", openMontageSystemWorkspaceID, "error", settingsErr)
+		} else {
+			secrets, secretErr := s.Store.MaterializeRuntimeSecrets(r.Context(), device.UserID, device.DeviceID, openMontageSystemWorkspaceID)
+			if secretErr != nil {
+				slog.Warn("system workspace runtime secret materialization failed", "workspaceId", openMontageSystemWorkspaceID, "error", secretErr)
+				secrets = map[string]string{}
+			}
+			runtimeSettings[openMontageSystemWorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets}
+		}
 	}
 
 	removed, err := s.Store.ReconcileWorkspaces(r.Context(), device.UserID, device.DeviceID, ids)

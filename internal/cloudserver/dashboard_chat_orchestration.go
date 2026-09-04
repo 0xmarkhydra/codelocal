@@ -11,11 +11,36 @@ import (
 )
 
 const (
-	dashboardMaxToolRounds        = 14
-	dashboardMaxToolCalls         = 32
+	dashboardToolCallsPerSegment  = 32
+	dashboardMaxAutoSegments      = 4
+	dashboardMaxToolRounds        = dashboardToolCallsPerSegment * dashboardMaxAutoSegments
+	dashboardMaxToolCalls         = dashboardToolCallsPerSegment * dashboardMaxAutoSegments
 	dashboardDuplicateResultLimit = 3
 	dashboardLLMRetryAttempts     = 3
 )
+
+type dashboardSafeRerouteError struct {
+	Err error
+}
+
+func (e *dashboardSafeRerouteError) Error() string {
+	if e == nil || e.Err == nil {
+		return "safe reroute"
+	}
+	return e.Err.Error()
+}
+
+func (e *dashboardSafeRerouteError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func dashboardSafeToReroute(err error) bool {
+	var safe *dashboardSafeRerouteError
+	return errors.As(err, &safe)
+}
 
 func dashboardIsTransientLLMError(err error) bool {
 	if err == nil {
@@ -55,7 +80,11 @@ func dashboardCanonicalJSON(raw string) string {
 }
 
 func dashboardToolProgressFingerprint(call llmToolCall, result string) string {
-	raw := call.Name + "\n" + dashboardCanonicalJSON(call.Arguments) + "\n" + strings.TrimSpace(result)
+	progress := strings.TrimSpace(result)
+	if processProgress := dashboardRunningProcessProgress(result); processProgress != "" {
+		progress = processProgress
+	}
+	raw := call.Name + "\n" + dashboardCanonicalJSON(call.Arguments) + "\n" + progress
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
@@ -67,6 +96,9 @@ func dashboardToolResultStatus(result string) string {
 	}
 	if nested, ok := payload["result"].(map[string]any); ok {
 		status, _ := nested["status"].(string)
+		if running, _ := nested["running"].(bool); running {
+			return "running"
+		}
 		if status == "approval_required" {
 			return "approval_required"
 		}
@@ -85,14 +117,21 @@ func dashboardToolResultStatus(result string) string {
 
 func dashboardFinalSynthesisMessages(messages []map[string]any, reason string) []map[string]any {
 	follow := append([]map[string]any{}, messages...)
-	instruction := "Tool execution is finished. Do not call any more tools. Give the user a concise final answer based only on the tool results already present. State what was actually completed, what is still pending, and mention a real approval/error only when one exists. Never expose internal orchestration limits or HTTP error codes."
+	instruction := "Tool execution is paused. Do not call any more tools in this response. Give the user a concise final answer based only on the tool results already present. State what was actually completed and what is still pending. If the safe execution budget was reached, say that plainly and tell the user the completed tool work has been checkpointed for the next turn; never misdescribe that condition as a closed runtime session. Mention an approval or runtime error only when one actually exists. Do not expose raw HTTP codes or internal identifiers."
 	if strings.TrimSpace(reason) != "" {
 		instruction += " Execution stopped because: " + reason + "."
 	}
 	return append(follow, map[string]any{"role": "system", "content": instruction})
 }
 
-func dashboardFallbackReply(results []dashboardToolCall) string {
+func dashboardFallbackReply(results []dashboardToolCall, reasons ...string) string {
+	reason := ""
+	if len(reasons) > 0 {
+		reason = strings.ToLower(strings.TrimSpace(reasons[0]))
+	}
+	if strings.Contains(reason, "budget") {
+		return "Lượt này đã chạm ngưỡng thực thi an toàn. Các kết quả tool đã hoàn thành được checkpoint; bạn gửi “tiếp tục” để nối từ đúng trạng thái đó, không cần đọc lại từ đầu."
+	}
 	if len(results) == 0 {
 		return "Kết nối xử lý vừa bị gián đoạn. Thánh Gióng đã thử lại tự động nhưng chưa hoàn tất. Bạn gửi “tiếp tục” là mình nối tiếp ngay."
 	}
@@ -115,6 +154,10 @@ func dashboardFallbackReply(results []dashboardToolCall) string {
 }
 
 func dashboardFriendlyStreamError(err error) string {
+	var selectedModelErr *dashboardSelectedModelError
+	if errors.As(err, &selectedModelErr) {
+		return selectedModelErr.Error()
+	}
 	if dashboardIsTransientLLMError(err) {
 		return "Kết nối xử lý đang gián đoạn. Thánh Gióng đã thử lại tự động nhưng chưa hoàn tất; bạn gửi “tiếp tục” để nối tiếp."
 	}

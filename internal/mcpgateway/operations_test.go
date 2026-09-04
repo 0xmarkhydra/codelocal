@@ -9,7 +9,7 @@ var frozenRuntimeToolNames = []string{
 	"semantic_info", "workspace_symbols", "find_symbol", "document_symbols", "find_definition", "find_references", "find_implementations", "get_hover", "get_diagnostics", "get_callers", "get_callees", "get_import_graph",
 	"write_file", "edit_file", "apply_patch", "apply_edits", "format_changed_files", "snapshot_diagnostics", "verify_changes",
 	"git_status", "git_diff", "git_log", "git_show", "git_blame", "git_file_history", "git_stage", "git_unstage", "git_commit", "git_push",
-	"sandbox_info", "sandbox_smoke_test", "terminal_preflight", "terminal_history", "run_command", "exec_start", "pty_start",
+	"sandbox_info", "sandbox_smoke_test", "terminal_preflight", "terminal_history", "run_command", "exec_start", "pty_start", "artifact_publish",
 	"exec_poll", "pty_poll", "process_poll", "exec_write", "pty_write", "process_write", "pty_resize", "exec_signal", "pty_signal", "exec_kill", "pty_kill", "process_kill", "exec_cancel", "process_list",
 	"approval_list", "approval_revoke", "approval_reset",
 	"mcp_list", "mcp_search_tools", "mcp_tool_info", "mcp_call",
@@ -82,6 +82,7 @@ func TestStableOperationMetadataPreservesSafetyHints(t *testing.T) {
 		{tool: "git_push", capability: "git", mutates: true, openWorld: true},
 		{tool: "run_command", capability: "shell", mutates: true, destructive: true, openWorld: true},
 		{tool: "pty_start", capability: "pty", mutates: true, destructive: true, openWorld: true},
+		{tool: "artifact_publish", capability: "filesystem", mutates: true, destructive: true, openWorld: true},
 		{tool: "mcp_call", capability: "mcpHub", mutates: true, destructive: true, openWorld: true},
 	}
 	for _, tc := range cases {

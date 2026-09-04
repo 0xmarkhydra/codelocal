@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
@@ -15,10 +17,10 @@ var (
 )
 
 var reservedOfficialBlogPostSlugs = map[string]struct{}{
-	"why-local-execution-matters-for-ai-coding-agents":            {},
-	"connect-ai-clients-without-giving-up-workspace-control":     {},
-	"project-brain-durable-context-for-coding-agents":            {},
-	"a-practical-security-model-for-local-coding-agents":         {},
+	"why-local-execution-matters-for-ai-coding-agents":        {},
+	"connect-ai-clients-without-giving-up-workspace-control": {},
+	"project-brain-durable-context-for-coding-agents":        {},
+	"a-practical-security-model-for-local-coding-agents":     {},
 }
 
 var reservedOfficialBlogSeriesSlugs = map[string]struct{}{
@@ -78,10 +80,16 @@ type BlogPostUpdate struct {
 }
 
 func NormalizeBlogSlug(value string) string {
-	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimSpace(value)
+	value = strings.NewReplacer("đ", "d", "Đ", "D").Replace(value)
+	value = norm.NFD.String(strings.ToLower(value))
+
 	var out strings.Builder
 	dash := false
 	for _, r := range value {
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			out.WriteRune(r)
 			dash = false

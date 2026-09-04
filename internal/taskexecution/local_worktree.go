@@ -1,6 +1,7 @@
 package taskexecution
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -50,9 +51,25 @@ func NewLocalWorktreeProvider(baseDir string) *LocalWorktreeProvider {
 	return &LocalWorktreeProvider{baseDir: baseDir}
 }
 
-func gitCommand(ctx context.Context, root string, args ...string) (string, error) {
+func gitCommandOutput(ctx context.Context, root string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
 	cmd.Env = append(os.Environ(), "PAGER=cat", "GIT_PAGER=cat", "CI=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return out, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return out, nil
+}
+
+func gitCommand(ctx context.Context, root string, args ...string) (string, error) {
+	out, err := gitCommandOutput(ctx, root, args...)
+	return strings.TrimSpace(string(out)), err
+}
+
+func gitCommandInput(ctx context.Context, root string, input []byte, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	cmd.Env = append(os.Environ(), "PAGER=cat", "GIT_PAGER=cat", "CI=1")
+	cmd.Stdin = bytes.NewReader(input)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return strings.TrimSpace(string(out)), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
@@ -114,6 +131,72 @@ func sourceState(ctx context.Context, repo repository.Checkout) (sourceCheckoutS
 	}, nil
 }
 
+func safeSnapshotPath(root, relative string) (string, error) {
+	relative = filepath.Clean(relative)
+	if relative == "." || relative == "" || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("unsafe source snapshot path: %q", relative)
+	}
+	return filepath.Join(root, relative), nil
+}
+
+func copyUntrackedSourceFile(sourceRoot, targetRoot, relative string) error {
+	source, err := safeSnapshotPath(sourceRoot, relative)
+	if err != nil {
+		return err
+	}
+	target, err := safeSnapshotPath(targetRoot, relative)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		link, err := os.Readlink(source)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(link, target)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("unsupported untracked source file type: %s", relative)
+	}
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, data, info.Mode().Perm())
+}
+
+func snapshotSourceChanges(ctx context.Context, repo repository.Checkout, targetRoot string) error {
+	patch, err := gitCommandOutput(ctx, repo.Root, "diff", "--binary", "--no-ext-diff", "HEAD", "--")
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(patch)) > 0 {
+		if _, err := gitCommandInput(ctx, targetRoot, patch, "apply", "--binary", "--whitespace=nowarn", "-"); err != nil {
+			return fmt.Errorf("snapshot tracked source changes: %w", err)
+		}
+	}
+	untracked, err := gitCommandOutput(ctx, repo.Root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return err
+	}
+	for _, item := range bytes.Split(untracked, []byte{0}) {
+		if len(item) == 0 {
+			continue
+		}
+		if err := copyUntrackedSourceFile(repo.Root, targetRoot, string(item)); err != nil {
+			return fmt.Errorf("snapshot untracked source file %q: %w", string(item), err)
+		}
+	}
+	return nil
+}
+
 func validExistingWorktree(ctx context.Context, path string) (bool, error) {
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
@@ -143,8 +226,14 @@ func (p *LocalWorktreeProvider) ensureWorktree(ctx context.Context, req PrepareR
 	if reused, err := validExistingWorktree(ctx, path); err != nil || reused {
 		return path, false, err
 	}
-	_, err := gitCommand(ctx, repo.Root, worktreeAddArgs(ctx, repo, path, branch, head)...)
-	return path, err == nil, err
+	if _, err := gitCommand(ctx, repo.Root, worktreeAddArgs(ctx, repo, path, branch, head)...); err != nil {
+		return path, false, err
+	}
+	if err := snapshotSourceChanges(ctx, repo, path); err != nil {
+		_, _ = gitCommand(context.Background(), repo.Root, "worktree", "remove", "--force", path)
+		return path, false, err
+	}
+	return path, true, nil
 }
 
 func repositoryBinding(req PrepareRequest, repo repository.Checkout, branch string, source sourceCheckoutState, path string) RepositoryBinding {

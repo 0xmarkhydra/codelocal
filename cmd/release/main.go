@@ -115,7 +115,7 @@ process.exit(result.status ?? 1);
 		"license":     "UNLICENSED",
 		"repository": map[string]string{
 			"type": "git",
-			"url":  "https://github.com/0xmarkhydra/codex-mcp.git",
+			"url":  "https://github.com/0xmarkhydra/codelocal.git",
 		},
 		"bin":     map[string]string{"codelocal": "bin/codelocal.js"},
 		"files":   []string{"bin/", "README.md"},
