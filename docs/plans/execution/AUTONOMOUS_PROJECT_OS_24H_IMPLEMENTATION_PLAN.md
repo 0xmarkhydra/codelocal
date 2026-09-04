@@ -1,13 +1,44 @@
 # CodeLocal Autonomous Project OS — 24H Vertical Slice Implementation Plan
 
-Status: **Execution blueprint / P0**
+Status: **P0 shipped / P1 partially shipped (see Implementation progress)**
 Date: **2026-09-05**
 Target: **A usable end-to-end vertical slice within one 24-hour build window**
 Branch baseline: `main`
+Build branch: `docs/autonomous-company-os-24h`
 
 Related:
 - `docs/plans/product/AUTONOMOUS_PROJECT_OS_MASTER_PLAN.md`
 - `docs/plans/ui/EXECUTIVE_CODEX_COMPANY_OS_UX_MASTER_PLAN.md`
+
+---
+
+# Implementation progress (updated 2026-09-05)
+
+## Block A — Contract + persistence: done (`fb070c1`)
+- Migration `60` (`internal/cloud/project_os_migrations.go`): `codelocal_project_goals`, `codelocal_project_plans`, `codelocal_project_tasks`, `codelocal_project_task_dependencies`, `codelocal_project_task_events`, `codelocal_project_tester_verdicts` — all tenant/project scoped with FK to `codelocal_projects`, `revision` CAS columns.
+- Domain files: `project_goals.go` (Goal/Plan lifecycle, plan approval gate — no autonomous mutation before `APPROVED`), `project_tasks.go` (task graph creation with cycle/dedupe validation, `TESTING->DONE` blocked except via tester verdict, dependency-gated READY promotion), `project_task_events.go` (sanitized event log, `TesterVerdict(DONE|NOT_DONE)`, `NeedsYou` derivation, `ProjectOSSummary`).
+- Exit gates met: tenant isolation, invalid transitions rejected (`project_os_test.go`).
+
+## Block B — Plan approval + Chief decomposition: done (`fb070c1`)
+- `internal/orchestration/project_os_chief.go`: `ClassifyProjectOSChatIntent` (`ASK/DIRECT_WORK/GOAL_WORK/STATUS_CONTROL`), `DecomposeApprovedPlan` (bounded implement→testing chains from acceptance criteria), `ValidateChiefTaskGraph`, `ProjectOSPlanCard` chat contract. Reuses existing planner/runtime abstractions — no second agent loop.
+
+## Block C — Execution + Tester: done (`fb070c1`)
+- `internal/orchestration/project_os_execution.go`: `ProjectOSExecutionBinding` invariant (one Task → one execution bundle, existing `taskexecution` worktree provider stays the mechanism), `DecideProjectOSRecovery` (one safe retry → repair subtask → `WAITING_HUMAN`; permission failures and duplicate deliveries never retried), `ShouldEscalateToHuman` (routine failures stay out of Needs You).
+- Tester DONE authority enforced in `RecordTesterVerdict` (authorized actors only, task must be REVIEWING/TESTING/RUNNING); DONE unblocks dependents and may complete the Goal.
+
+## Block D — Web UX: done, P0 scope (`fb070c1`, follow-up fix in `fecff7e`)
+- APIs (`internal/cloudserver/project_os_api.go`): `GET /api/v1/project-os/summary`, `GET /api/v1/projects/{projectId}/work`, `GET .../company`, `POST .../goals`, `POST .../plans/{planId}/approve`, `POST /api/v1/tasks/{taskId}/decision`.
+- Pages: `/dashboard/executive`, `/dashboard/work`, `/dashboard/company` (+ nav entries). Real backend data only, explicit empty states, `DashboardResourceFeedback` contract (`label + kind/message/onRetry`).
+- `tsc --noEmit` clean, `next build` passes with all three routes prerendered.
+
+## Block E — hardening: automated checks done, manual visual matrix remaining
+- `go test ./...`: 55 packages ok. `git diff --check` clean. New unit tests: `project_os_test.go`, `project_os_chief_test.go`, `project_os_execution_test.go`, `project_os_impact_test.go`, `project_os_feedback_test.go`.
+- Remaining manual: browser visual matrix (§12: desktop/laptop/mobile, zero/multi projects, approval/running/tester-fail/tester-done states) — needs an authenticated server + database, not yet run.
+
+## P1: shipped requirement-impact + feedback (`fecff7e`)
+- Docs → RequirementChanged → impact/stale/replan: migration `61` (`codelocal_project_requirement_changes`); `AnalyzeRequirementImpact` (deterministic token-overlap, terminal tasks excluded); `POST .../requirement-changes` returns analysis only, `POST .../requirement-changes/{id}/apply` marks plans/tasks STALE and parks the goal to DRAFT/BLOCKED per the state machine; `replan_required` Needs You for BLOCKED goals.
+- Feedback domain + widget ingestion + clustering: migration `62` (`codelocal_project_feedback` + `dedupe_key`); rate-limited `POST .../feedback` (30/10min); lexical dedupe key + threshold-3 cluster signals; `feedback_signal` Needs You; `GET .../feedback/signals`.
+- Remaining P1 (§13 items 4–7): project policy for dev/main/staging/prod, Agent Registry, Chief-of-Chiefs, Attempt/fork DAG. P2 (§14) untouched.
 
 ---
 
