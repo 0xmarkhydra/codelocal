@@ -1355,6 +1355,94 @@
   line-height: 1.5;
 }
 
+.richMessage ul,
+.richMessage ol {
+  display: grid;
+  gap: 6px;
+  padding-left: 22px;
+  color: rgba(229, 237, 248, 0.8);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.richMessage li > p { display: inline; }
+.richMessage li::marker { color: rgba(132, 166, 255, 0.82); font-weight: 650; }
+
+.richMessage a {
+  color: #9fc2ff;
+  text-decoration: underline;
+  text-decoration-color: rgba(159, 194, 255, 0.4);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.richMessage a:hover { text-decoration-color: currentColor; }
+
+.richCodeBlock {
+  max-width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid rgba(125, 151, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(5, 9, 16, 0.72);
+  tab-size: 2;
+}
+
+.richCodeBlock code {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(225, 234, 248, 0.88);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.richMessage hr {
+  width: 100%;
+  margin: 3px 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.richMessage del { color: rgba(205, 216, 233, 0.58); }
+.richMessage input[type="checkbox"] { margin: 0 7px 0 0; accent-color: #7e9fff; }
+
+.richTableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 10px;
+}
+
+.richTableWrap table {
+  width: 100%;
+  border-collapse: collapse;
+  color: rgba(229, 237, 248, 0.8);
+  font-size: 12px;
+}
+
+.richTableWrap th,
+.richTableWrap td {
+  padding: 8px 10px;
+  border-right: 1px solid rgba(255, 255, 255, 0.065);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+  text-align: left;
+  vertical-align: top;
+}
+
+.richTableWrap th {
+  background: rgba(126, 159, 255, 0.07);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.richTableWrap tr:last-child td { border-bottom: 0; }
+.richTableWrap th:last-child,
+.richTableWrap td:last-child { border-right: 0; }
+
 .richOrderedList li > span {
   width: 22px;
   height: 22px;
