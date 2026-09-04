@@ -260,12 +260,12 @@ function waitForChatRetry(delayMs: number, signal: AbortSignal) {
 
 function friendlyChatFailure(message: string) {
   if (/508|tool loop|loop exceeded/i.test(message)) {
-    return "Luồng xử lý vừa quá dài. Thánh Gióng đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
+    return "Luồng xử lý vừa quá dài. CodeLocal đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
   }
   if (/load failed|chat_stream_incomplete|timeout|429|502|503|504|network|fetch/i.test(message)) {
     return "Kết nối vừa gián đoạn sau nhiều lần tự nối lại. Phần đã hoàn thành vẫn được giữ nguyên; gửi “tiếp tục” để nối tiếp.";
   }
-  return message.startsWith("Thánh Gióng") || message.startsWith("Kết nối") ? message : `Có lỗi khi xử lý yêu cầu: ${message}`;
+  return message.startsWith("CodeLocal") || message.startsWith("Kết nối") ? message : `Có lỗi khi xử lý yêu cầu: ${message}`;
 }
 
 export function DashboardChat() {
@@ -1004,7 +1004,7 @@ export function DashboardChat() {
   }
 
   return (
-    <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện Thánh Gióng">
+    <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện CodeLocal">
       <aside className={styles.threadSidebar} aria-label="Các cuộc trò chuyện">
         <div className={styles.threadSidebarHead}>
           <div>
@@ -1050,11 +1050,11 @@ export function DashboardChat() {
         </div>
       </aside>
 
-      <section className={styles.chatShell} aria-label="Chat với Thánh Gióng">
+      <section className={styles.chatShell} aria-label="Chat với CodeLocal">
         <div className={styles.chatHead}>
           <div className={styles.brandBlock}>
-            <span className={styles.avatar} aria-hidden="true"><AppIcon name="thanh-giong" size={22} /></span>
-            <div className={styles.nameRow}><h1>Thánh Gióng</h1><i /></div>
+            <span className={styles.avatar} aria-hidden="true"><AppIcon name="codelocal" size={22} /></span>
+            <div className={styles.nameRow}><h1>CodeLocal</h1><i /></div>
           </div>
           <div className={styles.chatActions}>
             {tokenUsage ? (
@@ -1145,7 +1145,7 @@ export function DashboardChat() {
         <div className={styles.chatMessages} onPaste={onPaste}>
           {historyLoading ? <div className={styles.historyLoading}>Đang tải cuộc trò chuyện…</div> : messages.length === 0 ? (
             <div className={styles.emptyState}>
-              <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="thanh-giong" size={27} /></span>
+              <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="codelocal" size={27} /></span>
               <strong>Bạn muốn làm gì?</strong>
               <div className={styles.suggestions}>
                 {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
@@ -1193,10 +1193,10 @@ export function DashboardChat() {
                   <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant} ${loading && message.role === "assistant" && index === messages.length - 1 ? styles.msgStreaming : ""}`}>
                     {message.role === "assistant" ? <ChatRichMessage content={message.content} /> : message.content}
                     {loading && message.role === "assistant" && index === messages.length - 1 ? (
-                      <span className={styles.streamingDots} aria-label="Thánh Gióng vẫn đang trả lời"><i /><i /><i /></span>
+                      <span className={styles.streamingDots} aria-label="CodeLocal vẫn đang trả lời"><i /><i /><i /></span>
                     ) : null}
                   </div>
-                ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="Thánh Gióng đang trả lời"><i /><i /><i /></div> : null}
+                ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="CodeLocal đang trả lời"><i /><i /><i /></div> : null}
               </div>
             </div>
           ))}
@@ -1207,7 +1207,7 @@ export function DashboardChat() {
 
         <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
-          <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn Thánh Gióng…" aria-label="Nội dung chat" enterKeyHint="enter" rows={1} />
+          <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn CodeLocal…" aria-label="Nội dung chat" enterKeyHint="enter" rows={1} />
           <div className={styles.composerToolbar}>
             <div className={styles.composerOptions}>
               <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={loading || imageUploading}>

@@ -36,7 +36,7 @@ type dashboardSelectedModelError struct {
 }
 
 func (e *dashboardSelectedModelError) Error() string {
-	return "Thánh Gióng đã tự thử lại các route khả dụng nhưng hiện chưa có route nào sẵn sàng để tiếp tục. Vui lòng thử lại sau ít giây."
+	return "CodeLocal đã thử lại các route khả dụng nhưng hiện chưa có route nào sẵn sàng để tiếp tục. Vui lòng thử lại sau ít giây."
 }
 
 func (e *dashboardSelectedModelError) Unwrap() error {
@@ -64,7 +64,7 @@ var dashboardLLMHealth = struct {
 func dashboardNormalizeModelSelection(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	switch strings.ToLower(trimmed) {
-	case "", "auto", "thánh gióng", "thanh giong":
+	case "", "auto":
 		return dashboardModelAuto
 	case dashboardModelGLM, "glm 5.3 flash", "glm-5.3-flash-20260826":
 		return dashboardModelGLM

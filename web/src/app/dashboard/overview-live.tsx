@@ -53,7 +53,7 @@ export function LiveOverview() {
           <FlowArrow active={workspaceOnline} />
           <FlowNode icon="brain" label="Brain" state={overview.workspaces.total > 0 ? "online" : "idle"} />
           <FlowArrow active={overview.workspaces.total > 0} />
-          <FlowNode icon="chat" label="Thánh Gióng" state="online" />
+          <FlowNode icon="chat" label="CodeLocal" state="online" />
         </div>
       </section>
 

@@ -1,4 +1,4 @@
-# Thánh Gióng LLM Router
+# Dashboard LLM Router
 
 ## Product decision
 
@@ -17,7 +17,7 @@ Built-in fallback models:
 - `qwen3.8-flash`
 - `muse-spark-1.3-contributor-free`
 
-The assistant identity remains **Thánh Gióng**. Model selection controls routing, not the product identity.
+The assistant identity remains **CodeLocal**. Model selection controls routing, not the product identity.
 
 When CodeLocal Pool is configured, the backend discovers its complete active
 canonical catalog from authenticated `GET /v1/models` and caches it for five

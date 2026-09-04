@@ -167,7 +167,7 @@ func dashboardFallbackReply(results []dashboardToolCall, reasons ...string) stri
 		return "Lượt này đã chạm ngưỡng thực thi an toàn. Các kết quả tool đã hoàn thành được checkpoint; bạn gửi “tiếp tục” để nối từ đúng trạng thái đó, không cần đọc lại từ đầu."
 	}
 	if len(results) == 0 {
-		return "Kết nối xử lý vừa bị gián đoạn. Thánh Gióng đã thử lại tự động nhưng chưa hoàn tất. Bạn gửi “tiếp tục” là mình nối tiếp ngay."
+		return "Kết nối xử lý vừa bị gián đoạn. CodeLocal đã thử lại tự động nhưng chưa hoàn tất. Bạn gửi “tiếp tục” là mình nối tiếp ngay."
 	}
 	completed := 0
 	failed := 0
@@ -184,7 +184,7 @@ func dashboardFallbackReply(results []dashboardToolCall, reasons ...string) stri
 	if completed > 0 {
 		return "Mình đã thực hiện các bước trên dự án nhưng phần tổng hợp cuối vừa bị gián đoạn. Kết quả đã làm vẫn được giữ nguyên; bạn gửi “tiếp tục” để mình nối tiếp mà không làm lại từ đầu."
 	}
-	return "Có chút gián đoạn xử lý. Bạn gửi “tiếp tục” để Thánh Gióng nối tiếp ngay."
+	return "Có chút gián đoạn xử lý. Bạn gửi “tiếp tục” để CodeLocal nối tiếp ngay."
 }
 
 func dashboardFriendlyStreamError(err error) string {
@@ -193,7 +193,7 @@ func dashboardFriendlyStreamError(err error) string {
 		return selectedModelErr.Error()
 	}
 	if dashboardIsTransientLLMError(err) {
-		return "Kết nối xử lý đang gián đoạn. Thánh Gióng đã thử lại tự động nhưng chưa hoàn tất; bạn gửi “tiếp tục” để nối tiếp."
+		return "Kết nối xử lý đang gián đoạn. CodeLocal đã thử lại tự động nhưng chưa hoàn tất; bạn gửi “tiếp tục” để nối tiếp."
 	}
-	return "Thánh Gióng gặp lỗi khi xử lý yêu cầu. Các thao tác đã hoàn thành vẫn được giữ nguyên; bạn có thể gửi “tiếp tục” để thử tiếp."
+	return "CodeLocal gặp lỗi khi xử lý yêu cầu. Các thao tác đã hoàn thành vẫn được giữ nguyên; bạn có thể gửi “tiếp tục” để thử tiếp."
 }

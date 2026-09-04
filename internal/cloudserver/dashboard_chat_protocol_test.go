@@ -120,9 +120,9 @@ func TestResponsesInputTranslatesFunctionCallAndOutput(t *testing.T) {
 	}
 }
 
-func TestDashboardChatSystemPromptUsesThanhGiongAndAutoRouting(t *testing.T) {
+func TestDashboardChatSystemPromptUsesCodeLocalAndAutoRouting(t *testing.T) {
 	prompt := dashboardChatSystemPrompt(nil, false)
-	for _, token := range []string{"Thánh Gióng", "public AI model of CodeLocal", "Your model name is always Thánh Gióng", "Never disclose", "Auto", "authorized workspace", "never ask the user whether to wake"} {
+	for _, token := range []string{"CodeLocal", "AI assistant of CodeLocal", "Your model name is always CodeLocal", "Never disclose", "Auto", "authorized workspace", "never ask the user whether to wake"} {
 		if !strings.Contains(prompt, token) {
 			t.Fatalf("auto prompt missing %q: %s", token, prompt)
 		}
@@ -132,9 +132,9 @@ func TestDashboardChatSystemPromptUsesThanhGiongAndAutoRouting(t *testing.T) {
 	}
 }
 
-func TestDashboardPublicModelNameIsThanhGiong(t *testing.T) {
-	if dashboardPublicModelName != "Thánh Gióng" {
-		t.Fatalf("dashboard public model = %q, want Thánh Gióng", dashboardPublicModelName)
+func TestDashboardPublicModelNameIsCodeLocal(t *testing.T) {
+	if dashboardPublicModelName != "CodeLocal" {
+		t.Fatalf("dashboard public model = %q, want CodeLocal", dashboardPublicModelName)
 	}
 }
 
