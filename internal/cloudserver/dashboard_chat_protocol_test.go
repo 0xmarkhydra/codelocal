@@ -20,6 +20,7 @@ func TestDashboardProtocolForZenModels(t *testing.T) {
 		model string
 		want  dashboardLLMProtocol
 	}{
+		{"muse-spark-1.3-contributor-free", dashboardProtocolResponses},
 		{"muse-spark-1.2-contributor-free", dashboardProtocolResponses},
 		{"gpt-5.6-sol", dashboardProtocolResponses},
 		{"grok-code", dashboardProtocolResponses},
@@ -37,6 +38,13 @@ func TestDashboardProtocolForZenModels(t *testing.T) {
 				t.Fatalf("dashboardProtocolForModel(%q) = %v, want %v", test.model, got, test.want)
 			}
 		})
+	}
+}
+
+func TestDashboardProtocolForMuseThroughPoolUsesResponses(t *testing.T) {
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
+	if got := dashboardProtocolForModel("https://pool.example.test/v1", dashboardModelMuse); got != dashboardProtocolResponses {
+		t.Fatalf("Muse through Pool protocol=%v want Responses", got)
 	}
 }
 

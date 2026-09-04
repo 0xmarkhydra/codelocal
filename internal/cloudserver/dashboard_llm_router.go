@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	dashboardModelAuto = "auto"
-	dashboardModelGLM  = "glm-5.3-flash"
-	dashboardModelQwen = "qwen3.8-flash"
-	dashboardModelMuse = "muse-spark-1.2-contributor-free"
+	dashboardModelAuto       = "auto"
+	dashboardModelGLM        = "glm-5.3-flash"
+	dashboardModelQwen       = "qwen3.8-flash"
+	dashboardModelMuse       = "muse-spark-1.3-contributor-free"
+	dashboardModelMuseLegacy = "muse-spark-1.2-contributor-free"
 
 	dashboardMaxFallbackTargets = 6
 )
@@ -69,8 +70,10 @@ func dashboardNormalizeModelSelection(raw string) string {
 		return dashboardModelGLM
 	case dashboardModelQwen, "qwen 3.8 flash", "qwen3.8-flash-next":
 		return dashboardModelQwen
-	case dashboardModelMuse, "muse spark 1.2", "muse-spark-1.2":
+	case dashboardModelMuse, "muse spark 1.3", "muse-spark-1.3":
 		return dashboardModelMuse
+	case dashboardModelMuseLegacy, "muse spark 1.2", "muse-spark-1.2":
+		return dashboardModelMuseLegacy
 	default:
 		if dashboardModelIDSafe(trimmed) {
 			return trimmed
@@ -91,7 +94,14 @@ func dashboardEmperoTarget(model string) dashboardLLMTarget {
 	return dashboardLLMTarget{ID: "empero:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: true}
 }
 
-func dashboardMuseTarget() (dashboardLLMTarget, bool) {
+func dashboardMuseTarget(model string) (dashboardLLMTarget, bool) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = dashboardModelMuse
+	}
+	if model != dashboardModelMuse && model != dashboardModelMuseLegacy {
+		return dashboardLLMTarget{}, false
+	}
 	apiKey := strings.TrimSpace(os.Getenv("OPENCODE_ZEN_API_KEY"))
 	baseURL := "https://opencode.ai/zen/v1"
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")), "zen") {
@@ -105,7 +115,7 @@ func dashboardMuseTarget() (dashboardLLMTarget, bool) {
 	if apiKey == "" {
 		return dashboardLLMTarget{}, false
 	}
-	return dashboardLLMTarget{ID: "zen:" + dashboardModelMuse, BaseURL: baseURL, APIKey: apiKey, Model: dashboardModelMuse}, true
+	return dashboardLLMTarget{ID: "zen:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: true}, true
 }
 
 func dashboardLegacyTarget() (dashboardLLMTarget, bool) {
@@ -113,7 +123,8 @@ func dashboardLegacyTarget() (dashboardLLMTarget, bool) {
 	if strings.TrimSpace(apiKey) == "" {
 		return dashboardLLMTarget{}, false
 	}
-	community := strings.Contains(strings.ToLower(baseURL), "free.empero.org")
+	community := strings.Contains(strings.ToLower(baseURL), "free.empero.org") ||
+		(strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "muse-") && dashboardUsesZen(baseURL))
 	return dashboardLLMTarget{ID: "legacy:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: community}, true
 }
 
@@ -150,16 +161,16 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 
 	glm := dashboardEmperoTarget(dashboardModelGLM)
 	qwen := dashboardEmperoTarget(dashboardModelQwen)
-	muse, hasMuse := dashboardMuseTarget()
+	muse, hasMuse := dashboardMuseTarget(dashboardModelMuse)
 	shopDefault, hasShop := dashboardShopAIKeyTarget("")
 	switch selection {
 	case dashboardModelGLM:
 		appendTarget(glm)
 	case dashboardModelQwen:
 		appendTarget(qwen)
-	case dashboardModelMuse:
-		if hasMuse {
-			appendTarget(muse)
+	case dashboardModelMuse, dashboardModelMuseLegacy:
+		if directMuse, ok := dashboardMuseTarget(selection); ok {
+			appendTarget(directMuse)
 		}
 	case dashboardModelAuto:
 		if hasShop {

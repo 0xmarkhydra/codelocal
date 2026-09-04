@@ -31,7 +31,8 @@ func TestDashboardNormalizeModelSelection(t *testing.T) {
 		"Auto":                   dashboardModelAuto,
 		"glm-5.3-flash":          dashboardModelGLM,
 		"Qwen 3.8 Flash":         dashboardModelQwen,
-		"Muse Spark 1.2":         dashboardModelMuse,
+		"Muse Spark 1.3":         dashboardModelMuse,
+		"Muse Spark 1.2":         dashboardModelMuseLegacy,
 		"unknown-provider-model": "unknown-provider-model",
 		"../../unsafe model":     dashboardModelAuto,
 	}
@@ -78,6 +79,25 @@ func TestDashboardLLMRouteOrder(t *testing.T) {
 	explicitRoute := dashboardLLMRoute(dashboardModelQwen, true)
 	if len(explicitRoute) != 1 || explicitRoute[0].Model != dashboardModelQwen {
 		t.Fatalf("explicit model route must be strict: %#v", explicitRoute)
+	}
+	privateMuseRoute := dashboardLLMRoute(dashboardModelMuse, false)
+	if len(privateMuseRoute) != 0 {
+		t.Fatalf("direct free Muse must not receive private context: %#v", privateMuseRoute)
+	}
+	privateAutoRoute := dashboardLLMRoute(dashboardModelAuto, false)
+	if len(privateAutoRoute) != 0 {
+		t.Fatalf("direct free fallbacks must not receive private context: %#v", privateAutoRoute)
+	}
+}
+
+func TestDashboardAIPoolDefaultsAutoToMuseSpark13(t *testing.T) {
+	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test/v1")
+	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
+
+	route := dashboardLLMRoute(dashboardModelAuto, false)
+	if len(route) != 1 || route[0].ID != "ai-pool:"+dashboardModelMuse || route[0].Model != dashboardModelMuse {
+		t.Fatalf("Auto should default to Muse Spark 1.3 through Pool: %#v", route)
 	}
 }
 

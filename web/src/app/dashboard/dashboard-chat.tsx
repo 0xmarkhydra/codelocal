@@ -84,6 +84,7 @@ function modelLabel(model: string) {
     case "auto": return "Auto";
     case "glm-5.3-flash": return "GLM-5.3-Flash";
     case "qwen3.8-flash": return "Qwen3.8-Flash";
+    case "muse-spark-1.3-contributor-free": return "Muse Spark 1.3 Contributor Free";
     case "muse-spark-1.2-contributor-free": return "Muse Spark 1.2";
     default: return model;
   }

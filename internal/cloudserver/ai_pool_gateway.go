@@ -40,8 +40,8 @@ func dashboardAIPoolConfigFromEnv() (dashboardAIPoolConfig, bool) {
 	baseURL = strings.TrimRight(parsed.String(), "/")
 
 	defaultModel := strings.TrimSpace(os.Getenv("CODELOCAL_AI_POOL_MODEL"))
-	if defaultModel != "" && !dashboardAIPoolCanonicalModelIDSafe(defaultModel) {
-		defaultModel = ""
+	if defaultModel == "" || !dashboardAIPoolCanonicalModelIDSafe(defaultModel) {
+		defaultModel = dashboardModelMuse
 	}
 
 	return dashboardAIPoolConfig{

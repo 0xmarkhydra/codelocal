@@ -461,7 +461,7 @@ func dashboardLLMConfig() (apiKey, baseURL, model string) {
 	model = strings.TrimSpace(os.Getenv("CODELOCAL_LLM_MODEL"))
 	if model == "" {
 		if provider == "zen" {
-			model = "muse-spark-1.2-contributor-free"
+			model = dashboardModelMuse
 		} else {
 			model = "gpt-4o-mini"
 		}
@@ -499,13 +499,16 @@ func dashboardUsesShopAIKey(baseURL string) bool {
 }
 
 func dashboardProtocolForModel(baseURL, model string) dashboardLLMProtocol {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if strings.HasPrefix(name, "muse-") {
+		return dashboardProtocolResponses
+	}
 	if !dashboardUsesZen(baseURL) {
-		if dashboardUsesShopAIKey(baseURL) && strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-") {
+		if dashboardUsesShopAIKey(baseURL) && strings.HasPrefix(name, "gpt-") {
 			return dashboardProtocolResponses
 		}
 		return dashboardProtocolChatCompletions
 	}
-	name := strings.ToLower(strings.TrimSpace(model))
 	switch {
 	case strings.HasPrefix(name, "gpt-"), strings.HasPrefix(name, "grok-"), strings.HasPrefix(name, "muse-"):
 		return dashboardProtocolResponses

@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -30,6 +31,26 @@ func TestDashboardAIPoolConfigNormalizesGateway(t *testing.T) {
 	}
 	if config.DefaultModel != "codelocal-auto" || config.APIKey != "pool-key" {
 		t.Fatalf("unexpected config: %#v", config)
+	}
+}
+
+func TestDashboardAIPoolConfigDefaultsAutoToMuseSpark13(t *testing.T) {
+	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
+	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
+
+	config, ok := dashboardAIPoolConfigFromEnv()
+	if !ok {
+		t.Fatal("expected configured AI Pool")
+	}
+	if config.DefaultModel != dashboardModelMuse {
+		t.Fatalf("default model=%q want=%q", config.DefaultModel, dashboardModelMuse)
+	}
+
+	t.Setenv("CODELOCAL_AI_POOL_MODEL", "cc/provider-qualified")
+	config, ok = dashboardAIPoolConfigFromEnv()
+	if !ok || config.DefaultModel != dashboardModelMuse {
+		t.Fatalf("invalid canonical default should fall back to Muse: %#v", config)
 	}
 }
 
@@ -100,5 +121,26 @@ func TestDashboardAIPoolCatalogMakesUnqualifiedComboRoutable(t *testing.T) {
 	route := dashboardLLMRoute("premium-coding", false)
 	if len(route) != 1 || route[0].ID != "ai-pool:premium-coding" {
 		t.Fatalf("discovered canonical model must route only through Pool: %#v", route)
+	}
+}
+
+func TestDashboardPoolSelectableModelsDoesNotTruncateOnlineCatalog(t *testing.T) {
+	resetDashboardModelCatalogCache()
+	t.Cleanup(resetDashboardModelCatalogCache)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data := make([]map[string]any, 0, 26)
+		for index := 0; index < 25; index++ {
+			data = append(data, map[string]any{"id": fmt.Sprintf("model-%02d", index), "owned_by": "codelocal-pool"})
+		}
+		data = append(data, map[string]any{"id": dashboardModelMuse, "owned_by": "codelocal-pool"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer server.Close()
+
+	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", server.URL+"/v1")
+	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
+	models := dashboardPoolSelectableModels(context.Background())
+	if len(models) != 26 || models[len(models)-1] != dashboardModelMuse {
+		t.Fatalf("online Pool catalog was truncated: len=%d models=%v", len(models), models)
 	}
 }

@@ -1,8 +1,8 @@
 # CodeLocal Central AI Account Pool — Master Plan
 
-Status: **Canonical Pool implemented — Railway deployment in progress**
+Status: **Canonical Pool implemented — production validation in progress**
 
-Date: **2026-09-03**
+Date: **2026-09-04**
 
 Owner: **CodeLocal**
 
@@ -96,31 +96,34 @@ CodeLocal Cloud requires only:
 ```text
 CODELOCAL_AI_POOL_BASE_URL=https://pool.codelocal.cloud/v1
 CODELOCAL_AI_POOL_API_KEY=<dedicated Pool client key>
-CODELOCAL_AI_POOL_MODEL=<canonical model id, for example gpt-5.6-sol>
+CODELOCAL_AI_POOL_MODEL=muse-spark-1.3-contributor-free
 ```
 
 Rules:
 
 1. `CODELOCAL_AI_POOL_API_KEY` is server-only and must never be exposed to browser JavaScript.
-2. `CODELOCAL_AI_POOL_MODEL` is the first Pool route for `model=auto` and is always canonical.
+2. `CODELOCAL_AI_POOL_MODEL` is the Pool route for `model=auto` and is always canonical. If it is omitted or invalid, CodeLocal uses `muse-spark-1.3-contributor-free`.
 3. Pool model discovery comes from authenticated `GET /v1/models`.
 4. `GET /v1/models` returns only Active canonical models.
 5. Provider prefixes such as `cx/`, `cc/` and `gc/` stay behind Pool and are not part of the client contract.
-6. A temporary Pool outage must not break the model picker or remove existing fallback providers.
+6. The last good Pool catalog may keep the picker stable during a temporary discovery outage. Inference never bypasses a configured Pool using legacy provider credentials.
 7. Pool is private/trusted, not a community/free provider; existing workspace/tool context can use it.
 
 ## 4. Routing
 
-`auto` becomes:
+When Pool is configured, `auto` becomes:
 
 ```text
-1. CodeLocal AI Pool canonical default model, when configured and Active
-2. Existing ShopAIKey route, when configured
-3. Existing GLM free route for community-eligible requests
-4. Existing Qwen free route for community-eligible requests
-5. Existing Muse route
-6. Existing generic fallback
+CodeLocal AI Pool → configured canonical model
+                  → Muse Spark 1.3 Contributor Free by default
 ```
+
+Pool is the exclusive CodeLocal chat execution plane in this mode. Source and
+account failover happen inside Pool/9Router, so the cloud chat service does not
+bypass Pool with ShopAIKey, Empero, Zen or generic provider credentials.
+
+When Pool is not configured, the existing ShopAIKey and curated
+community-provider fallback behavior remains available for compatibility.
 
 The separation is:
 
@@ -292,10 +295,10 @@ AI Pool v1 is complete when:
 
 1. `pool.codelocal.cloud` exposes the standalone Pool Web/API gateway;
 2. CodeLocal discovers only Active canonical models without seeing provider credentials;
-3. `model=auto` can use the configured canonical Pool model as its first private route;
+3. `model=auto` uses the configured canonical Pool model, defaulting to Muse Spark 1.3 Contributor Free;
 4. Pool API can route/fail over between 9Router and owner BYOK sources;
 5. exhausted upstream standard models disappear from Active discovery without leaking provider prefixes;
-6. Pool outage degrades cleanly to existing CodeLocal routes;
+6. a Pool inference outage fails closed without leaking prompts to legacy provider routes;
 7. Pool client endpoints reject requests without a valid client API key;
 8. Pool admin endpoints reject requests without the separate admin token;
 9. 9Router remains independently upgradeable with its persistent data preserved;
