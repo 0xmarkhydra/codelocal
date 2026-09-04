@@ -40,10 +40,10 @@ export function ExecutiveHome() {
   if (state.kind !== "ready") {
     return (
       <DashboardResourceFeedback
-        state={state}
-        retry={retry}
-        loadingMessage="Đang tải Executive Home…"
-        unauthenticatedMessage="Bạn cần đăng nhập để xem Executive Home."
+        label="Executive Home"
+        {...(state.kind === "error"
+          ? { kind: "error" as const, message: state.message, onRetry: retry }
+          : { kind: state.kind })}
       />
     );
   }

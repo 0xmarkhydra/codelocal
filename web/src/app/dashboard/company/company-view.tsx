@@ -42,10 +42,10 @@ function CompanyViewInner({ projectId }: { projectId: string }) {
   if (state.kind !== "ready") {
     return (
       <DashboardResourceFeedback
-        state={state}
-        retry={retry}
-        loadingMessage="Đang tải Company…"
-        unauthenticatedMessage="Bạn cần đăng nhập để xem Company."
+        label="Company"
+        {...(state.kind === "error"
+          ? { kind: "error" as const, message: state.message, onRetry: retry }
+          : { kind: state.kind })}
       />
     );
   }

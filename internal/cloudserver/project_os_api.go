@@ -16,6 +16,8 @@ func (s *Server) registerProjectOSRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/goals", s.projectOSCreateGoalAPI)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/plans/{planID}/approve", s.projectOSApprovePlanAPI)
 	mux.HandleFunc("POST /api/v1/tasks/{taskID}/decision", s.projectOSTaskDecisionAPI)
+	s.registerProjectOSRequirementRoutes(mux)
+	s.registerProjectOSFeedbackRoutes(mux)
 }
 
 func (s *Server) projectOSSummaryAPI(w http.ResponseWriter, r *http.Request) {

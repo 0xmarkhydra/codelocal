@@ -272,6 +272,26 @@ ORDER BY g.updated_at DESC LIMIT 20`, userID, projectID)
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// Blocked goals need replan decisions (e.g. after requirement impact).
+	goalRows, err := s.DB.Query(ctx, `
+SELECT goal_id,title FROM codelocal_project_goals
+WHERE user_id=$1 AND ($2='' OR project_id=$2) AND status='BLOCKED'
+ORDER BY updated_at DESC LIMIT 20`, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for goalRows.Next() {
+		var goalID, title string
+		if err := goalRows.Scan(&goalID, &title); err != nil {
+			goalRows.Close()
+			return nil, err
+		}
+		out = append(out, NeedsYouItem{Kind: "replan_required", Title: "Replan: " + title, GoalID: goalID, Priority: 80})
+	}
+	goalRows.Close()
+	if err := goalRows.Err(); err != nil {
+		return nil, err
+	}
 	// Waiting-human / blocked tasks.
 	taskRows, err := s.DB.Query(ctx, `
 SELECT task_id,goal_id,title,status FROM codelocal_project_tasks
@@ -287,6 +307,19 @@ ORDER BY updated_at DESC LIMIT 20`, userID, projectID)
 			return nil, err
 		}
 		out = append(out, NeedsYouItem{Kind: "task_attention", Title: title + " (" + status + ")", GoalID: goalID, TaskID: taskID, Detail: status, Priority: 50})
+	}
+	if err := taskRows.Err(); err != nil {
+		return nil, err
+	}
+	// Feedback clusters at signal threshold become bug/feature signals.
+	signals, err := s.ProjectFeedbackSignals(ctx, userID, projectID, 3)
+	if err == nil {
+		for _, sig := range signals {
+			if len(out) >= 40 {
+				break
+			}
+			out = append(out, NeedsYouItem{Kind: "feedback_signal", Title: sig.Title, Detail: sig.Kind, Priority: 30})
+		}
 	}
 	return out, taskRows.Err()
 }

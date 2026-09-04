@@ -46,10 +46,10 @@ function WorkBoardInner({ projectId }: { projectId: string }) {
   if (state.kind !== "ready") {
     return (
       <DashboardResourceFeedback
-        state={state}
-        retry={retry}
-        loadingMessage="Đang tải Work…"
-        unauthenticatedMessage="Bạn cần đăng nhập để xem Work."
+        label="Work"
+        {...(state.kind === "error"
+          ? { kind: "error" as const, message: state.message, onRetry: retry }
+          : { kind: state.kind })}
       />
     );
   }
