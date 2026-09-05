@@ -4,26 +4,21 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
-import Image from "next/image";
-import Link from "next/link";
 import { AppIcon } from "./app-icon";
+import { ChatActionSummary, type ChatToolCall } from "./chat-action-summary";
 import { ChatContextSheet } from "./chat-context-sheet";
 import { ChatTopBar } from "./chat-top-bar";
 import { ChatRichMessage } from "./chat-rich-message";
-import { DashboardNav } from "./dashboard-nav";
+import { ChatSidebarBrand, ChatSidebarFooter } from "./chat-sidebar-footer";
+import { threadBelongsToWorkspace, workspaceIdentityKey } from "./chat-workspace-key";
 import { useDashboardResource } from "./use-dashboard-resource";
+import headerStyles from "./chat-header.module.css";
 import mobileStyles from "./chat-mobile.module.css";
 import styles from "./dashboard-chat.module.css";
+import treeStyles from "./chat-project-tree.module.css";
 import skillStyles from "./skill-indicator.module.css";
 
-type ToolCall = {
-  id: string;
-  name: string;
-  arguments: string;
-  result?: string;
-  durationMs?: number;
-  status: "running" | "done" | "error" | "approval_required";
-};
+type ToolCall = ChatToolCall;
 
 type SkillBadge = {
   id: string;
@@ -50,12 +45,6 @@ type ChatThread = {
   updatedAt: number;
 };
 
-type ChatTokenUsage = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-};
-
 type StreamData = {
   delta?: string;
   content?: string;
@@ -63,7 +52,6 @@ type StreamData = {
   error?: string;
   threadId?: string;
   tool_calls?: ToolCall[] | Array<{ index: number; name?: string; arguments?: string; id?: string }>;
-  usage?: ChatTokenUsage;
 };
 
 type WorkspaceItem = WorkspacesResource["items"][number];
@@ -142,7 +130,7 @@ function compareModelsByStrength(left: string, right: string) {
 }
 
 function workspaceKey(workspace: WorkspaceItem) {
-  return `${workspace.deviceId}::${workspace.workspaceId}`;
+  return workspaceIdentityKey(workspace);
 }
 
 function workspaceStatusLabel(workspace: WorkspaceItem) {
@@ -151,31 +139,13 @@ function workspaceStatusLabel(workspace: WorkspaceItem) {
   return "Đang hoạt động";
 }
 
-function noticeIsError(notice: string) {
-  return /^(Không|Có lỗi|Chỉ hỗ trợ|Ảnh tối đa|Phiên đăng nhập|Hệ thống chưa)/.test(notice);
+function workspaceState(workspace: WorkspaceItem) {
+  if (!workspace.runtimeOnline || workspace.status === "offline") return "offline";
+  return workspace.status;
 }
 
-function toolLabel(name: string, status: ToolCall["status"]) {
-  const labels: Record<string, [string, string, string]> = {
-    list_workspaces: ["Đang xem workspaces", "Đã xem workspaces", "Xem workspaces"],
-    list_devices: ["Đang kiểm tra thiết bị", "Đã kiểm tra thiết bị", "Kiểm tra thiết bị"],
-    search_project_brain: ["Đang truy vấn Brain", "Đã truy vấn Brain", "Truy vấn Brain"],
-    get_workspace_detail: ["Đang đọc dự án", "Đã đọc dự án", "Đọc dự án"],
-    list_project_files: ["Đang xem mã nguồn", "Đã xem mã nguồn", "Xem mã nguồn"],
-    read_project_file: ["Đang đọc file", "Đã đọc file", "Đọc file"],
-    search_project_code: ["Đang tìm trong code", "Đã tìm trong code", "Tìm trong code"],
-    edit_project_file: ["Đang sửa code", "Đã sửa code", "Sửa code"],
-    write_project_file: ["Đang cập nhật file", "Đã cập nhật file", "Cập nhật file"],
-    apply_project_patch: ["Đang áp dụng thay đổi", "Đã áp dụng thay đổi", "Áp dụng thay đổi"],
-    run_project_command: ["Đang chạy lệnh", "Đã chạy lệnh", "Chạy lệnh"],
-    poll_project_command: ["Đang chờ lệnh", "Lệnh đã kết thúc", "Chờ lệnh"],
-    verify_project_changes: ["Đang kiểm tra thay đổi", "Đã kiểm tra thay đổi", "Kiểm tra thay đổi"],
-  };
-  const label = labels[name];
-  if (!label) return name.replaceAll("_", " ");
-  if (status === "running") return label[0];
-  if (status === "done") return label[1];
-  return label[2];
+function noticeIsError(notice: string) {
+  return /^(Không|Có lỗi|Chỉ hỗ trợ|Ảnh tối đa|Phiên đăng nhập|Hệ thống chưa)/.test(notice);
 }
 
 function parseSkillBadges(value: unknown): SkillBadge[] {
@@ -232,16 +202,6 @@ function historyMessages(value: unknown): ChatMsg[] {
       image: typeof message.image === "string" ? message.image : undefined,
     } satisfies ChatMsg];
   }).slice(-50);
-}
-
-function threadGroupLabel(updatedAt: number) {
-  const startToday = new Date();
-  startToday.setHours(0, 0, 0, 0);
-  const age = startToday.getTime() - updatedAt;
-  if (age <= 0) return "Hôm nay";
-  if (age < 24 * 60 * 60 * 1000) return "Hôm qua";
-  if (age < 7 * 24 * 60 * 60 * 1000) return "7 ngày qua";
-  return "Cũ hơn";
 }
 
 const chatTransportRetryDelays = [350, 900, 1800];
@@ -303,10 +263,14 @@ export function DashboardChat() {
   const [image, setImage] = useState<PreparedChatImage | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [notice, setNotice] = useState("");
-  const [tokenUsage, setTokenUsage] = useState<ChatTokenUsage | null>(null);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [threadSearch, setThreadSearch] = useState("");
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => {
+    const deviceId = searchParams.get("deviceId");
+    const workspaceId = searchParams.get("workspaceId");
+    return deviceId && workspaceId ? new Set([`${deviceId}::${workspaceId}`]) : new Set();
+  });
   const [threadActionLoading, setThreadActionLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [models, setModels] = useState<string[]>(["auto"]);
@@ -399,18 +363,30 @@ export function DashboardChat() {
     if (!query) return poolModels;
     return poolModels.filter((model) => `${model} ${modelLabel(model)}`.toLocaleLowerCase("vi").includes(query));
   }, [modelSearch, poolModels]);
-  const threadGroups = useMemo(() => {
-    const query = threadSearch.trim().toLocaleLowerCase("vi");
-    const visible = query ? threads.filter((thread) => thread.title.toLocaleLowerCase("vi").includes(query)) : threads;
-    const labels = ["Hôm nay", "Hôm qua", "7 ngày qua", "Cũ hơn"];
-    return labels.map((label) => ({ label, threads: visible.filter((thread) => threadGroupLabel(thread.updatedAt) === label) })).filter((group) => group.threads.length > 0);
-  }, [threadSearch, threads]);
-  const activeThreadModel = threads.find((thread) => thread.id === activeThreadId)?.model;
-  const activeThreadWorkspaceKey = threads.find((thread) => thread.id === activeThreadId)?.workspaceKey;
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
-  const mobileProjectSubtitle = selectedWorkspace
-    ? `${selectedWorkspace.workspaceName} · ${selectedWorkspace.deviceName} · ${workspaceStatusLabel(selectedWorkspace)}`
-    : "Auto · Tự chọn dự án";
+  const activeThreadModel = activeThread?.model;
+  const activeThreadWorkspaceKey = activeThread?.workspaceKey;
+  const threadTree = useMemo(() => {
+    const query = threadSearch.trim().toLocaleLowerCase("vi");
+    const matches = (values: Array<string | undefined>) => !query || values.some((value) => value?.toLocaleLowerCase("vi").includes(query));
+    const projects = workspaceItems.flatMap((workspace) => {
+      const projectThreads = threads.filter((thread) => threadBelongsToWorkspace(thread, workspace));
+      const projectMatches = matches([workspace.workspaceName, workspace.deviceName, workspaceStatusLabel(workspace)]);
+      const visibleThreads = projectMatches ? projectThreads : projectThreads.filter((thread) => matches([thread.title]));
+      return projectMatches || visibleThreads.length ? [{ key: workspaceKey(workspace), workspace, threads: visibleThreads, threadCount: projectThreads.length }] : [];
+    });
+    const knownKeys = new Set(workspaceItems.map(workspaceKey));
+    const generalThreads = threads.filter((thread) => !thread.workspaceKey && matches([thread.title]));
+    const unavailableThreads = threads.filter((thread) => thread.workspaceKey && !knownKeys.has(thread.workspaceKey) && matches([thread.title, thread.workspaceKey]));
+    return { projects, generalThreads, unavailableThreads };
+  }, [threadSearch, threads, workspaceItems]);
+  const activeProject = activeThreadWorkspaceKey
+    ? workspaceItems.find((workspace) => workspaceKey(workspace) === activeThreadWorkspaceKey)
+    : selectedWorkspace;
+  const headerProject = activeProject || selectedWorkspace;
+  const mobileProjectSubtitle = headerProject
+    ? `${headerProject.workspaceName} · ${headerProject.deviceName} · ${workspaceStatusLabel(headerProject)}`
+    : "No project";
   const mobileContextSummary = `${selectedWorkspace?.workspaceName || "Auto"} · ${mode === "ask" ? "Ask" : mode === "plan" ? "Plan" : "Agent"} · ${modelLabel(selectedModel)}`;
 
   useEffect(() => {
@@ -441,6 +417,10 @@ export function DashboardChat() {
         if (cancelled) return;
         setThreads(available);
         if (available[0]) {
+          const initialWorkspaceKey = available[0].workspaceKey;
+          if (initialWorkspaceKey) {
+            setExpandedProjects((current) => new Set(current).add(initialWorkspaceKey));
+          }
           setMessages([]);
           setHistoryLoading(true);
           setActiveThreadId(available[0].id);
@@ -1020,7 +1000,6 @@ export function DashboardChat() {
                 if (typeof data.threadId === "string" && data.threadId) requestThreadId = data.threadId;
                 if (typeof data.reply === "string") content = data.reply;
                 if (Array.isArray(data.tool_calls)) toolCalls = data.tool_calls as ToolCall[];
-                if (data.usage) setTokenUsage(data.usage);
                 streamedContent = content;
                 streamedToolCalls = toolCalls;
                 updateAssistant(placeholderIndex, content, toolCalls, activeSkills);
@@ -1070,88 +1049,117 @@ export function DashboardChat() {
     controller.abort("user_stop");
   }
 
-  async function clear() {
-    if (!activeThreadId) return;
-    setMessages([]);
-    setNotice("");
+  async function clear(thread?: ChatThread) {
+    const target = thread ?? activeThread;
+    if (!target || !window.confirm(`Xóa toàn bộ nội dung trong “${target.title}”?`)) return;
+    if (target.id === activeThreadId) {
+      setMessages([]);
+      setNotice("");
+    }
     try {
-      const response = await fetch(`/api/v1/dashboard/chat/history?threadId=${encodeURIComponent(activeThreadId)}`, { method: "DELETE", credentials: "include" });
+      const response = await fetch(`/api/v1/dashboard/chat/history?threadId=${encodeURIComponent(target.id)}`, { method: "DELETE", credentials: "include" });
       if (!response.ok) throw new Error(String(response.status));
     } catch {
       setNotice("Không thể xóa lịch sử trên server");
     }
   }
 
+  function toggleProject(key: string) {
+    setExpandedProjects((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function selectThread(thread: ChatThread) {
+    setThreadDrawerOpen(false);
+    const targetWorkspaceKey = thread.workspaceKey;
+    if (targetWorkspaceKey) setExpandedProjects((current) => new Set(current).add(targetWorkspaceKey));
+    if (thread.id === activeThreadId) return;
+    setMessages([]);
+    setHistoryLoading(true);
+    setActiveThreadId(thread.id);
+  }
+
+  function closeThreadMenu(event: React.MouseEvent<HTMLButtonElement>) {
+    const menu = event.currentTarget.closest("details");
+    if (menu instanceof HTMLDetailsElement) menu.open = false;
+  }
+
+  function ThreadRow({ thread }: { thread: ChatThread }) {
+    return (
+      <div className={`${styles.threadItem} ${treeStyles.threadItem} ${thread.id === activeThreadId ? styles.threadItemActive : ""}`}>
+        <button className={`${styles.threadSelect} ${treeStyles.threadSelect}`} type="button" onClick={() => selectThread(thread)} disabled={loading || historyLoading} title={thread.title}>
+          <AppIcon name="chat" size={15} />
+          <span>{thread.title}</span>
+        </button>
+        <details className={treeStyles.threadOverflow}>
+          <summary aria-label={`Tùy chọn ${thread.title}`}><span aria-hidden="true">•••</span></summary>
+          <div>
+            <button type="button" onClick={(event) => { closeThreadMenu(event); void renameThread(thread); }}>Đổi tên</button>
+            <button type="button" onClick={(event) => { closeThreadMenu(event); void clear(thread); }}>Xóa nội dung</button>
+            <button type="button" className={treeStyles.threadDeleteAction} onClick={(event) => { closeThreadMenu(event); void deleteThread(thread); }}>Xóa thread</button>
+          </div>
+        </details>
+      </div>
+    );
+  }
+
   return (
     <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện CodeLocal">
       <button className={`${styles.threadDrawerBackdrop} ${threadDrawerOpen ? styles.threadDrawerBackdropOpen : ""}`} type="button" onClick={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu" />
-      <aside className={`${styles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Menu CodeLocal" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
-        <div className={styles.unifiedSidebarBrand}>
-          <Link className={styles.unifiedBrandLink} href="/" aria-label="CodeLocal home">
-            <Image src="/codelocal-icon.png" alt="" width={25} height={25} priority />
-            <span>CodeLocal</span>
-          </Link>
-          <button ref={threadDrawerCloseRef} className={styles.unifiedSidebarClose} type="button" onClick={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu"><AppIcon name="close" size={17} /></button>
-        </div>
-        <DashboardNav onNavigate={() => setThreadDrawerOpen(false)} compact>
-          <section className={styles.threadPane} aria-label="Lịch sử trò chuyện">
-        <div className={styles.threadSidebarHead}>
-          <div>
-            <span>Lịch sử</span>
-            <strong>Cuộc trò chuyện</strong>
-          </div>
-          <span className={styles.threadCount}>{threads.length}</span>
-        </div>
-        <button className={styles.newThreadButton} type="button" onClick={() => { setThreadDrawerOpen(false); void newThread(); }} disabled={loading || threadActionLoading}>
-          <AppIcon name="plus" size={16} />
-          Cuộc trò chuyện mới
+      <aside className={`${styles.threadSidebar} ${treeStyles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Menu CodeLocal" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
+        <ChatSidebarBrand closeRef={threadDrawerCloseRef} onClose={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} />
+        <button className={`${styles.newThreadButton} ${treeStyles.newThreadButton}`} type="button" onClick={() => { setThreadDrawerOpen(false); void newThread(); }} disabled={loading || threadActionLoading}>
+          <AppIcon name="plus" size={17} />
+          New task
         </button>
-        <label className={styles.threadSearch} data-short-history={threads.length < 8 || undefined}>
-          <AppIcon name="search" size={15} />
-          <input value={threadSearch} onChange={(event) => setThreadSearch(event.target.value)} placeholder="Tìm cuộc trò chuyện" aria-label="Tìm cuộc trò chuyện" />
+        <label className={`${styles.threadSearch} ${treeStyles.threadSearch}`}>
+          <AppIcon name="search" size={16} />
+          <input value={threadSearch} onChange={(event) => setThreadSearch(event.target.value)} placeholder="Search projects and threads" aria-label="Search projects and threads" type="search" />
         </label>
-        <div className={styles.threadList}>
-          {threadGroups.length === 0 ? <p className={styles.threadEmpty}>Không tìm thấy cuộc trò chuyện.</p> : threadGroups.map((group) => (
-            <section className={styles.threadGroup} key={group.label}>
-              <h2>{group.label}</h2>
-              {group.threads.map((thread) => (
-                <div className={`${styles.threadItem} ${thread.id === activeThreadId ? styles.threadItemActive : ""}`} key={thread.id}>
-                  <button className={styles.threadSelect} type="button" onClick={() => {
-                    setThreadDrawerOpen(false);
-                    if (thread.id === activeThreadId) return;
-                    setMessages([]);
-                    setHistoryLoading(true);
-                    setActiveThreadId(thread.id);
-                  }} disabled={loading || historyLoading} title={thread.title}>
-                    <AppIcon name="chat" size={15} />
-                    <span>{thread.title}</span>
-                  </button>
-                  <div className={styles.threadItemActions}>
-                    <button type="button" onClick={() => void renameThread(thread)} aria-label={`Đổi tên ${thread.title}`} title="Đổi tên"><AppIcon name="edit" size={13} /></button>
-                    <button type="button" onClick={() => void deleteThread(thread)} aria-label={`Xóa ${thread.title}`} title="Xóa"><AppIcon name="trash" size={13} /></button>
+        <div className={`${styles.threadList} ${treeStyles.threadList}`} aria-label="Projects and threads">
+          {threadTree.projects.length === 0 && threadTree.generalThreads.length === 0 && threadTree.unavailableThreads.length === 0 ? (
+            <p className={styles.threadEmpty}>Không tìm thấy project hoặc thread.</p>
+          ) : null}
+          {threadTree.projects.map(({ key, workspace, threads: projectThreads, threadCount }) => {
+            const open = Boolean(threadSearch.trim()) || activeThreadWorkspaceKey === key || selectedWorkspaceKey === key || expandedProjects.has(key);
+            const active = activeThreadWorkspaceKey === key || (!activeThreadWorkspaceKey && selectedWorkspaceKey === key);
+            return (
+              <section className={`${treeStyles.projectGroup} ${active ? treeStyles.projectGroupActive : ""}`} key={key}>
+                <button className={treeStyles.projectToggle} type="button" onClick={() => toggleProject(key)} aria-expanded={open}>
+                  <span className={treeStyles.projectFolder} data-state={workspaceState(workspace)} aria-hidden="true"><AppIcon name="folder" size={17} /><i /></span>
+                  <span className={treeStyles.projectCopy}>
+                    <strong title={workspace.workspaceName}>{workspace.workspaceName}</strong>
+                    <small title={`${workspace.deviceName} · ${workspaceStatusLabel(workspace)}`}>{workspace.deviceName} · {workspaceStatusLabel(workspace)}</small>
+                  </span>
+                  <span className={treeStyles.projectThreadCount} aria-label={`${threadCount} threads`}>{threadCount}</span>
+                  <AppIcon className={treeStyles.projectChevron} name="chevron-right" size={14} />
+                </button>
+                {open ? (
+                  <div className={treeStyles.projectThreads}>
+                    {projectThreads.length ? projectThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />) : <p>Chưa có thread.</p>}
                   </div>
-                  <details className={mobileStyles.threadOverflow}>
-                    <summary aria-label={`Tùy chọn ${thread.title}`}>⋯</summary>
-                    <div>
-                      <button type="button" onClick={() => void renameThread(thread)}>Đổi tên</button>
-                      <button type="button" onClick={() => void deleteThread(thread)}>Xóa</button>
-                    </div>
-                  </details>
-                </div>
-              ))}
+                ) : null}
+              </section>
+            );
+          })}
+          {threadTree.generalThreads.length ? (
+            <section className={`${treeStyles.projectGroup} ${!activeThreadWorkspaceKey ? treeStyles.projectGroupActive : ""}`}>
+              <div className={treeStyles.generalGroupHead}><AppIcon name="folder" size={15} /><span><strong>General</strong><small>No project</small></span><b>{threadTree.generalThreads.length}</b></div>
+              <div className={treeStyles.projectThreads}>{threadTree.generalThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />)}</div>
             </section>
-          ))}
+          ) : null}
+          {threadTree.unavailableThreads.length ? (
+            <section className={treeStyles.projectGroup}>
+              <div className={treeStyles.generalGroupHead}><AppIcon name="folder" size={15} /><span><strong>Unavailable project</strong><small>Workspace not currently listed</small></span><b>{threadTree.unavailableThreads.length}</b></div>
+              <div className={treeStyles.projectThreads}>{threadTree.unavailableThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />)}</div>
+            </section>
+          ) : null}
         </div>
-        <div className={styles.threadSidebarFoot}>
-          Lưu theo tài khoản CodeLocal
-        </div>
-        <footer className={mobileStyles.drawerFooter}>
-          <Link href="/dashboard/workspaces" onClick={() => setThreadDrawerOpen(false)}>Projects</Link>
-          <Link href="/dashboard/devices" onClick={() => setThreadDrawerOpen(false)}>Devices</Link>
-          <Link href="/dashboard/settings" onClick={() => setThreadDrawerOpen(false)}>Settings</Link>
-        </footer>
-          </section>
-        </DashboardNav>
+        <ChatSidebarFooter onNavigate={() => setThreadDrawerOpen(false)} />
       </aside>
 
       <section className={styles.chatShell} aria-label="Chat với CodeLocal" aria-hidden={contextSheetOpen || threadDrawerOpen || undefined}>
@@ -1165,19 +1173,16 @@ export function DashboardChat() {
           onNewThread={() => void newThread()}
         />
         <div className={styles.chatHead}>
-          <div className={styles.brandBlock}>
+          <div className={headerStyles.threadHeadContext}>
             <button ref={threadDrawerTriggerRef} className={styles.threadDrawerToggle} type="button" onClick={() => setThreadDrawerOpen(true)} aria-label="Mở menu CodeLocal" aria-expanded={threadDrawerOpen}>
               <AppIcon name="menu" size={19} />
             </button>
-            <span className={styles.avatar} aria-hidden="true"><AppIcon name="codelocal" size={18} /></span>
-            <div className={styles.nameRow}><h1>CodeLocal</h1></div>
+            <div>
+              <h1 title={activeThread?.title || "Tác vụ mới"}>{activeThread?.title || "Tác vụ mới"}</h1>
+              <span title={mobileProjectSubtitle}>{headerProject?.workspaceName || "No project"}</span>
+            </div>
           </div>
           <div className={styles.chatActions}>
-            {tokenUsage ? (
-              <span className={styles.tokenUsage} title={`${tokenUsage.inputTokens.toLocaleString()} input · ${tokenUsage.outputTokens.toLocaleString()} output`}>
-                {tokenUsage.totalTokens.toLocaleString()} tokens
-              </span>
-            ) : null}
             <div className={styles.modelPickerShell} ref={modelPickerRef}>
               <button
                 className={`${styles.projectPicker} ${styles.modelPicker}`}
@@ -1243,18 +1248,6 @@ export function DashboardChat() {
                 </div>
               ) : null}
             </div>
-            <label className={styles.projectPicker}>
-              <span className={styles.projectPickerIcon} aria-hidden="true">
-                <AppIcon name="folder" size={17} />
-              </span>
-              <select value={selectedWorkspaceKey} onChange={(event) => setSelectedWorkspaceKey(event.target.value)} aria-label="Chọn dự án">
-                <option value="auto">Dự án: Auto</option>
-                {workspaceItems.map((workspace) => <option key={workspaceKey(workspace)} value={workspaceKey(workspace)}>Dự án: {workspace.workspaceName}</option>)}
-              </select>
-            </label>
-            <button onClick={clear} className={styles.clearBtn} type="button" aria-label="Xóa lịch sử" title="Xóa lịch sử">
-              <AppIcon name="trash" size={18} />
-            </button>
           </div>
         </div>
 
@@ -1281,28 +1274,7 @@ export function DashboardChat() {
                   </div>
                 ) : null}
                 {message.tool_calls?.length ? (
-                  <div className={styles.toolList}>
-                    {message.tool_calls.map((tool) => (
-                      <div key={tool.id} className={styles.toolActionRow}>
-                        <details className={styles.toolPill}>
-                          <summary>
-                            <span className={styles.toolName}><span className={styles.toolDot} />{toolLabel(tool.name, tool.status)}</span>
-                            {tool.status === "error" ? <span className={styles.toolMeta}>Lỗi</span> : null}
-                            {tool.status === "approval_required" ? <span className={styles.toolMeta}>Cần quyền</span> : null}
-                          </summary>
-                          <div className={styles.toolDetail}>
-                            <code>{tool.arguments || "{}"}</code>
-                            {tool.result ? <code>{tool.result.length > 800 ? `${tool.result.slice(0, 800)}…` : tool.result}</code> : null}
-                          </div>
-                        </details>
-                        {tool.status === "approval_required" ? (
-                          <button type="button" className={styles.fullAccessBtn} onClick={() => submitQuickMessage("Toàn quyền truy cập")} disabled={loading}>
-                            Toàn quyền truy cập
-                          </button>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
+                  <ChatActionSummary actions={message.tool_calls} busy={loading} onApprove={() => submitQuickMessage("Toàn quyền truy cập")} />
                 ) : null}
                 {message.image ? <img src={message.image} alt="Ảnh đã gửi" className={styles.msgImage} /> : null}
                 {message.content ? (

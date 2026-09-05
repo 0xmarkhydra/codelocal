@@ -1,5 +1,5 @@
 .overviewShell {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   display: grid;
   gap: 12px;
   margin: 0 auto;

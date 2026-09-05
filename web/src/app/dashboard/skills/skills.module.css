@@ -2,7 +2,7 @@
   min-width: 0;
   min-height: 100dvh;
   overflow: auto;
-  padding: 28px clamp(22px, 3vw, 46px) 38px;
+  padding: var(--dashboard-page-y) var(--dashboard-page-x) 36px;
 }
 
 .header,
@@ -12,13 +12,13 @@
 .adminPanel,
 .noticeError,
 .noticeSuccess {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   margin-left: auto;
   margin-right: auto;
 }
 
 .header {
-  min-height: 52px;
+  min-height: var(--dashboard-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -48,7 +48,7 @@
 .skillMeta,
 .adminRow span,
 .muted {
-  color: rgba(211, 222, 238, 0.42);
+  color: rgba(219, 228, 242, 0.62);
 }
 
 .eyebrow,
@@ -65,7 +65,7 @@
   border: 1px solid rgba(255, 255, 255, 0.065);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.025);
-  color: rgba(219, 229, 243, 0.5);
+  color: rgba(225, 232, 243, 0.68);
   font-size: 10px;
   font-weight: 560;
   white-space: nowrap;
@@ -323,7 +323,8 @@
 .skillHeading p {
   margin-top: 4px;
   overflow: hidden;
-  font-size: 9.5px;
+  color: rgba(222, 230, 242, 0.66);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -345,8 +346,8 @@
 
 .description {
   margin-top: 13px;
-  color: rgba(214, 225, 240, 0.44);
-  font-size: 10.5px;
+  color: rgba(222, 230, 242, 0.66);
+  font-size: 11px;
   line-height: 1.55;
 }
 
@@ -373,8 +374,8 @@
   border: 1px solid rgba(255, 255, 255, 0.045);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.022);
-  color: rgba(205, 216, 233, 0.42);
-  font-size: 9px;
+  color: rgba(213, 223, 238, 0.6);
+  font-size: 9.5px;
 }
 
 .skillMeta {
@@ -396,8 +397,8 @@
   align-items: center;
   gap: 7px;
   margin-top: 9px;
-  color: rgba(204, 216, 233, 0.38);
-  font-size: 9.5px;
+  color: rgba(214, 225, 240, 0.62);
+  font-size: 10px;
 }
 
 .permissionLine svg {
@@ -418,8 +419,8 @@
   border: 0;
   border-radius: 9px;
   background: transparent;
-  color: rgba(211, 222, 238, 0.4);
-  font-size: 9.5px;
+  color: rgba(220, 229, 242, 0.58);
+  font-size: 10px;
   padding: 0 9px;
 }
 
@@ -579,13 +580,13 @@
 }
 
 @media (max-width: 820px) {
-  .page { padding: 22px 14px 28px; }
+  .page { padding: 72px 14px 28px; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .toolbar > span { white-space: normal; }
 }
 
 @media (max-width: 620px) {
-  .page { padding: 16px 10px 84px; }
+  .page { padding: 72px 10px 84px; }
   .header { align-items: flex-start; flex-direction: column; margin-bottom: 14px; }
   .header h1 { font-size: 28px; }
   .status { align-self: flex-start; }

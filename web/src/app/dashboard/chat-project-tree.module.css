@@ -1,0 +1,317 @@
+.threadSidebar {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  padding: 12px 10px 10px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px 0 0 22px;
+  background: #171717;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+}
+
+.newThreadButton {
+  min-height: 44px;
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.newThreadButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.threadSearch {
+  min-height: 40px;
+  flex: 0 0 auto;
+  padding: 0 11px;
+}
+
+.threadList {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: block;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 4px 1px 12px;
+}
+
+.projectGroup {
+  min-width: 0;
+  margin-top: 5px;
+  border-radius: 12px;
+}
+
+.projectGroupActive {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.projectToggle {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 11px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.projectToggle:hover,
+.projectToggle:focus-visible {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.projectFolder {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: rgba(190, 198, 214, 0.72);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.projectFolder i {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #1b1b1b;
+  border-radius: 50%;
+  background: #74747c;
+}
+
+.projectFolder[data-state="active"] i { background: #69d895; }
+.projectFolder[data-state="sleeping"] i { background: #d7ad62; }
+
+.projectCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.projectCopy strong,
+.projectCopy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectCopy strong {
+  color: rgba(246, 246, 248, 0.9);
+  font-size: 12px;
+  font-weight: 590;
+}
+
+.projectCopy small {
+  color: rgba(180, 180, 186, 0.58);
+  font-size: 10px;
+}
+
+.projectThreadCount,
+.generalGroupHead b {
+  min-width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.065);
+  color: rgba(236, 236, 241, 0.62);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.projectChevron {
+  color: rgba(180, 180, 186, 0.52);
+  transition: transform 150ms ease;
+}
+
+.projectToggle[aria-expanded="true"] .projectChevron {
+  transform: rotate(90deg);
+}
+
+.projectThreads {
+  display: grid;
+  gap: 2px;
+  margin: 0 4px 5px 19px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.projectThreads > p {
+  margin: 0;
+  padding: 8px 9px;
+  color: rgba(180, 180, 186, 0.48);
+  font-size: 10.5px;
+}
+
+.generalGroupHead {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  color: rgba(190, 198, 214, 0.7);
+}
+
+.generalGroupHead > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.generalGroupHead strong {
+  color: rgba(246, 246, 248, 0.88);
+  font-size: 12px;
+  font-weight: 590;
+}
+
+.generalGroupHead small {
+  overflow: hidden;
+  color: rgba(180, 180, 186, 0.55);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadItem {
+  position: relative;
+  overflow: visible;
+}
+
+.threadItem:has(.threadOverflow[open]) {
+  z-index: 4;
+}
+
+.threadSelect {
+  min-height: 38px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  padding: 0 42px 0 8px;
+}
+
+.threadOverflow {
+  position: absolute;
+  z-index: 3;
+  right: 2px;
+  top: 50%;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 140ms ease;
+}
+
+.threadItem:hover .threadOverflow,
+.threadItem:focus-within .threadOverflow,
+.threadOverflow[open] {
+  opacity: 1;
+}
+
+.threadOverflow > summary {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: rgba(180, 180, 186, 0.72);
+  list-style: none;
+  cursor: pointer;
+}
+
+.threadOverflow > summary::-webkit-details-marker { display: none; }
+.threadOverflow > summary:hover,
+.threadOverflow[open] > summary { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.threadOverflow > summary span { font-size: 10px; letter-spacing: 1px; }
+
+.threadOverflow > div {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 3px);
+  right: 0;
+  width: 150px;
+  display: grid;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 11px;
+  background: #303030;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+}
+
+.threadOverflow button {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: rgba(236, 236, 241, 0.88);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.threadOverflow button:hover,
+.threadOverflow button:focus-visible { background: rgba(255, 255, 255, 0.07); }
+.threadOverflow .threadDeleteAction { color: #f2a3ae; }
+
+@media (max-width: 820px) {
+  .threadSidebar {
+    gap: 8px;
+    padding: max(12px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .threadSidebar > :first-child {
+    min-height: 48px;
+    padding-bottom: 6px;
+  }
+
+  .threadSidebar > :first-child > a {
+    display: inline-flex;
+  }
+
+  .threadSearch {
+    display: flex;
+    min-height: 44px;
+  }
+
+  .threadSearch input { font-size: 16px; }
+  .projectToggle { min-height: 58px; }
+  .threadSelect { min-height: 44px; padding-right: 48px; }
+
+  .threadOverflow {
+    opacity: 1;
+  }
+
+  .threadOverflow > summary {
+    width: 44px;
+    height: 44px;
+  }
+
+  .threadOverflow button { min-height: 44px; font-size: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .projectChevron,
+  .threadOverflow { transition: none; }
+}

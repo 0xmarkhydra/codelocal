@@ -1,5 +1,5 @@
 .page {
-  width: min(1480px, 100%);
+  width: min(var(--dashboard-content), 100%);
   margin: 0 auto;
 }
 

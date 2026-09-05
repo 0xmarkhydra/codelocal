@@ -2,7 +2,7 @@
   min-width: 0;
   min-height: 100dvh;
   overflow: auto;
-  padding: 28px clamp(22px, 3vw, 46px) 40px;
+  padding: var(--dashboard-page-y) var(--dashboard-page-x) 36px;
 }
 
 .header,
@@ -12,12 +12,13 @@
 .noticeSuccess,
 .sectionIntro,
 .grid {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   margin-left: auto;
   margin-right: auto;
 }
 
 .header {
+  min-height: var(--dashboard-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -748,6 +749,7 @@
 
 @media (max-width: 820px) {
   .page { padding: 72px 14px 30px; }
+  .searchBox input { font-size: 16px; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .searchBox { max-width: none; }
   .tabs { width: fit-content; }

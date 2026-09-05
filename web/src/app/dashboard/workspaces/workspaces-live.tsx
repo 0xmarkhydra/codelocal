@@ -28,7 +28,7 @@ export function LiveWorkspaces() {
   const [page, setPage] = useState(1);
 
   if (state.kind !== "ready") {
-    return <DashboardResourceFeedback label="Workspaces" {...(state.kind === "error" ? { kind: "error" as const, message: state.message, onRetry: retry } : { kind: state.kind })} />;
+    return <DashboardResourceFeedback label="Projects" {...(state.kind === "error" ? { kind: "error" as const, message: state.message, onRetry: retry } : { kind: state.kind })} />;
   }
 
   const resource = state.value;
@@ -43,7 +43,7 @@ export function LiveWorkspaces() {
   return (
     <section className={styles.workspaceSection} aria-live="polite">
       <div className={styles.workspaceToolbar}>
-        <div className={styles.summaryPills} aria-label="Workspace summary">
+        <div className={styles.summaryPills} aria-label="Project summary">
           <span><strong>{resource.summary.total}</strong> dự án</span>
           <span data-state="active"><i />{resource.summary.active} online</span>
           {(resource.summary.sleeping + resource.summary.offline) > 0 ? <span data-state="sleeping"><i />{resource.summary.sleeping + resource.summary.offline} nghỉ</span> : null}
@@ -55,7 +55,7 @@ export function LiveWorkspaces() {
           totalPages={totalPages}
           totalResults={filtered.length}
           onPageChange={setPage}
-          placeholder="Tìm workspace"
+          placeholder="Tìm project"
         />
       </div>
 

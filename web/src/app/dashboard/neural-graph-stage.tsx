@@ -194,7 +194,7 @@ export function NeuralGraphStage({
         const active = node.id === selected;
         const isRelated = !selected || related.has(node.id);
         const radius = nodeRadius(node, active);
-        const showLabel = active || node.primary || node.alwaysLabel || (scaleRef.current > 1.25 && isRelated);
+        const showLabel = active || node.primary || node.alwaysLabel || nodes.length <= 24 || (scaleRef.current > 1.25 && isRelated);
 
         context.save();
         context.globalAlpha = isRelated ? 1 : 0.2;
@@ -212,12 +212,14 @@ export function NeuralGraphStage({
         context.stroke();
 
         if (showLabel) {
-          context.font = "600 10px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
-          context.fillStyle = isRelated ? "rgba(214,226,242,.9)" : "rgba(150,166,188,.35)";
+          context.font = "600 11px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
+          context.fillStyle = isRelated ? "rgba(229,236,247,.94)" : "rgba(176,190,210,.55)";
           context.textAlign = "center";
           context.textBaseline = "top";
           const label = node.label.length > 32 ? `${node.label.slice(0, 31)}…` : node.label;
-          context.fillText(label, point.x, point.y + radius + 7);
+          const labelWidth = context.measureText(label).width;
+          const labelX = Math.max(labelWidth / 2 + 8, Math.min(width - labelWidth / 2 - 8, point.x));
+          context.fillText(label, labelX, point.y + radius + 7);
         }
         context.restore();
       }

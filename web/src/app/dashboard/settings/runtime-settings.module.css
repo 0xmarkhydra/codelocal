@@ -1,10 +1,10 @@
 .page {
-  width: min(100%, 1180px);
+  width: min(100%, var(--dashboard-content));
   margin: 0 auto;
 }
 
 .hero {
-  min-height: 86px;
+  min-height: var(--dashboard-header-height);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;

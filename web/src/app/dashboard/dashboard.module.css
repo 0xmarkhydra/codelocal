@@ -194,8 +194,8 @@
 }
 
 .header {
-  width: min(100%,1360px);
-  min-height: 48px;
+  width: min(100%, var(--dashboard-content));
+  min-height: var(--dashboard-header-height);
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -267,7 +267,7 @@
 }
 
 .heroPanel {
-  width: min(100%,1360px);
+  width: min(100%, var(--dashboard-content));
   position: relative;
   overflow: hidden;
   display: grid;
@@ -304,7 +304,7 @@
 }
 
 .livePanel {
-  width: min(100%,1360px);
+  width: min(100%, var(--dashboard-content));
   margin: 0 auto 10px;
   padding: 16px;
   border: 1px solid var(--line);
@@ -728,7 +728,7 @@
 }
 
 .codeGraphControls {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   display: grid;
   grid-template-columns: repeat(4, minmax(130px, .7fr)) minmax(260px, 1.6fr);
   gap: 8px;
@@ -797,7 +797,7 @@
 
 .codeGraphState,
 .codeImpact {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   margin: 0 auto 12px;
   padding: 16px 18px;
   border: 1px solid var(--line);
@@ -929,7 +929,7 @@
 
 .accountGrid,
 .securityGrid {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
@@ -1018,7 +1018,7 @@
 .accountRisk,
 .securityRisk,
 .securityHealthy {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   margin: 0 auto 12px;
   padding: 14px 16px;
   border: 1px solid var(--line);
@@ -1144,7 +1144,7 @@
 }
 
 .routeGuardrail {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   position: relative;
   margin: 18px auto 0;
   padding: 18px 20px 18px 22px;
@@ -1457,7 +1457,7 @@
 }
 
 .knowledgeHealthDetails {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   margin: 10px auto 0;
 }
 
@@ -1477,7 +1477,7 @@
 .knowledgeHealthDetails[open] > summary { color: #dce7f5; }
 
 .knowledgeHealthSection {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   margin: 16px auto 0;
   padding: 24px;
   border: 1px solid var(--line);
@@ -1675,7 +1675,7 @@
 }
 
 .grid {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
   gap: 16px;
@@ -2079,7 +2079,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 28px clamp(22px, 3vw, 46px) 38px;
+  padding: var(--dashboard-page-y) var(--dashboard-page-x) 36px;
 }
 
 .editorContent {
@@ -2108,8 +2108,8 @@
 }
 
 .header {
-  width: min(100%, 1480px);
-  min-height: 72px;
+  width: min(100%, var(--dashboard-content));
+  min-height: var(--dashboard-header-height);
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -2159,7 +2159,7 @@
 .livePanel,
 .panel,
 .heroPanel {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   margin-inline: auto;
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 22px;
@@ -2248,7 +2248,7 @@
 }
 
 .brainStage {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   min-height: clamp(560px, 72vh, 900px);
   margin: 0 auto;
 }
@@ -2256,7 +2256,7 @@
 .brainStage > * { height: 100%; min-height: inherit; }
 
 .brainHealthDisclosure {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   margin: 12px auto 0;
   border: 1px solid rgba(255,255,255,.065);
   border-radius: 16px;
@@ -2282,7 +2282,7 @@
 .brainHealthDisclosure > section { margin: 0; border: 0; border-top: 1px solid rgba(255,255,255,.055); border-radius: 0 0 16px 16px; }
 
 /* Workspaces */
-.workspaceSection { width: min(100%, 1480px); margin: 0 auto; }
+.workspaceSection { width: min(100%, var(--dashboard-content)); margin: 0 auto; }
 .workspaceToolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
 .summaryPills { display: flex; flex-wrap: wrap; gap: 7px; }
 .summaryPills > span { min-height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid rgba(255,255,255,.065); border-radius: 999px; background: rgba(255,255,255,.025); color: rgba(218,228,242,.46); font-size: 10px; }
@@ -2326,7 +2326,7 @@
 .emptyFolderIcon { width: 44px; height: 32px; margin-bottom: 14px; border: 1px solid rgba(121,150,255,.2); border-radius: 8px; background: rgba(88,117,220,.08); }
 
 /* Devices */
-.deviceShell { width: min(100%, 1480px); min-height: 570px; display: grid; grid-template-columns: 260px minmax(0, 1fr); overflow: hidden; margin: 0 auto; border: 1px solid rgba(255,255,255,.075); border-radius: 22px; background: linear-gradient(145deg, rgba(19,26,37,.7), rgba(9,14,22,.84)); box-shadow: 0 20px 52px rgba(0,0,0,.18); }
+.deviceShell { width: min(100%, var(--dashboard-content)); min-height: 570px; display: grid; grid-template-columns: 260px minmax(0, 1fr); overflow: hidden; margin: 0 auto; border: 1px solid rgba(255,255,255,.075); border-radius: 22px; background: linear-gradient(145deg, rgba(19,26,37,.7), rgba(9,14,22,.84)); box-shadow: 0 20px 52px rgba(0,0,0,.18); }
 .deviceList { padding: 12px; border-right: 1px solid rgba(255,255,255,.055); background: rgba(255,255,255,.014); }
 .deviceSummary { display: flex; flex-wrap: wrap; gap: 7px; padding: 4px 4px 12px; }
 .deviceSummary span { display: inline-flex; align-items: center; gap: 5px; color: rgba(211,222,238,.4); font-size: 9px; }
@@ -2370,6 +2370,10 @@
   .shell { display: block; height: auto; min-height: 100dvh; overflow: visible; }
   .sidebar { position: fixed; }
   .content { height: auto; min-height: 100dvh; overflow: visible; padding: 72px 14px 28px; }
+  .content > * { min-width: 0; max-width: 100%; }
+  .content img,
+  .content svg,
+  .content table { max-width: 100%; }
   .editorContent { height: auto; min-height: 100dvh; overflow: visible; padding: 62px 10px 12px; }
   .chatContent {
     height: var(--app-viewport-height, 100dvh);
@@ -2547,7 +2551,7 @@
 .deviceActionsPanel p { font-size: 10.5px; }
 
 .resourceFeedback {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   min-height: 220px;
   margin: 0 auto;
   display: flex;
@@ -2649,7 +2653,7 @@
 }
 
 .brainTopbar {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   height: 44px;
   display: flex;
   align-items: center;

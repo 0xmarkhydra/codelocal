@@ -1,5 +1,5 @@
 .grid {
-  width: min(100%, 1360px);
+  width: min(100%, var(--dashboard-content));
   margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(12, minmax(0,1fr));
@@ -264,7 +264,7 @@
 .statusBadge i { background: #62df8e; box-shadow: 0 0 8px rgba(98,223,142,.42); }
 
 .setupDisclosure {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   margin: 14px auto 0;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.065);
@@ -290,7 +290,7 @@
 
 .inviteLayout,
 .adminLayout {
-  width: min(100%, 1480px);
+  width: min(100%, var(--dashboard-content));
   display: grid;
   gap: 12px;
   margin: 0 auto;

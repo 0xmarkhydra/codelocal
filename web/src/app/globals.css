@@ -50,7 +50,11 @@
 
   --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.16);
   --shadow-stage: 0 28px 78px rgba(0, 0, 0, 0.22);
-  --content: 1200px;
+  --content: 1280px;
+  --dashboard-content: 1280px;
+  --dashboard-header-height: 56px;
+  --dashboard-page-x: clamp(18px, 2.5vw, 36px);
+  --dashboard-page-y: 20px;
 }
 
 * { box-sizing: border-box; }
@@ -100,6 +104,14 @@ button, input, textarea, select { color-scheme: dark; }
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+@media (max-width: 620px) {
+  :root {
+    --dashboard-page-x: 10px;
+    --dashboard-page-y: 72px;
+    --dashboard-header-height: 48px;
+  }
 }
 
 @media (max-width: 768px) and (pointer: coarse) {

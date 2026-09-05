@@ -109,7 +109,7 @@
 .listButton:disabled { opacity: .35; cursor: default; }
 
 .overviewState {
-  width: min(100%,1480px);
+  width: min(100%, var(--dashboard-content));
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
