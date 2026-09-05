@@ -65,6 +65,10 @@ Community providers must not receive:
 - obvious secrets/tokens/password material;
 - CodeLocal tool results.
 
+A deployment may explicitly opt in with `CODELOCAL_ALLOW_COMMUNITY_WORKSPACE=1`,
+which permits workspace and image content on community lanes so a free model can
+do project work; obvious secrets stay blocked.
+
 If a community model requests a CodeLocal tool, the tool may execute locally, but the continuation containing the tool result is routed only through a trusted/BYOK lane. This prevents workspace or device data from being forwarded to a community provider.
 
 ## UI contract

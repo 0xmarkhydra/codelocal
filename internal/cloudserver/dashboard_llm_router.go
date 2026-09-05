@@ -297,6 +297,34 @@ func dashboardCommunityEligible(req dashboardChatRequest) bool {
 	return true
 }
 
+// dashboardCommunityWorkspaceAllowed reports whether the deployment explicitly
+// opts into sending workspace-bound and image content to community lanes via
+// CODELOCAL_ALLOW_COMMUNITY_WORKSPACE=1. Default off. Enabling it lets free
+// providers receive project context; obvious secrets stay blocked.
+func dashboardCommunityWorkspaceAllowed() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE"))) {
+	case "1", "true", "on", "yes", "enabled":
+		return true
+	default:
+		return false
+	}
+}
+
+// dashboardCommunityOptInEligible mirrors dashboardCommunityEligible but honors
+// the workspace opt-in: workspace and image content may flow to community lanes
+// while obvious secrets in the message or history stay blocked.
+func dashboardCommunityOptInEligible(req dashboardChatRequest) bool {
+	if dashboardLooksSensitive(req.Message) {
+		return false
+	}
+	for _, item := range req.History {
+		if dashboardLooksSensitive(item.Content) {
+			return false
+		}
+	}
+	return true
+}
+
 func dashboardTargetCoolingDown(target dashboardLLMTarget) bool {
 	dashboardLLMHealth.Lock()
 	defer dashboardLLMHealth.Unlock()

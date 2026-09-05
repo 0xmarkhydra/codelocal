@@ -778,6 +778,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 
 	selection := dashboardNormalizeModelSelection(req.Model)
 	allowCommunity := dashboardCommunityEligible(req) && promptWorkspace == nil
+	if dashboardCommunityWorkspaceAllowed() {
+		allowCommunity = dashboardCommunityOptInEligible(req)
+	}
 	route := dashboardLLMRoute(selection, allowCommunity)
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {

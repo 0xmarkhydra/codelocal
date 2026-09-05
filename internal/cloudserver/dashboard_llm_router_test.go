@@ -151,3 +151,47 @@ func TestDashboardCommunityModelWithoutPrivateContextNeedsAllowCommunity(t *test
 		t.Fatalf("blocked message must guide the user: %q", msg)
 	}
 }
+
+func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {
+	clearAIPoolEnv(t)
+	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
+	if dashboardCommunityWorkspaceAllowed() {
+		t.Fatal("community workspace opt-in must default to off")
+	}
+	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "1")
+	if !dashboardCommunityWorkspaceAllowed() {
+		t.Fatal("community workspace opt-in must engage when set")
+	}
+
+	withWorkspace := dashboardChatRequest{
+		Message:   "lam di",
+		Workspace: &dashboardChatWorkspace{WorkspaceID: "codex-mcp"},
+		Image:     "data:image/png;base64,AA==",
+	}
+	if dashboardCommunityEligible(withWorkspace) {
+		t.Fatal("default lane must keep blocking workspace and image content")
+	}
+	if !dashboardCommunityOptInEligible(withWorkspace) {
+		t.Fatal("opt-in lane must allow workspace and image content")
+	}
+	secretReq := dashboardChatRequest{Message: "deploy with password=hunter2"}
+	if dashboardCommunityOptInEligible(secretReq) {
+		t.Fatal("opt-in lane must keep blocking obvious secrets")
+	}
+
+	// End to end through the handler formula: explicit Muse plus attached
+	// workspace routes once the deployment opts in.
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
+	t.Setenv("OPENCODE_ZEN_API_KEY", "")
+	allowCommunity := dashboardCommunityEligible(withWorkspace)
+	if dashboardCommunityWorkspaceAllowed() {
+		allowCommunity = dashboardCommunityOptInEligible(withWorkspace)
+	}
+	if !allowCommunity {
+		t.Fatal("opt-in request must be community eligible")
+	}
+	if got := dashboardLLMRoute(dashboardModelMuse, allowCommunity); len(got) != 1 {
+		t.Fatalf("opt-in muse route=%#v want one zen target", got)
+	}
+}
