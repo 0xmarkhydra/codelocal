@@ -47,6 +47,9 @@
   --glass-line: rgba(255, 255, 255, 0.09);
   --glass-highlight: rgba(255, 255, 255, 0.08);
   --glass-blur: 26px;
+  --dashboard-surface: #212121;
+  --dashboard-sidebar: #171717;
+  --dashboard-popover: #303030;
 
   --shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.16);
   --shadow-stage: 0 28px 78px rgba(0, 0, 0, 0.22);

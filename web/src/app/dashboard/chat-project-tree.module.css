@@ -8,7 +8,7 @@
   padding: 12px 10px 10px;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 22px 0 0 22px;
-  background: #171717;
+  background: var(--dashboard-sidebar);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
 }
 

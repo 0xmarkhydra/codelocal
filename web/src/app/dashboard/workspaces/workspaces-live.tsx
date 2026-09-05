@@ -14,9 +14,9 @@ import { useDashboardResource } from "../use-dashboard-resource";
 
 function statusLabel(status: "active" | "sleeping" | "offline") {
   switch (status) {
-    case "active": return "Online";
-    case "sleeping": return "Sleeping";
-    default: return "Offline";
+    case "active": return "Trực tuyến";
+    case "sleeping": return "Đang nghỉ";
+    default: return "Ngoại tuyến";
   }
 }
 
@@ -45,8 +45,8 @@ export function LiveWorkspaces() {
       <div className={styles.workspaceToolbar}>
         <div className={styles.summaryPills} aria-label="Project summary">
           <span><strong>{resource.summary.total}</strong> dự án</span>
-          <span data-state="active"><i />{resource.summary.active} online</span>
-          {(resource.summary.sleeping + resource.summary.offline) > 0 ? <span data-state="sleeping"><i />{resource.summary.sleeping + resource.summary.offline} nghỉ</span> : null}
+          <span data-state="active"><i />{resource.summary.active} trực tuyến</span>
+          {(resource.summary.sleeping + resource.summary.offline) > 0 ? <span data-state="sleeping"><i />{resource.summary.sleeping + resource.summary.offline} đang nghỉ</span> : null}
         </div>
         <DashboardListControls
           query={query}
@@ -69,28 +69,37 @@ export function LiveWorkspaces() {
         <div className={styles.workspaceGrid}>
           {visible.map((workspace) => (
             <article className={styles.workspaceCard} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
-              <div className={styles.workspaceCardHead}>
+              <Link
+                className={styles.workspaceChatLink}
+                href={`/dashboard?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}
+                aria-label={`Trò chuyện với dự án ${workspace.workspaceName}`}
+              >
                 <span className={styles.workspaceFolderLarge} data-state={workspace.status} aria-hidden="true">
                   <AppIcon name="folder" size={25} />
+                  <i />
                 </span>
-                <span className={styles.statusPill} data-state={workspace.status}><i />{statusLabel(workspace.status)}</span>
-              </div>
-              <div className={styles.workspaceCardBody}>
-                <h2>{workspace.workspaceName}</h2>
-                <p>{workspace.deviceName}</p>
-                <small>Cập nhật {formatDashboardTime(workspace.lastSeenAt)}</small>
-              </div>
+                <span className={styles.workspaceCardBody}>
+                  <h2>{workspace.workspaceName}</h2>
+                  <span>{workspace.deviceName} · {statusLabel(workspace.status)}</span>
+                  <small>Cập nhật {formatDashboardTime(workspace.lastSeenAt)}</small>
+                </span>
+                <span className={styles.workspaceChatAction}>Trò chuyện <AppIcon name="chevron-right" size={14} /></span>
+              </Link>
               <div className={styles.workspaceCardActions}>
-                <Link className={styles.primaryCardAction} href={`/dashboard?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}>Chat với dự án <AppIcon name="chevron-right" size={14} /></Link>
-                <Link className={styles.secondaryCardAction} href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}>Brain</Link>
-                <ResourceMutationButton
-                  endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
-                  csrf={csrf}
-                  label="Remove"
-                  confirmMessage={`Remove ${workspace.workspaceName} from CodeLocal? The project and files stay untouched.`}
-                  disabled={!workspace.runtimeOnline}
-                  onSuccess={retry}
-                />
+                <details className={styles.workspaceOverflow}>
+                  <summary aria-label={`Thêm thao tác cho ${workspace.workspaceName}`}><span aria-hidden="true">•••</span></summary>
+                  <div>
+                    <Link className={styles.secondaryCardAction} href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}>Mở Brain</Link>
+                    <ResourceMutationButton
+                      endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
+                      csrf={csrf}
+                      label="Xóa"
+                      confirmMessage={`Xóa ${workspace.workspaceName} khỏi CodeLocal? Dự án và tệp vẫn được giữ nguyên.`}
+                      disabled={!workspace.runtimeOnline}
+                      onSuccess={retry}
+                    />
+                  </div>
+                </details>
               </div>
             </article>
           ))}

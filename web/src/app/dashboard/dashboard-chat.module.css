@@ -1619,8 +1619,6 @@
     resize: none;
   }
   .chatForm textarea:placeholder-shown { height: 30px !important; }
-  :global(html[data-keyboard-open="true"]) .threadSidebar { display: none; }
-  :global(html[data-keyboard-open="true"]) .chatWorkspace { grid-template-rows: minmax(0, 1fr); gap: 0; }
 }
 
 /* ===== ChatGPT-style presentation pass (desktop + mobile) — presentation only ===== */
@@ -2233,7 +2231,20 @@
 
   .threadDrawerBackdropOpen { opacity: 1; pointer-events: auto; }
 
-  .chatShell { border-radius: 18px; }
+  .chatShell {
+    position: fixed;
+    top: var(--chat-viewport-offset-top, 0px);
+    right: 0;
+    left: 0;
+    height: var(--chat-viewport-height, 100dvh);
+    min-height: 0;
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+    border-radius: 0;
+  }
   .chatHead {
     min-width: 0;
     min-height: 52px;

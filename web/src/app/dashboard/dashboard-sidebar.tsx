@@ -7,7 +7,7 @@ import { AppIcon } from "./app-icon";
 import { DashboardNav } from "./dashboard-nav";
 import styles from "./dashboard.module.css";
 
-export function DashboardSidebar() {
+export function DashboardSidebar({ title }: { title: string }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     document.documentElement.toggleAttribute("data-menu-open", open);
@@ -15,11 +15,15 @@ export function DashboardSidebar() {
   }, [open]);
 
   return <>
-    <button className={styles.mobileMenuTrigger} type="button" onClick={() => setOpen(true)} aria-label="Open navigation" aria-expanded={open}>
-      <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
-    </button>
-    <button className={`${styles.mobileMenuBackdrop} ${open ? styles.mobileMenuBackdropOpen : ""}`} type="button" onClick={() => setOpen(false)} aria-label="Close navigation" />
-    <aside className={`${styles.sidebar} ${open ? styles.sidebarOpen : ""}`}>
+    <header className={styles.mobileTopBar}>
+      <button className={styles.mobileMenuTrigger} type="button" onClick={() => setOpen(true)} aria-label="Open navigation" aria-expanded={open}>
+        <AppIcon name="menu" size={22} />
+      </button>
+      <strong>{title}</strong>
+      <span className={styles.mobileTopBarRight} aria-hidden="true" />
+    </header>
+    {open ? <button className={`${styles.mobileMenuBackdrop} ${styles.mobileMenuBackdropOpen}`} type="button" onClick={() => setOpen(false)} aria-label="Close navigation" /> : null}
+    <aside className={`${styles.sidebar} ${open ? styles.sidebarOpen : ""}`} aria-hidden={!open || undefined} aria-modal={open || undefined} role={open ? "dialog" : undefined}>
       <div className={styles.brandRow}>
         <Link className={styles.brand} href="/" aria-label="CodeLocal home">
           <span className={styles.brandMark} aria-hidden="true"><Image src="/codelocal-icon.png" alt="" width={28} height={28} priority /></span>

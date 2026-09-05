@@ -10,7 +10,8 @@ import { ChatContextSheet } from "./chat-context-sheet";
 import { ChatTopBar } from "./chat-top-bar";
 import { ChatRichMessage } from "./chat-rich-message";
 import { ChatSidebarBrand, ChatSidebarFooter } from "./chat-sidebar-footer";
-import { threadBelongsToWorkspace, workspaceIdentityKey } from "./chat-workspace-key";
+import { chatViewportFrame } from "./chat-visual-viewport";
+import { projectTreeOpen, threadBelongsToWorkspace, toggleExpandedProject, workspaceIdentityKey } from "./chat-workspace-key";
 import { useDashboardResource } from "./use-dashboard-resource";
 import headerStyles from "./chat-header.module.css";
 import mobileStyles from "./chat-mobile.module.css";
@@ -286,6 +287,7 @@ export function DashboardChat() {
     return deviceId && workspaceId ? `${deviceId}::${workspaceId}` : "auto";
   });
   const workspaces = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
+  const chatFrameRef = useRef<HTMLElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -301,22 +303,29 @@ export function DashboardChat() {
   const threadDrawerCloseRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
+    const frame = chatFrameRef.current;
+    if (!frame) return;
     const viewport = window.visualViewport;
+    let animationFrame = 0;
     const updateViewport = () => {
-      const height = viewport?.height ?? window.innerHeight;
-      document.documentElement.style.setProperty("--app-viewport-height", `${height}px`);
-      document.documentElement.dataset.keyboardOpen = height < window.innerHeight * 0.78 ? "true" : "false";
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const next = chatViewportFrame(viewport, window.innerHeight);
+        frame.style.setProperty("--chat-viewport-height", `${next.height}px`);
+        frame.style.setProperty("--chat-viewport-offset-top", `${next.offsetTop}px`);
+      });
     };
     updateViewport();
     viewport?.addEventListener("resize", updateViewport);
     viewport?.addEventListener("scroll", updateViewport);
     window.addEventListener("orientationchange", updateViewport);
     return () => {
+      window.cancelAnimationFrame(animationFrame);
       viewport?.removeEventListener("resize", updateViewport);
       viewport?.removeEventListener("scroll", updateViewport);
       window.removeEventListener("orientationchange", updateViewport);
-      delete document.documentElement.dataset.keyboardOpen;
-      document.documentElement.style.removeProperty("--app-viewport-height");
+      frame.style.removeProperty("--chat-viewport-height");
+      frame.style.removeProperty("--chat-viewport-offset-top");
     };
   }, []);
 
@@ -1065,12 +1074,7 @@ export function DashboardChat() {
   }
 
   function toggleProject(key: string) {
-    setExpandedProjects((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    setExpandedProjects((current) => toggleExpandedProject(current, key));
   }
 
   function selectThread(thread: ChatThread) {
@@ -1125,7 +1129,7 @@ export function DashboardChat() {
             <p className={styles.threadEmpty}>Không tìm thấy project hoặc thread.</p>
           ) : null}
           {threadTree.projects.map(({ key, workspace, threads: projectThreads, threadCount }) => {
-            const open = Boolean(threadSearch.trim()) || activeThreadWorkspaceKey === key || selectedWorkspaceKey === key || expandedProjects.has(key);
+            const open = projectTreeOpen(key, threadSearch, expandedProjects);
             const active = activeThreadWorkspaceKey === key || (!activeThreadWorkspaceKey && selectedWorkspaceKey === key);
             return (
               <section className={`${treeStyles.projectGroup} ${active ? treeStyles.projectGroupActive : ""}`} key={key}>
@@ -1162,7 +1166,7 @@ export function DashboardChat() {
         <ChatSidebarFooter onNavigate={() => setThreadDrawerOpen(false)} />
       </aside>
 
-      <section className={styles.chatShell} aria-label="Chat với CodeLocal" aria-hidden={contextSheetOpen || threadDrawerOpen || undefined}>
+      <section ref={chatFrameRef} className={styles.chatShell} aria-label="Chat với CodeLocal" aria-hidden={contextSheetOpen || threadDrawerOpen || undefined}>
         <ChatTopBar
           drawerOpen={threadDrawerOpen}
           title={activeThread?.title || "Tác vụ mới"}

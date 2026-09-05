@@ -24,7 +24,7 @@ export function DashboardListControls({
   placeholder,
 }: DashboardListControlsProps) {
   return (
-    <>
+    <div className={controls.listControls}>
       <div className={controls.listToolbar}>
         <div className={controls.listSearch}>
           <input
@@ -39,20 +39,20 @@ export function DashboardListControls({
           />
           {query && (
             <button className={controls.listButton} type="button" onClick={() => { onQueryChange(""); onPageChange(1); }}>
-              Clear
+              Xóa
             </button>
           )}
         </div>
-        <span className={controls.listMeta}>{totalResults} result{totalResults === 1 ? "" : "s"}</span>
+        <span className={controls.listMeta}>{totalResults} kết quả</span>
       </div>
 
       {totalPages > 1 && (
         <div className={controls.listPager}>
-          <button className={controls.listButton} type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Previous</button>
-          <span>Page {page} of {totalPages}</span>
-          <button className={controls.listButton} type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Next</button>
+          <button className={controls.listButton} type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Trước</button>
+          <span>Trang {page}/{totalPages}</span>
+          <button className={controls.listButton} type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Sau</button>
         </div>
       )}
-    </>
+    </div>
   );
 }

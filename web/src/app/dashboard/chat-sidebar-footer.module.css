@@ -4,7 +4,7 @@
   gap: 8px;
   padding-top: 9px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
-  background: #171717;
+  background: var(--dashboard-sidebar);
 }
 
 .sidebarFooterLinks {
