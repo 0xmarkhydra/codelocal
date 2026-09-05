@@ -182,6 +182,7 @@ func clientCapabilityMap(client *Client) map[string]any {
 		"approvalMemory":       client.Capabilities.ApprovalMemory,
 		"hostPolicyExecution":  client.Capabilities.HostPolicyExecution,
 		"mcpHub":               client.Capabilities.MCPHub,
+		"pluginConfig":         client.Capabilities.PluginConfig,
 		"terminalChatApproval": client.Capabilities.TerminalChatApproval,
 		"terminalHistory":      client.Capabilities.TerminalHistory,
 		"learnedSkills":        client.Capabilities.LearnedSkills,

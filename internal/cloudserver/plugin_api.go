@@ -11,20 +11,22 @@ import (
 )
 
 type pluginCatalogItemDTO struct {
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Version           string   `json:"version"`
-	Description       string   `json:"description,omitempty"`
-	Publisher         string   `json:"publisher"`
-	PublisherVerified bool     `json:"publisherVerified"`
-	Categories        []string `json:"categories,omitempty"`
-	Capabilities      []string `json:"capabilities,omitempty"`
-	Featured          bool     `json:"featured,omitempty"`
-	Installed         bool     `json:"installed"`
-	InstallationState string   `json:"installationState,omitempty"`
-	InstalledAt       int64    `json:"installedAt,omitempty"`
-	UpdateAvailable   bool     `json:"updateAvailable,omitempty"`
-	SetupRequired     bool     `json:"setupRequired,omitempty"`
+	ID                string                `json:"id"`
+	Name              string                `json:"name"`
+	Version           string                `json:"version"`
+	Description       string                `json:"description,omitempty"`
+	Publisher         string                `json:"publisher"`
+	PublisherVerified bool                  `json:"publisherVerified"`
+	Categories        []string              `json:"categories,omitempty"`
+	Capabilities      []string              `json:"capabilities,omitempty"`
+	Featured          bool                  `json:"featured,omitempty"`
+	Installed         bool                  `json:"installed"`
+	InstallationState string                `json:"installationState,omitempty"`
+	InstalledAt       int64                 `json:"installedAt,omitempty"`
+	UpdateAvailable   bool                  `json:"updateAvailable,omitempty"`
+	SetupRequired     bool                  `json:"setupRequired,omitempty"`
+	Connections       []pluginConnectionDTO `json:"connections,omitempty"`
+	ConnectedCount    int                   `json:"connectedCount,omitempty"`
 }
 
 type pluginCatalogResponseDTO struct {
@@ -32,10 +34,14 @@ type pluginCatalogResponseDTO struct {
 	InstalledCount int                    `json:"installedCount"`
 }
 
-func pluginCatalogResponse(installations []cloud.PluginInstallation) (pluginCatalogResponseDTO, error) {
+func pluginCatalogResponse(installations []cloud.PluginInstallation, connections []cloud.PluginConnection) (pluginCatalogResponseDTO, error) {
 	installedByID := make(map[string]cloud.PluginInstallation, len(installations))
 	for _, installation := range installations {
 		installedByID[installation.PluginID] = installation
+	}
+	connectionsByID := make(map[string][]pluginConnectionDTO)
+	for _, connection := range connections {
+		connectionsByID[connection.PluginID] = append(connectionsByID[connection.PluginID], pluginConnectionDTOFrom(connection))
 	}
 	response := pluginCatalogResponseDTO{Items: []pluginCatalogItemDTO{}}
 	for _, entry := range plugindomain.BuiltinCatalog() {
@@ -49,13 +55,22 @@ func pluginCatalogResponse(installations []cloud.PluginInstallation) (pluginCata
 		for _, capability := range capabilities {
 			capabilityNames = append(capabilityNames, string(capability))
 		}
+		pluginConnections := connectionsByID[manifest.ID]
+		readyConnections := 0
+		for _, connection := range pluginConnections {
+			if connection.State == string(cloud.PluginConnectionReady) {
+				readyConnections++
+			}
+		}
 		item := pluginCatalogItemDTO{
 			ID: manifest.ID, Name: manifest.Name, Version: manifest.Version,
 			Description: manifest.Description, Publisher: manifest.Publisher.Name,
 			PublisherVerified: manifest.Publisher.Verified,
 			Categories:        append([]string(nil), manifest.Categories...),
 			Capabilities:      capabilityNames, Featured: entry.Featured,
-			SetupRequired: manifestNeedsSetup(manifest),
+			SetupRequired:  manifestNeedsSetup(manifest),
+			Connections:    pluginConnections,
+			ConnectedCount: readyConnections,
 		}
 		if installation, ok := installedByID[manifest.ID]; ok {
 			item.InstallationState = string(installation.State)
@@ -90,7 +105,12 @@ func (s *Server) pluginsResourceAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugins_unavailable"})
 		return
 	}
-	response, err := pluginCatalogResponse(installations)
+	connections, err := s.Store.ListPluginConnections(r.Context(), identity.User.ID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connections_unavailable"})
+		return
+	}
+	response, err := pluginCatalogResponse(installations, connections)
 	if err != nil {
 		webutil.JSON(w, http.StatusInternalServerError, map[string]string{"error": "plugin_catalog_invalid"})
 		return
@@ -149,6 +169,17 @@ func (s *Server) pluginUninstallAPI(w http.ResponseWriter, r *http.Request) {
 	if _, exists := plugindomain.FindBuiltin(pluginID); !exists {
 		webutil.JSON(w, http.StatusNotFound, map[string]string{"error": "plugin_not_found"})
 		return
+	}
+	connections, err := s.Store.ListPluginConnections(r.Context(), identity.User.ID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connections_unavailable"})
+		return
+	}
+	for _, connection := range connections {
+		if connection.PluginID == pluginID {
+			webutil.JSON(w, http.StatusConflict, map[string]string{"error": "plugin_disconnect_required"})
+			return
+		}
 	}
 	removed, err := s.Store.DeletePluginInstallation(r.Context(), identity.User.ID, pluginID)
 	if err != nil {

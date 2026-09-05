@@ -514,6 +514,234 @@
   margin-top: 7px;
 }
 
+.connectionList,
+.configPanel {
+  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.connectionList {
+  display: grid;
+  gap: 7px;
+}
+
+.connectionRow,
+.configHeader,
+.configActions,
+.credentialNote {
+  display: flex;
+  align-items: center;
+}
+
+.connectionRow {
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.connectionRow + .connectionRow {
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.connectionCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.connectionCopy strong {
+  overflow: hidden;
+  color: rgba(238, 243, 250, 0.72);
+  font-size: 10px;
+  font-weight: 590;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectionCopy span,
+.connectionCopy small {
+  overflow: hidden;
+  color: rgba(205, 218, 237, 0.4);
+  font-size: 9px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectionCopy small {
+  color: rgba(226, 150, 160, 0.58);
+}
+
+.textButton,
+.iconButton {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: rgba(212, 224, 240, 0.47);
+  font: inherit;
+}
+
+.textButton {
+  flex: 0 0 auto;
+  padding: 6px 7px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+
+.textButton:hover:not(:disabled),
+.iconButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.textButton:focus-visible,
+.iconButton:focus-visible,
+.field input:focus-visible,
+.field select:focus-visible,
+.configActions button:focus-visible {
+  outline: 2px solid rgba(143, 177, 235, 0.72);
+  outline-offset: 2px;
+}
+
+.configPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.configHeader {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.configHeader > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.configHeader strong {
+  color: rgba(245, 248, 253, 0.8);
+  font-size: 10.5px;
+  font-weight: 610;
+}
+
+.configHeader span {
+  color: rgba(205, 217, 234, 0.4);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.iconButton {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+}
+
+.field > span {
+  color: rgba(215, 226, 240, 0.5);
+  font-size: 9px;
+  font-weight: 560;
+}
+
+.field em {
+  color: rgba(203, 215, 232, 0.3);
+  font-style: normal;
+  font-weight: 450;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 9px;
+  outline: 0;
+  background: rgba(7, 10, 15, 0.48);
+  color: rgba(240, 245, 251, 0.76);
+  font: inherit;
+  font-size: 9.5px;
+}
+
+.field input::placeholder {
+  color: rgba(201, 214, 231, 0.25);
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: rgba(143, 177, 235, 0.26);
+}
+
+.credentialNote {
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: rgba(174, 198, 231, 0.48);
+  font-size: 8.75px;
+  line-height: 1.5;
+}
+
+.credentialNote svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.configWarning {
+  margin: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(229, 182, 105, 0.12);
+  border-radius: 9px;
+  background: rgba(70, 50, 22, 0.16);
+  color: rgba(226, 193, 138, 0.55);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.configWarning code {
+  color: rgba(240, 213, 168, 0.68);
+}
+
+.configActions {
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.configActions button {
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 580;
+}
+
+.configActions button:disabled,
+.textButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.statusDot[data-error="true"] {
+  background: rgba(226, 107, 119, 0.78);
+}
+
 @media (max-width: 1080px) {
   .grid { grid-template-columns: 1fr; }
 }

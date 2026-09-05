@@ -7,7 +7,7 @@ import (
 	plugindomain "github.com/0xmarkhydra/codelocal/internal/plugins"
 )
 
-func TestPluginCatalogResponseProjectsInstallStateAndCapabilities(t *testing.T) {
+func TestPluginCatalogResponseProjectsInstallStateCapabilitiesAndConnections(t *testing.T) {
 	entry, ok := plugindomain.FindBuiltin("github")
 	if !ok {
 		t.Fatal("github plugin missing")
@@ -19,6 +19,9 @@ func TestPluginCatalogResponseProjectsInstallStateAndCapabilities(t *testing.T) 
 	response, err := pluginCatalogResponse([]cloud.PluginInstallation{{
 		UserID: "user-1", PluginID: "github", Version: entry.Manifest.Version,
 		ManifestHash: hash, State: cloud.PluginInstalled, InstalledAt: 123,
+	}}, []cloud.PluginConnection{{
+		UserID: "user-1", PluginID: "github", DeviceID: "mac-1", WorkspaceKey: "user-1::mac-1::repo",
+		ServerName: "plugin-github", Endpoint: "https://example.com/mcp", State: cloud.PluginConnectionReady, ToolCount: 12,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -36,6 +39,9 @@ func TestPluginCatalogResponseProjectsInstallStateAndCapabilities(t *testing.T) 
 	if github == nil || !github.Installed || github.UpdateAvailable || !github.SetupRequired {
 		t.Fatalf("unexpected github catalog item: %#v", github)
 	}
+	if github.ConnectedCount != 1 || len(github.Connections) != 1 || github.Connections[0].ToolCount != 12 {
+		t.Fatalf("unexpected github connections: %#v", github)
+	}
 	if len(github.Capabilities) < 3 {
 		t.Fatalf("github capabilities missing: %#v", github.Capabilities)
 	}
@@ -46,7 +52,7 @@ func TestPluginCatalogResponseDetectsManifestDrift(t *testing.T) {
 	response, err := pluginCatalogResponse([]cloud.PluginInstallation{{
 		UserID: "user-1", PluginID: "notion", Version: entry.Manifest.Version,
 		ManifestHash: "stale-hash", State: cloud.PluginInstalled,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

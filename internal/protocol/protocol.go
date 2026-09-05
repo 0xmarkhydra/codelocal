@@ -74,6 +74,7 @@ type Capabilities struct {
 	ApprovalMemory       bool                   `json:"approvalMemory,omitempty"`
 	HostPolicyExecution  bool                   `json:"hostPolicyExecution,omitempty"`
 	MCPHub               bool                   `json:"mcpHub,omitempty"`
+	PluginConfig         bool                   `json:"pluginConfig,omitempty"`
 	TerminalChatApproval bool                   `json:"terminalChatApproval,omitempty"`
 	TerminalHistory      bool                   `json:"terminalHistory,omitempty"`
 	LearnedSkills        bool                   `json:"learnedSkills,omitempty"`

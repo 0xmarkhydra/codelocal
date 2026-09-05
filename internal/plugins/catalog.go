@@ -37,14 +37,12 @@ func builtinCatalogEntry(id, name, description string, categories []string, capa
 				ID:   id + "-app",
 				AppTemplate: &AppTemplateDefinition{
 					Transport:    TransportMCPHTTP,
-					Auth:         AuthDefinition{Kind: AuthOAuth2},
+					Auth:         AuthDefinition{Kind: AuthHeaderReference},
 					Capabilities: append([]Capability(nil), capabilities...),
-					Fields: []AppTemplateField{{
-						Key:         "endpoint",
-						Label:       "MCP endpoint",
-						Required:    true,
-						Description: fmt.Sprintf("HTTPS MCP endpoint for the %s integration.", name),
-					}},
+					Fields: []AppTemplateField{
+						{Key: "endpoint", Label: "MCP endpoint", Required: true, Description: fmt.Sprintf("HTTPS MCP endpoint for the %s integration.", name)},
+						{Key: "bearerEnv", Label: "Bearer token environment variable", Description: "Optional local environment variable name. CodeLocal Cloud never receives the token value."},
+					},
 				},
 			}},
 		},
