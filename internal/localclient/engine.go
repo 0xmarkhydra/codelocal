@@ -1480,6 +1480,10 @@ func (e *Engine) handle(ctx context.Context, tool string, args map[string]any, o
 	case "mcp_list":
 		servers, err := e.MCP.List()
 		return map[string]any{"servers": servers}, err
+	case "plugin_mcp_configure":
+		return e.configurePluginMCP(ctx, args)
+	case "plugin_mcp_remove":
+		return e.removePluginMCP(args)
 	case "mcp_search_tools":
 		return e.MCP.Search(ctx, asString(args["query"]), asString(args["server"]), asInt(args["limit"], 8), asBool(args["refresh"], false))
 	case "mcp_tool_info":

@@ -38,6 +38,7 @@ const groups: SettingsGroup[] = [
     title: "Product & access",
     items: [
       { title: "Connections", description: "Kết nối dịch vụ và công cụ", href: "/dashboard/connect", icon: "connection" },
+      { title: "Plugins", description: "Cài đặt và kết nối công cụ MCP", href: "/dashboard/plugins", icon: "plugin" },
       { title: "Usage", description: "Mức sử dụng và giới hạn", href: "/dashboard/usage", icon: "usage" },
       { title: "Invite", description: "Mời thành viên vào CodeLocal", href: "/dashboard/invite", icon: "invite" },
     ],

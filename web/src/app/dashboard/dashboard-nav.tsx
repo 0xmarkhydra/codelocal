@@ -27,6 +27,7 @@ const settingsRoutes = [
   "/dashboard/shots",
   "/dashboard/blogs",
   "/dashboard/connect",
+  "/dashboard/plugins",
   "/dashboard/usage",
   "/dashboard/invite",
   "/dashboard/account",
