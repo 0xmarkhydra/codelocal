@@ -6,6 +6,7 @@ import styles from "./dashboard.module.css";
 
 const dashboardRouteTitles: Record<string, string> = {
   "/dashboard/workspaces": "Projects",
+  "/dashboard/design": "Design",
   "/dashboard/devices": "Devices",
   "/dashboard/settings": "Settings",
   "/dashboard/knowledge": "Knowledge",
