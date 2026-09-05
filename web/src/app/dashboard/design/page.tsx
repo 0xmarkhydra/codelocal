@@ -2,7 +2,7 @@ import { AppIcon } from "../app-icon";
 import dashboard from "../dashboard.module.css";
 import styles from "./design.module.css";
 
-const DEFAULT_DESIGN_URL = "https://penpot-frontend-dev-5881.up.railway.app";
+const DEFAULT_DESIGN_URL = "https://penpot-frontend-dev.up.railway.app";
 
 function resolveDesignUrl() {
   const raw = process.env.CODELOCAL_DESIGN_URL?.trim() || DEFAULT_DESIGN_URL;
