@@ -1,0 +1,173 @@
+.topBar,
+.contextTrigger,
+.contextSummary,
+.jumpLatest,
+  .drawerFooter,
+  .threadOverflow,
+  .sheetLayer {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .topBar {
+    min-height: 58px;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: 8px;
+    padding: max(6px, env(safe-area-inset-top)) 10px 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .topBarAction,
+  .contextTrigger,
+  .jumpLatest,
+  .sheetHead button,
+  .threadOverflow > summary {
+    min-width: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: rgba(236, 236, 241, 0.88);
+    cursor: pointer;
+  }
+
+  .topBarAction:disabled { opacity: 0.4; }
+  .topBarAction:hover, .topBarAction:focus-visible { background: rgba(255, 255, 255, 0.07); }
+
+  .threadContext { min-width: 0; display: grid; gap: 2px; text-align: center; }
+  .threadContext strong,
+  .threadContext span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .threadContext strong { color: rgba(246, 246, 248, 0.96); font-size: 14px; font-weight: 620; }
+  .threadContext span { color: rgba(180, 180, 186, 0.7); font-size: 11px; }
+  .hideSmallThreadSearch { display: none; }
+
+  .contextTrigger { grid-column: 1; grid-row: 2; flex: none; border-radius: 50%; background: rgba(255, 255, 255, 0.055); }
+  .contextTrigger:hover, .contextTrigger:focus-visible { background: rgba(255, 255, 255, 0.1); }
+
+  .contextSummary {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    min-width: 0;
+    display: block;
+    overflow: hidden;
+    padding: 0 4px;
+    color: rgba(210, 210, 216, 0.72);
+    font-size: 11.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .jumpLatest {
+    position: absolute;
+    z-index: 12;
+    right: 16px;
+    bottom: 116px;
+    min-width: auto;
+    min-height: 44px;
+    grid-auto-flow: column;
+    gap: 7px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    background: #303030;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .drawerFooter {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .drawerFooter a {
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    color: rgba(236, 236, 241, 0.74);
+    font-size: 12px;
+    text-decoration: none;
+  }
+
+  .drawerFooter a:hover, .drawerFooter a:focus-visible { background: rgba(255, 255, 255, 0.07); color: #fff; }
+
+  .threadOverflow { position: absolute; right: 2px; top: 0; }
+  .threadOverflow > summary { list-style: none; font-size: 22px; line-height: 1; }
+  .threadOverflow > summary::-webkit-details-marker { display: none; }
+  .threadOverflow[open] > summary { background: rgba(255, 255, 255, 0.08); }
+  .threadOverflow > div { position: absolute; z-index: 2; right: 0; display: grid; width: 132px; padding: 4px; border-radius: 10px; background: #303030; box-shadow: 0 10px 28px rgba(0,0,0,.4); }
+  .threadOverflow button { min-height: 44px; border: 0; border-radius: 8px; background: transparent; color: rgba(236,236,241,.88); text-align: left; padding: 0 10px; font: inherit; font-size: 13px; }
+
+  .sheetLayer { position: fixed; z-index: 90; inset: 0; display: flex; align-items: flex-end; justify-content: center; }
+  .sheetBackdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(0, 0, 0, 0.62); }
+  .sheet {
+    position: relative;
+    width: min(100%, 640px);
+    max-height: min(88dvh, 760px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 0;
+    border-radius: 24px 24px 0 0;
+    background: #212121;
+    box-shadow: 0 -24px 70px rgba(0, 0, 0, 0.45);
+  }
+  .sheetGrabber { width: 36px; height: 4px; margin: 8px auto 2px; border-radius: 999px; background: rgba(236, 236, 241, 0.28); }
+  .sheetHead { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px 8px 18px; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .sheetHead h2 { margin: 0; color: rgba(246,246,248,.96); font-size: 17px; }
+  .sheetHead p { margin: 2px 0 0; color: rgba(180,180,186,.68); font-size: 12px; }
+  .sheetBody { min-height: 0; max-height: none; display: grid; gap: 18px; overflow-y: auto; overscroll-behavior: contain; padding: 14px 14px 18px; }
+  .sheetFooter { padding: 8px 14px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid rgba(255,255,255,.07); background: #212121; }
+  .sheetFooter button { width: 100%; min-height: 48px; border: 0; border-radius: 13px; background: rgba(255,255,255,.14); color: #fff; font: inherit; font-size: 16px; font-weight: 620; }
+  .sheetBody fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+  .sheetBody legend, .goalField > span { margin-bottom: 8px; color: rgba(236,236,241,.82); font-size: 13px; font-weight: 620; }
+
+  .attachAction { min-height: 56px; display: grid; grid-template-columns: 40px minmax(0, 1fr) 24px; align-items: center; gap: 10px; padding: 7px 10px; border: 0; border-radius: 14px; background: rgba(255,255,255,.055); color: rgba(236,236,241,.9); font: inherit; text-align: left; }
+  .attachAction > span:first-child { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; background: rgba(255,255,255,.07); }
+  .attachAction > span:nth-child(2) { min-width: 0; display: grid; gap: 2px; }
+  .attachAction strong { font-size: 14px; }
+  .attachAction small { color: rgba(180,180,186,.7); font-size: 12px; }
+
+  .projectField { display: grid; gap: 6px; }
+  .projectField label { min-height: 52px; display: grid; grid-template-columns: 22px minmax(0, 1fr) 10px; align-items: center; gap: 8px; padding: 5px 11px; border: 1px solid transparent; border-radius: 12px; background: rgba(255,255,255,.035); }
+  .projectField label > span { min-width: 0; display: grid; gap: 2px; }
+  .projectField strong, .projectField small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .projectField strong { color: rgba(246,246,248,.94); font-size: 14px; }
+  .projectField small { color: rgba(180,180,186,.72); font-size: 12px; }
+  .projectField input { width: 18px; height: 18px; margin: 0; accent-color: #fff; }
+  .projectField i { width: 8px; height: 8px; border-radius: 50%; background: #73737a; }
+  .projectField i[data-status="active"][data-online="true"] { background: #67d391; }
+  .projectField i[data-status="sleeping"][data-online="true"] { background: #e1b867; }
+  .projectField .selectedCard { border-color: rgba(255,255,255,.16); background: rgba(255,255,255,.08); }
+  .manageProjects { min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 11px; color: rgba(236,236,241,.82); font-size: 13px; text-decoration: none; }
+
+  .modeField > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 13px; background: rgba(255,255,255,.055); }
+  .modeField button { min-height: 44px; border: 0; border-radius: 10px; background: transparent; color: rgba(180,180,186,.82); font: inherit; font-size: 14px; }
+  .modeField .modeActive { background: rgba(255,255,255,.12); color: #fff; }
+
+  .modelField { display: grid; gap: 8px; }
+  .modelSearch { min-height: 48px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 12px; background: rgba(255,255,255,.055); color: rgba(180,180,186,.8); }
+  .modelSearch input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #fff; font: inherit; font-size: 16px; }
+  .modelList { max-height: 220px; overflow-y: auto; display: grid; gap: 4px; }
+  .modelList button { min-height: 48px; display: grid; align-content: center; gap: 2px; padding: 5px 11px; border: 0; border-radius: 11px; background: rgba(255,255,255,.035); color: rgba(236,236,241,.88); font: inherit; text-align: left; }
+  .modelList button span { font-size: 14px; }
+  .modelList button small { overflow: hidden; color: rgba(180,180,186,.68); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .modelList .selectedModel { background: rgba(255,255,255,.11); color: #fff; }
+  .modelList p { color: rgba(180,180,186,.68); font-size: 13px; text-align: center; }
+
+  .goalField { display: grid; }
+  .goalField > span { display: flex; justify-content: space-between; }
+  .goalField > span small { color: rgba(180,180,186,.62); font-size: 11px; font-weight: 400; }
+  .goalField textarea { width: 100%; min-height: 70px; resize: vertical; padding: 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; outline: 0; background: rgba(255,255,255,.045); color: #fff; font: inherit; font-size: 16px; line-height: 1.45; }
+
+  @media (prefers-reduced-motion: reduce) { .sheet { scroll-behavior: auto; } }
+}

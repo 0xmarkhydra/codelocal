@@ -7,9 +7,12 @@ import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/r
 import Image from "next/image";
 import Link from "next/link";
 import { AppIcon } from "./app-icon";
+import { ChatContextSheet } from "./chat-context-sheet";
+import { ChatTopBar } from "./chat-top-bar";
 import { ChatRichMessage } from "./chat-rich-message";
 import { DashboardNav } from "./dashboard-nav";
 import { useDashboardResource } from "./use-dashboard-resource";
+import mobileStyles from "./chat-mobile.module.css";
 import styles from "./dashboard-chat.module.css";
 import skillStyles from "./skill-indicator.module.css";
 
@@ -140,6 +143,16 @@ function compareModelsByStrength(left: string, right: string) {
 
 function workspaceKey(workspace: WorkspaceItem) {
   return `${workspace.deviceId}::${workspace.workspaceId}`;
+}
+
+function workspaceStatusLabel(workspace: WorkspaceItem) {
+  if (!workspace.runtimeOnline || workspace.status === "offline") return "Ngoại tuyến";
+  if (workspace.status === "sleeping") return "Đang ngủ";
+  return "Đang hoạt động";
+}
+
+function noticeIsError(notice: string) {
+  return /^(Không|Có lỗi|Chỉ hỗ trợ|Ảnh tối đa|Phiên đăng nhập|Hệ thống chưa)/.test(notice);
 }
 
 function toolLabel(name: string, status: ToolCall["status"]) {
@@ -300,7 +313,9 @@ export function DashboardChat() {
   const [selectedModel, setSelectedModel] = useState("auto");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [threadDrawerOpen, setThreadDrawerOpen] = useState(false);
+  const [showJumpLatest, setShowJumpLatest] = useState(false);
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState(() => {
     const deviceId = searchParams.get("deviceId");
     const workspaceId = searchParams.get("workspaceId");
@@ -308,12 +323,16 @@ export function DashboardChat() {
   });
   const workspaces = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
   const fileRef = useRef<HTMLInputElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const contextTriggerRef = useRef<HTMLButtonElement>(null);
+  const followLatestRef = useRef(true);
   const quickMessageRef = useRef<string | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+  const mobileDrawerTriggerRef = useRef<HTMLButtonElement>(null);
   const threadDrawerTriggerRef = useRef<HTMLButtonElement>(null);
   const threadDrawerCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -339,16 +358,19 @@ export function DashboardChat() {
 
   useEffect(() => {
     if (!threadDrawerOpen) return;
+    const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setThreadDrawerOpen(false);
-      threadDrawerTriggerRef.current?.focus();
+      mobileDrawerTriggerRef.current?.focus();
     };
     document.documentElement.dataset.chatMenuOpen = "true";
+    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", closeOnEscape);
     window.requestAnimationFrame(() => threadDrawerCloseRef.current?.focus());
     return () => {
       delete document.documentElement.dataset.chatMenuOpen;
+      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [threadDrawerOpen]);
@@ -385,6 +407,11 @@ export function DashboardChat() {
   }, [threadSearch, threads]);
   const activeThreadModel = threads.find((thread) => thread.id === activeThreadId)?.model;
   const activeThreadWorkspaceKey = threads.find((thread) => thread.id === activeThreadId)?.workspaceKey;
+  const activeThread = threads.find((thread) => thread.id === activeThreadId);
+  const mobileProjectSubtitle = selectedWorkspace
+    ? `${selectedWorkspace.workspaceName} · ${selectedWorkspace.deviceName} · ${workspaceStatusLabel(selectedWorkspace)}`
+    : "Auto · Tự chọn dự án";
+  const mobileContextSummary = `${selectedWorkspace?.workspaceName || "Auto"} · ${mode === "ask" ? "Ask" : mode === "plan" ? "Plan" : "Agent"} · ${modelLabel(selectedModel)}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -484,8 +511,23 @@ export function DashboardChat() {
   }, []);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (!followLatestRef.current) return;
+    endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages, loading]);
+
+  function updateScrollFollow() {
+    const container = messagesRef.current;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 96;
+    followLatestRef.current = nearBottom;
+    setShowJumpLatest(!nearBottom);
+  }
+
+  function jumpToLatest() {
+    followLatestRef.current = true;
+    setShowJumpLatest(false);
+    endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  }
 
   useEffect(() => {
     if (!modelPickerOpen) return;
@@ -618,7 +660,7 @@ export function DashboardChat() {
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-    if (window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 620) return;
+    if (window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 820) return;
     event.preventDefault();
     formRef.current?.requestSubmit();
   }
@@ -1042,14 +1084,14 @@ export function DashboardChat() {
 
   return (
     <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện CodeLocal">
-      <button className={`${styles.threadDrawerBackdrop} ${threadDrawerOpen ? styles.threadDrawerBackdropOpen : ""}`} type="button" onClick={() => { setThreadDrawerOpen(false); threadDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu" />
+      <button className={`${styles.threadDrawerBackdrop} ${threadDrawerOpen ? styles.threadDrawerBackdropOpen : ""}`} type="button" onClick={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu" />
       <aside className={`${styles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Menu CodeLocal" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
         <div className={styles.unifiedSidebarBrand}>
           <Link className={styles.unifiedBrandLink} href="/" aria-label="CodeLocal home">
             <Image src="/codelocal-icon.png" alt="" width={25} height={25} priority />
             <span>CodeLocal</span>
           </Link>
-          <button ref={threadDrawerCloseRef} className={styles.unifiedSidebarClose} type="button" onClick={() => { setThreadDrawerOpen(false); threadDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu"><AppIcon name="close" size={17} /></button>
+          <button ref={threadDrawerCloseRef} className={styles.unifiedSidebarClose} type="button" onClick={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu"><AppIcon name="close" size={17} /></button>
         </div>
         <DashboardNav onNavigate={() => setThreadDrawerOpen(false)} compact>
           <section className={styles.threadPane} aria-label="Lịch sử trò chuyện">
@@ -1064,7 +1106,7 @@ export function DashboardChat() {
           <AppIcon name="plus" size={16} />
           Cuộc trò chuyện mới
         </button>
-        <label className={styles.threadSearch}>
+        <label className={styles.threadSearch} data-short-history={threads.length < 8 || undefined}>
           <AppIcon name="search" size={15} />
           <input value={threadSearch} onChange={(event) => setThreadSearch(event.target.value)} placeholder="Tìm cuộc trò chuyện" aria-label="Tìm cuộc trò chuyện" />
         </label>
@@ -1075,8 +1117,8 @@ export function DashboardChat() {
               {group.threads.map((thread) => (
                 <div className={`${styles.threadItem} ${thread.id === activeThreadId ? styles.threadItemActive : ""}`} key={thread.id}>
                   <button className={styles.threadSelect} type="button" onClick={() => {
-                    if (thread.id === activeThreadId) return;
                     setThreadDrawerOpen(false);
+                    if (thread.id === activeThreadId) return;
                     setMessages([]);
                     setHistoryLoading(true);
                     setActiveThreadId(thread.id);
@@ -1088,6 +1130,13 @@ export function DashboardChat() {
                     <button type="button" onClick={() => void renameThread(thread)} aria-label={`Đổi tên ${thread.title}`} title="Đổi tên"><AppIcon name="edit" size={13} /></button>
                     <button type="button" onClick={() => void deleteThread(thread)} aria-label={`Xóa ${thread.title}`} title="Xóa"><AppIcon name="trash" size={13} /></button>
                   </div>
+                  <details className={mobileStyles.threadOverflow}>
+                    <summary aria-label={`Tùy chọn ${thread.title}`}>⋯</summary>
+                    <div>
+                      <button type="button" onClick={() => void renameThread(thread)}>Đổi tên</button>
+                      <button type="button" onClick={() => void deleteThread(thread)}>Xóa</button>
+                    </div>
+                  </details>
                 </div>
               ))}
             </section>
@@ -1096,11 +1145,25 @@ export function DashboardChat() {
         <div className={styles.threadSidebarFoot}>
           Lưu theo tài khoản CodeLocal
         </div>
+        <footer className={mobileStyles.drawerFooter}>
+          <Link href="/dashboard/workspaces" onClick={() => setThreadDrawerOpen(false)}>Projects</Link>
+          <Link href="/dashboard/devices" onClick={() => setThreadDrawerOpen(false)}>Devices</Link>
+          <Link href="/dashboard/settings" onClick={() => setThreadDrawerOpen(false)}>Settings</Link>
+        </footer>
           </section>
         </DashboardNav>
       </aside>
 
-      <section className={styles.chatShell} aria-label="Chat với CodeLocal">
+      <section className={styles.chatShell} aria-label="Chat với CodeLocal" aria-hidden={contextSheetOpen || threadDrawerOpen || undefined}>
+        <ChatTopBar
+          drawerOpen={threadDrawerOpen}
+          title={activeThread?.title || "Tác vụ mới"}
+          subtitle={mobileProjectSubtitle}
+          disabled={loading || threadActionLoading}
+          menuRef={mobileDrawerTriggerRef}
+          onOpenMenu={() => setThreadDrawerOpen(true)}
+          onNewThread={() => void newThread()}
+        />
         <div className={styles.chatHead}>
           <div className={styles.brandBlock}>
             <button ref={threadDrawerTriggerRef} className={styles.threadDrawerToggle} type="button" onClick={() => setThreadDrawerOpen(true)} aria-label="Mở menu CodeLocal" aria-expanded={threadDrawerOpen}>
@@ -1195,7 +1258,7 @@ export function DashboardChat() {
           </div>
         </div>
 
-        <div className={styles.chatMessages} onPaste={onPaste}>
+        <div ref={messagesRef} className={styles.chatMessages} onPaste={onPaste} onScroll={updateScrollFollow}>
           {historyLoading ? <div className={styles.historyLoading}>Đang tải cuộc trò chuyện…</div> : messages.length === 0 ? (
             <div className={styles.emptyState}>
               <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="codelocal" size={27} /></span>
@@ -1256,13 +1319,18 @@ export function DashboardChat() {
           <div ref={endRef} />
         </div>
 
-        {image ? <div className={styles.imagePreview}><img src={image.previewUrl} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={discardImage} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
+        {showJumpLatest ? <button className={mobileStyles.jumpLatest} type="button" onClick={jumpToLatest}><AppIcon name="chevron-down" size={16} /> Mới nhất</button> : null}
 
         <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
+          {image ? <div className={styles.imagePreview}><img src={image.previewUrl} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={discardImage} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
           <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn CodeLocal…" aria-label="Nội dung chat" enterKeyHint="enter" rows={1} />
           <div className={styles.composerToolbar}>
             <div className={styles.composerOptions}>
+              <button ref={contextTriggerRef} type="button" className={mobileStyles.contextTrigger} onClick={() => setContextSheetOpen(true)} aria-label="Thêm ảnh hoặc chỉnh ngữ cảnh" aria-haspopup="dialog" aria-expanded={contextSheetOpen} disabled={loading || imageUploading}>
+                <AppIcon name="plus" size={20} />
+              </button>
+              <span className={mobileStyles.contextSummary} title={mobileContextSummary}>{mobileContextSummary}</span>
               <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} aria-label="Đính kèm ảnh" disabled={loading || imageUploading}>
                 <AppIcon name="paperclip" size={17} />
               </button>
@@ -1284,8 +1352,28 @@ export function DashboardChat() {
             </button>
           </div>
         </form>
-        {notice ? <div className={styles.chatHint}>{notice}</div> : null}
+        {notice ? <div className={styles.chatHint} role={noticeIsError(notice) ? "alert" : "status"}>{notice}</div> : null}
       </section>
+      <ChatContextSheet
+        open={contextSheetOpen}
+        triggerRef={contextTriggerRef}
+        imageDisabled={loading || imageUploading}
+        workspaceItems={workspaceItems}
+        selectedWorkspaceKey={selectedWorkspaceKey}
+        mode={mode}
+        models={models}
+        selectedModel={selectedModel}
+        goal={goal}
+        modelLabel={modelLabel}
+        workspaceKey={workspaceKey}
+        workspaceStatusLabel={workspaceStatusLabel}
+        onClose={() => setContextSheetOpen(false)}
+        onAttach={() => { setContextSheetOpen(false); window.requestAnimationFrame(() => fileRef.current?.click()); }}
+        onWorkspaceChange={setSelectedWorkspaceKey}
+        onModeChange={setMode}
+        onModelChange={setSelectedModel}
+        onGoalChange={setGoal}
+      />
     </section>
   );
 }

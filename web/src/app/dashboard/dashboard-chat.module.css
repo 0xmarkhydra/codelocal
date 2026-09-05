@@ -2381,6 +2381,45 @@
 
 @media (max-width: 820px) {
   :global(html[data-chat-menu-open="true"]) { overflow: hidden; }
+
+  .chatHead { display: none; }
+  .chatShell { grid-template-rows: auto minmax(0, 1fr) auto auto; }
+  .threadSidebar .unifiedBrandLink { display: none; }
+  .threadSidebar :global(nav) > :global(div) { display: none; }
+  .threadPane + :global(details) { display: none; }
+  .threadSidebarHead .threadCount,
+  .threadSidebarFoot { display: none; }
+  .threadSidebar .threadSearch[data-short-history="true"] { display: none; }
+  .threadPane { margin-top: 0; padding-top: 8px; }
+  .threadItemActions { display: none; }
+  .threadSelect { min-height: 44px; padding-right: 48px; }
+  .newThreadButton { min-height: 44px; font-size: 14px; }
+  .threadSearch { min-height: 44px; }
+  .threadSearch input { font-size: 16px; }
+  .chatForm {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-auto-rows: auto;
+    align-items: center;
+    gap: 4px 7px;
+    padding: 7px 9px 8px;
+  }
+  .chatForm textarea {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 36px;
+    max-height: min(112px, 22dvh);
+    padding: 7px 2px 5px;
+    font-size: 16px;
+  }
+  .chatForm textarea:placeholder-shown { height: 36px !important; }
+  .composerToolbar,
+  .composerOptions { display: contents; }
+  .chatForm .attachBtn,
+  .chatForm .modePicker,
+  .chatForm .goalField { display: none; }
+  .chatForm .sendBtn { grid-column: 3; grid-row: 2; width: 44px; height: 44px; flex: none; }
+  .imagePreview { grid-column: 1 / -1; position: relative; left: auto; bottom: auto; z-index: auto; padding: 2px 4px 4px; }
+  .imagePreview button { width: 44px; height: 44px; margin: -8px 0 0 -10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
