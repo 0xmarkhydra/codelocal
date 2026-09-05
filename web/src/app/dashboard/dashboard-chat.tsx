@@ -79,7 +79,7 @@ type MediaPrepareResponse = ChatImageMeta & {
   };
 };
 
-const suggestions = ["Tóm tắt dự án hiện tại", "Tìm file liên quan", "Kiểm tra workspace đang online"];
+const suggestions = ["Giải thích codebase này", "Tìm và sửa một lỗi", "Thêm test cho thay đổi gần đây"];
 
 function modelLabel(model: string) {
   switch (model) {
@@ -1127,7 +1127,7 @@ export function DashboardChat() {
           <div>
             <button type="button" onClick={(event) => { closeThreadMenu(event); void renameThread(thread); }}>Đổi tên</button>
             <button type="button" onClick={(event) => { closeThreadMenu(event); void clear(thread); }}>Xóa nội dung</button>
-            <button type="button" className={treeStyles.threadDeleteAction} onClick={(event) => { closeThreadMenu(event); void deleteThread(thread); }}>Xóa thread</button>
+            <button type="button" className={treeStyles.threadDeleteAction} onClick={(event) => { closeThreadMenu(event); void deleteThread(thread); }}>Xóa tác vụ</button>
           </div>
         </details>
       </div>
@@ -1137,19 +1137,19 @@ export function DashboardChat() {
   return (
     <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện CodeLocal">
       <button className={`${styles.threadDrawerBackdrop} ${threadDrawerOpen ? styles.threadDrawerBackdropOpen : ""}`} type="button" onClick={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu" />
-      <aside className={`${styles.threadSidebar} ${treeStyles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Menu CodeLocal" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
+      <aside className={`${styles.threadSidebar} ${treeStyles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Tác vụ và điều hướng CodeLocal" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
         <ChatSidebarBrand closeRef={threadDrawerCloseRef} onClose={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} />
         <button className={`${styles.newThreadButton} ${treeStyles.newThreadButton}`} type="button" onClick={() => { setThreadDrawerOpen(false); void newThread(); }} disabled={loading || threadActionLoading}>
           <AppIcon name="plus" size={17} />
-          New task
+          Tác vụ mới
         </button>
         <label className={`${styles.threadSearch} ${treeStyles.threadSearch}`}>
           <AppIcon name="search" size={16} />
-          <input value={threadSearch} onChange={(event) => setThreadSearch(event.target.value)} placeholder="Search projects and threads" aria-label="Search projects and threads" type="search" />
+          <input value={threadSearch} onChange={(event) => setThreadSearch(event.target.value)} placeholder="Tìm dự án và tác vụ" aria-label="Tìm dự án và tác vụ" type="search" />
         </label>
-        <div className={`${styles.threadList} ${treeStyles.threadList}`} aria-label="Projects and threads">
+        <div className={`${styles.threadList} ${treeStyles.threadList}`} aria-label="Dự án và tác vụ">
           {threadTree.projects.length === 0 && threadTree.generalThreads.length === 0 && threadTree.unavailableThreads.length === 0 ? (
-            <p className={styles.threadEmpty}>Không tìm thấy project hoặc thread.</p>
+            <p className={styles.threadEmpty}>Không tìm thấy dự án hoặc tác vụ.</p>
           ) : null}
           {threadTree.projects.map(({ key, workspace, threads: projectThreads, threadCount }) => {
             const open = projectTreeOpen(key, threadSearch, expandedProjects);
@@ -1163,14 +1163,14 @@ export function DashboardChat() {
                       <strong title={workspace.workspaceName}>{workspace.workspaceName}</strong>
                       <small title={`${workspace.deviceName} · ${workspaceStatusLabel(workspace)}`}>{workspace.deviceName} · {workspaceStatusLabel(workspace)}</small>
                     </span>
-                    <span className={treeStyles.projectThreadCount} aria-label={`${threadCount} ${threadCount === 1 ? "thread" : "threads"}`}>{threadCount}</span>
+                    <span className={treeStyles.projectThreadCount} aria-label={`${threadCount} tác vụ`}>{threadCount}</span>
                     <AppIcon className={treeStyles.projectChevron} name="chevron-right" size={14} />
                   </button>
                   <button
                     className={treeStyles.projectNewThread}
                     type="button"
-                    aria-label={`Tạo thread trong ${workspace.workspaceName}`}
-                    title={`Tạo thread trong ${workspace.workspaceName}`}
+                    aria-label={`Tạo tác vụ trong ${workspace.workspaceName}`}
+                    title={`Tạo tác vụ trong ${workspace.workspaceName}`}
                     disabled={loading || threadActionLoading}
                     onClick={() => void newProjectThread(key)}
                   >
@@ -1181,7 +1181,7 @@ export function DashboardChat() {
                   <div className={treeStyles.projectThreads}>
                     {projectThreads.length ? projectThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />) : (
                       <button className={treeStyles.emptyProjectAction} type="button" onClick={() => void newProjectThread(key)} disabled={loading || threadActionLoading}>
-                        <AppIcon name="plus" size={14} /> Tạo thread đầu tiên
+                        <AppIcon name="plus" size={14} /> Tạo tác vụ đầu tiên
                       </button>
                     )}
                   </div>
@@ -1191,13 +1191,13 @@ export function DashboardChat() {
           })}
           {threadTree.generalThreads.length ? (
             <section className={`${treeStyles.projectGroup} ${!activeThreadWorkspaceKey ? treeStyles.projectGroupActive : ""}`}>
-              <div className={treeStyles.generalGroupHead}><AppIcon name="folder" size={15} /><span><strong>General</strong><small>No project</small></span><b>{threadTree.generalThreads.length}</b></div>
+              <div className={treeStyles.generalGroupHead}><AppIcon name="folder" size={15} /><span><strong>Chung</strong><small>Không thuộc dự án</small></span><b>{threadTree.generalThreads.length}</b></div>
               <div className={treeStyles.projectThreads}>{threadTree.generalThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />)}</div>
             </section>
           ) : null}
           {threadTree.unavailableThreads.length ? (
             <section className={treeStyles.projectGroup}>
-              <div className={treeStyles.generalGroupHead}><AppIcon name="folder" size={15} /><span><strong>Unavailable project</strong><small>Workspace not currently listed</small></span><b>{threadTree.unavailableThreads.length}</b></div>
+              <div className={treeStyles.generalGroupHead}><AppIcon name="folder" size={15} /><span><strong>Dự án không khả dụng</strong><small>Workspace hiện không còn trong danh sách</small></span><b>{threadTree.unavailableThreads.length}</b></div>
               <div className={treeStyles.projectThreads}>{threadTree.unavailableThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />)}</div>
             </section>
           ) : null}
@@ -1222,7 +1222,7 @@ export function DashboardChat() {
             </button>
             <div>
               <h1 title={activeThread?.title || "Tác vụ mới"}>{activeThread?.title || "Tác vụ mới"}</h1>
-              <span title={mobileProjectSubtitle}>{headerProject?.workspaceName || "No project"}</span>
+              <span title={mobileProjectSubtitle}>{headerProject?.workspaceName || "Không thuộc dự án"}</span>
             </div>
           </div>
           <div className={styles.chatActions}>
@@ -1236,7 +1236,7 @@ export function DashboardChat() {
                 onClick={() => setModelPickerOpen((open) => !open)}
               >
                 <span className={styles.modelPickerName}>{modelLabel(selectedModel)}</span>
-                <span className={styles.modelPickerCount}>{poolModels.length}</span>
+                {poolModels.length > 0 ? <span className={styles.modelPickerCount}>{poolModels.length}</span> : null}
                 <span className={styles.modelPickerChevron} aria-hidden="true">⌄</span>
               </button>
               {modelPickerOpen ? (
@@ -1298,7 +1298,8 @@ export function DashboardChat() {
           {historyLoading ? <div className={styles.historyLoading}>Đang tải cuộc trò chuyện…</div> : messages.length === 0 ? (
             <div className={styles.emptyState}>
               <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="codelocal" size={27} /></span>
-              <strong>Bạn muốn làm gì?</strong>
+              <strong>Bắt đầu một tác vụ</strong>
+              <p>Mô tả việc cần làm, CodeLocal sẽ đọc dự án, thực hiện và kiểm tra kết quả.</p>
               <div className={styles.suggestions}>
                 {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
               </div>
@@ -1339,7 +1340,7 @@ export function DashboardChat() {
         <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
           {image ? <div className={styles.imagePreview}><img src={image.previewUrl} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={discardImage} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
-          <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Nhắn CodeLocal…" aria-label="Nội dung chat" enterKeyHint="enter" rows={1} />
+          <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Giao tác vụ cho CodeLocal…" aria-label="Mô tả tác vụ" enterKeyHint="enter" rows={1} />
           <div className={styles.composerToolbar}>
             <div className={styles.composerOptions}>
               <button ref={contextTriggerRef} type="button" className={mobileStyles.contextTrigger} onClick={() => setContextSheetOpen(true)} aria-label="Thêm ảnh hoặc chỉnh ngữ cảnh" aria-haspopup="dialog" aria-expanded={contextSheetOpen} disabled={loading || imageUploading}>

@@ -31,9 +31,9 @@ export function ChatSidebarFooter({ onNavigate }: { onNavigate: () => void }) {
   return (
     <footer className={styles.sidebarFooter}>
       <nav className={styles.sidebarFooterLinks} aria-label="Dashboard shortcuts">
-        <Link href="/dashboard/workspaces" onClick={onNavigate}><AppIcon name="folder" size={17} /><span>All Projects</span></Link>
-        <Link href="/dashboard/devices" onClick={onNavigate}><AppIcon name="device" size={17} /><span>Devices</span></Link>
-        <Link href="/dashboard/settings" onClick={onNavigate}><AppIcon name="settings" size={17} /><span>Settings</span></Link>
+        <Link href="/dashboard/workspaces" onClick={onNavigate}><AppIcon name="folder" size={17} /><span>Tất cả dự án</span></Link>
+        <Link href="/dashboard/devices" onClick={onNavigate}><AppIcon name="device" size={17} /><span>Thiết bị</span></Link>
+        <Link href="/dashboard/settings" onClick={onNavigate}><AppIcon name="settings" size={17} /><span>Cài đặt</span></Link>
       </nav>
       {readyAccount ? (
         <details className={`${controls.sidebarAccount} ${styles.sidebarAccount}`}>

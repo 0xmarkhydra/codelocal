@@ -55,6 +55,16 @@
 - [ ] Tool registry động từ MCP hub
 - [ ] UI markdown + test e2e
 
+## 9.1. Quyết định giao diện — Codex task workspace (2026-09-06)
+
+- `/dashboard` dùng mô hình **task workspace quen thuộc của Codex**, không trình bày như một chatbot độc lập.
+- Sidebar trái ưu tiên thao tác theo thứ tự: thương hiệu CodeLocal, tạo tác vụ, tìm/lịch sử tác vụ theo dự án, điều hướng và tài khoản.
+- Header của vùng chính hiển thị **tên tác vụ hiện tại + dự án đang chọn**; CodeLocal vẫn là thương hiệu sản phẩm ở sidebar, không chiếm tiêu đề mọi cuộc trò chuyện.
+- Nội dung assistant hiển thị phẳng trên canvas; nội dung user dùng bubble trung tính. Tool calls được gom thành timeline có trạng thái thật (`running`, `approval_required`, `error`, `done`) và có thể mở chi tiết.
+- Composer là điểm nhấn ở đáy, dùng ngôn ngữ “giao tác vụ”; giữ nguyên mode Ask/Plan/Agent, chọn model, project, upload ảnh, mục tiêu và nút dừng.
+- Mobile dùng top bar, drawer lịch sử và context sheet; giữ vùng hội thoại/composer toàn chiều rộng và tôn trọng safe area bàn phím iOS.
+- Chỉ mượn mô hình tương tác đã quen thuộc; nhận diện, nội dung, dữ liệu và quyền truy cập vẫn là CodeLocal.
+
 ## 10. Vision/Image support — root cause & fix plan (2026-09-05)
 
 ### 10.1. Hiện tượng

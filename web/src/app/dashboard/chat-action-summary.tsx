@@ -45,24 +45,35 @@ function durationLabel(durationMs: number) {
 
 function summaryState(actions: ChatToolCall[]) {
   if (actions.some((action) => action.status === "approval_required")) return "approval";
-  if (actions.some((action) => action.status === "error")) return "error";
   if (actions.some((action) => action.status === "running")) return "running";
+  if (actions.some((action) => action.status === "error")) return "error";
   return "done";
+}
+
+function summaryLabel(actions: ChatToolCall[], state: ReturnType<typeof summaryState>) {
+  if (state === "approval") return "Đang chờ cấp quyền";
+  if (state === "running") return `${actions.filter((action) => action.status === "running").length} bước đang chạy`;
+  if (state === "error") {
+    const failed = actions.filter((action) => action.status === "error").length;
+    return `${actions.length - failed} hoàn tất · ${failed} lỗi`;
+  }
+  return `${actions.length} bước đã hoàn tất`;
 }
 
 export function ChatActionSummary({ actions, busy, onApprove }: { actions: ChatToolCall[]; busy: boolean; onApprove: () => void }) {
   const state = summaryState(actions);
   const durationMs = actions.reduce((total, action) => total + Math.max(0, action.durationMs || 0), 0);
   const approvals = actions.filter((action) => action.status === "approval_required");
-  const stateLabel = state === "approval" ? "Approval required" : state === "error" ? "Completed with errors" : state === "running" ? "Running" : "Completed";
+  const stateLabel = state === "approval" ? "Cần cấp quyền" : state === "error" ? "Hoàn tất, có lỗi" : state === "running" ? "Đang chạy" : "Hoàn tất";
+  const label = summaryLabel(actions, state);
 
   return (
     <div className={styles.actionGroup} data-state={state}>
       <details className={styles.disclosure}>
-        <summary role="button" aria-label={`${actions.length} actions executed, ${stateLabel}${durationMs > 0 ? `, ${durationLabel(durationMs)}` : ""}`}>
+        <summary role="button" aria-label={`${label}${durationMs > 0 ? `, ${durationLabel(durationMs)}` : ""}`}>
           <span className={styles.stateIcon} aria-hidden="true">{state === "done" ? <AppIcon name="check" size={13} /> : <i />}</span>
-          <span className={styles.summaryCopy}>
-            <strong>{actions.length} {actions.length === 1 ? "action" : "actions"} executed</strong>
+          <span className={styles.summaryCopy} aria-live="polite">
+            <strong>{label}</strong>
             <small>{stateLabel}{durationMs > 0 ? ` · ${durationLabel(durationMs)}` : ""}</small>
           </span>
           <AppIcon className={styles.chevron} name="chevron-right" size={14} />

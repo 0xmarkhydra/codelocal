@@ -16,7 +16,7 @@ type ChatTopBarProps = {
 export function ChatTopBar({ drawerOpen, title, subtitle, disabled, menuRef, onOpenMenu, onNewThread }: ChatTopBarProps) {
   return (
     <header className={styles.topBar}>
-      <button ref={menuRef} className={styles.topBarAction} type="button" onClick={onOpenMenu} aria-label="Mở lịch sử trò chuyện" aria-expanded={drawerOpen}>
+      <button ref={menuRef} className={styles.topBarAction} type="button" onClick={onOpenMenu} aria-label="Mở danh sách tác vụ" aria-expanded={drawerOpen}>
         <AppIcon name="menu" size={20} />
       </button>
       <div className={styles.threadContext}>
