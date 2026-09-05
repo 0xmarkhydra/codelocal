@@ -32,6 +32,7 @@ type HeaderReference struct {
 type ServerConfig struct {
 	Name          string                     `json:"name"`
 	Enabled       bool                       `json:"enabled"`
+	Managed       bool                       `json:"managed,omitempty"`
 	Scope         string                     `json:"scope"`
 	WorkspaceRoot string                     `json:"workspaceRoot,omitempty"`
 	Transport     string                     `json:"transport"`
@@ -75,6 +76,7 @@ type Hub struct {
 	mu         sync.Mutex
 	sessions   map[string]*connected
 	connecting map[string]chan struct{}
+	penpot     bool
 	close      chan struct{}
 	once       sync.Once
 }
@@ -182,6 +184,10 @@ func normalize(root string, in ServerConfig, old *ServerConfig) (ServerConfig, e
 		return in, err
 	}
 	in.Name = name
+	if strings.EqualFold(in.Name, managedPenpotName) {
+		return in, fmt.Errorf("MCP server name %q is reserved for CodeLocal's managed Penpot integration", managedPenpotName)
+	}
+	in.Managed = false
 	if in.Scope != "global" && in.Scope != "workspace" {
 		return in, errors.New("MCP scope must be global or workspace")
 	}
@@ -235,6 +241,9 @@ func effective(reg registryFile, root string) []ServerConfig {
 			by[s.Name] = s
 		}
 	}
+	if managed, ok := managedPenpotConfig(); ok {
+		by[managed.Name] = managed
+	}
 	out := []ServerConfig{}
 	for _, s := range by {
 		out = append(out, s)
@@ -243,6 +252,11 @@ func effective(reg registryFile, root string) []ServerConfig {
 	return out
 }
 func (h *Hub) resolve(name string) (ServerConfig, error) {
+	if name == managedPenpotName {
+		if managed, ok := managedPenpotConfig(); ok {
+			return managed, nil
+		}
+	}
 	reg, err := readRegistry()
 	if err != nil {
 		return ServerConfig{}, err
@@ -280,7 +294,14 @@ func public(s ServerConfig) map[string]any {
 			return ""
 		}()}
 	}
-	return map[string]any{"name": s.Name, "enabled": s.Enabled, "scope": s.Scope, "workspaceRoot": s.WorkspaceRoot, "transport": s.Transport, "command": s.Command, "args": s.Args, "cwd": s.CWD, "env": env, "url": s.URL, "headers": headers, "addedAt": s.AddedAt, "updatedAt": s.UpdatedAt}
+	result := map[string]any{"name": s.Name, "enabled": s.Enabled, "managed": s.Managed, "scope": s.Scope, "workspaceRoot": s.WorkspaceRoot, "transport": s.Transport, "command": s.Command, "args": s.Args, "cwd": s.CWD, "env": env, "url": s.URL, "headers": headers, "addedAt": s.AddedAt, "updatedAt": s.UpdatedAt}
+	if s.Managed {
+		result["installedBy"] = "codelocal"
+		if s.Name == managedPenpotName {
+			result["version"] = managedPenpotVersion
+		}
+	}
+	return result
 }
 func (h *Hub) Add(config ServerConfig) (map[string]any, error) {
 	reg, err := readRegistry()
@@ -449,7 +470,12 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 	h.connecting[config.Name] = ch
 	h.mu.Unlock()
 	defer func() { h.mu.Lock(); delete(h.connecting, config.Name); close(ch); h.mu.Unlock() }()
-	if !authorize && h.guard != nil {
+	if config.Managed && config.Name == managedPenpotName {
+		if err := h.ensureManagedPenpot(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if !config.Managed && !authorize && h.guard != nil {
 		if err := h.guard(config); err != nil {
 			return nil, err
 		}
@@ -703,6 +729,7 @@ func (h *Hub) Close() {
 		for _, name := range names {
 			_ = h.disconnect(name)
 		}
+		h.releaseManagedPenpot()
 	})
 }
 func isLoopback(host string) bool {
