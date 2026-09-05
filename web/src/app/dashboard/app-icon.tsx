@@ -19,6 +19,7 @@ export type AppIconName =
   | "chevron-down"
   | "chevron-left"
   | "chevron-right"
+  | "menu"
   | "close"
   | "plus"
   | "minus"
@@ -79,6 +80,7 @@ export function AppIcon({ name, size = 18, ...props }: Props) {
       {name === "chevron-down" && <path d="m7.25 9.5 4.75 4.75 4.75-4.75" />}
       {name === "chevron-left" && <path d="m14.75 6.5-5.5 5.5 5.5 5.5" />}
       {name === "chevron-right" && <path d="m9.25 6.5 5.5 5.5-5.5 5.5" />}
+      {name === "menu" && <path d="M4 7h16M4 12h16M4 17h16" />}
       {name === "close" && <path d="m7 7 10 10M17 7 7 17" />}
       {name === "plus" && <path d="M12 5.5v13M5.5 12h13" />}
       {name === "minus" && <path d="M5.5 12h13" />}

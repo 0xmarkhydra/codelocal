@@ -2,17 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppIcon } from "./app-icon";
 import { DashboardNav } from "./dashboard-nav";
 import styles from "./dashboard.module.css";
 
 export function DashboardSidebar() {
-  const pathname = usePathname();
   const [open, setOpen] = useState(false);
-
-  useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
     document.documentElement.toggleAttribute("data-menu-open", open);
     return () => document.documentElement.removeAttribute("data-menu-open");

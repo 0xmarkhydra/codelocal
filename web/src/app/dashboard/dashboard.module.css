@@ -1841,6 +1841,10 @@
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, system-ui, sans-serif;
 }
 
+.chatShellLayout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .sidebar {
   position: sticky;
   top: 0;
@@ -1922,8 +1926,108 @@
 }
 
 .navPrimary {
-  display: grid;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+}
+
+.navSectionLabel {
+  margin-top: 14px;
+  padding: 0 10px 5px;
+  color: rgba(202, 214, 232, 0.38);
+  font-size: 10.5px;
+  font-weight: 560;
+}
+
+.navProjects {
+  display: grid;
+  gap: 2px;
+}
+
+.navProject {
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 9px;
+  color: rgba(218, 228, 242, 0.62);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+
+.navProject:hover { background: rgba(255, 255, 255, 0.035); color: rgba(247, 250, 255, 0.88); }
+
+.navProject > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navProjectFolder {
+  display: grid;
+  place-items: center;
+  color: rgba(146, 164, 198, 0.58);
+}
+
+.navProject i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(130, 142, 160, 0.6);
+}
+
+.navProject i[data-state="active"] { background: #69d895; }
+.navProject i[data-state="sleeping"] { background: #d7ad62; }
+
+.navAllProjects {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  color: rgba(202, 214, 232, 0.4);
+  font-size: 10.5px;
+  text-decoration: none;
+}
+
+.navAllProjects:hover { color: rgba(236, 242, 251, 0.78); }
+
+.navUtilities {
+  display: grid;
+  gap: 3px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.navCompact {
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 0;
+}
+
+.navCompact .navPrimary {
+  min-height: 166px;
+  gap: 2px;
+}
+
+.navCompact .navPrimary > a {
+  min-height: 34px;
+  border-radius: 9px;
+  font-size: 11.5px;
+}
+
+.navCompact .navDisclosure {
+  padding-top: 4px;
+}
+
+.navCompact .navDisclosure summary {
+  min-height: 28px;
 }
 
 .navPrimary > a {

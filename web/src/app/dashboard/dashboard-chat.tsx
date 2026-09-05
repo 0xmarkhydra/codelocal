@@ -4,8 +4,11 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
+import Image from "next/image";
+import Link from "next/link";
 import { AppIcon } from "./app-icon";
 import { ChatRichMessage } from "./chat-rich-message";
+import { DashboardNav } from "./dashboard-nav";
 import { useDashboardResource } from "./use-dashboard-resource";
 import styles from "./dashboard-chat.module.css";
 import skillStyles from "./skill-indicator.module.css";
@@ -297,6 +300,7 @@ export function DashboardChat() {
   const [selectedModel, setSelectedModel] = useState("auto");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
+  const [threadDrawerOpen, setThreadDrawerOpen] = useState(false);
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState(() => {
     const deviceId = searchParams.get("deviceId");
     const workspaceId = searchParams.get("workspaceId");
@@ -310,6 +314,8 @@ export function DashboardChat() {
   const quickMessageRef = useRef<string | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+  const threadDrawerTriggerRef = useRef<HTMLButtonElement>(null);
+  const threadDrawerCloseRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -330,6 +336,22 @@ export function DashboardChat() {
       document.documentElement.style.removeProperty("--app-viewport-height");
     };
   }, []);
+
+  useEffect(() => {
+    if (!threadDrawerOpen) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setThreadDrawerOpen(false);
+      threadDrawerTriggerRef.current?.focus();
+    };
+    document.documentElement.dataset.chatMenuOpen = "true";
+    document.addEventListener("keydown", closeOnEscape);
+    window.requestAnimationFrame(() => threadDrawerCloseRef.current?.focus());
+    return () => {
+      delete document.documentElement.dataset.chatMenuOpen;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [threadDrawerOpen]);
 
   useEffect(() => {
     const textarea = composerRef.current;
@@ -1020,7 +1042,17 @@ export function DashboardChat() {
 
   return (
     <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện CodeLocal">
-      <aside className={styles.threadSidebar} aria-label="Các cuộc trò chuyện">
+      <button className={`${styles.threadDrawerBackdrop} ${threadDrawerOpen ? styles.threadDrawerBackdropOpen : ""}`} type="button" onClick={() => { setThreadDrawerOpen(false); threadDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu" />
+      <aside className={`${styles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Menu CodeLocal" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
+        <div className={styles.unifiedSidebarBrand}>
+          <Link className={styles.unifiedBrandLink} href="/" aria-label="CodeLocal home">
+            <Image src="/codelocal-icon.png" alt="" width={25} height={25} priority />
+            <span>CodeLocal</span>
+          </Link>
+          <button ref={threadDrawerCloseRef} className={styles.unifiedSidebarClose} type="button" onClick={() => { setThreadDrawerOpen(false); threadDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu"><AppIcon name="close" size={17} /></button>
+        </div>
+        <DashboardNav onNavigate={() => setThreadDrawerOpen(false)} compact>
+          <section className={styles.threadPane} aria-label="Lịch sử trò chuyện">
         <div className={styles.threadSidebarHead}>
           <div>
             <span>Lịch sử</span>
@@ -1028,7 +1060,7 @@ export function DashboardChat() {
           </div>
           <span className={styles.threadCount}>{threads.length}</span>
         </div>
-        <button className={styles.newThreadButton} type="button" onClick={() => void newThread()} disabled={loading || threadActionLoading}>
+        <button className={styles.newThreadButton} type="button" onClick={() => { setThreadDrawerOpen(false); void newThread(); }} disabled={loading || threadActionLoading}>
           <AppIcon name="plus" size={16} />
           Cuộc trò chuyện mới
         </button>
@@ -1044,6 +1076,7 @@ export function DashboardChat() {
                 <div className={`${styles.threadItem} ${thread.id === activeThreadId ? styles.threadItemActive : ""}`} key={thread.id}>
                   <button className={styles.threadSelect} type="button" onClick={() => {
                     if (thread.id === activeThreadId) return;
+                    setThreadDrawerOpen(false);
                     setMessages([]);
                     setHistoryLoading(true);
                     setActiveThreadId(thread.id);
@@ -1063,13 +1096,18 @@ export function DashboardChat() {
         <div className={styles.threadSidebarFoot}>
           Lưu theo tài khoản CodeLocal
         </div>
+          </section>
+        </DashboardNav>
       </aside>
 
       <section className={styles.chatShell} aria-label="Chat với CodeLocal">
         <div className={styles.chatHead}>
           <div className={styles.brandBlock}>
-            <span className={styles.avatar} aria-hidden="true"><AppIcon name="codelocal" size={22} /></span>
-            <div className={styles.nameRow}><h1>CodeLocal</h1><i /></div>
+            <button ref={threadDrawerTriggerRef} className={styles.threadDrawerToggle} type="button" onClick={() => setThreadDrawerOpen(true)} aria-label="Mở menu CodeLocal" aria-expanded={threadDrawerOpen}>
+              <AppIcon name="menu" size={19} />
+            </button>
+            <span className={styles.avatar} aria-hidden="true"><AppIcon name="codelocal" size={18} /></span>
+            <div className={styles.nameRow}><h1>CodeLocal</h1></div>
           </div>
           <div className={styles.chatActions}>
             {tokenUsage ? (

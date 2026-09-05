@@ -1,6 +1,7 @@
 import { AppIcon } from "../app-icon";
 import dashboard from "../dashboard.module.css";
 import { RuntimeSettingsLive } from "./runtime-settings-live";
+import { SettingsHub } from "./settings-hub";
 import styles from "./runtime-settings.module.css";
 
 export default function SettingsPage() {
@@ -14,8 +15,14 @@ export default function SettingsPage() {
             <h1>Settings</h1>
             <p>Config, secrets và system capabilities cho CodeLocal Runtime.</p>
           </div>
-          <span className={styles.scopeHint}>Global · Device · Workspace</span>
+          <span className={styles.scopeHint}>Project · Device · Account</span>
         </header>
+        <SettingsHub />
+        <div className={styles.runtimeHeading} id="runtime">
+          <span>Advanced</span>
+          <h2>Runtime settings</h2>
+          <p>Cấu hình runtime theo global, device hoặc workspace.</p>
+        </div>
         <RuntimeSettingsLive />
       </div>
     </section>
