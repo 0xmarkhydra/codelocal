@@ -152,8 +152,7 @@ func TestDashboardCommunityModelWithoutPrivateContextNeedsAllowCommunity(t *test
 	}
 }
 
-func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {
-	clearAIPoolEnv(t)
+func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
 	if dashboardCommunityWorkspaceAllowed() {
 		t.Fatal("community workspace opt-in must default to off")
@@ -193,5 +192,52 @@ func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {
 	}
 	if got := dashboardLLMRoute(dashboardModelMuse, allowCommunity); len(got) != 1 {
 		t.Fatalf("opt-in muse route=%#v want one zen target", got)
+	}
+}
+
+func TestDashboardVisionRoutingPrefersVisionTargets(t *testing.T) {
+	clearAIPoolEnv(t)
+	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "shop-key")
+	t.Setenv("SHOPAIKEY_API_KEY", "")
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
+	t.Setenv("CODELOCAL_SHOPAIKEY_MODEL", "gpt-5.6-sol")
+	t.Setenv("OPENCODE_ZEN_API_KEY", "zen-key")
+
+	if dashboardModelSupportsVision(dashboardModelMuse) {
+		t.Fatal("community Muse must stay text-only for explicit vision routing")
+	}
+	if !dashboardModelSupportsVision("gpt-5.6-sol") {
+		t.Fatal("gpt vision family must be vision-capable")
+	}
+
+	route := dashboardVisionRoute(dashboardModelAuto)
+	if len(route) == 0 || !route[0].Vision || route[0].Model != "gpt-5.6-sol" {
+		t.Fatalf("vision route must prefer Shop vision default: %#v", route)
+	}
+	for _, target := range route {
+		if target.Community {
+			t.Fatalf("vision route must never include community targets: %#v", route)
+		}
+	}
+
+	if target, ok := dashboardChatVisionTarget(dashboardModelAuto, dashboardLLMRoute(dashboardModelAuto, false)); !ok || target.Model != "gpt-5.6-sol" {
+		t.Fatalf("chat vision target must resolve the vision lane: %#v %v", target, ok)
+	}
+}
+
+func TestDashboardVisionBlockedWithoutVisionLane(t *testing.T) {
+	clearAIPoolEnv(t)
+	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
+	t.Setenv("SHOPAIKEY_API_KEY", "")
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
+	t.Setenv("OPENCODE_ZEN_API_KEY", "")
+
+	if got := dashboardVisionRoute(dashboardModelAuto); len(got) != 0 {
+		t.Fatalf("vision route without vision providers must be empty: %#v", got)
+	}
+	if msg := dashboardVisionBlockedMessage(); !strings.Contains(msg, "CODELOCAL_SHOPAIKEY_API_KEY") || !strings.Contains(msg, "Pool") {
+		t.Fatalf("vision blocked message must name the fix: %q", msg)
 	}
 }

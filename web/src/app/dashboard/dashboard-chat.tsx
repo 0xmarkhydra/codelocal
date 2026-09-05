@@ -259,7 +259,15 @@ function waitForChatRetry(delayMs: number, signal: AbortSignal) {
 }
 
 function friendlyChatFailure(message: string) {
-  if (/508|tool loop|loop exceeded/i.test(message)) {
+  if (/model vision|chưa có model vision/i.test(message)) {
+    return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY (model vision như gpt-*) hoặc bật Pool rồi gửi lại ảnh.";
+  }
+  if (/chưa bật upload ảnh|media_upload_incomplete|media_not_configured/i.test(message)) {
+    return "Hệ thống chưa bật upload ảnh (S3); ảnh vẫn gửi trực tiếp được nhưng chỉ lưu gọn trong lịch sử. Hãy gửi lại ảnh nếu backend báo media_upload_incomplete.";
+  }
+  if (/Model community miễn phí|không nhận.*ảnh|workspace/i.test(message)) {
+    return message;
+  }  if (/508|tool loop|loop exceeded/i.test(message)) {
     return "Luồng xử lý vừa quá dài. CodeLocal đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
   }
   if (/load failed|chat_stream_incomplete|timeout|429|502|503|504|network|fetch/i.test(message)) {
@@ -498,8 +506,11 @@ export function DashboardChat() {
     }
     const prepared = (await presign.json().catch(() => ({}))) as Partial<MediaPrepareResponse> & { error?: string; message?: string };
     if (!presign.ok || !prepared.url || !prepared.imageRef) {
-      if (prepared.error === "media_not_configured") throw new Error("Hệ thống chưa bật upload ảnh");
-      throw new Error(prepared.message || "Không chuẩn bị được upload ảnh");
+      // Task 4: surface the backend media state directly. media_not_configured
+      // means S3/Skill storage is off (multipart fallback still works); other
+      // failures keep the explicit backend message for retry guidance.
+      if (prepared.error === "media_not_configured") throw new Error("Hệ thống chưa bật upload ảnh (S3); vẫn gửi được ảnh trực tiếp, ảnh chỉ lưu gọn trong lịch sử");
+      throw new Error(prepared.message || prepared.error || "Không chuẩn bị được upload ảnh");
     }
 
     if (prepared.upload?.required) {
@@ -785,7 +796,11 @@ export function DashboardChat() {
     };
     try {
       const requestId = createChatRequestId();
-      const history = messages.slice(-12).map((message) => ({ role: message.role, content: message.content }));
+      const history = messages.slice(-12).map((message) => ({
+      role: message.role,
+      content: message.content,
+      image: message.role === "user" ? message.image : undefined,
+    }));
       const payload = {
         requestId,
         threadId: requestThreadId,

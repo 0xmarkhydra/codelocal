@@ -119,3 +119,44 @@ func TestDashboardStoredToolResultsRejectsTruncatedJSON(t *testing.T) {
 		t.Fatalf("invalid checkpoint must not be replayed: %#v", got)
 	}
 }
+
+func TestDashboardPersistedHistoryKeepsRecentImages(t *testing.T) {
+	stored := []cloud.DashboardChatMessage{
+		{ID: "user-old", Role: "user", Content: "old picture", Image: "data:image/png;base64,OLDOLD"},
+		{ID: "assistant-old", Role: "assistant", Content: "old seen"},
+		{ID: "user-new", Role: "user", Content: "new picture", Image: "data:image/png;base64,NEWNEW"},
+		{ID: "assistant-new", Role: "assistant", Content: "new seen"},
+	}
+
+	messages, _ := dashboardPersistedHistoryMessages(stored, "current-user", "current-assistant")
+	images := 0
+	for _, message := range messages {
+		if message["role"] != "user" {
+			continue
+		}
+		parts, ok := message["content"].([]map[string]any)
+		if !ok {
+			continue
+		}
+		for _, part := range parts {
+			if part["type"] == "image_url" {
+				images++
+			}
+		}
+	}
+	if images != 2 {
+		t.Fatalf("history must keep both recent images inline: %#v", messages)
+	}
+}
+
+func TestDashboardCompactEphemeralImageStaysBounded(t *testing.T) {
+	prefix := "data:image/png;base64,"
+	big := prefix + strings.Repeat("A", 2*1024*1024)
+	compacted := dashboardChatCompactEphemeralImage(big)
+	if compacted == "" || len(compacted) > 1500*1024 {
+		t.Fatalf("compacted image must stay bounded, got %d", len(compacted))
+	}
+	if !strings.HasPrefix(compacted, prefix) {
+		t.Fatal("compacted image must keep the data-url prefix")
+	}
+}

@@ -29,6 +29,10 @@ type dashboardLLMTarget struct {
 	APIKey    string
 	Model     string
 	Community bool
+	// Vision marks chat targets that accept image_url/input_image blocks.
+	// Pool-owned targets default to true (canonical chat plane + responses
+	// protocol), while community text-only targets stay false.
+	Vision bool
 }
 
 type dashboardSelectedModelError struct {
@@ -80,6 +84,106 @@ func dashboardNormalizeModelSelection(raw string) string {
 		}
 		return dashboardModelAuto
 	}
+}
+
+func dashboardModelSupportsVision(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case name == dashboardModelMuse,
+		name == dashboardModelMuseLegacy,
+		name == dashboardModelGLM,
+		name == dashboardModelQwen:
+		// Explicit vision routing (Task 1): community sparklines stay
+		// text-only so image requests never default to a target that drops
+		// image_url/input_image blocks.
+		return false
+	case strings.HasPrefix(name, "gpt-"),
+		strings.HasPrefix(name, "gemini-"),
+		strings.HasPrefix(name, "claude-"),
+		strings.HasPrefix(name, "kimi-"),
+		strings.HasPrefix(name, "qwen"):
+		return true
+	default:
+		return false
+	}
+}
+
+// dashboardVisionModelPreference ranks vision-capable candidates for image
+// requests: explicit canonical selections first, then Shop defaults, then the
+// Pool default lane, and finally detected Shop catalog models.
+func dashboardVisionModelPreference() []string {
+	preferred := make([]string, 0, 4)
+	seen := map[string]bool{}
+	appendModel := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" || seen[model] {
+			return
+		}
+		seen[model] = true
+		preferred = append(preferred, model)
+	}
+	if _, baseURL, defaultModel, ok := dashboardShopAIKeyConfig(); ok {
+		if dashboardModelSupportsVision(defaultModel) {
+			appendModel(defaultModel)
+		}
+		_ = baseURL
+	}
+	if config, ok := dashboardAIPoolConfigFromEnv(); ok && dashboardModelSupportsVision(config.DefaultModel) {
+		appendModel(config.DefaultModel)
+	}
+	for _, fallback := range []string{"gpt-5.6-sol", "gpt-image-1.5", "gemini-2.5-flash-image"} {
+		if dashboardModelSupportsVision(fallback) {
+			appendModel(fallback)
+		}
+	}
+	return preferred
+}
+
+// dashboardVisionRoute builds a strict vision-capable route for image
+// requests. Pool stays the only execution plane when configured; otherwise it
+// prefers Shop vision models and never falls back to text-only community
+// sparklines.
+func dashboardVisionRoute(selection string) []dashboardLLMTarget {
+	ordered := make([]dashboardLLMTarget, 0, 4)
+	appendTarget := func(target dashboardLLMTarget) {
+		if !target.Vision {
+			return
+		}
+		for _, existing := range ordered {
+			if existing.BaseURL == target.BaseURL && existing.Model == target.Model {
+				return
+			}
+		}
+		ordered = append(ordered, target)
+	}
+	if poolTarget, ok := dashboardAIPoolTarget(""); ok {
+		// Pool-owned lanes keep Vision=true by construction; explicit vision
+		// selections go through Pool unchanged.
+		if selection != dashboardModelAuto {
+			if pool, ok := dashboardAIPoolTarget(selection); ok {
+				appendTarget(pool)
+			}
+		}
+		appendTarget(poolTarget)
+		return ordered
+	}
+	if selection != dashboardModelAuto {
+		if shop, ok := dashboardShopAIKeyTarget(selection); ok {
+			appendTarget(shop)
+		}
+	}
+	for _, candidate := range dashboardVisionModelPreference() {
+		if shop, ok := dashboardShopAIKeyTarget(candidate); ok {
+			appendTarget(shop)
+		}
+	}
+	return ordered
+}
+
+// dashboardVisionBlockedMessage explains why an image request has no vision
+// route instead of falling back to the generic mock reply.
+func dashboardVisionBlockedMessage() string {
+	return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY (model vision như gpt-*) hoặc bật Pool (CODELOCAL_AI_POOL_ENABLED=1) rồi gửi lại ảnh."
 }
 
 func dashboardEmperoTarget(model string) dashboardLLMTarget {

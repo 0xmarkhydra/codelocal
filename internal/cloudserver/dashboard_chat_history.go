@@ -15,6 +15,15 @@ import (
 
 const dashboardChatModelHistoryLimit = 12
 
+// dashboardChatStoredImageIsMeta mirrors dashboardChatImageMetaFromStored in
+// dashboard_chat_api.go without creating an import cycle between the history
+// helper tests and the API file: history rows carrying {"sha256":...} meta
+// JSON resolve only at turn 1, never inline in follow-up context.
+func dashboardChatStoredImageIsMeta(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "{") && strings.Contains(value, `"sha256"`)
+}
+
 type dashboardChatExecutionResume struct {
 	Results        []dashboardToolCall
 	CompletedReply string
@@ -26,6 +35,16 @@ func dashboardRequestHistoryMessages(history []dashboardChatHistoryItem) []map[s
 	for _, item := range history {
 		role := strings.TrimSpace(item.Role)
 		if role != "user" && role != "assistant" && role != "tool" {
+			continue
+		}
+		if role == "user" && strings.TrimSpace(item.Image) != "" {
+			messages = append(messages, map[string]any{
+				"role": role,
+				"content": []map[string]any{
+					{"type": "text", "text": item.Content},
+					{"type": "image_url", "image_url": map[string]any{"url": strings.TrimSpace(item.Image)}},
+				},
+			})
 			continue
 		}
 		message := map[string]any{"role": role, "content": item.Content}
@@ -123,9 +142,37 @@ func dashboardPersistedHistoryMessages(stored []cloud.DashboardChatMessage, curr
 	}
 
 	messages := make([]map[string]any, 0, len(filtered)+len(toolResults[latestToolMessage])*2)
+	// Task 2: keep at most the 2 most recent inline user images in LLM context
+	// so a follow-up turn still sees the picture without blowing the token
+	// budget. S3 meta JSON resolves at turn 1 via prepared URLs only.
+	imageKept := 0
+	for index := len(filtered) - 1; index >= 0; index-- {
+		if strings.TrimSpace(filtered[index].Role) != "user" || strings.TrimSpace(filtered[index].Image) == "" {
+			continue
+		}
+		if dashboardChatStoredImageIsMeta(filtered[index].Image) {
+			filtered[index].Image = ""
+			continue
+		}
+		if imageKept < 2 {
+			imageKept++
+			continue
+		}
+		filtered[index].Image = ""
+	}
 	for index, message := range filtered {
 		role := strings.TrimSpace(message.Role)
 		if role != "user" && role != "assistant" && role != "tool" {
+			continue
+		}
+		if role == "user" && strings.TrimSpace(message.Image) != "" {
+			messages = append(messages, map[string]any{
+				"role": role,
+				"content": []map[string]any{
+					{"type": "text", "text": message.Content},
+					{"type": "image_url", "image_url": map[string]any{"url": strings.TrimSpace(message.Image)}},
+				},
+			})
 			continue
 		}
 		if index == latestToolMessage {

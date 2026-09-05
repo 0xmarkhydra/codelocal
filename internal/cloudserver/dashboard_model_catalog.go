@@ -99,6 +99,10 @@ func dashboardShopAIKeyTarget(model string) (dashboardLLMTarget, bool) {
 		BaseURL: baseURL,
 		APIKey:  apiKey,
 		Model:   model,
+		// Shop chat models accept OpenAI image_url blocks on the general chat
+		// completions lane; explicit text-only community sparklines never flow
+		// through this target.
+		Vision: dashboardModelSupportsVision(model),
 	}, true
 }
 

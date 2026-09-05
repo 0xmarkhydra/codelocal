@@ -55,5 +55,51 @@
 - [ ] Tool registry động từ MCP hub
 - [ ] UI markdown + test e2e
 
+## 10. Vision/Image support — root cause & fix plan (2026-09-05)
+
+### 10.1. Hiện tượng
+- User gửi ảnh trên Dashboard Chat (paste/file, hoặc text rỗng -> `"Phân tích ảnh này"`), AI trả lời mock chung chung (`"Đã nhận ảnh ... bytes"`, `"CodeLocal Go (mock - chưa gắn key LLM nào)"`) hoặc không mô tả nội dung ảnh.
+- Reload / turn 2 thì ảnh biến mất khỏi context.
+
+### 10.2. Luồng hiện tại (đã đọc code)
+- FE `web/src/app/dashboard/dashboard-chat.tsx#uploadImage/send`:
+  - B1: `POST /api/v1/dashboard/media/presign {sha256, contentType, size}` -> `{url, imageRef, upload:{required,url,method,headers}}`.
+  - B2a: nếu `upload.required`, PUT trực tiếp lên S3 presigned URL; fail -> fallback `POST /api/v1/dashboard/media/upload` (proxy qua Go + S3, check sha256).
+  - B2b: nếu presign fail (`media_not_configured` khi chưa cấu hình S3) -> `useMultipartFallback=true`, gửi `FormData{ payload: JSON, image: File }`.
+  - Payload JSON: `{message, history[<=12], imageMeta?, workspace?, model, mode}`. `history` chỉ `{role, content}` — không có ảnh.
+- BE `internal/cloudserver/dashboard_chat_api.go#decodeDashboardChatRequest`:
+  - JSON: `req.Image` (base64/data-url) + `req.ImageMeta`.
+  - Multipart: parse `payload` + file `image` (limit `mediaMaxBytes()+2MB`), validate `mediaExtension`, set `req.Image="data:<ct>;base64,..."`, return `ephemeralImage=true`.
+- BE `internal/cloudserver/dashboard_chat_api.go#dashboardChatAPI`:
+  - `storedImage=dashboardChatStoredImage(req)` (nếu `ImageMeta` hợp lệ -> JSON meta, else `req.Image`); nhưng `if ephemeralImage { storedImage="" }` nên ảnh multipart không persist.
+  - Nếu `req.ImageMeta != nil`: `req.Image = dashboardChatPreparedImageURL(...)` (presigned GET, yêu cầu `Deduplicated==true`, else `media_upload_incomplete` -> 503). Nếu `s.Media==nil` -> 503 `media_not_configured`.
+  - Turn hiện tại: `messages = [system] + modelHistory + [user{ text + image_url }] + toolTranscript`. Turn hiện tại có ảnh đúng.
+  - `modelHistory = dashboardExecutionHistory(...)` từ DB, không phải FE `history`.
+- BE `internal/cloudserver/dashboard_chat_history.go#dashboardPersistedHistoryMessages` + `dashboardRequestHistoryMessages`:
+  - Chỉ dựng `{role, content}` (+ `tool_call_id/name`), bỏ hoàn toàn `message.Image`. Ảnh các turn trước không bao giờ quay lại LLM context.
+- Router `internal/cloudserver/dashboard_llm_router.go`:
+  - `dashboardCommunityEligible(req)` = false khi `req.Image!="" || req.ImageMeta!=nil || req.Workspace!=nil || sensitive`. Mặc định `allowCommunity=false` khi có ảnh/workspace.
+  - `dashboardLLMRoute(selection, allowCommunity)` lọc `if target.Community && !allowCommunity { skip }`. `dashboardEmperoTarget` (GLM/Qwen) và `dashboardMuseTarget` (Muse Spark 1.3) đều `Community:true`. Nếu Pool (`CODELOCAL_AI_POOL_ENABLED=1`) tắt và ShopAIKey (`CODELOCAL_SHOPAIKEY_API_KEY`) chưa cấu hình -> `route` rỗng -> rơi vào nhánh mock stream (`Đã nhận ảnh...`), không gọi LLM vision thật.
+  - `CODELOCAL_ALLOW_COMMUNITY_WORKSPACE=1` mới cho ảnh/workspace qua community lane (`dashboardCommunityOptInEligible`), mặc định off.
+- Protocol `dashboardProtocolForModel`:
+  - Zen (`opencode.ai/zen/v1`) + `muse-*` -> `responses` (`responsesInput` convert `image_url->{input_image}`). Muse Spark 1.3 free text-only hoặc gateway drop block ảnh.
+  - Non-Zen + ShopAIKey + `gpt-*` -> `responses`, còn lại `chat_completions` (`image_url` giữ nguyên). Model mặc định Shop `qwen3.5-flash` chưa chắc vision.
+- Media/S3 `internal/cloudserver/media.go`:
+  - Chưa cấu hình `CODELOCAL_MEDIA_S3_*` (hoặc Skill storage fallback) -> `s.Media==nil` -> mọi `ImageMeta` đều 503, chỉ còn đường multipart base64.
+
+### 10.3. Root cause chốt
+1. `allowCommunity=false` khi có ảnh/workspace + Pool/Shop chưa cấu hình -> route rỗng -> mock, AI không bao giờ thấy ảnh.
+2. Dù có route, default Auto về Muse Spark 1.3 (text-only) nên block `image_url/input_image` bị bỏ.
+3. History (`dashboardPersistedHistoryMessages` + FE `history.slice(-12)`) drop ảnh -> turn 2 mất context.
+4. Multipart fallback (`ephemeralImage`) cố ý `storedImage=""` để tránh DB phình -> không persist, history API (`dashboardChatHistoryImageURL`) không có gì để resolve.
+5. `ImageMeta` yêu cầu S3 deduplicated + presigned GET TTL 3 phút (`defaultMediaURLTTL`); S3 chưa bật -> 503.
+
+### 10.4. Plan fix (ghi để implement tiếp)
+- [x] Task 1 — Vision routing: `Vision` trên `dashboardLLMTarget`, `dashboardModelSupportsVision` (Muse/GLM/Qwen = text-only), `dashboardVisionRoute` ưu tiên Pool rồi Shop vision, batch+stream resolve `selection` qua `dashboardChatVisionTarget`; không vision route -> lỗi rõ `dashboardVisionBlockedMessage` thay vì mock `Đã nhận ảnh`.
+- [x] Task 2 — Giữ ảnh trong history: `dashboardChatHistoryItem.Image` + `dashboardRequestHistoryMessages`/`dashboardPersistedHistoryMessages` rebuild `content:[{text},{image_url}]`, giữ tối đa 2 ảnh inline gần nhất (meta JSON S3 chỉ resolve ở turn 1); FE gửi kèm `image` cho history user có ảnh.
+- [x] Task 3 — Persist multipart: `storedImage=""` -> `dashboardChatCompactEphemeralImage` (cap 1.5MB data-url); `GET /history` vẫn resolve được URL hiển thị.
+- [x] Task 4 — FE feedback: `media_not_configured`/`media_upload_incomplete`/thiếu vision route báo rõ trong `friendlyChatFailure` + `uploadImage`; nút gửi đã disable khi `imageUploading`.
+- [x] Verify: `go test ./internal/cloudserver -run 'Dashboard(Vision|PersistedHistory|...)'` pass, `go vet` + `npm run typecheck --prefix web` pass, `git diff --check` sạch. Manual còn lại: S3 off (multipart) + S3 on (presign) + turn 2 vẫn thấy ảnh.
+
 ---
 *File này giữ logic không mất, mọi thay đổi phải cập nhật đây trước khi code.*
