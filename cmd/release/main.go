@@ -123,6 +123,7 @@ process.exit(result.status ?? 1);
 		"dependencies": map[string]string{
 			"@playwright/cli":        "0.1.17",
 			"@mobilenext/mobile-mcp": "1.0.2",
+			"@penpot/mcp":            "2.17.0",
 		},
 		"keywords": []string{"chatgpt", "mcp", "coding", "local", "go", "playwright", "browser-automation", "computer-use"},
 	}
@@ -148,7 +149,7 @@ codelocal .
 ` + "```\n\n" + "`codelocal .` only authorizes that folder locally. It does not pair the machine or connect to CodeLocal Cloud.\n\n" + `## Start CodeLocal
 
 ` + "```bash\n" + `codelocal
-` + "```\n\n" + `On first start, CodeLocal asks which local capabilities connected MCP clients may use. Browser Automation lets a compatible AI client inspect and interact with websites in an isolated session; if enabled, CodeLocal downloads one managed Chromium browser and shows the install progress before starting. Coding works without this optional download. Computer Use remains a separate opt-in capability and includes both the native desktop helper and a managed Mobile MCP backend inside the CodeLocal package. Mobile automation becomes active only when a simulator, emulator or authorized real device is available; Android targets require platform tools/adb and iOS targets require the relevant Xcode/device tooling.
+` + "```\n\n" + `On first start, CodeLocal asks which local capabilities connected MCP clients may use. Browser Automation lets a compatible AI client inspect and interact with websites in an isolated session; if enabled, CodeLocal downloads one managed Chromium browser and shows the install progress before starting. Coding works without this optional download. Computer Use remains a separate opt-in capability and includes both the native desktop helper and a managed Mobile MCP backend inside the CodeLocal package. Mobile automation becomes active only when a simulator, emulator or authorized real device is available; Android targets require platform tools/adb and iOS targets require the relevant Xcode/device tooling. Penpot MCP is also packaged as a managed CodeLocal backend: the user does not install a separate MCP server, and CodeLocal starts the local Penpot bridge lazily when its tools are first used.
 
 The Go runtime then pairs this machine if needed, syncs authorized workspaces, and waits for authenticated MCP clients. One machine runs one runtime; multiple workspaces activate lazily inside it.
 

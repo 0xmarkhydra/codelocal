@@ -1,45 +1,81 @@
 # Penpot Design Engine — CodeLocal
 
-## Goal
+## Decision
 
-Expose design as a first-class CodeLocal surface without cloning Figma. Penpot remains the design runtime; CodeLocal owns discovery, auth boundary, project context and the agent workflow.
+Penpot is a first-class CodeLocal Design Engine. CodeLocal does not clone Figma and does not ask users to install Penpot MCP manually.
 
-## Product cases
+### BA cases
 
-1. **Hosted bridge (MVP fallback)** — Dashboard > Design opens Penpot Cloud through `CODELOCAL_DESIGN_URL`. This is immediately usable and requires no Penpot infrastructure.
-2. **Self-hosted DEV (target)** — deploy Penpot frontend/backend/exporter/MCP plus Postgres and Valkey on Railway. Point `CODELOCAL_DESIGN_URL` at the Railway frontend domain.
-3. **Agentic design (next)** — configure `CODELOCAL_PENPOT_MCP_URL` server-side, then let CodeLocal agents inspect/edit the active Penpot file and sync design tokens/components into project code.
+1. **External MCP config** — user installs/configures Penpot MCP. Rejected because setup leaks into the user experience and does not satisfy the default-managed requirement.
+2. **Auto-register external MCP** — CodeLocal writes a Penpot entry into the normal MCP registry. Better, but it still behaves like a removable third-party server and complicates credential/approval semantics.
+3. **Managed Design backend** — chosen. Penpot web services run as CodeLocal infrastructure; `@penpot/mcp` is pinned inside the CodeLocal npm package and exposed as the reserved managed MCP server `penpot`.
 
-## Why the dashboard does not iframe Penpot by default
+## Runtime architecture
 
-Penpot frontend images send frame-protection headers. Cross-origin iframe embedding is therefore not a stable integration contract. The dashboard treats Penpot as a first-class external design surface and opens it in a dedicated tab. A future same-origin reverse proxy may enable an embedded experience after explicit security review.
+```text
+CodeLocal Dashboard
+  └─ dashboard/design
+       └─ HTTPS → Penpot Frontend (Railway DEV)
+                    ├─ private → Penpot Backend :6060
+                    │              ├─ Postgres
+                    │              ├─ Valkey
+                    │              └─ Railway S3 bucket
+                    ├─ private → Penpot Exporter :6061
+                    └─ private → Penpot MCP :4401/:4402
 
-## Railway DEV service map
+CodeLocal local runtime
+  └─ MCP Hub
+       └─ reserved managed server: penpot
+            └─ @penpot/mcp@2.17.0
+                 ├─ lazy local HTTP MCP :4401
+                 └─ local plugin bridge :4402
+```
 
-- `penpot-frontend` — `penpotapp/frontend:2.16`
-- `penpot-backend` — `penpotapp/backend:2.16`
-- `penpot-exporter` — `penpotapp/exporter:2.16`
-- `penpot-mcp` — `penpotapp/mcp:2.16`
-- `penpot-postgres` — PostgreSQL 15 with persistent storage
-- `penpot-valkey` — Valkey 8.1
+The Railway MCP service belongs to the hosted Penpot application and its built-in plugin flow. The default CodeLocal MCP client path uses the locally managed package instead of a shared remote `userToken`; this avoids cross-user credential coupling while Penpot remote multi-user MCP is still evolving.
 
-Required production-grade properties: HTTPS public URI, persistent PostgreSQL + assets/object storage, a strong `PENPOT_SECRET_KEY`, private service networking and server-side-only MCP credentials.
+## Railway DEV — deployed
 
-## CodeLocal config
+Environment: `dev`
 
-- `CODELOCAL_DESIGN_URL` — public Penpot URL shown by Dashboard > Design.
-- `CODELOCAL_PENPOT_MCP_URL` — server-only MCP stream URL. Never render this value to the browser because it may contain a `userToken`.
+Public Design URL: `https://penpot-frontend-dev-5881.up.railway.app`
 
-## Done for MVP
+Services:
 
-- Add Dashboard > Design navigation and route title.
-- Add responsive design workspace/launcher page.
-- Default to Penpot Cloud so the page is usable even before self-hosting finishes.
-- Add server-side config boundary for a self-hosted Penpot URL and MCP endpoint.
+- `penpot-frontend` — `penpotapp/frontend:2.17.0`
+- `penpot-backend` — `penpotapp/backend:2.17.0`
+- `penpot-exporter` — `penpotapp/exporter:2.17.0`
+- `penpot-mcp` — `penpotapp/mcp:2.17.0`
+- `penpot-valkey` — `valkey/valkey:8.1`
+- `Postgres` — Railway managed PostgreSQL with persistent volume
+- `penpot-assets` — Railway S3-compatible bucket in Singapore
 
-## Next integration
+All inter-service traffic uses Railway private networking. The public frontend is the only Penpot service exposed to the browser.
 
-- Provision Railway DEV Penpot stack with persistence.
-- Set `CODELOCAL_DESIGN_URL` to the generated HTTPS domain.
-- Enable Penpot `enable-mcp enable-access-tokens` flags.
-- Create a dedicated CodeLocal MCP connection flow with per-user credentials, revocation and audit events.
+### DEV config
+
+Penpot flags: `enable-mcp`, `enable-access-tokens`, and `disable-email-verification` (DEV only).
+
+Assets use `PENPOT_OBJECTS_STORAGE_BACKEND=s3` with Railway bucket reference variables. Database, Valkey and object-storage credentials are Railway references, not copied into source control. `PENPOT_SECRET_KEY` is generated by Railway's secret function and the exporter references the backend value.
+
+## Managed MCP behavior inside CodeLocal
+
+- `penpot` is a reserved MCP server name.
+- It is injected into the effective MCP catalog when the packaged backend or an explicit runtime override is available.
+- Normal users cannot shadow it with another registry entry.
+- CodeLocal resolves the packaged entry at `node_modules/@penpot/mcp/bin/mcp-local.js` through `CODELOCAL_PACKAGE_ROOT`.
+- The process starts lazily when Penpot tools are first probed/called.
+- Multiple workspace hubs share the local process through a reference-counted lifecycle instead of spawning a server per project.
+- CodeLocal shuts down the managed child when no hub retains it.
+- The managed child adds `--experimental-sqlite` to its own `NODE_OPTIONS` because Penpot MCP's pinned pnpm bootstrap uses `node:sqlite`; this does not alter the parent CodeLocal runtime.
+- `CODELOCAL_PENPOT_MCP_URL` and `CODELOCAL_PENPOT_MCP_CLI` are development/debug escape hatches, not required user configuration.
+- Tool execution still passes through CodeLocal MCP call policy/approval boundaries; packaging the backend does not bypass action safety.
+
+## Dashboard behavior
+
+The Design dashboard defaults to the CodeLocal Railway DEV Penpot URL and reports the AI bridge as `Managed by CodeLocal`.
+
+Penpot remains in a dedicated browser tab. Cross-origin iframe embedding is not treated as a stable contract because Penpot ships frame protections; a future same-origin gateway can provide an embedded canvas after security review.
+
+## Production follow-up
+
+Before promoting this exact DEV stack to production: attach a CodeLocal-owned design domain; replace DEV email policy with production auth/SMTP or SSO; add backup/restore and alerting; and keep the Penpot application and `@penpot/mcp` versions aligned during upgrades.
