@@ -11,7 +11,7 @@ import { ChatTopBar } from "./chat-top-bar";
 import { ChatRichMessage } from "./chat-rich-message";
 import { ChatSidebarBrand, ChatSidebarFooter } from "./chat-sidebar-footer";
 import { chatViewportFrame } from "./chat-visual-viewport";
-import { projectTreeOpen, threadBelongsToWorkspace, toggleExpandedProject, workspaceIdentityKey } from "./chat-workspace-key";
+import { projectTreeOpen, threadBelongsToWorkspace, threadCreationPayload, toggleExpandedProject, workspaceIdentityKey } from "./chat-workspace-key";
 import { useDashboardResource } from "./use-dashboard-resource";
 import headerStyles from "./chat-header.module.css";
 import mobileStyles from "./chat-mobile.module.css";
@@ -692,15 +692,13 @@ export function DashboardChat() {
     formRef.current?.requestSubmit();
   }
 
-  async function createThreadRecord() {
+  async function createThreadRecord(options: { workspaceKey?: string; model?: string } = {}) {
+    const workspaceKey = options.workspaceKey ?? (selectedWorkspaceKey === "auto" ? "" : selectedWorkspaceKey);
     const response = await fetch("/api/v1/dashboard/chat/threads", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: selectedModel,
-        workspaceKey: selectedWorkspaceKey === "auto" ? "" : selectedWorkspaceKey,
-      }),
+      body: JSON.stringify(threadCreationPayload(options.model ?? selectedModel, workspaceKey)),
     });
     if (response.status === 401) {
       router.replace("/login");
@@ -730,15 +728,40 @@ export function DashboardChat() {
     setThreadActionLoading(true);
     setNotice("");
     try {
-      const thread = await createThreadRecord();
+      const thread = await createThreadRecord({ workspaceKey: "" });
       setThreads((current) => [thread, ...current]);
+      setSelectedWorkspaceKey("auto");
       setHistoryLoading(true);
       setActiveThreadId(thread.id);
       setMessages([]);
       setInput("");
       discardImage();
+      window.requestAnimationFrame(() => composerRef.current?.focus());
     } catch {
       setNotice("Không thể tạo cuộc trò chuyện mới");
+    } finally {
+      setThreadActionLoading(false);
+    }
+  }
+
+  async function newProjectThread(projectKey: string) {
+    if (loading || threadActionLoading) return;
+    setThreadActionLoading(true);
+    setNotice("");
+    try {
+      const thread = await createThreadRecord({ workspaceKey: projectKey });
+      setThreads((current) => [thread, ...current]);
+      setExpandedProjects((current) => new Set(current).add(projectKey));
+      setSelectedWorkspaceKey(projectKey);
+      setHistoryLoading(true);
+      setActiveThreadId(thread.id);
+      setMessages([]);
+      setInput("");
+      discardImage();
+      setThreadDrawerOpen(false);
+      window.requestAnimationFrame(() => composerRef.current?.focus());
+    } catch {
+      setNotice("Không thể tạo thread trong project");
     } finally {
       setThreadActionLoading(false);
     }
@@ -1133,18 +1156,34 @@ export function DashboardChat() {
             const active = activeThreadWorkspaceKey === key || (!activeThreadWorkspaceKey && selectedWorkspaceKey === key);
             return (
               <section className={`${treeStyles.projectGroup} ${active ? treeStyles.projectGroupActive : ""}`} key={key}>
-                <button className={treeStyles.projectToggle} type="button" onClick={() => toggleProject(key)} aria-expanded={open}>
-                  <span className={treeStyles.projectFolder} data-state={workspaceState(workspace)} aria-hidden="true"><AppIcon name="folder" size={17} /><i /></span>
-                  <span className={treeStyles.projectCopy}>
-                    <strong title={workspace.workspaceName}>{workspace.workspaceName}</strong>
-                    <small title={`${workspace.deviceName} · ${workspaceStatusLabel(workspace)}`}>{workspace.deviceName} · {workspaceStatusLabel(workspace)}</small>
-                  </span>
-                  <span className={treeStyles.projectThreadCount} aria-label={`${threadCount} threads`}>{threadCount}</span>
-                  <AppIcon className={treeStyles.projectChevron} name="chevron-right" size={14} />
-                </button>
+                <div className={treeStyles.projectHead}>
+                  <button className={treeStyles.projectToggle} type="button" onClick={() => toggleProject(key)} aria-expanded={open}>
+                    <span className={treeStyles.projectFolder} data-state={workspaceState(workspace)} aria-hidden="true"><AppIcon name="folder" size={17} /><i /></span>
+                    <span className={treeStyles.projectCopy}>
+                      <strong title={workspace.workspaceName}>{workspace.workspaceName}</strong>
+                      <small title={`${workspace.deviceName} · ${workspaceStatusLabel(workspace)}`}>{workspace.deviceName} · {workspaceStatusLabel(workspace)}</small>
+                    </span>
+                    <span className={treeStyles.projectThreadCount} aria-label={`${threadCount} ${threadCount === 1 ? "thread" : "threads"}`}>{threadCount}</span>
+                    <AppIcon className={treeStyles.projectChevron} name="chevron-right" size={14} />
+                  </button>
+                  <button
+                    className={treeStyles.projectNewThread}
+                    type="button"
+                    aria-label={`Tạo thread trong ${workspace.workspaceName}`}
+                    title={`Tạo thread trong ${workspace.workspaceName}`}
+                    disabled={loading || threadActionLoading}
+                    onClick={() => void newProjectThread(key)}
+                  >
+                    <AppIcon name="plus" size={16} />
+                  </button>
+                </div>
                 {open ? (
                   <div className={treeStyles.projectThreads}>
-                    {projectThreads.length ? projectThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />) : <p>Chưa có thread.</p>}
+                    {projectThreads.length ? projectThreads.map((thread) => <ThreadRow thread={thread} key={thread.id} />) : (
+                      <button className={treeStyles.emptyProjectAction} type="button" onClick={() => void newProjectThread(key)} disabled={loading || threadActionLoading}>
+                        <AppIcon name="plus" size={14} /> Tạo thread đầu tiên
+                      </button>
+                    )}
                   </div>
                 ) : null}
               </section>

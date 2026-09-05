@@ -56,6 +56,14 @@
   background: rgba(255, 255, 255, 0.025);
 }
 
+.projectHead {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 2px;
+}
+
 .projectToggle {
   width: 100%;
   min-width: 0;
@@ -77,6 +85,32 @@
 .projectToggle:focus-visible {
   background: rgba(255, 255, 255, 0.055);
 }
+
+.projectNewThread {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  color: rgba(220, 228, 241, 0.72);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.projectHead:hover .projectNewThread,
+.projectHead:focus-within .projectNewThread,
+.projectNewThread:focus-visible { opacity: 1; }
+
+.projectNewThread:hover,
+.projectNewThread:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.projectNewThread:disabled { opacity: 0.4; cursor: default; }
 
 .projectFolder {
   position: relative;
@@ -165,6 +199,26 @@
   color: rgba(180, 180, 186, 0.48);
   font-size: 10.5px;
 }
+
+.emptyProjectAction {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  color: rgba(218, 226, 239, 0.68);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.emptyProjectAction:hover,
+.emptyProjectAction:focus-visible { color: #fff; background: rgba(255, 255, 255, 0.06); }
+.emptyProjectAction:disabled { opacity: 0.4; cursor: default; }
 
 .generalGroupHead {
   min-height: 48px;
@@ -297,6 +351,9 @@
 
   .threadSearch input { font-size: 16px; }
   .projectToggle { min-height: 58px; }
+  .projectHead { grid-template-columns: minmax(0, 1fr) 44px; }
+  .projectNewThread { width: 44px; height: 44px; opacity: 1; }
+  .emptyProjectAction { min-height: 44px; font-size: 14px; }
   .threadSelect { min-height: 44px; padding-right: 48px; }
 
   .threadOverflow {

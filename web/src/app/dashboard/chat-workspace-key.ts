@@ -25,3 +25,7 @@ export function toggleExpandedProject(current: ReadonlySet<string>, key: string)
   else next.add(key);
   return next;
 }
+
+export function threadCreationPayload(model: string, workspaceKey: string) {
+  return { model, workspaceKey };
+}

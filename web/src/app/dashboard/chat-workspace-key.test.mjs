@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { projectTreeOpen, threadBelongsToWorkspace, toggleExpandedProject, workspaceIdentityKey } from "./chat-workspace-key.ts";
+import { projectTreeOpen, threadBelongsToWorkspace, threadCreationPayload, toggleExpandedProject, workspaceIdentityKey } from "./chat-workspace-key.ts";
 
 const workspace = { deviceId: "device-1", workspaceId: "workspace-1" };
 const key = workspaceIdentityKey(workspace);
@@ -16,3 +16,6 @@ assert.equal(projectTreeOpen(key, "", collapsed), false);
 assert.equal(projectTreeOpen(key, "search", collapsed), true);
 const reopened = toggleExpandedProject(collapsed, key);
 assert.equal(projectTreeOpen(key, "", reopened), true);
+
+assert.deepEqual(threadCreationPayload("auto", key), { model: "auto", workspaceKey: "device-1::workspace-1" });
+assert.deepEqual(threadCreationPayload("gpt-5", ""), { model: "gpt-5", workspaceKey: "" });
