@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -68,6 +69,9 @@ func (s *Server) usageResourceAPI(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Usage is approximate telemetry, never a hard dependency for the
+	// dashboard. A transient Redis/Postgres failure must degrade to an
+	// empty-but-valid resource instead of 503 + "Usage chưa phản hồi".
 	now := time.Now()
 	since := []int64{now.Add(-time.Hour).UnixMilli(), now.Add(-24 * time.Hour).UnixMilli(), now.Add(-30 * 24 * time.Hour).UnixMilli(), 0}
 	m := make([]cloud.MCPUsageSummary, 4)
@@ -79,8 +83,7 @@ func (s *Server) usageResourceAPI(w http.ResponseWriter, r *http.Request) {
 			c[i], err = s.Store.DashboardChatUsageSummary(r.Context(), identity.User.ID, start)
 		}
 		if err != nil {
-			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "usage_unavailable"})
-			return
+			slog.Warn("dashboard usage telemetry degraded; returning empty window", "windowIndex", i, "error", err, "userId", identity.User.ID)
 		}
 	}
 	webutil.JSON(w, http.StatusOK, buildUsageResourceDTO(m[0], m[1], m[2], m[3], c[0], c[1], c[2], c[3]))
