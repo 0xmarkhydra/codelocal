@@ -152,7 +152,8 @@ func TestDashboardCommunityModelWithoutPrivateContextNeedsAllowCommunity(t *test
 	}
 }
 
-func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {	clearAIPoolEnv(t)
+func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {
+	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
 	if dashboardCommunityWorkspaceAllowed() {
 		t.Fatal("community workspace opt-in must default to off")
