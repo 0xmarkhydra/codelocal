@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -132,5 +133,21 @@ func TestDashboardAIPoolRouteIsExclusiveWhenConfigured(t *testing.T) {
 	providerQualified := dashboardLLMRoute("cc/claude-sonnet", false)
 	if len(providerQualified) != 0 {
 		t.Fatalf("provider-qualified ids must never be routable from CodeLocal UI: %#v", providerQualified)
+	}
+}
+
+func TestDashboardCommunityModelWithoutPrivateContextNeedsAllowCommunity(t *testing.T) {
+	clearAIPoolEnv(t)
+	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
+	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
+	t.Setenv("OPENCODE_ZEN_API_KEY", "")
+	if got := dashboardLLMRoute(dashboardModelMuse, false); len(got) != 0 {
+		t.Fatalf("community muse with private context must have no route: %#v", got)
+	}
+	if got := dashboardLLMRoute(dashboardModelMuse, true); len(got) != 1 {
+		t.Fatalf("community muse without private context must route: %#v", got)
+	}
+	if msg := dashboardCommunityBlockedMessage(); !strings.Contains(msg, "Auto") || !strings.Contains(msg, "workspace") {
+		t.Fatalf("blocked message must guide the user: %q", msg)
 	}
 }

@@ -130,6 +130,13 @@ func dashboardZenLanePinned() bool {
 	return ok
 }
 
+// dashboardCommunityBlockedMessage explains why a request still has no route
+// even though providers are configured: community models must not receive
+// workspace-bound, image, or sensitive content.
+func dashboardCommunityBlockedMessage() string {
+	return "Model community miễn phí (Muse 1.3, GLM, Qwen) không nhận nội dung gắn workspace, ảnh hoặc thông tin nhạy cảm. Bạn bỏ workspace đang chọn rồi gửi lại, hoặc chuyển model sang Auto để tiếp tục."
+}
+
 func dashboardLegacyTarget() (dashboardLLMTarget, bool) {
 	apiKey, baseURL, model := dashboardLLMConfig()
 	if strings.TrimSpace(apiKey) == "" {

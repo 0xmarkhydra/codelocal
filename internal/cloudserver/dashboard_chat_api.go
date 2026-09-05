@@ -779,7 +779,6 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	selection := dashboardNormalizeModelSelection(req.Model)
 	allowCommunity := dashboardCommunityEligible(req) && promptWorkspace == nil
 	route := dashboardLLMRoute(selection, allowCommunity)
-	model := selection
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -801,6 +800,14 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		// Mock stream when no configured route is available.
 		if len(route) == 0 {
+			if len(dashboardLLMRoute(selection, true)) > 0 {
+				nowBlocked := time.Now().UnixMilli()
+				if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowBlocked}); err != nil {
+					slog.Warn("dashboard chat stream blocked save user failed", "error", err)
+				}
+				writeSSE("error", map[string]string{"error": dashboardCommunityBlockedMessage()})
+				return
+			}
 			lower2 := strings.ToLower(msg)
 			var tcs []dashboardToolCall
 			var reply string
@@ -814,7 +821,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 				tcs = []dashboardToolCall{{ID: "mock_2", Name: "list_devices", Arguments: `{}`, Result: `{"paired":1,"online":1}`, DurationMs: 18, Status: "done"}}
 				reply = "Thiết bị đã pair (Go mock stream):"
 			} else {
-				reply = "CodeLocal Go (mock stream - chưa gắn CODELOCAL_LLM_API_KEY): đã nhận \"" + msg + "\"."
+				reply = "CodeLocal Go (mock - chưa gắn key LLM nào): đã nhận \"" + msg + "\". Gắn key trên Railway variables để chat thật."
 			}
 			if len(tcs) > 0 {
 				writeSSE("tool_calls", map[string]any{"tool_calls": tcs})
@@ -871,6 +878,14 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	lower := strings.ToLower(msg)
 	if len(route) == 0 {
+		if len(dashboardLLMRoute(selection, true)) > 0 {
+			nowBlocked := time.Now().UnixMilli()
+			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowBlocked}); err != nil {
+				slog.Warn("dashboard chat blocked save user failed", "error", err, "user", identity.User.ID)
+			}
+			webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": dashboardCommunityBlockedMessage()})
+			return
+		}
 		var tcs []dashboardToolCall
 		var reply string
 		if req.Image != "" {
@@ -886,7 +901,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			tcs = []dashboardToolCall{{ID: "mock_3", Name: "search_project_brain", Arguments: `{"query":` + jsonQuote(msg) + `}`, Result: `{"hits":3}`, DurationMs: 55, Status: "done"}}
 			reply = "Kết quả Project Brain (Go mock):"
 		} else {
-			reply = "CodeLocal Go (mock - chưa gắn CODELOCAL_LLM_API_KEY): đã nhận \"" + msg + "\". Gắn key vào Go env (railway.json) với MODEL=" + model + " để dùng model free qua codelocal."
+			reply = "CodeLocal Go (mock - chưa gắn key LLM nào): đã nhận \"" + msg + "\". Gắn key trên Railway variables (OPENCODE_ZEN_API_KEY hoặc CODELOCAL_SHOPAIKEY_API_KEY) để chat thật."
 		}
 		// persist to backend (not FE localStorage)
 		now := time.Now().UnixMilli()
