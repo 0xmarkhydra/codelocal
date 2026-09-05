@@ -2371,7 +2371,15 @@
   .sidebar { position: fixed; }
   .content { height: auto; min-height: 100dvh; overflow: visible; padding: 72px 14px 28px; }
   .editorContent { height: auto; min-height: 100dvh; overflow: visible; padding: 62px 10px 12px; }
-  .chatContent { height: var(--app-viewport-height, 100dvh); overflow: hidden; padding: 5px 5px calc(8px + env(safe-area-inset-bottom)); }
+  .chatContent {
+    height: var(--app-viewport-height, 100dvh);
+    overflow: hidden;
+    padding:
+      calc(5px + env(safe-area-inset-top))
+      calc(5px + env(safe-area-inset-right))
+      calc(8px + env(safe-area-inset-bottom))
+      calc(5px + env(safe-area-inset-left));
+  }
   .header { align-items: flex-start; flex-direction: column; min-height: 60px; margin-bottom: 14px; }
   .header h1 { font-size: 28px; }
   .brainHeader { flex-direction: row; align-items: center; }
@@ -2757,7 +2765,14 @@
   :global(html[data-keyboard-open="true"]) .mobileMenuTrigger { display: none; }
   :global(html[data-keyboard-open="true"]) .sidebar.sidebarOpen { display: flex; }
   .content { padding-top: 72px; padding-bottom: 24px; }
-  .chatContent { padding: 5px 5px calc(8px + env(safe-area-inset-bottom)); }
+  .chatContent {
+    padding:
+      calc(5px + env(safe-area-inset-top))
+      calc(5px + env(safe-area-inset-right))
+      calc(8px + env(safe-area-inset-bottom))
+      calc(5px + env(safe-area-inset-left));
+  }
+  :global(html[data-keyboard-open="true"]) .chatContent { padding-bottom: 4px; }
   .brainContent { padding-top: 62px !important; padding-bottom: 6px !important; }
   .brainStage { height: calc(100dvh - 68px); }
 }

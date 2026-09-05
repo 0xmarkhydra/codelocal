@@ -1270,6 +1270,8 @@
 .streamingDots i:nth-child(3) { animation-delay: 240ms; }
 
 .richMessage {
+  width: 100%;
+  max-width: 100%;
   display: grid;
   gap: 10px;
   min-width: 0;
@@ -1305,10 +1307,11 @@
 }
 
 .richMessage code {
-  display: inline-flex;
-  align-items: center;
+  display: inline;
   min-height: 21px;
   padding: 1px 6px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   border: 1px solid rgba(125, 151, 255, 0.12);
   border-radius: 6px;
   background: rgba(80, 103, 190, 0.09);
@@ -1398,6 +1401,9 @@
 .richMessage a:hover { text-decoration-color: currentColor; }
 
 .richCodeWrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid rgba(125, 151, 255, 0.12);
   border-radius: 12px;
@@ -1458,10 +1464,13 @@
 .richCodeCopy svg { width: 12px; height: 12px; flex: 0 0 auto; }
 
 .richCodeBlock {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   margin: 0;
   padding: 11px 13px;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1491,8 +1500,11 @@
 .richMessage input[type="checkbox"] { margin: 0 7px 0 0; accent-color: #7e9fff; }
 
 .richTableWrap {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 10px;
 }
@@ -1678,8 +1690,15 @@
 
 @media (max-width: 620px) {
   .chatWorkspace { height: 100%; }
-  .chatForm { margin-bottom: max(5px, env(safe-area-inset-bottom)); }
-  .chatForm textarea { min-height: 42px; max-height: 144px; overflow-y: auto; resize: none; }
+  .chatForm { gap: 1px; margin-bottom: 5px; padding: 7px 9px 8px; }
+  .chatForm textarea {
+    min-height: 30px;
+    max-height: min(112px, 22dvh);
+    padding: 4px 5px 3px;
+    overflow-y: auto;
+    resize: none;
+  }
+  .chatForm textarea:placeholder-shown { height: 30px !important; }
   :global(html[data-keyboard-open="true"]) .threadSidebar { display: none; }
   :global(html[data-keyboard-open="true"]) .chatWorkspace { grid-template-rows: minmax(0, 1fr); gap: 0; }
 }
@@ -2288,8 +2307,33 @@
   .threadDrawerBackdropOpen { opacity: 1; pointer-events: auto; }
 
   .chatShell { border-radius: 18px; }
-  .chatHead { min-height: 52px; padding: 8px 10px; }
+  .chatHead {
+    min-width: 0;
+    min-height: 52px;
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .brandBlock { min-width: 0; flex: 0 1 auto; }
+  .chatActions { min-width: 0; flex: 1 1 auto; justify-content: flex-end; overflow: hidden; }
+  .modelPickerShell { min-width: 0; flex: 1 1 0; }
+  .modelPicker,
+  .projectPicker { min-width: 0; max-width: none; flex: 1 1 0; }
+  .modelPickerName,
+  .projectPicker select { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chatMessages { padding: 16px 12px; }
+  .messageBody,
+  .richMessage,
+  .richCodeWrap,
+  .richCodeBlock,
+  .richTableWrap,
+  .toolList,
+  .toolActionRow,
+  .toolPill { min-width: 0; max-width: 100%; }
+  .richMessage p,
+  .richMessage li,
+  .richMessage blockquote,
+  .richMessage h3,
+  .richMessage h4 { min-width: 0; overflow-wrap: anywhere; }
   .msgBlock { width: 100%; margin-bottom: 20px; }
 
   .chatForm {
@@ -2303,14 +2347,18 @@
 @media (max-width: 560px) {
   .chatWorkspace { grid-template-rows: minmax(0, 1fr); }
 
-  .brandBlock { gap: 7px; }
-  .nameRow h1 { font-size: 14.5px; }
+  .brandBlock { gap: 5px; }
+  .nameRow { display: none; }
   .tokenUsage { display: none; }
   .projectPickerIcon { display: none; }
 
-  .projectPicker { padding: 0 8px; }
-  .projectPicker select { font-size: 11px; }
-  .modelPickerName { max-width: 110px; font-size: 11.5px; }
+  .chatActions { gap: 3px; }
+  .modelPickerShell { max-width: 44%; }
+  .modelPicker { width: 100%; padding: 0 6px; }
+  .modelPickerCount { display: none; }
+  .projectPicker { width: 48%; padding: 0 6px; }
+  .projectPicker select { width: 100%; font-size: 11px; }
+  .modelPickerName { max-width: none; font-size: 11.5px; }
 
   .chatShell .chatForm {
     width: calc(100dvw - 26px);
