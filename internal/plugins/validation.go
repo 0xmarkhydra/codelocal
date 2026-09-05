@@ -174,6 +174,10 @@ func validateAppTemplate(manifest Manifest, template AppTemplateDefinition) (boo
 	if err := validateAuth(template.Auth); err != nil {
 		return false, err
 	}
+	needsPrivacy, err := validateCapabilities(template.Capabilities)
+	if err != nil {
+		return false, err
+	}
 	switch template.Transport {
 	case TransportMCPHTTP:
 	case TransportMCPStdioLocal:
@@ -199,7 +203,7 @@ func validateAppTemplate(manifest Manifest, template AppTemplateDefinition) (boo
 			return false, err
 		}
 	}
-	return template.Transport == TransportMCPHTTP, nil
+	return needsPrivacy || template.Transport == TransportMCPHTTP, nil
 }
 
 func validateSkillReference(skill SkillReference) error {

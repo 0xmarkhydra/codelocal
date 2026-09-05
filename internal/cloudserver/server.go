@@ -276,6 +276,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("PATCH /api/v1/dashboard/chat/threads/{id}", s.dashboardChatThreadAPI)
 	mux.HandleFunc("DELETE /api/v1/dashboard/chat/threads/{id}", s.dashboardChatThreadAPI)
 	s.registerSkillRoutes(mux)
+	s.registerPluginRoutes(mux)
 	mux.HandleFunc("GET /api/v1/devices", s.devicesResourceAPI)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspacesResourceAPI)
 	mux.HandleFunc("GET /api/v1/runtime/settings", s.runtimeSettingsResourceAPI)

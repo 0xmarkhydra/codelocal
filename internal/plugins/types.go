@@ -93,9 +93,10 @@ type AppTemplateField struct {
 }
 
 type AppTemplateDefinition struct {
-	Transport AppTransport       `json:"transport"`
-	Auth      AuthDefinition     `json:"auth"`
-	Fields    []AppTemplateField `json:"fields,omitempty"`
+	Transport    AppTransport       `json:"transport"`
+	Auth         AuthDefinition     `json:"auth"`
+	Capabilities []Capability       `json:"capabilities,omitempty"`
+	Fields       []AppTemplateField `json:"fields,omitempty"`
 }
 
 type Component struct {

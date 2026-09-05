@@ -13,6 +13,7 @@ type NavigationItem = { label: string; href: string; icon: AppIconName };
 type NavigationGroup = { label: string; icon: AppIconName; items: NavigationItem[] };
 
 const chat: NavigationItem = { label: "Chat", href: "/dashboard", icon: "chat" };
+const plugins: NavigationItem = { label: "Plugins", href: "/dashboard/plugins", icon: "plugin" };
 const intelligence: NavigationGroup = {
   label: "Intelligence", icon: "brain", items: [
     { label: "Brain", href: "/dashboard/knowledge", icon: "brain" },
@@ -68,6 +69,7 @@ export function DashboardNav({ onNavigate }: { onNavigate?: () => void } = {}) {
     <nav className={styles.nav} aria-label="Dashboard navigation" onClick={(event) => { if ((event.target as HTMLElement).closest("a")) onNavigate?.(); }}>
       <div className={styles.navPrimary}>
         <NavLink item={chat} pathname={pathname} />
+        <NavLink item={plugins} pathname={pathname} />
         <NavGroup group={intelligence} pathname={pathname} mobileMain />
         {primary.map((item) => <NavLink item={item} pathname={pathname} key={item.href} />)}
         <NavGroup group={create} pathname={pathname} />
