@@ -102,7 +102,6 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 
 func (e *Engine) SetRuntimeEnvironment(values, secrets map[string]string) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.runtimeEnv = make(map[string]string, len(values))
 	for key, value := range values {
 		e.runtimeEnv[key] = value
@@ -112,6 +111,13 @@ func (e *Engine) SetRuntimeEnvironment(values, secrets map[string]string) {
 		e.runtimeSecrets[key] = value
 	}
 	e.rebuildRuntimeRedactLocked()
+	_, penpotConfigured := e.runtimeSecrets[managedPenpotCredentialRef()]
+	e.mu.Unlock()
+	ref := ""
+	if penpotConfigured {
+		ref = managedPenpotCredentialRef()
+	}
+	_ = e.MCP.SetManagedPenpotCredentialRef(ref)
 }
 
 func (e *Engine) rebuildRuntimeRedactLocked() {

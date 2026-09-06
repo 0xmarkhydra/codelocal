@@ -53,6 +53,16 @@ func TestPluginMCPConfigAllowsLoopbackHTTP(t *testing.T) {
 	}
 }
 
+func TestManagedPenpotAcceptsOnlyHostedEndpoint(t *testing.T) {
+	endpoint, err := validateManagedPenpotEndpoint(plugindomain.ManagedPenpotMCPURL)
+	if err != nil || endpoint != plugindomain.ManagedPenpotMCPURL {
+		t.Fatalf("hosted endpoint rejected: endpoint=%q err=%v", endpoint, err)
+	}
+	if _, err := validateManagedPenpotEndpoint("https://example.com/mcp"); err == nil {
+		t.Fatal("arbitrary endpoint accepted for managed Penpot")
+	}
+}
+
 func TestPluginMCPServerNameIsStableAndBounded(t *testing.T) {
 	longID := "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghij"
 	first, err := pluginMCPServerName(longID)
@@ -89,5 +99,33 @@ func TestRemovePluginMCPClearsOnlyMatchingManagedSecret(t *testing.T) {
 	wrongRef := plugindomain.ManagedCredentialReference("notion")
 	if _, err := engine.removePluginMCP(map[string]any{"pluginId": "github", "credentialRef": wrongRef}); err == nil {
 		t.Fatal("cross-Plugin credential cleanup was accepted")
+	}
+}
+
+func TestRemoveManagedPenpotClearsKeyButKeepsSystemServer(t *testing.T) {
+	engine, err := New(t.TempDir(), "workspace", "Workspace", "key", "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	ref := managedPenpotCredentialRef()
+	engine.SetRuntimeEnvironment(nil, map[string]string{ref: "secret-value"})
+	result, err := engine.removePluginMCP(map[string]any{"pluginId": managedPenpotPluginID, "credentialRef": ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.(map[string]any)["serverName"] != managedPenpotPluginID {
+		t.Fatalf("unexpected disconnect result: %#v", result)
+	}
+	if _, exists := engine.runtimeSecrets[ref]; exists {
+		t.Fatal("managed Penpot key remained materialized")
+	}
+	listed, err := engine.MCP.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers := listed.([]map[string]any)
+	if len(servers) != 1 || servers[0]["name"] != managedPenpotPluginID {
+		t.Fatalf("system Penpot server was removed: %#v", servers)
 	}
 }

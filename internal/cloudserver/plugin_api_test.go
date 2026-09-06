@@ -38,7 +38,7 @@ func TestPluginCatalogResponseProjectsInstallStateCapabilitiesAndConnections(t *
 			penpot = &response.Items[index]
 		}
 	}
-	if penpot == nil || !penpot.System || !penpot.Installed || penpot.InstallationState != "system" || penpot.ServerName != "penpot" {
+	if penpot == nil || !penpot.System || !penpot.Installed || !penpot.SetupRequired || penpot.InstallationState != "system" || penpot.ServerName != "penpot" {
 		t.Fatalf("unexpected Penpot system plugin: %#v", penpot)
 	}
 	if github == nil || !github.Installed || github.UpdateAvailable || !github.SetupRequired {

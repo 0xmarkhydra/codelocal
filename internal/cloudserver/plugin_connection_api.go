@@ -173,25 +173,40 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pluginID := strings.TrimSpace(r.PathValue("pluginID"))
-	if _, exists := plugindomain.FindBuiltin(pluginID); !exists {
+	entry, exists := plugindomain.FindBuiltin(pluginID)
+	if !exists {
 		webutil.JSON(w, http.StatusNotFound, map[string]string{"error": "plugin_not_found"})
 		return
 	}
-	installation, installed, err := s.Store.PluginInstallationByID(r.Context(), identity.User.ID, pluginID)
-	if err != nil {
-		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugins_unavailable"})
-		return
-	}
-	if !installed || installation.State != cloud.PluginInstalled {
-		webutil.JSON(w, http.StatusConflict, map[string]string{"error": "plugin_not_installed"})
-		return
+	if !entry.DefaultInstalled {
+		installation, installed, err := s.Store.PluginInstallationByID(r.Context(), identity.User.ID, pluginID)
+		if err != nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugins_unavailable"})
+			return
+		}
+		if !installed || installation.State != cloud.PluginInstalled {
+			webutil.JSON(w, http.StatusConflict, map[string]string{"error": "plugin_not_installed"})
+			return
+		}
 	}
 	var input pluginConnectInput
 	if err := webutil.DecodeJSON(r, 32<<10, &input); err != nil {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plugin_connection", "detail": "Invalid Plugin connection settings."})
 		return
 	}
-	input, err = validatePluginConnectionInput(input)
+	if pluginID == "penpot" {
+		if strings.TrimSpace(input.BearerEnv) != "" {
+			webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plugin_connection", "detail": "Penpot MCP keys must be stored encrypted by CodeLocal."})
+			return
+		}
+		if pasted, parseErr := url.Parse(strings.TrimSpace(input.BearerToken)); parseErr == nil && pasted.IsAbs() {
+			if token := strings.TrimSpace(pasted.Query().Get("userToken")); token != "" {
+				input.BearerToken = token
+			}
+		}
+		input.Endpoint = plugindomain.ManagedPenpotMCPURL
+	}
+	input, err := validatePluginConnectionInput(input)
 	if err != nil {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plugin_connection", "detail": err.Error()})
 		return

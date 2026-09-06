@@ -65,6 +65,8 @@ type ConnectionInput = {
 
 type Notice = { kind: "success" | "error"; text: string } | null;
 
+const hostedPenpotMcpEndpoint = "https://design.codelocal.cloud/mcp/stream";
+
 const permissionLabels: Record<string, string> = {
   external_read: "Read external data",
   external_write: "Create or update external data",
@@ -156,6 +158,7 @@ function PluginCard({
   const categories = (plugin.categories ?? []).slice(0, 3);
   const connections = plugin.connections ?? [];
   const onlineWorkspaces = workspaces.filter((workspace) => workspace.runtimeOnline);
+  const isPenpot = plugin.id === "penpot";
   const monogram = plugin.name.slice(0, 2).toUpperCase();
   const readyConnections = plugin.connectedCount ?? connections.filter((connection) => connection.state === "ready").length;
   const hasConnectionError = connections.some((connection) => connection.state === "error");
@@ -171,7 +174,7 @@ function PluginCard({
       ? onlineWorkspaces.find((workspace) => workspace.deviceId === existing.deviceId)
       : onlineWorkspaces[0];
     setSelectedWorkspace(preferred ? workspaceValue(preferred) : "");
-    setEndpoint(existing?.endpoint ?? "");
+    setEndpoint(existing?.endpoint ?? (isPenpot ? hostedPenpotMcpEndpoint : ""));
     setBearerEnv(existing?.credentialRef?.startsWith("CODELOCAL_PLUGIN_") ? "" : existing?.credentialRef ?? "");
     setBearerToken("");
     setShowConfig(true);
@@ -179,7 +182,7 @@ function PluginCard({
 
   async function submitConnection() {
     const selected = parseWorkspaceValue(selectedWorkspace);
-    if (!selected || !endpoint.trim()) return;
+    if (!selected || !endpoint.trim() || (isPenpot && connections.length === 0 && !bearerToken.trim())) return;
     await connect(plugin, {
       ...selected,
       endpoint: endpoint.trim(),
@@ -248,7 +251,7 @@ function PluginCard({
           <div className={styles.configHeader}>
             <div>
               <strong>Configure connection</strong>
-              <span>The MCP server is installed on your selected CodeLocal device.</span>
+              <span>{isPenpot ? "Connect this device to CodeLocal's hosted Penpot MCP." : "The MCP server is installed on your selected CodeLocal device."}</span>
             </div>
             <button aria-label="Close Plugin configuration" className={styles.iconButton} onClick={() => setShowConfig(false)} type="button">×</button>
           </div>
@@ -261,21 +264,21 @@ function PluginCard({
           </label>
           <label className={styles.field}>
             <span>MCP endpoint</span>
-            <input autoComplete="off" inputMode="url" onChange={(event) => setEndpoint(event.target.value)} placeholder="https://example.com/mcp" type="url" value={endpoint} />
+            <input autoComplete="off" inputMode="url" onChange={(event) => setEndpoint(event.target.value)} placeholder="https://example.com/mcp" readOnly={isPenpot} type="url" value={endpoint} />
           </label>
           <label className={styles.field}>
-            <span>Bearer token <em>optional</em></span>
+            <span>{isPenpot ? "Penpot MCP key or copied server URL" : <>Bearer token <em>optional</em></>}</span>
             <input autoCapitalize="none" autoComplete="new-password" disabled={Boolean(bearerEnv)} onChange={(event) => setBearerToken(event.target.value)} placeholder="Stored encrypted by CodeLocal" spellCheck={false} type="password" value={bearerToken} />
           </label>
-          <label className={styles.field}>
+          {!isPenpot && <label className={styles.field}>
             <span>Or local token env <em>optional</em></span>
             <input autoCapitalize="none" autoComplete="off" disabled={Boolean(bearerToken)} onChange={(event) => setBearerEnv(event.target.value)} placeholder="GITHUB_TOKEN" spellCheck={false} value={bearerEnv} />
-          </label>
-          <p className={styles.credentialNote}><AppIcon name="shield" size={13} />Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device.</p>
+          </label>}
+          <p className={styles.credentialNote}><AppIcon name="shield" size={13} />{isPenpot ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal stores it encrypted and never writes it into your repository." : "Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device."}</p>
           {onlineWorkspaces.length === 0 && <p className={styles.configWarning}>No running CodeLocal workspace found. Start <code>codelocal</code> on a paired device first.</p>}
           <div className={styles.configActions}>
             <button className={styles.secondaryButton} disabled={busy} onClick={() => setShowConfig(false)} type="button">Cancel</button>
-            <button className={styles.primaryButton} disabled={busy || !selectedWorkspace || !endpoint.trim()} onClick={() => void submitConnection()} type="button">{busy ? "Connecting…" : "Connect & test"}</button>
+            <button className={styles.primaryButton} disabled={busy || !selectedWorkspace || !endpoint.trim() || (isPenpot && connections.length === 0 && !bearerToken.trim())} onClick={() => void submitConnection()} type="button">{busy ? "Connecting…" : "Connect & test"}</button>
           </div>
         </div>
       )}

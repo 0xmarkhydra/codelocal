@@ -1,6 +1,7 @@
 package mcphub
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,6 +34,52 @@ func TestManagedPenpotConfigIsAlwaysExposed(t *testing.T) {
 	}
 	if cfg.Name != managedPenpotName || !cfg.Managed || !cfg.Enabled || cfg.URL != managedPenpotURL {
 		t.Fatalf("unexpected default managed config: %#v", cfg)
+	}
+}
+
+func TestManagedPenpotDefaultsToHostedRuntime(t *testing.T) {
+	t.Setenv("CODELOCAL_PENPOT_MCP_URL", "")
+	cfg, ok := managedPenpotConfig()
+	if !ok {
+		t.Fatal("expected managed Penpot config")
+	}
+	if managedPenpotUsesLocalRuntime(cfg.URL) {
+		t.Fatalf("production Penpot endpoint must not start a local process: %s", cfg.URL)
+	}
+	if cfg.URL != "https://design.codelocal.cloud/mcp/stream" {
+		t.Fatalf("unexpected hosted endpoint: %s", cfg.URL)
+	}
+}
+
+func TestManagedPenpotCredentialIsMaterializedOnlyIntoTransportURL(t *testing.T) {
+	hub, err := New(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+	hub.SetSecretResolver(func(name string) (string, bool) {
+		if name == "PENPOT_TEST_TOKEN" {
+			return "top-secret-token", true
+		}
+		return "", false
+	})
+	if err := hub.SetManagedPenpotCredentialRef("PENPOT_TEST_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := managedPenpotConfig()
+	query, err := hub.managedPenpotQuery(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Get("userToken") != "top-secret-token" {
+		t.Fatalf("credential missing from transport query: %s", query.Encode())
+	}
+	listed, err := hub.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(fmt.Sprint(listed), "top-secret-token") {
+		t.Fatal("managed Penpot credential leaked into public server metadata")
 	}
 }
 

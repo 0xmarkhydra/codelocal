@@ -79,6 +79,7 @@ type Hub struct {
 	sessions   map[string]*connected
 	connecting map[string]chan struct{}
 	penpot     bool
+	penpotRef  string
 	close      chan struct{}
 	once       sync.Once
 }
@@ -90,6 +91,24 @@ func (h *Hub) SetSecretResolver(resolve SecretResolver) {
 	h.mu.Lock()
 	h.secrets = resolve
 	h.mu.Unlock()
+}
+
+// SetManagedPenpotCredentialRef selects the opaque runtime-secret reference
+// used as Penpot's remote userToken. The secret itself stays in the encrypted
+// runtime settings store and is appended only to outgoing MCP requests.
+func (h *Hub) SetManagedPenpotCredentialRef(ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref != "" && !envRE.MatchString(ref) {
+		return errors.New("invalid managed Penpot credential reference")
+	}
+	h.mu.Lock()
+	changed := h.penpotRef != ref
+	h.penpotRef = ref
+	h.mu.Unlock()
+	if changed {
+		_ = h.disconnect(managedPenpotName)
+	}
+	return nil
 }
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -470,6 +489,33 @@ func (h *Hub) materializeHeaders(refs map[string]HeaderReference) (http.Header, 
 	}
 	return headers, nil
 }
+
+func (h *Hub) managedPenpotQuery(config ServerConfig) (url.Values, error) {
+	if managedPenpotUsesLocalRuntime(config.URL) {
+		return nil, nil
+	}
+	h.mu.Lock()
+	ref := h.penpotRef
+	resolveSecret := h.secrets
+	h.mu.Unlock()
+	if ref == "" {
+		return nil, nil
+	}
+	value, ok := "", false
+	if resolveSecret != nil {
+		value, ok = resolveSecret(ref)
+	}
+	if !ok {
+		value, ok = os.LookupEnv(ref)
+	}
+	if !ok || strings.TrimSpace(value) == "" {
+		return nil, fmt.Errorf("managed Penpot MCP key %s is not configured", ref)
+	}
+	query := url.Values{}
+	query.Set("userToken", value)
+	return query, nil
+}
+
 func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) (*mcp.ClientSession, error) {
 	h.mu.Lock()
 	if s := h.sessions[config.Name]; s != nil {
@@ -490,8 +536,14 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 	h.connecting[config.Name] = ch
 	h.mu.Unlock()
 	defer func() { h.mu.Lock(); delete(h.connecting, config.Name); close(ch); h.mu.Unlock() }()
+	requestQuery := url.Values(nil)
 	if config.Managed && config.Name == managedPenpotName {
-		if err := h.ensureManagedPenpot(ctx); err != nil {
+		if err := h.ensureManagedPenpot(ctx, config); err != nil {
+			return nil, err
+		}
+		var err error
+		requestQuery, err = h.managedPenpotQuery(config)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -522,7 +574,7 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 		if err != nil {
 			return nil, err
 		}
-		httpClient := &http.Client{Timeout: 0, Transport: &headerTransport{base: http.DefaultTransport, headers: headers}}
+		httpClient := &http.Client{Timeout: 0, Transport: &headerTransport{base: http.DefaultTransport, headers: headers, query: requestQuery}}
 		transport = &mcp.StreamableClientTransport{Endpoint: config.URL, HTTPClient: httpClient}
 	}
 	session, err := client.Connect(ctx, transport, nil)
@@ -538,6 +590,7 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 type headerTransport struct {
 	base    http.RoundTripper
 	headers http.Header
+	query   url.Values
 }
 
 func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -545,6 +598,16 @@ func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone.Header = r.Header.Clone()
 	for k, v := range t.headers {
 		clone.Header[k] = append([]string(nil), v...)
+	}
+	if len(t.query) > 0 {
+		query := clone.URL.Query()
+		for key, values := range t.query {
+			query.Del(key)
+			for _, value := range values {
+				query.Add(key, value)
+			}
+		}
+		clone.URL.RawQuery = query.Encode()
 	}
 	return t.base.RoundTrip(clone)
 }

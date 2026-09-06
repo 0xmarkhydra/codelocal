@@ -5,6 +5,8 @@ import (
 	"sort"
 )
 
+const ManagedPenpotMCPURL = "https://design.codelocal.cloud/mcp/stream"
+
 type CatalogEntry struct {
 	Manifest         Manifest        `json:"manifest"`
 	Featured         bool            `json:"featured,omitempty"`
@@ -38,13 +40,17 @@ func builtinPenpotCatalogEntry() CatalogEntry {
 			Scope:         ScopeSystem,
 			Distribution:  DistributionInternal,
 			Components: []Component{{
-				Kind: ComponentApp,
+				Kind: ComponentAppTemplate,
 				ID:   "penpot-design",
-				App: &AppDefinition{
-					Transport: TransportMCPHTTP, Endpoint: "http://127.0.0.1:4401/mcp",
-					Auth:         AuthDefinition{Kind: AuthNone},
+				AppTemplate: &AppTemplateDefinition{
+					Transport:    TransportMCPHTTP,
+					Auth:         AuthDefinition{Kind: AuthHeaderReference},
 					Capabilities: []Capability{CapabilityExternalRead, CapabilityExternalWrite, CapabilityNetwork},
-					Execution:    []ExecutionTarget{ExecutionLocal, ExecutionCloud}, ToolNamespace: "penpot",
+					Execution:    []ExecutionTarget{ExecutionLocal, ExecutionCloud},
+					Fields: []AppTemplateField{
+						{Key: "endpoint", Label: "Hosted Penpot MCP endpoint", Required: true, Description: ManagedPenpotMCPURL},
+						{Key: "userToken", Label: "Penpot MCP key", Required: true, Secret: true, Description: "Generate this key in Penpot under Account → Integrations → MCP Server."},
+					},
 				},
 			}},
 		},

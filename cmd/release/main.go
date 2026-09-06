@@ -123,7 +123,6 @@ process.exit(result.status ?? 1);
 		"dependencies": map[string]string{
 			"@playwright/cli":        "0.1.17",
 			"@mobilenext/mobile-mcp": "1.0.2",
-			"@penpot/mcp":            "2.17.0",
 		},
 		"keywords": []string{"chatgpt", "mcp", "coding", "local", "go", "playwright", "browser-automation", "computer-use"},
 	}

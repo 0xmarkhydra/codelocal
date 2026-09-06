@@ -16,6 +16,23 @@ import (
 
 var pluginEnvNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+const managedPenpotPluginID = "penpot"
+
+func managedPenpotCredentialRef() string {
+	return plugindomain.ManagedCredentialReference(managedPenpotPluginID)
+}
+
+func validateManagedPenpotEndpoint(raw string) (string, error) {
+	endpoint, err := validatePluginEndpoint(raw)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSuffix(endpoint, "/") != strings.TrimSuffix(plugindomain.ManagedPenpotMCPURL, "/") {
+		return "", errors.New("managed Penpot must use CodeLocal's hosted MCP endpoint")
+	}
+	return plugindomain.ManagedPenpotMCPURL, nil
+}
+
 func pluginMCPServerName(pluginID string) (string, error) {
 	pluginID = strings.TrimSpace(pluginID)
 	if pluginID == "" {
@@ -94,6 +111,9 @@ func (e *Engine) configurePluginMCP(ctx context.Context, args map[string]any) (a
 	if clearCredentialRef != "" && !plugindomain.IsManagedCredentialReference(pluginID, clearCredentialRef) {
 		return nil, errors.New("plugin credential reference does not belong to this Plugin")
 	}
+	if pluginID == managedPenpotPluginID {
+		return e.configureManagedPenpotMCP(ctx, args, clearCredentialRef)
+	}
 	config, err := pluginMCPConfig(args)
 	if err != nil {
 		return nil, err
@@ -135,15 +155,71 @@ func (e *Engine) configurePluginMCP(ctx context.Context, args map[string]any) (a
 	}, nil
 }
 
-func (e *Engine) removePluginMCP(args map[string]any) (any, error) {
-	pluginID := asString(args["pluginId"])
-	name, err := pluginMCPServerName(pluginID)
+func (e *Engine) configureManagedPenpotMCP(ctx context.Context, args map[string]any, clearCredentialRef string) (any, error) {
+	endpoint, err := validateManagedPenpotEndpoint(asString(args["endpoint"]))
 	if err != nil {
 		return nil, err
 	}
+	ref := strings.TrimSpace(asString(args["bearerEnv"]))
+	if ref != managedPenpotCredentialRef() {
+		return nil, errors.New("managed Penpot requires an encrypted CodeLocal MCP key")
+	}
+	if secret := strings.TrimSpace(asString(args["credentialSecret"])); secret != "" {
+		e.setRuntimeSecret(ref, secret)
+	}
+	e.mu.Lock()
+	_, hasSecret := e.runtimeSecrets[ref]
+	e.mu.Unlock()
+	if !hasSecret {
+		return nil, errors.New("managed Penpot MCP key is not configured")
+	}
+	if err := e.MCP.SetManagedPenpotCredentialRef(ref); err != nil {
+		return nil, err
+	}
+	if clearCredentialRef != "" && clearCredentialRef != ref {
+		e.deleteRuntimeSecret(clearCredentialRef)
+	}
+	probe, probeErr := e.MCP.Probe(ctx, managedPenpotPluginID, true)
+	if probeErr != nil {
+		return map[string]any{
+			"configured": true,
+			"connected":  false,
+			"serverName": managedPenpotPluginID,
+			"endpoint":   endpoint,
+			"error":      probeErr.Error(),
+		}, nil
+	}
+	toolCount := 0
+	if value, ok := probe["toolCount"].(int); ok {
+		toolCount = value
+	}
+	return map[string]any{
+		"configured": true,
+		"connected":  true,
+		"serverName": managedPenpotPluginID,
+		"endpoint":   endpoint,
+		"toolCount":  toolCount,
+	}, nil
+}
+
+func (e *Engine) removePluginMCP(args map[string]any) (any, error) {
+	pluginID := asString(args["pluginId"])
 	ref := strings.TrimSpace(asString(args["credentialRef"]))
 	if ref != "" && !plugindomain.IsManagedCredentialReference(pluginID, ref) {
 		return nil, errors.New("plugin credential reference does not belong to this Plugin")
+	}
+	if pluginID == managedPenpotPluginID {
+		if err := e.MCP.SetManagedPenpotCredentialRef(""); err != nil {
+			return nil, err
+		}
+		if ref != "" {
+			e.deleteRuntimeSecret(ref)
+		}
+		return map[string]any{"removed": 1, "serverName": managedPenpotPluginID}, nil
+	}
+	name, err := pluginMCPServerName(pluginID)
+	if err != nil {
+		return nil, err
 	}
 	result, err := e.MCP.Remove(name, "global")
 	if err != nil {

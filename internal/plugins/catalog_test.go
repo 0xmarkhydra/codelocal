@@ -37,6 +37,9 @@ func TestPenpotIsDefaultSystemPluginBoundToManagedMCP(t *testing.T) {
 	if len(entry.Runtime.Targets) != 2 || entry.Runtime.Targets[0] != ExecutionLocal || entry.Runtime.Targets[1] != ExecutionCloud {
 		t.Fatalf("unexpected Penpot execution targets: %#v", entry.Runtime.Targets)
 	}
+	if len(entry.Manifest.Components) != 1 || entry.Manifest.Components[0].Kind != ComponentAppTemplate || entry.Manifest.Components[0].AppTemplate == nil {
+		t.Fatalf("Penpot must require a hosted MCP key connection: %#v", entry.Manifest.Components)
+	}
 }
 
 func TestManifestCapabilitiesAreUniqueAndSorted(t *testing.T) {

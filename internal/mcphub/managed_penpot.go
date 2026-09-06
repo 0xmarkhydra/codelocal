@@ -13,13 +13,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	plugindomain "github.com/0xmarkhydra/codelocal/internal/plugins"
 )
 
 const (
 	managedPenpotName       = "penpot"
 	managedPenpotVersion    = "2.17.0"
 	managedPenpotNPXPackage = "@penpot/mcp@" + managedPenpotVersion
-	managedPenpotURL        = "http://127.0.0.1:4401/mcp"
+	managedPenpotURL        = plugindomain.ManagedPenpotMCPURL
 	managedPenpotAddr       = "127.0.0.1:4401"
 )
 
@@ -39,10 +41,10 @@ func managedPenpotConfig() (ServerConfig, bool) {
 		}
 		return ServerConfig{Name: managedPenpotName, Enabled: true, Managed: true, Scope: "global", Transport: "http", URL: endpoint}, true
 	}
-	// Penpot is a default-installed System Plugin, so its reserved server must
-	// remain visible even before the lazy backend process is started. Packaged
-	// installs resolve the bundled dependency; source/dev runtimes can resolve
-	// the pinned npx fallback when the first Penpot operation connects.
+	// Penpot is a default-installed System Plugin backed by CodeLocal's hosted
+	// Penpot deployment. The server remains visible before a user connects their
+	// per-account MCP key; the key is materialized only when the HTTP transport
+	// is opened and is never included in this public config.
 	return ServerConfig{Name: managedPenpotName, Enabled: true, Managed: true, Scope: "global", Transport: "http", URL: managedPenpotURL}, true
 }
 
@@ -97,12 +99,8 @@ func managedPenpotEnv() []string {
 	)
 }
 
-func managedPenpotUsesLocalRuntime() bool {
-	raw := strings.TrimSpace(os.Getenv("CODELOCAL_PENPOT_MCP_URL"))
-	if raw == "" {
-		return true
-	}
-	u, err := url.Parse(raw)
+func managedPenpotUsesLocalRuntime(endpoint string) bool {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil {
 		return false
 	}
@@ -194,8 +192,8 @@ func releaseManagedPenpotRuntime() {
 	}
 }
 
-func (h *Hub) ensureManagedPenpot(ctx context.Context) error {
-	if !managedPenpotUsesLocalRuntime() {
+func (h *Hub) ensureManagedPenpot(ctx context.Context, config ServerConfig) error {
+	if !managedPenpotUsesLocalRuntime(config.URL) {
 		return nil
 	}
 	h.mu.Lock()
