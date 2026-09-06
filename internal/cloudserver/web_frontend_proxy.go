@@ -42,7 +42,7 @@ func newWebFrontendProxyFromEnv() (http.Handler, error) {
 }
 
 func isNextPublicAssetPath(path string) bool {
-	return strings.HasPrefix(path, "/_next/") || path == "/favicon.ico" || path == "/codelocal-icon.png"
+	return strings.HasPrefix(path, "/_next/") || path == "/favicon.ico" || path == "/codelocal-icon.png" || path == "/demogpt6.html"
 }
 
 var nextDashboardPaths = map[string]struct{}{

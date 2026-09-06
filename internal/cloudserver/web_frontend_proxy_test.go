@@ -149,7 +149,7 @@ func TestWebFrontendMiddlewareProxiesPublicNextPages(t *testing.T) {
 	for _, path := range []string{
 		"/", "/privacy", "/terms", "/support", "/security", "/forgot-password", "/reset-password", "/healthz",
 		"/sitemap.xml", "/robots.txt", "/blogs", "/blogs/demo", "/blogs/series/demo", "/_next/static/app.js",
-		"/s/AbCdEf0123_-",
+		"/s/AbCdEf0123_-", "/demogpt6.html",
 	} {
 		t.Run(path, func(t *testing.T) {
 			calledNext := false

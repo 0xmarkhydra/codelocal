@@ -38,6 +38,7 @@ Public/account presentation:
 - `/support`
 - `/security`
 - `/healthz`
+- `/demogpt6.html`
 - `/_next/*`, `/favicon.ico`, `/codelocal-icon.png`
 
 Fresh-security protected presentation:
