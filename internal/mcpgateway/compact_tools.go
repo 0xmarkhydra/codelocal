@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/0xmarkhydra/codelocal/internal/orchestration"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -73,12 +74,20 @@ func requireArgs(args map[string]any, action string, names ...string) error {
 }
 
 func resolveAction(args map[string]any, actions map[string]string, required map[string][]string) (operationInvocation, map[string]any, error) {
-	action, _ := args["action"].(string)
-	action = strings.TrimSpace(action)
-	runtimeTool := actions[action]
-	if runtimeTool == "" {
-		return operationInvocation{}, nil, unsupportedActionSchemaError(action)
+	raw, _ := args["action"].(string)
+	resolved := orchestration.ResolveAction(raw)
+	available := make([]string, 0, len(actions))
+	for action := range actions {
+		available = append(available, action)
 	}
+	if err := orchestration.NewActionValidator(available).Validate(resolved); err != nil {
+		if orchestration.IsReplanRequired(err) {
+			return operationInvocation{}, nil, err
+		}
+		return operationInvocation{}, nil, unsupportedActionSchemaError(resolved.Normalized)
+	}
+	action := resolved.Normalized
+	runtimeTool := actions[action]
 	forward := cloneArgs(args)
 	delete(forward, "action")
 	if err := requireArgs(forward, action, required[action]...); err != nil {
@@ -481,6 +490,16 @@ func registerCompactTools(server *mcp.Server, service *Service, userID string) {
 			}
 			operation, forward, err := definition.Resolve(args)
 			if err != nil {
+				if orchestration.IsReplanRequired(err) {
+					return wrap(textResult(map[string]any{
+						"error":            err.Error(),
+						"code":             "CODELOCAL_REPLAN_REQUIRED",
+						"tool":             definition.Name,
+						"status":           "replan_required",
+						"requestReplan":    true,
+						"executionStarted": false,
+					}, true), nil)
+				}
 				var schemaErr *toolSchemaMismatchError
 				if errors.As(err, &schemaErr) {
 					return wrap(textResult(map[string]any{

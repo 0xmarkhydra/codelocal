@@ -10,6 +10,8 @@ type WorkspaceItem = WorkspacesResource["items"][number];
 
 type PluginConnection = {
   deviceId: string;
+  connection: string;
+  executionTarget: "local" | "cloud";
   workspaceKey: string;
   serverName: string;
   endpoint: string;
@@ -38,6 +40,9 @@ type PluginItem = {
   setupRequired?: boolean;
   connections?: PluginConnection[];
   connectedCount?: number;
+  system?: boolean;
+  executionTargets?: Array<"local" | "cloud">;
+  serverName?: string;
 };
 
 type PluginsResource = {
@@ -55,6 +60,7 @@ type ConnectionInput = {
   workspaceId: string;
   endpoint: string;
   bearerEnv: string;
+  bearerToken: string;
 };
 
 type Notice = { kind: "success" | "error"; text: string } | null;
@@ -85,6 +91,9 @@ function responseError(response: Response) {
         case "plugin_install_failed": return "CodeLocal could not save the Plugin installation.";
         case "plugin_uninstall_failed": return "CodeLocal could not remove the Plugin installation.";
         case "plugin_disconnect_required": return "Disconnect this Plugin from every device before removing it.";
+        case "system_plugin_required": return "System Plugins are managed by CodeLocal and cannot be removed.";
+        case "plugin_credential_store_failed": return "CodeLocal could not store this credential securely.";
+        case "plugin_credential_materialization_failed": return "CodeLocal could not materialize the encrypted credential for this device.";
         case "plugin_connection_not_found": return "This Plugin connection no longer exists.";
         case "plugin_workspace_unavailable": return "That CodeLocal workspace is offline or unavailable.";
         case "client_upgrade_required": return "Update the CodeLocal client on that device before configuring Plugins.";
@@ -154,6 +163,7 @@ function PluginCard({
   const [selectedWorkspace, setSelectedWorkspace] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [bearerEnv, setBearerEnv] = useState("");
+  const [bearerToken, setBearerToken] = useState("");
 
   function openConfigure() {
     const existing = connections[0];
@@ -162,7 +172,8 @@ function PluginCard({
       : onlineWorkspaces[0];
     setSelectedWorkspace(preferred ? workspaceValue(preferred) : "");
     setEndpoint(existing?.endpoint ?? "");
-    setBearerEnv(existing?.credentialRef ?? "");
+    setBearerEnv(existing?.credentialRef?.startsWith("CODELOCAL_PLUGIN_") ? "" : existing?.credentialRef ?? "");
+    setBearerToken("");
     setShowConfig(true);
   }
 
@@ -173,7 +184,9 @@ function PluginCard({
       ...selected,
       endpoint: endpoint.trim(),
       bearerEnv: bearerEnv.trim(),
+      bearerToken: bearerToken.trim(),
     });
+    setBearerToken("");
     setShowConfig(false);
   }
 
@@ -191,7 +204,7 @@ function PluginCard({
           </div>
         </div>
         {plugin.featured && !plugin.installed && <span className={styles.featuredBadge}>Featured</span>}
-        {plugin.installed && <span className={styles.installedBadge}><AppIcon name="check" size={12} /> Installed</span>}
+        {plugin.installed && <span className={styles.installedBadge}><AppIcon name="check" size={12} /> {plugin.system ? "System" : "Installed"}</span>}
       </div>
 
       <p className={styles.description}>{plugin.description || "Extend CodeLocal with reusable tools and external data."}</p>
@@ -199,6 +212,7 @@ function PluginCard({
       {categories.length > 0 && (
         <div className={styles.categories} aria-label={`${plugin.name} categories`}>
           {categories.map((category) => <span key={category}>{category}</span>)}
+          {(plugin.executionTargets ?? []).map((target) => <span key={`runtime-${target}`}>{target === "local" ? "Local runtime" : "Cloud runtime"}</span>)}
         </div>
       )}
 
@@ -215,7 +229,7 @@ function PluginCard({
       {plugin.installed && connections.length > 0 && (
         <div className={styles.connectionList}>
           {connections.map((connection) => (
-            <div className={styles.connectionRow} key={`${connection.deviceId}-${connection.serverName}`}>
+            <div className={styles.connectionRow} key={`${connection.connection}-${connection.serverName}`}>
               <div className={styles.connectionCopy}>
                 <strong>{connectionDeviceLabel(connection, workspaces)}</strong>
                 <span>
@@ -250,10 +264,14 @@ function PluginCard({
             <input autoComplete="off" inputMode="url" onChange={(event) => setEndpoint(event.target.value)} placeholder="https://example.com/mcp" type="url" value={endpoint} />
           </label>
           <label className={styles.field}>
-            <span>Bearer token env <em>optional</em></span>
-            <input autoCapitalize="none" autoComplete="off" onChange={(event) => setBearerEnv(event.target.value)} placeholder="GITHUB_TOKEN" spellCheck={false} value={bearerEnv} />
+            <span>Bearer token <em>optional</em></span>
+            <input autoCapitalize="none" autoComplete="new-password" disabled={Boolean(bearerEnv)} onChange={(event) => setBearerToken(event.target.value)} placeholder="Stored encrypted by CodeLocal" spellCheck={false} type="password" value={bearerToken} />
           </label>
-          <p className={styles.credentialNote}><AppIcon name="shield" size={13} />Enter only the environment variable name. The token value stays on your device and is never sent to CodeLocal Cloud.</p>
+          <label className={styles.field}>
+            <span>Or local token env <em>optional</em></span>
+            <input autoCapitalize="none" autoComplete="off" disabled={Boolean(bearerToken)} onChange={(event) => setBearerEnv(event.target.value)} placeholder="GITHUB_TOKEN" spellCheck={false} value={bearerEnv} />
+          </label>
+          <p className={styles.credentialNote}><AppIcon name="shield" size={13} />Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device.</p>
           {onlineWorkspaces.length === 0 && <p className={styles.configWarning}>No running CodeLocal workspace found. Start <code>codelocal</code> on a paired device first.</p>}
           <div className={styles.configActions}>
             <button className={styles.secondaryButton} disabled={busy} onClick={() => setShowConfig(false)} type="button">Cancel</button>
@@ -275,7 +293,7 @@ function PluginCard({
           {!plugin.installed && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{busy ? "Installing…" : "Install"}</button>}
           {plugin.installed && plugin.updateAvailable && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{busy ? "Updating…" : "Update"}</button>}
           {plugin.installed && plugin.setupRequired && <button className={styles.primaryButton} disabled={busy} onClick={openConfigure} type="button">{connections.length > 0 ? "Configure" : "Connect"}</button>}
-          {plugin.installed && <button className={styles.secondaryButton} disabled={busy || connections.length > 0} onClick={() => void uninstall(plugin)} title={connections.length > 0 ? "Disconnect all devices before removing this Plugin" : undefined} type="button">Remove</button>}
+          {plugin.installed && !plugin.system && <button className={styles.secondaryButton} disabled={busy || connections.length > 0} onClick={() => void uninstall(plugin)} title={connections.length > 0 ? "Disconnect all devices before removing this Plugin" : undefined} type="button">Remove</button>}
         </div>
       </div>
     </article>

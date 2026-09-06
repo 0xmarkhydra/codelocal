@@ -6,16 +6,48 @@ import (
 )
 
 type CatalogEntry struct {
-	Manifest Manifest `json:"manifest"`
-	Featured bool     `json:"featured,omitempty"`
+	Manifest         Manifest        `json:"manifest"`
+	Featured         bool            `json:"featured,omitempty"`
+	DefaultInstalled bool            `json:"defaultInstalled,omitempty"`
+	Runtime          *RuntimeBinding `json:"runtime,omitempty"`
 }
 
 func BuiltinCatalog() []CatalogEntry {
 	return []CatalogEntry{
+		builtinPenpotCatalogEntry(),
 		builtinCatalogEntry("github", "GitHub", "Work with repositories, issues, pull requests and code review through an MCP connection.", []string{"Developer Tools", "Collaboration"}, []Capability{CapabilityExternalRead, CapabilityExternalWrite, CapabilityExternalDelete, CapabilityNetwork}, true),
 		builtinCatalogEntry("notion", "Notion", "Search workspace knowledge and create or update pages from CodeLocal chat.", []string{"Productivity", "Knowledge"}, []Capability{CapabilityExternalRead, CapabilityExternalWrite, CapabilityNetwork}, true),
 		builtinCatalogEntry("linear", "Linear", "Read projects and issues, then create or update engineering work from chat.", []string{"Developer Tools", "Project Management"}, []Capability{CapabilityExternalRead, CapabilityExternalWrite, CapabilityNetwork}, true),
 		builtinCatalogEntry("slack", "Slack", "Find conversations and send messages through an approval-aware MCP connection.", []string{"Communication", "Collaboration"}, []Capability{CapabilityExternalRead, CapabilityExternalWrite, CapabilityNetwork}, false),
+	}
+}
+
+func builtinPenpotCatalogEntry() CatalogEntry {
+	return CatalogEntry{
+		Featured:         true,
+		DefaultInstalled: true,
+		Runtime:          &RuntimeBinding{ServerName: "penpot", Targets: []ExecutionTarget{ExecutionLocal, ExecutionCloud}},
+		Manifest: Manifest{
+			SchemaVersion: SchemaVersion,
+			ID:            "penpot",
+			Name:          "Penpot Design",
+			Version:       "2.17.0",
+			Publisher:     Publisher{ID: "codelocal", Name: "CodeLocal", Verified: true},
+			Description:   "Create and edit product designs through CodeLocal's managed Penpot workspace and MCP bridge.",
+			Categories:    []string{"Design", "Developer Tools"},
+			Scope:         ScopeSystem,
+			Distribution:  DistributionInternal,
+			Components: []Component{{
+				Kind: ComponentApp,
+				ID:   "penpot-design",
+				App: &AppDefinition{
+					Transport: TransportMCPHTTP, Endpoint: "http://127.0.0.1:4401/mcp",
+					Auth:         AuthDefinition{Kind: AuthNone},
+					Capabilities: []Capability{CapabilityExternalRead, CapabilityExternalWrite, CapabilityNetwork},
+					Execution:    []ExecutionTarget{ExecutionLocal, ExecutionCloud}, ToolNamespace: "penpot",
+				},
+			}},
+		},
 	}
 }
 
@@ -39,6 +71,7 @@ func builtinCatalogEntry(id, name, description string, categories []string, capa
 					Transport:    TransportMCPHTTP,
 					Auth:         AuthDefinition{Kind: AuthHeaderReference},
 					Capabilities: append([]Capability(nil), capabilities...),
+					Execution:    []ExecutionTarget{ExecutionLocal, ExecutionCloud},
 					Fields: []AppTemplateField{
 						{Key: "endpoint", Label: "MCP endpoint", Required: true, Description: fmt.Sprintf("HTTPS MCP endpoint for the %s integration.", name)},
 						{Key: "bearerEnv", Label: "Bearer token environment variable", Description: "Optional local environment variable name. CodeLocal Cloud never receives the token value."},

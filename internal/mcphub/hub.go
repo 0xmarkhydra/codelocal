@@ -69,16 +69,27 @@ type connected struct {
 	connectedAt, lastUsedAt int64
 }
 type ConnectGuard func(ServerConfig) error
+type SecretResolver func(string) (string, bool)
 
 type Hub struct {
 	Root       string
 	guard      ConnectGuard
+	secrets    SecretResolver
 	mu         sync.Mutex
 	sessions   map[string]*connected
 	connecting map[string]chan struct{}
 	penpot     bool
 	close      chan struct{}
 	once       sync.Once
+}
+
+// SetSecretResolver installs an in-memory resolver for encrypted runtime
+// secrets materialized by the authenticated CodeLocal client. Secret values
+// are never written to the MCP registry or returned by public config APIs.
+func (h *Hub) SetSecretResolver(resolve SecretResolver) {
+	h.mu.Lock()
+	h.secrets = resolve
+	h.mu.Unlock()
 }
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -436,13 +447,22 @@ func materializeEnv(refs map[string]EnvReference) ([]string, error) {
 	}
 	return env, nil
 }
-func materializeHeaders(refs map[string]HeaderReference) (http.Header, error) {
+func (h *Hub) materializeHeaders(refs map[string]HeaderReference) (http.Header, error) {
 	headers := http.Header{}
+	h.mu.Lock()
+	resolveSecret := h.secrets
+	h.mu.Unlock()
 	for key, ref := range refs {
 		if !envRE.MatchString(ref.Source) {
 			return nil, errors.New("invalid MCP header environment reference")
 		}
-		value, ok := os.LookupEnv(ref.Source)
+		value, ok := "", false
+		if resolveSecret != nil {
+			value, ok = resolveSecret(ref.Source)
+		}
+		if !ok {
+			value, ok = os.LookupEnv(ref.Source)
+		}
 		if !ok {
 			return nil, fmt.Errorf("MCP requires environment variable %s", ref.Source)
 		}
@@ -498,7 +518,7 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 		cmd.Env = env
 		transport = &mcp.CommandTransport{Command: cmd}
 	} else {
-		headers, err := materializeHeaders(config.Headers)
+		headers, err := h.materializeHeaders(config.Headers)
 		if err != nil {
 			return nil, err
 		}

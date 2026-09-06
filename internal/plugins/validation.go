@@ -135,6 +135,9 @@ func validateApp(manifest Manifest, app AppDefinition) (bool, error) {
 			return false, err
 		}
 	}
+	if err := validateExecutionTargets(app.Execution); err != nil {
+		return false, err
+	}
 	switch app.Transport {
 	case TransportMCPHTTP:
 		if strings.TrimSpace(app.Command) != "" || len(app.Args) != 0 {
@@ -178,6 +181,9 @@ func validateAppTemplate(manifest Manifest, template AppTemplateDefinition) (boo
 	if err != nil {
 		return false, err
 	}
+	if err := validateExecutionTargets(template.Execution); err != nil {
+		return false, err
+	}
 	switch template.Transport {
 	case TransportMCPHTTP:
 	case TransportMCPStdioLocal:
@@ -204,6 +210,22 @@ func validateAppTemplate(manifest Manifest, template AppTemplateDefinition) (boo
 		}
 	}
 	return needsPrivacy || template.Transport == TransportMCPHTTP, nil
+}
+
+func validateExecutionTargets(targets []ExecutionTarget) error {
+	seen := make(map[ExecutionTarget]struct{}, len(targets))
+	for _, target := range targets {
+		switch target {
+		case ExecutionLocal, ExecutionCloud:
+		default:
+			return fmt.Errorf("unsupported execution target %q", target)
+		}
+		if _, exists := seen[target]; exists {
+			return fmt.Errorf("duplicate execution target %q", target)
+		}
+		seen[target] = struct{}{}
+	}
+	return nil
 }
 
 func validateSkillReference(skill SkillReference) error {

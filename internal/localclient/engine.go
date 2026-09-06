@@ -90,6 +90,12 @@ func New(root, workspaceID, workspaceName, workspaceKey, deviceID string) (*Engi
 	if err != nil {
 		return nil, err
 	}
+	mcpHub.SetSecretResolver(func(name string) (string, bool) {
+		engine.mu.Lock()
+		defer engine.mu.Unlock()
+		value, ok := engine.runtimeSecrets[name]
+		return value, ok
+	})
 	engine.MCP = mcpHub
 	return engine, nil
 }
@@ -102,9 +108,15 @@ func (e *Engine) SetRuntimeEnvironment(values, secrets map[string]string) {
 		e.runtimeEnv[key] = value
 	}
 	e.runtimeSecrets = make(map[string]string, len(secrets))
-	secretNames := make([]string, 0, len(secrets))
 	for key, value := range secrets {
 		e.runtimeSecrets[key] = value
+	}
+	e.rebuildRuntimeRedactLocked()
+}
+
+func (e *Engine) rebuildRuntimeRedactLocked() {
+	secretNames := make([]string, 0, len(e.runtimeSecrets))
+	for key := range e.runtimeSecrets {
 		secretNames = append(secretNames, key)
 	}
 	sort.Strings(secretNames)
@@ -114,6 +126,20 @@ func (e *Engine) SetRuntimeEnvironment(values, secrets map[string]string) {
 			e.runtimeRedact = append(e.runtimeRedact, value)
 		}
 	}
+}
+
+func (e *Engine) setRuntimeSecret(name, value string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.runtimeSecrets[name] = value
+	e.rebuildRuntimeRedactLocked()
+}
+
+func (e *Engine) deleteRuntimeSecret(name string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.runtimeSecrets, name)
+	e.rebuildRuntimeRedactLocked()
 }
 
 func (e *Engine) runtimeEnvironment(requestedSecrets []string) (map[string]string, []string, error) {

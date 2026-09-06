@@ -19,16 +19,18 @@ import (
 var pluginCredentialRefRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type pluginConnectionDTO struct {
-	DeviceID      string `json:"deviceId"`
-	WorkspaceKey  string `json:"workspaceKey"`
-	ServerName    string `json:"serverName"`
-	Endpoint      string `json:"endpoint"`
-	CredentialRef string `json:"credentialRef,omitempty"`
-	State         string `json:"state"`
-	ToolCount     int    `json:"toolCount"`
-	LastError     string `json:"lastError,omitempty"`
-	ConnectedAt   int64  `json:"connectedAt,omitempty"`
-	UpdatedAt     int64  `json:"updatedAt"`
+	DeviceID        string `json:"deviceId"`
+	Connection      string `json:"connection"`
+	ExecutionTarget string `json:"executionTarget"`
+	WorkspaceKey    string `json:"workspaceKey"`
+	ServerName      string `json:"serverName"`
+	Endpoint        string `json:"endpoint"`
+	CredentialRef   string `json:"credentialRef,omitempty"`
+	State           string `json:"state"`
+	ToolCount       int    `json:"toolCount"`
+	LastError       string `json:"lastError,omitempty"`
+	ConnectedAt     int64  `json:"connectedAt,omitempty"`
+	UpdatedAt       int64  `json:"updatedAt"`
 }
 
 type pluginConnectInput struct {
@@ -36,6 +38,7 @@ type pluginConnectInput struct {
 	WorkspaceID string `json:"workspaceId"`
 	Endpoint    string `json:"endpoint"`
 	BearerEnv   string `json:"bearerEnv,omitempty"`
+	BearerToken string `json:"bearerToken,omitempty"`
 }
 
 type pluginConfigureResult struct {
@@ -46,14 +49,18 @@ type pluginConfigureResult struct {
 	Error      string
 }
 
-func pluginConnectionDTOFrom(connection cloud.PluginConnection) pluginConnectionDTO {
+func pluginConnectionDTOFrom(connection cloud.PluginConnection) (pluginConnectionDTO, error) {
+	route, err := plugindomain.ResolveExecutionRoute([]plugindomain.ExecutionTarget{plugindomain.ExecutionLocal}, plugindomain.ExecutionLocal, connection.DeviceID)
+	if err != nil {
+		return pluginConnectionDTO{}, err
+	}
 	return pluginConnectionDTO{
-		DeviceID: connection.DeviceID, WorkspaceKey: connection.WorkspaceKey,
+		DeviceID: connection.DeviceID, Connection: route.Connection, ExecutionTarget: string(route.Target), WorkspaceKey: connection.WorkspaceKey,
 		ServerName: connection.ServerName, Endpoint: connection.Endpoint,
 		CredentialRef: connection.CredentialRef, State: string(connection.State),
 		ToolCount: connection.ToolCount, LastError: connection.LastError,
 		ConnectedAt: connection.ConnectedAt, UpdatedAt: connection.UpdatedAt,
-	}
+	}, nil
 }
 
 func validatePluginConnectionInput(input pluginConnectInput) (pluginConnectInput, error) {
@@ -61,6 +68,7 @@ func validatePluginConnectionInput(input pluginConnectInput) (pluginConnectInput
 	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
 	input.Endpoint = strings.TrimSpace(input.Endpoint)
 	input.BearerEnv = strings.TrimSpace(input.BearerEnv)
+	input.BearerToken = strings.TrimSpace(input.BearerToken)
 	if input.DeviceID == "" || input.WorkspaceID == "" {
 		return pluginConnectInput{}, errors.New("deviceId and workspaceId are required")
 	}
@@ -82,6 +90,12 @@ func validatePluginConnectionInput(input pluginConnectInput) (pluginConnectInput
 	input.Endpoint = parsed.String()
 	if input.BearerEnv != "" && !pluginCredentialRefRE.MatchString(input.BearerEnv) {
 		return pluginConnectInput{}, errors.New("bearerEnv must be an environment variable name")
+	}
+	if input.BearerEnv != "" && input.BearerToken != "" {
+		return pluginConnectInput{}, errors.New("provide bearerEnv or bearerToken, not both")
+	}
+	if strings.ContainsAny(input.BearerToken, "\r\n\x00") || len(input.BearerToken) > 8192 {
+		return pluginConnectInput{}, errors.New("bearerToken is invalid")
 	}
 	return input, nil
 }
@@ -196,14 +210,52 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_gateway_unavailable"})
 		return
 	}
+	existingConnection, hasExistingConnection, err := s.Store.PluginConnectionByDevice(r.Context(), identity.User.ID, pluginID, workspace.DeviceID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connections_unavailable"})
+		return
+	}
+	previousManagedRef := ""
+	if hasExistingConnection && plugindomain.IsManagedCredentialReference(pluginID, existingConnection.CredentialRef) {
+		previousManagedRef = existingConnection.CredentialRef
+	}
+	credentialRef := input.BearerEnv
+	credentialSecret := ""
+	if input.BearerToken != "" {
+		credentialRef = plugindomain.ManagedCredentialReference(pluginID)
+		if err := s.Store.PutRuntimeSecret(r.Context(), identity.User.ID, cloud.RuntimeScopeWorkspace, workspace.DeviceID, workspace.WorkspaceID, credentialRef, input.BearerToken); err != nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_credential_store_failed"})
+			return
+		}
+		credentialSecret = input.BearerToken
+	} else if credentialRef == "" {
+		if hasExistingConnection {
+			credentialRef = existingConnection.CredentialRef
+			if plugindomain.IsManagedCredentialReference(pluginID, credentialRef) {
+				secrets, secretErr := s.Store.MaterializeRuntimeSecrets(r.Context(), identity.User.ID, workspace.DeviceID, workspace.WorkspaceID)
+				if secretErr != nil {
+					webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_credential_materialization_failed"})
+					return
+				}
+				credentialSecret = secrets[credentialRef]
+			}
+		}
+	}
 
 	callCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	result, err := s.Hub.Call(callCtx, identity.User.ID, workspace.Key, "plugin-config", "plugin_mcp_configure", map[string]any{
+	runtimeArgs := map[string]any{
 		"pluginId":  pluginID,
 		"endpoint":  input.Endpoint,
-		"bearerEnv": input.BearerEnv,
-	}, true, cloud.RandomHex(16))
+		"bearerEnv": credentialRef,
+	}
+	if credentialSecret != "" {
+		runtimeArgs["credentialSecret"] = credentialSecret
+	}
+	if previousManagedRef != "" && previousManagedRef != credentialRef {
+		runtimeArgs["clearCredentialRef"] = previousManagedRef
+	}
+	result, err := s.Hub.Call(callCtx, identity.User.ID, workspace.Key, "plugin-config", "plugin_mcp_configure", runtimeArgs, true, cloud.RandomHex(16))
 	if err != nil || !result.OK {
 		detail := "Local CodeLocal runtime could not configure this Plugin."
 		if err != nil {
@@ -229,16 +281,24 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 	connection, err := s.Store.SetPluginConnection(r.Context(), cloud.PluginConnection{
 		UserID: identity.User.ID, PluginID: pluginID, DeviceID: workspace.DeviceID,
 		WorkspaceKey: workspace.Key, ServerName: configured.ServerName, Endpoint: input.Endpoint,
-		CredentialRef: input.BearerEnv, State: state, ToolCount: configured.ToolCount, LastError: configured.Error,
+		CredentialRef: credentialRef, State: state, ToolCount: configured.ToolCount, LastError: configured.Error,
 	})
 	if err != nil {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connection_store_failed"})
 		return
 	}
+	if previousManagedRef != "" && previousManagedRef != credentialRef {
+		_ = s.Store.DeleteRuntimeSecret(r.Context(), identity.User.ID, cloud.RuntimeScopeWorkspace, workspace.DeviceID, workspace.WorkspaceID, previousManagedRef)
+	}
 	s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "plugin.connected", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{
 		"pluginId": pluginID, "state": connection.State, "toolCount": connection.ToolCount,
 	}})
-	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "connection": pluginConnectionDTOFrom(connection)})
+	dto, err := pluginConnectionDTOFrom(connection)
+	if err != nil {
+		webutil.JSON(w, http.StatusInternalServerError, map[string]string{"error": "plugin_connection_invalid"})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "connection": dto})
 }
 
 func (s *Server) pluginDisconnectAPI(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +336,11 @@ func (s *Server) pluginDisconnectAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	callCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	result, err := s.Hub.Call(callCtx, identity.User.ID, workspace.Key, "plugin-config", "plugin_mcp_remove", map[string]any{"pluginId": pluginID}, true, cloud.RandomHex(16))
+	runtimeArgs := map[string]any{"pluginId": pluginID}
+	if plugindomain.IsManagedCredentialReference(pluginID, connection.CredentialRef) {
+		runtimeArgs["credentialRef"] = connection.CredentialRef
+	}
+	result, err := s.Hub.Call(callCtx, identity.User.ID, workspace.Key, "plugin-config", "plugin_mcp_remove", runtimeArgs, true, cloud.RandomHex(16))
 	if err != nil || !result.OK {
 		detail := "Local CodeLocal runtime could not remove this Plugin connection."
 		if err != nil {
@@ -293,6 +357,9 @@ func (s *Server) pluginDisconnectAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if removed {
+		if plugindomain.IsManagedCredentialReference(pluginID, connection.CredentialRef) {
+			_ = s.Store.DeleteRuntimeSecret(r.Context(), identity.User.ID, cloud.RuntimeScopeWorkspace, workspace.DeviceID, workspace.WorkspaceID, connection.CredentialRef)
+		}
 		s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "plugin.disconnected", DeviceID: deviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"pluginId": pluginID}})
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "removed": removed})

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	"github.com/0xmarkhydra/codelocal/internal/orchestration"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -163,6 +164,20 @@ func TestCompactResolverRejectsInvalidOrIncompleteActions(t *testing.T) {
 	}
 }
 
+func TestCompactResolverRequestsReplanInsteadOfDispatchingEmptyAction(t *testing.T) {
+	defs := map[string]compactToolDef{}
+	for _, def := range compactToolDefinitions() {
+		defs[def.Name] = def
+	}
+	operation, forward, err := defs["context"].Resolve(map[string]any{"action": "  "})
+	if !orchestration.IsReplanRequired(err) {
+		t.Fatalf("empty action error=%v, want replan required", err)
+	}
+	if operation.RuntimeTool != "" || forward != nil {
+		t.Fatalf("empty action reached dispatcher: operation=%#v forward=%#v", operation, forward)
+	}
+}
+
 func listServerTools(t *testing.T) []string {
 	t.Helper()
 	s := &Service{servers: map[string]*mcp.Server{}, routes: map[string]map[string]string{}, shownUpdates: map[string]map[string]struct{}{}}
@@ -272,6 +287,15 @@ func TestCompactToolCallRunsThroughMCPServer(t *testing.T) {
 	invalidStructured, ok := invalid.StructuredContent.(map[string]any)
 	if !ok || invalidStructured["code"] != "CODELOCAL_TOOL_SCHEMA_MISMATCH" {
 		t.Fatalf("invalid action must be classified as schema mismatch: %#v", invalid.StructuredContent)
+	}
+
+	empty, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "context", Arguments: map[string]any{"action": ""}})
+	if err != nil {
+		t.Fatalf("empty action should be a model-visible replan result: %v", err)
+	}
+	emptyStructured, ok := empty.StructuredContent.(map[string]any)
+	if !empty.IsError || !ok || emptyStructured["code"] != "CODELOCAL_REPLAN_REQUIRED" || emptyStructured["executionStarted"] != false {
+		t.Fatalf("empty action must request replan before dispatch: %#v", empty.StructuredContent)
 	}
 }
 

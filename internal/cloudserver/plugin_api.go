@@ -27,6 +27,9 @@ type pluginCatalogItemDTO struct {
 	SetupRequired     bool                  `json:"setupRequired,omitempty"`
 	Connections       []pluginConnectionDTO `json:"connections,omitempty"`
 	ConnectedCount    int                   `json:"connectedCount,omitempty"`
+	System            bool                  `json:"system,omitempty"`
+	ExecutionTargets  []string              `json:"executionTargets,omitempty"`
+	ServerName        string                `json:"serverName,omitempty"`
 }
 
 type pluginCatalogResponseDTO struct {
@@ -41,7 +44,11 @@ func pluginCatalogResponse(installations []cloud.PluginInstallation, connections
 	}
 	connectionsByID := make(map[string][]pluginConnectionDTO)
 	for _, connection := range connections {
-		connectionsByID[connection.PluginID] = append(connectionsByID[connection.PluginID], pluginConnectionDTOFrom(connection))
+		dto, err := pluginConnectionDTOFrom(connection)
+		if err != nil {
+			return pluginCatalogResponseDTO{}, err
+		}
+		connectionsByID[connection.PluginID] = append(connectionsByID[connection.PluginID], dto)
 	}
 	response := pluginCatalogResponseDTO{Items: []pluginCatalogItemDTO{}}
 	for _, entry := range plugindomain.BuiltinCatalog() {
@@ -71,6 +78,13 @@ func pluginCatalogResponse(installations []cloud.PluginInstallation, connections
 			SetupRequired:  manifestNeedsSetup(manifest),
 			Connections:    pluginConnections,
 			ConnectedCount: readyConnections,
+			System:         entry.DefaultInstalled,
+		}
+		if entry.Runtime != nil {
+			item.ServerName = entry.Runtime.ServerName
+			for _, target := range entry.Runtime.Targets {
+				item.ExecutionTargets = append(item.ExecutionTargets, string(target))
+			}
 		}
 		if installation, ok := installedByID[manifest.ID]; ok {
 			item.InstallationState = string(installation.State)
@@ -80,6 +94,10 @@ func pluginCatalogResponse(installations []cloud.PluginInstallation, connections
 			if item.Installed {
 				response.InstalledCount++
 			}
+		} else if entry.DefaultInstalled {
+			item.Installed = true
+			item.InstallationState = "system"
+			response.InstalledCount++
 		}
 		response.Items = append(response.Items, item)
 	}
@@ -145,6 +163,10 @@ func (s *Server) pluginInstallAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusNotFound, map[string]string{"error": "plugin_not_found"})
 		return
 	}
+	if entry.DefaultInstalled {
+		webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "system": true, "alreadyInstalled": true})
+		return
+	}
 	installation, err := cloud.NewPluginInstallation(identity.User.ID, entry.Manifest)
 	if err != nil {
 		webutil.JSON(w, http.StatusConflict, map[string]string{"error": "plugin_manifest_rejected", "detail": err.Error()})
@@ -166,8 +188,13 @@ func (s *Server) pluginUninstallAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pluginID := strings.TrimSpace(r.PathValue("pluginID"))
-	if _, exists := plugindomain.FindBuiltin(pluginID); !exists {
+	entry, exists := plugindomain.FindBuiltin(pluginID)
+	if !exists {
 		webutil.JSON(w, http.StatusNotFound, map[string]string{"error": "plugin_not_found"})
+		return
+	}
+	if entry.DefaultInstalled {
+		webutil.JSON(w, http.StatusForbidden, map[string]string{"error": "system_plugin_required"})
 		return
 	}
 	connections, err := s.Store.ListPluginConnections(r.Context(), identity.User.ID)

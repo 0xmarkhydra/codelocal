@@ -8,12 +8,18 @@ type ComponentKind string
 type AppTransport string
 type AuthKind string
 type Capability string
+type ExecutionTarget string
 
 const (
 	ScopeSystem    Scope = "system"
 	ScopePersonal  Scope = "personal"
 	ScopeCommunity Scope = "community"
 	ScopeInternal  Scope = "internal"
+)
+
+const (
+	ExecutionLocal ExecutionTarget = "local"
+	ExecutionCloud ExecutionTarget = "cloud"
 )
 
 const (
@@ -70,13 +76,14 @@ type AuthDefinition struct {
 }
 
 type AppDefinition struct {
-	Transport     AppTransport   `json:"transport"`
-	Endpoint      string         `json:"endpoint,omitempty"`
-	Command       string         `json:"command,omitempty"`
-	Args          []string       `json:"args,omitempty"`
-	Auth          AuthDefinition `json:"auth"`
-	Capabilities  []Capability   `json:"capabilities,omitempty"`
-	ToolNamespace string         `json:"toolNamespace,omitempty"`
+	Transport     AppTransport      `json:"transport"`
+	Endpoint      string            `json:"endpoint,omitempty"`
+	Command       string            `json:"command,omitempty"`
+	Args          []string          `json:"args,omitempty"`
+	Auth          AuthDefinition    `json:"auth"`
+	Capabilities  []Capability      `json:"capabilities,omitempty"`
+	Execution     []ExecutionTarget `json:"executionTargets,omitempty"`
+	ToolNamespace string            `json:"toolNamespace,omitempty"`
 }
 
 type SkillReference struct {
@@ -96,6 +103,7 @@ type AppTemplateDefinition struct {
 	Transport    AppTransport       `json:"transport"`
 	Auth         AuthDefinition     `json:"auth"`
 	Capabilities []Capability       `json:"capabilities,omitempty"`
+	Execution    []ExecutionTarget  `json:"executionTargets,omitempty"`
 	Fields       []AppTemplateField `json:"fields,omitempty"`
 }
 

@@ -1,0 +1,16 @@
+# CodeLocal keeps Penpot upstream intact. This thin image pins the tested
+# upstream release and changes only deployment headers required by the
+# codelocal.cloud dashboard embedding boundary.
+FROM penpotapp/frontend:2.17.0
+
+USER root
+COPY deploy/penpot/nginx-security-headers.conf /etc/nginx/nginx-security-headers.conf
+
+# Penpot 2.17.0 contains the upstream ui.css fix. Keep the documented upstream
+# compatibility fallback so a rebuilt image cannot regress to an HTML 404 when
+# a registry mirror serves an older/broken frontend layer.
+RUN if [ ! -e /var/www/app/css/ui.css ] && [ -e /var/www/app/css/main.css ]; then \
+      ln -s main.css /var/www/app/css/ui.css; \
+    fi
+
+USER penpot:penpot

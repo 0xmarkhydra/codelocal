@@ -528,6 +528,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	shadow := prepareAgentOSV2Shadow(ctx, userID, session, workspaceKey, objective, caps, plan, currentAgentState(userID, session, workspaceKey))
 	dirtySinceVerify := false
 	haltReason := ""
+	replanRequired := false
 	var lastResult *mcp.CallToolResult = contextResult
 	seenFingerprints := map[string]int{}
 	seenMutations := map[string]struct{}{}
@@ -557,6 +558,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 		operation, forward, resolveErr := definition.Resolve(forwardInput)
 		if resolveErr != nil {
 			haltReason = resolveErr.Error()
+			replanRequired = orchestration.IsReplanRequired(resolveErr)
 			return false
 		}
 		decision := autonomousStepPolicy(operation, forward, plan)
@@ -713,7 +715,9 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	state := currentAgentState(userID, session, workspaceKey)
 	plan = s.tenantAgentPlanFromState(ctx, userID, state, caps, project)
 	status := "completed"
-	if haltReason != "" {
+	if replanRequired {
+		status = "replan_required"
+	} else if haltReason != "" {
 		status = "halted"
 	} else if state.AgentPhase == "finalize" && state.QualityStatus == "ready" {
 		status = "ready"
@@ -773,6 +777,11 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	}
 	if haltReason != "" {
 		payload["haltReason"] = haltReason
+		if replanRequired {
+			payload["code"] = "CODELOCAL_REPLAN_REQUIRED"
+			payload["requestReplan"] = true
+			payload["executionStarted"] = false
+		}
 		if responseMode == "full" {
 			payload["lastResult"] = agentResultStructured(lastResult)
 		}

@@ -1,6 +1,11 @@
 package localclient
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/0xmarkhydra/codelocal/internal/mcphub"
+	plugindomain "github.com/0xmarkhydra/codelocal/internal/plugins"
+)
 
 func TestPluginMCPConfigUsesGlobalHTTPAndCredentialReference(t *testing.T) {
 	config, err := pluginMCPConfig(map[string]any{
@@ -60,5 +65,29 @@ func TestPluginMCPServerNameIsStableAndBounded(t *testing.T) {
 	}
 	if first != second || len(first) > 64 {
 		t.Fatalf("server name=%q second=%q", first, second)
+	}
+}
+
+func TestRemovePluginMCPClearsOnlyMatchingManagedSecret(t *testing.T) {
+	engine, err := New(t.TempDir(), "workspace", "Workspace", "key", "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	if _, err := engine.MCP.Add(mcphub.ServerConfig{Name: "plugin-github", Enabled: true, Scope: "global", Transport: "http", URL: "https://example.com/mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	ref := plugindomain.ManagedCredentialReference("github")
+	engine.setRuntimeSecret(ref, "secret-value")
+	if _, err := engine.removePluginMCP(map[string]any{"pluginId": "github", "credentialRef": ref}); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := engine.runtimeSecrets[ref]; exists || len(engine.runtimeRedact) != 0 {
+		t.Fatalf("managed secret remained materialized: secrets=%#v redact=%d", engine.runtimeSecrets, len(engine.runtimeRedact))
+	}
+
+	wrongRef := plugindomain.ManagedCredentialReference("notion")
+	if _, err := engine.removePluginMCP(map[string]any{"pluginId": "github", "credentialRef": wrongRef}); err == nil {
+		t.Fatal("cross-Plugin credential cleanup was accepted")
 	}
 }

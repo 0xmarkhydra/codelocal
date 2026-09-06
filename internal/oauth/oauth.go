@@ -55,6 +55,7 @@ type Server struct {
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 	CodeTTL    time.Duration
+	OIDC       oidcProviderConfig
 }
 
 func New(store *cloud.Store, auth *webauth.Manager, baseURL, secret string) (*Server, error) {
@@ -62,7 +63,9 @@ func New(store *cloud.Store, auth *webauth.Manager, baseURL, secret string) (*Se
 	if baseURL == "" || secret == "" {
 		return nil, errors.New("missing PUBLIC_BASE_URL or MCP_AUTH_SECRET")
 	}
-	return &Server{Store: store, WebAuth: auth, BaseURL: baseURL, Resource: baseURL + "/mcp", Secret: []byte(secret), AccessTTL: time.Hour, RefreshTTL: 30 * 24 * time.Hour, CodeTTL: 5 * time.Minute}, nil
+	server := &Server{Store: store, WebAuth: auth, BaseURL: baseURL, Resource: baseURL + "/mcp", Secret: []byte(secret), AccessTTL: time.Hour, RefreshTTL: 30 * 24 * time.Hour, CodeTTL: 5 * time.Minute}
+	server.OIDC = oidcProviderConfigFromEnv(baseURL, secret)
+	return server, nil
 }
 
 func randomURL(n int) string {
@@ -232,6 +235,7 @@ func authorizeRetryURL(r *http.Request, errorMessage string) string {
 }
 
 func (s *Server) Register(mux *http.ServeMux) {
+	s.registerOIDC(mux)
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, 200, map[string]any{"resource": s.Resource, "authorization_servers": []string{s.BaseURL}, "scopes_supported": []string{"mcp:tools", "offline_access"}, "bearer_methods_supported": []string{"header"}})
 	})

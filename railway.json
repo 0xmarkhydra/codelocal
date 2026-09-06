@@ -18,6 +18,7 @@
       "internal/memory/**",
       "internal/oauth/**",
       "internal/orchestration/**",
+      "internal/plugins/**",
       "internal/project/**",
       "internal/projectbrain/**",
       "internal/projectidentity/**",

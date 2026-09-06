@@ -26,15 +26,20 @@ func TestPluginCatalogResponseProjectsInstallStateCapabilitiesAndConnections(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.InstalledCount != 1 {
-		t.Fatalf("installed count=%d want 1", response.InstalledCount)
+	if response.InstalledCount != 2 {
+		t.Fatalf("installed count=%d want GitHub plus default Penpot", response.InstalledCount)
 	}
-	var github *pluginCatalogItemDTO
+	var github, penpot *pluginCatalogItemDTO
 	for index := range response.Items {
 		if response.Items[index].ID == "github" {
 			github = &response.Items[index]
-			break
 		}
+		if response.Items[index].ID == "penpot" {
+			penpot = &response.Items[index]
+		}
+	}
+	if penpot == nil || !penpot.System || !penpot.Installed || penpot.InstallationState != "system" || penpot.ServerName != "penpot" {
+		t.Fatalf("unexpected Penpot system plugin: %#v", penpot)
 	}
 	if github == nil || !github.Installed || github.UpdateAvailable || !github.SetupRequired {
 		t.Fatalf("unexpected github catalog item: %#v", github)

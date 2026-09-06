@@ -26,6 +26,19 @@ func TestBuiltinCatalogManifestsValidate(t *testing.T) {
 	}
 }
 
+func TestPenpotIsDefaultSystemPluginBoundToManagedMCP(t *testing.T) {
+	entry, ok := FindBuiltin("penpot")
+	if !ok {
+		t.Fatal("Penpot system plugin missing")
+	}
+	if !entry.DefaultInstalled || entry.Manifest.Scope != ScopeSystem || entry.Runtime == nil || entry.Runtime.ServerName != "penpot" {
+		t.Fatalf("unexpected Penpot system plugin: %#v", entry)
+	}
+	if len(entry.Runtime.Targets) != 2 || entry.Runtime.Targets[0] != ExecutionLocal || entry.Runtime.Targets[1] != ExecutionCloud {
+		t.Fatalf("unexpected Penpot execution targets: %#v", entry.Runtime.Targets)
+	}
+}
+
 func TestManifestCapabilitiesAreUniqueAndSorted(t *testing.T) {
 	entry, ok := FindBuiltin("github")
 	if !ok {

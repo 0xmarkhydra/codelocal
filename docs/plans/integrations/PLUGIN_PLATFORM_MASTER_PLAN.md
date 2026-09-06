@@ -265,7 +265,34 @@ plugin:<pluginId>:<appId>:<connectionId>
 
 User-facing Plugin names remain independent of internal MCP config names.
 
-Add an opaque credential resolver later so OAuth/API credentials can live in Keychain/encrypted cloud storage without entering Hub registry JSON or model-visible responses.
+The MCP Hub uses an opaque credential resolver so OAuth/API credentials can
+live in encrypted cloud storage or the local environment without entering Hub
+registry JSON or model-visible responses.
+
+### System Plugin and execution routing
+
+Penpot is the first default-installed System Plugin. Its manifest is immutable
+CodeLocal metadata, it cannot be uninstalled, and its managed runtime binding
+uses the reserved MCP server name `penpot`.
+
+App definitions declare supported execution targets. The execution router owns
+the stable connection identifiers and fails closed when a target is not
+supported:
+
+```text
+local + device id -> local:<device>
+cloud             -> cloud
+```
+
+Endpoints never imply the execution target. Existing local Plugin connections
+remain local and retain their deterministic runtime binding.
+
+Bearer values submitted through Dashboard connection setup are encrypted by the
+existing runtime-secret store. Installation and connection records, public API
+DTOs, MCP registry JSON and model-visible results retain only the opaque secret
+reference. The authenticated local runtime materializes the value when the
+connection is configured and resolves the reference immediately before building
+the MCP transport header.
 
 ## 14. Third-party OAuth
 

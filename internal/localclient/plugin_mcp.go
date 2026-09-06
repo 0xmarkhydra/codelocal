@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/0xmarkhydra/codelocal/internal/mcphub"
+	plugindomain "github.com/0xmarkhydra/codelocal/internal/plugins"
 )
 
 var pluginEnvNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -88,13 +89,28 @@ func pluginMCPConfig(args map[string]any) (mcphub.ServerConfig, error) {
 }
 
 func (e *Engine) configurePluginMCP(ctx context.Context, args map[string]any) (any, error) {
+	pluginID := asString(args["pluginId"])
+	clearCredentialRef := strings.TrimSpace(asString(args["clearCredentialRef"]))
+	if clearCredentialRef != "" && !plugindomain.IsManagedCredentialReference(pluginID, clearCredentialRef) {
+		return nil, errors.New("plugin credential reference does not belong to this Plugin")
+	}
 	config, err := pluginMCPConfig(args)
 	if err != nil {
 		return nil, err
 	}
+	if secret := asString(args["credentialSecret"]); secret != "" {
+		ref := strings.TrimSpace(asString(args["bearerEnv"]))
+		if ref == "" || !pluginEnvNameRE.MatchString(ref) {
+			return nil, errors.New("plugin credential secret requires a canonical runtime reference")
+		}
+		e.setRuntimeSecret(ref, secret)
+	}
 	server, err := e.MCP.Add(config)
 	if err != nil {
 		return nil, err
+	}
+	if clearCredentialRef != "" {
+		e.deleteRuntimeSecret(clearCredentialRef)
 	}
 	probe, probeErr := e.MCP.Probe(ctx, config.Name, true)
 	if probeErr != nil {
@@ -120,13 +136,21 @@ func (e *Engine) configurePluginMCP(ctx context.Context, args map[string]any) (a
 }
 
 func (e *Engine) removePluginMCP(args map[string]any) (any, error) {
-	name, err := pluginMCPServerName(asString(args["pluginId"]))
+	pluginID := asString(args["pluginId"])
+	name, err := pluginMCPServerName(pluginID)
 	if err != nil {
 		return nil, err
+	}
+	ref := strings.TrimSpace(asString(args["credentialRef"]))
+	if ref != "" && !plugindomain.IsManagedCredentialReference(pluginID, ref) {
+		return nil, errors.New("plugin credential reference does not belong to this Plugin")
 	}
 	result, err := e.MCP.Remove(name, "global")
 	if err != nil {
 		return nil, err
+	}
+	if ref != "" {
+		e.deleteRuntimeSecret(ref)
 	}
 	return map[string]any{"removed": result["removed"], "serverName": name}, nil
 }
