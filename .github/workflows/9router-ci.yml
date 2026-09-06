@@ -1,0 +1,53 @@
+name: 9Router CI
+
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile.9router'
+      - 'railway.9router.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 9router-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate pinned image
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's|^FROM ghcr.io/decolua/9router:||p' Dockerfile.9router)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "9Router version must be stable semver, got: $version" >&2
+            exit 1
+          fi
+          docker manifest inspect "ghcr.io/decolua/9router:$version" >/dev/null
+
+      - name: Build candidate
+        run: docker build --pull --file Dockerfile.9router --tag codelocal-9router:candidate .
+
+      - name: Run health check
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="$(docker run --detach --publish 127.0.0.1:20128:20128 codelocal-9router:candidate)"
+          trap 'docker logs "$container"; docker rm --force "$container" >/dev/null' EXIT
+
+          for _ in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:20128/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "9Router health check timed out" >&2
+          exit 1
