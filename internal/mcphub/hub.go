@@ -575,7 +575,7 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 			return nil, err
 		}
 		httpClient := &http.Client{Timeout: 0, Transport: &headerTransport{base: http.DefaultTransport, headers: headers, query: requestQuery}}
-		transport = &mcp.StreamableClientTransport{Endpoint: config.URL, HTTPClient: httpClient}
+		transport = &mcp.StreamableClientTransport{Endpoint: config.URL, HTTPClient: httpClient, DisableStandaloneSSE: config.Managed && config.Name == managedPenpotName}
 	}
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
