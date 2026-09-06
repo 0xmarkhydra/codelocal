@@ -54,6 +54,8 @@ Services:
 
 All inter-service traffic uses Railway private networking. The public frontend is the only Penpot service exposed to browsers and MCP clients; its `/mcp/stream`, `/mcp/sse` and `/mcp/ws` routes proxy to the private MCP service.
 
+The pinned 2.17.0 frontend image carries CodeLocal's backport of Penpot's dynamic nginx MCP upstream resolution fix. Each MCP route proxies through an nginx variable so Railway container IP changes are re-resolved instead of cached for the frontend container lifetime. Stream and SSE targets explicitly preserve `$is_args$args`; this is required so the per-user `userToken` reaches the multi-user MCP service.
+
 ### Production config
 
 Penpot flags enable MCP and OIDC registration while disabling native password
