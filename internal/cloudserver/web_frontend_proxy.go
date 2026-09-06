@@ -60,6 +60,8 @@ var nextDashboardPaths = map[string]struct{}{
 	"/dashboard/account":     {},
 	"/dashboard/skills":      {},
 	"/dashboard/shots":       {},
+	"/dashboard/design":      {},
+	"/dashboard/plugins":     {},
 	"/dashboard/admin":       {},
 }
 
