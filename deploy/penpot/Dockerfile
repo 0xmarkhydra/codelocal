@@ -6,12 +6,16 @@ FROM penpotapp/frontend:2.17.0
 USER root
 COPY nginx-security-headers.conf /etc/nginx/nginx-security-headers.conf
 COPY nginx-mcp-locations.conf.template /tmp/nginx-mcp-locations.conf.template
+COPY codelocal-mcp-bootstrap.js /var/www/app/codelocal-mcp-bootstrap.js
 
 # Penpot 2.17.0 contains the upstream ui.css fix. Keep the documented upstream
 # compatibility fallback so a rebuilt image cannot regress to an HTML 404 when
-# a registry mirror serves an older/broken frontend layer.
+# a registry mirror serves an older/broken frontend layer. The CodeLocal bridge
+# is injected only into this thin deployment image; upstream Penpot stays intact.
 RUN if [ ! -e /var/www/app/css/ui.css ] && [ -e /var/www/app/css/main.css ]; then \
       ln -s main.css /var/www/app/css/ui.css; \
-    fi
+    fi && \
+    grep -q '</body>' /var/www/app/index.html && \
+    sed -i 's#</body>#<script src="/codelocal-mcp-bootstrap.js?v=1" defer></script></body>#' /var/www/app/index.html
 
 USER penpot:penpot
