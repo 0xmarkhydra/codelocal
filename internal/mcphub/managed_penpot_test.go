@@ -3,6 +3,7 @@ package mcphub
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,45 @@ func TestManagedPenpotConfigFromOverride(t *testing.T) {
 	}
 	if cfg.URL != "http://127.0.0.1:55123/mcp" {
 		t.Fatalf("unexpected managed URL: %s", cfg.URL)
+	}
+}
+
+func TestManagedPenpotConfigIsAlwaysExposed(t *testing.T) {
+	t.Setenv("CODELOCAL_PENPOT_MCP_URL", "")
+	t.Setenv("CODELOCAL_PENPOT_MCP_CLI", "")
+	t.Setenv("CODELOCAL_PACKAGE_ROOT", "")
+	t.Setenv("PATH", "")
+	cfg, ok := managedPenpotConfig()
+	if !ok {
+		t.Fatal("default-installed Penpot server must remain visible before its lazy runtime starts")
+	}
+	if cfg.Name != managedPenpotName || !cfg.Managed || !cfg.Enabled || cfg.URL != managedPenpotURL {
+		t.Fatalf("unexpected default managed config: %#v", cfg)
+	}
+}
+
+func TestListIncludesManagedPenpotWithoutPackagedBackend(t *testing.T) {
+	t.Setenv("CODELOCAL_STATE_DIR", t.TempDir())
+	t.Setenv("CODELOCAL_PENPOT_MCP_URL", "")
+	t.Setenv("CODELOCAL_PENPOT_MCP_CLI", "")
+	t.Setenv("CODELOCAL_PACKAGE_ROOT", "")
+	t.Setenv("PATH", "")
+	hub, err := New(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+	value, err := hub.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers, ok := value.([]map[string]any)
+	if !ok || len(servers) != 1 {
+		t.Fatalf("unexpected server list: %#v", value)
+	}
+	server := servers[0]
+	if server["name"] != managedPenpotName || server["managed"] != true || server["version"] != managedPenpotVersion {
+		t.Fatalf("managed Penpot was not exposed: %#v", server)
 	}
 }
 
@@ -86,6 +126,27 @@ func TestManagedPenpotCommandFindsHoistedEntry(t *testing.T) {
 	}
 	if filepath.Base(command) != "node" || len(args) != 1 || args[0] != entry {
 		t.Fatalf("unexpected hoisted command: %q %#v", command, args)
+	}
+}
+
+func TestManagedPenpotCommandFallsBackToPinnedNPX(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("executable fixture uses Unix permissions")
+	}
+	bin := t.TempDir()
+	npx := filepath.Join(bin, "npx")
+	if err := os.WriteFile(npx, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODELOCAL_PENPOT_MCP_CLI", "")
+	t.Setenv("CODELOCAL_PACKAGE_ROOT", "")
+	t.Setenv("PATH", bin)
+	command, args, ok := managedPenpotCommand()
+	if !ok {
+		t.Fatal("expected pinned npx fallback")
+	}
+	if command != npx || len(args) != 2 || args[0] != "-y" || args[1] != managedPenpotNPXPackage {
+		t.Fatalf("unexpected npx fallback: %q %#v", command, args)
 	}
 }
 

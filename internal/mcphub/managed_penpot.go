@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	managedPenpotName    = "penpot"
-	managedPenpotVersion = "2.17.0"
-	managedPenpotURL     = "http://127.0.0.1:4401/mcp"
-	managedPenpotAddr    = "127.0.0.1:4401"
+	managedPenpotName       = "penpot"
+	managedPenpotVersion    = "2.17.0"
+	managedPenpotNPXPackage = "@penpot/mcp@" + managedPenpotVersion
+	managedPenpotURL        = "http://127.0.0.1:4401/mcp"
+	managedPenpotAddr       = "127.0.0.1:4401"
 )
 
 type penpotRuntimeState struct {
@@ -38,9 +39,10 @@ func managedPenpotConfig() (ServerConfig, bool) {
 		}
 		return ServerConfig{Name: managedPenpotName, Enabled: true, Managed: true, Scope: "global", Transport: "http", URL: endpoint}, true
 	}
-	if _, _, ok := managedPenpotCommand(); !ok {
-		return ServerConfig{}, false
-	}
+	// Penpot is a default-installed System Plugin, so its reserved server must
+	// remain visible even before the lazy backend process is started. Packaged
+	// installs resolve the bundled dependency; source/dev runtimes can resolve
+	// the pinned npx fallback when the first Penpot operation connects.
 	return ServerConfig{Name: managedPenpotName, Enabled: true, Managed: true, Scope: "global", Transport: "http", URL: managedPenpotURL}, true
 }
 
@@ -50,29 +52,26 @@ func managedPenpotCommand() (string, []string, bool) {
 			return configured, nil, true
 		}
 	}
-	root := strings.TrimSpace(os.Getenv("CODELOCAL_PACKAGE_ROOT"))
-	if root == "" {
-		return "", nil, false
-	}
-	entries := []string{
-		filepath.Join(root, "node_modules", "@penpot", "mcp", "bin", "mcp-local.js"),
-		filepath.Join(filepath.Dir(root), "@penpot", "mcp", "bin", "mcp-local.js"),
-	}
-	entry := ""
-	for _, candidate := range entries {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			entry = candidate
-			break
+	if root := strings.TrimSpace(os.Getenv("CODELOCAL_PACKAGE_ROOT")); root != "" {
+		entries := []string{
+			filepath.Join(root, "node_modules", "@penpot", "mcp", "bin", "mcp-local.js"),
+			filepath.Join(filepath.Dir(root), "@penpot", "mcp", "bin", "mcp-local.js"),
+		}
+		for _, entry := range entries {
+			if info, err := os.Stat(entry); err == nil && !info.IsDir() {
+				node, err := exec.LookPath("node")
+				if err != nil {
+					return "", nil, false
+				}
+				return node, []string{entry}, true
+			}
 		}
 	}
-	if entry == "" {
-		return "", nil, false
-	}
-	node, err := exec.LookPath("node")
+	npx, err := exec.LookPath("npx")
 	if err != nil {
 		return "", nil, false
 	}
-	return node, []string{entry}, true
+	return npx, []string{"-y", managedPenpotNPXPackage}, true
 }
 
 func managedPenpotEnv() []string {

@@ -79,9 +79,10 @@ Railway references for Penpot must resolve to the existing `Postgres.*` and `Red
 ## Managed MCP behavior inside CodeLocal
 
 - `penpot` is a reserved MCP server name.
-- It is injected into the effective MCP catalog when the packaged backend or an explicit runtime override is available.
+- It is always injected into the effective MCP catalog because it is a default-installed System Plugin; backend startup remains lazy.
 - Normal users cannot shadow it with another registry entry.
 - CodeLocal resolves the packaged entry at `node_modules/@penpot/mcp/bin/mcp-local.js` through `CODELOCAL_PACKAGE_ROOT`.
+- Source and development runtimes keep the System Plugin visible and fall back to the exact pinned `npx -y @penpot/mcp@2.17.0` package when the bundled entry is not present.
 - The process starts lazily when Penpot tools are first probed/called.
 - Multiple workspace hubs share the local process through a reference-counted lifecycle instead of spawning a server per project.
 - CodeLocal shuts down the managed child when no hub retains it.
