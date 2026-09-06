@@ -1,6 +1,7 @@
 import { AppIcon } from "../app-icon";
 import dashboard from "../dashboard.module.css";
 import styles from "./design.module.css";
+import { PenpotDesignFrame } from "./penpot-design-frame";
 
 const DEFAULT_DESIGN_URL = "https://design.codelocal.cloud";
 
@@ -39,13 +40,7 @@ export default function DesignPage() {
               Open in new tab <AppIcon name="external" size={14} />
             </a>
           </div>
-          <iframe
-            allow="clipboard-read; clipboard-write"
-            className={styles.designFrame}
-            referrerPolicy="strict-origin-when-cross-origin"
-            src={designUrl}
-            title="CodeLocal Penpot Design Workspace"
-          />
+          <PenpotDesignFrame designUrl={designUrl} />
         </div>
 
         <p className={styles.embedFallback}>
