@@ -32,9 +32,6 @@ export default function LoginPage() {
   return (
     <main className="loginShell">
       <form className="loginCard" onSubmit={submit}>
-        <span className="eyebrow">CodeLocal infrastructure</span>
-        <h1>Pool</h1>
-        <p>Website quản trị canonical model, nguồn 9Router và BYOK. API client vẫn dùng trực tiếp <code>/v1/*</code>.</p>
         <label>
           Operator password
           <input autoComplete="current-password" autoFocus onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
