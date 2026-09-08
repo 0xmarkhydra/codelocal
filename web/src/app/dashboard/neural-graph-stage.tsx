@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { useTranslations } from "@/lib/i18n/provider";
 import { AppIcon } from "./app-icon";
 import styles from "./neural-graph-stage.module.css";
 
@@ -97,9 +98,10 @@ export function NeuralGraphStage({
   legend = [],
   compact = false,
   controls = true,
-  emptyLabel = "No graph data",
+  emptyLabel,
   ariaLabel,
 }: Props) {
+  const { t } = useTranslations();
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const runtimeRef = useRef<RuntimeNode[]>(createLayout(nodes));
@@ -130,6 +132,11 @@ export function NeuralGraphStage({
 
     const byId = () => new Map(runtimeRef.current.map((node) => [node.id, node]));
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const labels = new Map(nodes.map((node) => {
+      const characters = Array.from(segmenter.segment(node.label), ({ segment }) => segment);
+      return [node.id, characters.length > 32 ? `${characters.slice(0, 31).join("")}…` : node.label];
+    }));
     let disposed = false;
     let lastFrame = 0;
 
@@ -216,10 +223,10 @@ export function NeuralGraphStage({
           context.fillStyle = isRelated ? "rgba(229,236,247,.94)" : "rgba(176,190,210,.55)";
           context.textAlign = "center";
           context.textBaseline = "top";
-          const label = node.label.length > 32 ? `${node.label.slice(0, 31)}…` : node.label;
+          const label = labels.get(node.id) ?? node.label;
           const labelWidth = context.measureText(label).width;
           const labelX = Math.max(labelWidth / 2 + 8, Math.min(width - labelWidth / 2 - 8, point.x));
-          context.fillText(label, labelX, point.y + radius + 7);
+          context.fillText(label, labelX, point.y + radius + 7, Math.max(1, width - 16));
         }
         context.restore();
       }
@@ -445,20 +452,20 @@ export function NeuralGraphStage({
       <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label={ariaLabel} />
 
       {controls && nodes.length > 0 && (
-        <div className={styles.controls} aria-label="Graph controls">
-          <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => zoomBy(1.18)}><AppIcon name="plus" size={15} /></button>
-          <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.18)}><AppIcon name="minus" size={15} /></button>
-          <button type="button" title="Reset view" aria-label="Reset view" onClick={resetView}><AppIcon name="target" size={15} /></button>
+        <div className={styles.controls} aria-label={t("Graph controls")}>
+          <button type="button" title={t("Zoom in")} aria-label={t("Zoom in")} onClick={() => zoomBy(1.18)}><AppIcon name="plus" size={15} /></button>
+          <button type="button" title={t("Zoom out")} aria-label={t("Zoom out")} onClick={() => zoomBy(1 / 1.18)}><AppIcon name="minus" size={15} /></button>
+          <button type="button" title={t("Reset view")} aria-label={t("Reset view")} onClick={resetView}><AppIcon name="target" size={15} /></button>
         </div>
       )}
 
       {legend.length > 0 && (
-        <div className={styles.legend} aria-label="Graph legend">
+        <div className={styles.legend} aria-label={t("Graph legend")}>
           {legend.map((item) => <span key={item.label}><i style={{ background: item.color }} />{item.label}</span>)}
         </div>
       )}
 
-      {nodes.length === 0 && <div className={styles.empty}>{emptyLabel}</div>}
+      {nodes.length === 0 && <div className={styles.empty}>{emptyLabel ?? t("No graph data")}</div>}
     </div>
   );
 }

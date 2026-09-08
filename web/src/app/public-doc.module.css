@@ -1,156 +1,36 @@
-.page {
-  width: min(calc(100% - 40px), 1080px);
-  margin: 0 auto;
-  padding-bottom: 96px;
-}
-
-.nav {
-  min-height: 76px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  font-weight: 680;
-  letter-spacing: -.024em;
-}
+.page { width: min(calc(100% - 40px), 1080px); margin: 0 auto; padding-bottom: 72px; }
+.nav { min-height: 76px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding-block: 12px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 680; }
 .brand img { border-radius: 8px; }
-
-.navLinks {
-  display: inline-flex;
-  gap: 3px;
-  flex-wrap: wrap;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: rgba(17,19,24,.66);
-}
-
-.navLinks a {
-  min-height: 30px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 11px;
-  border-radius: var(--radius-pill);
-  color: var(--text-tertiary);
-  font-size: 10px;
-  transition: color 140ms ease, background 140ms ease;
-}
-.navLinks a:hover { color: var(--text); background: rgba(255,255,255,.04); }
-
-.hero {
-  position: relative;
-  overflow: hidden;
-  margin-top: 24px;
-  padding: 64px 56px 58px;
-  border: 1px solid var(--line-strong);
-  border-radius: 26px;
-  background:
-    radial-gradient(circle at 82% 10%, rgba(76,96,139,.13), transparent 22rem),
-    linear-gradient(180deg, rgba(255,255,255,.018), transparent 38%),
-    var(--surface-sunken);
-}
-
-.hero::after {
-  content: "";
-  position: absolute;
-  left: 56px;
-  right: 56px;
-  bottom: 0;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(120,160,255,.52), rgba(120,160,255,.08), transparent);
-}
-
-.eyebrow {
-  color: #829de1;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
-  font-weight: 730;
-  letter-spacing: .13em;
-  text-transform: uppercase;
-}
-
-.hero h1 {
-  max-width: 800px;
-  margin: 17px 0 17px;
-  font-size: clamp(44px,6vw,68px);
-  line-height: .98;
-  letter-spacing: -.055em;
-  font-weight: 570;
-}
-
-.hero p {
-  max-width: 720px;
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.75;
-}
-
-.meta {
-  margin-top: 25px;
-  color: var(--text-tertiary);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 8.5px;
-}
-
-.content {
-  display: grid;
-  margin-top: 44px;
-  padding: 0 18px;
-}
-
-.card {
-  display: grid;
-  grid-template-columns: minmax(180px,.34fr) minmax(0,1fr);
-  gap: 42px;
-  padding: 34px 0 38px;
-  border-bottom: 1px solid var(--line);
-}
-
-.card h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 610;
-  letter-spacing: -.022em;
-}
+.navLinks { display: flex; gap: 4px; flex-wrap: wrap; }
+.navLinks a { min-height: 44px; display: inline-flex; align-items: center; padding: 0 11px; border-radius: 6px; color: var(--text-secondary); font-size: 14px; }
+.navLinks a:hover { color: var(--text); background: var(--surface); }
+.hero { margin-top: 24px; padding: 56px 0; border-bottom: 1px solid var(--line-strong); overflow-wrap: anywhere; }
+.eyebrow { color: var(--accent); font-family: var(--font-geist-mono), monospace; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+.hero h1 { max-width: 800px; margin: 18px 0; font-size: 48px; line-height: 1.35; font-weight: 600; }
+.hero p { max-width: 720px; margin: 0; color: var(--text-secondary); font-size: 16px; line-height: 1.75; }
+.meta { margin-top: 24px; color: var(--text-tertiary); font-family: var(--font-geist-mono), monospace; font-size: 12px; }
+.content { display: grid; margin-top: 12px; }
+.card { display: grid; grid-template-columns: minmax(180px, .34fr) minmax(0, 1fr); gap: 16px 40px; padding: 34px 0; border-bottom: 1px solid var(--line); }
+.card h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .card > :not(h2) { grid-column: 2; }
-.card p, .card li { color: var(--text-secondary); font-size: 12px; line-height: 1.78; }
-.card p { margin: 0 0 11px; }
+.card p, .card li { color: var(--text-secondary); font-size: 16px; line-height: 1.78; overflow-wrap: anywhere; }
+.card p { margin: 0 0 12px; }
 .card p:last-child { margin-bottom: 0; }
-.card ul { margin: 0; padding-left: 18px; }
-.card code { font-family: var(--font-geist-mono), monospace; color: #aebfff; }
-.card strong { color: #e8e9eb; }
-
-.footer {
-  margin-top: 48px;
-  padding: 22px 18px 0;
-  border-top: 1px solid var(--line);
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  flex-wrap: wrap;
-  color: var(--text-tertiary);
-  font-size: 9.5px;
-}
-.footerLinks { display: flex; gap: 16px; }
+.card ul { margin: 0; padding-left: 20px; }
+.card code { font-family: var(--font-geist-mono), monospace; color: var(--accent); }
+.card strong { color: var(--text); }
+.card a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.footer { margin-top: 48px; padding-top: 22px; display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; color: var(--text-tertiary); font-size: 12px; }
+.footerLinks { display: flex; flex-wrap: wrap; gap: 16px; }
+.footerLinks a { padding-block: 8px; }
 
 @media (max-width: 640px) {
-  .page { width: min(calc(100% - 24px),1080px); }
-  .nav { min-height: 62px; }
-  .navLinks { gap: 0; border: 0; padding: 0; background: transparent; }
-  .navLinks a:not(:last-child) { display: none; }
-  .hero { margin-top: 12px; padding: 42px 24px 40px; border-radius: 20px; }
-  .hero::after { left: 24px; right: 24px; }
-  .hero h1 { font-size: clamp(40px,12vw,54px); }
-  .hero p { font-size: 13px; }
-  .content { margin-top: 30px; padding: 0 6px; }
-  .card { grid-template-columns: 1fr; gap: 15px; padding: 26px 0 30px; }
+  .page { width: calc(100% - 32px); }
+  .nav { min-height: 62px; flex-wrap: wrap; gap: 8px; padding-block: 12px; }
+  .navLinks a { padding-inline: 8px; }
+  .hero { margin-top: 12px; padding: 32px 0; }
+  .hero h1 { font-size: 36px; }
+  .card { grid-template-columns: 1fr; gap: 16px; padding: 26px 0; }
   .card > :not(h2) { grid-column: 1; }
 }

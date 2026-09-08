@@ -1,4 +1,5 @@
 .model {
+  overflow-wrap: anywhere;
   overflow: hidden;
   border: 1px solid var(--brand-line);
   border-radius: 8px;
@@ -51,27 +52,21 @@
   font-family: var(--font-geist-sans), sans-serif;
 }
 .zoneLabel {
-  font:
-    10px var(--font-geist-mono),
-    monospace;
+  color: #bbccc4;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
   letter-spacing: 0;
 }
 .nodeNumber {
   font:
-    9px var(--font-geist-mono),
+    14px var(--font-geist-mono),
     monospace;
   letter-spacing: 0;
 }
-.nodeTitle {
-  fill: #e5d9ef;
-  font-size: 15px;
-  font-weight: 550;
-  letter-spacing: 0;
-}
-.nodeCopy {
-  fill: #a89bb6;
-  font-size: 12px;
-}
+.nodeCaption { display:grid; gap:4px; color:#c8bcd2; text-align:center; font-size:14px; line-height:1.5; }
+.nodeCaption strong { color:#e5d9ef; font-size:15px; font-weight:550; }
+.brainCaption { text-align:left; }
 .coreTitle {
   fill: #f2e7ff;
   font-size: 27px;
@@ -81,14 +76,15 @@
 .wireLabel {
   fill: #b8a6cc;
   font:
-    10px var(--font-geist-mono),
+    14px var(--font-geist-mono),
     monospace;
   letter-spacing: 0;
 }
 .footerLabel {
-  fill: #8f7f9e;
+  color: #bdafc9;
+  text-align: center;
   font:
-    9px var(--font-geist-mono),
+    14px var(--font-geist-mono),
     monospace;
   letter-spacing: 0;
 }
@@ -103,8 +99,8 @@
 .node[data-selected="true"] {
   opacity: 1;
 }
-.node[data-selected="true"] .nodeTitle {
-  fill: #fff5ff;
+.node[data-selected="true"] .nodeCaption strong {
+  color: #fff5ff;
 }
 .selectionRing {
   opacity: 0.18;
@@ -230,9 +226,6 @@
   font-size: 16px;
   line-height: 1.85;
 }
-.mobileHint {
-  display: none;
-}
 @media (max-width: 1100px) {
   .controls button {
     padding: 19px 13px;
@@ -266,17 +259,6 @@
   }
   .modelBar > span:last-child {
     display: none;
-  }
-  .mobileHint {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 18px 15px;
-    margin: 0;
-    color: #b5a2c8;
-    font:
-      12px var(--font-geist-mono),
-      monospace;
   }
   .controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));

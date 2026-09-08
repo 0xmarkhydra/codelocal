@@ -2,6 +2,7 @@
 
 import { AppIcon } from "./app-icon";
 import styles from "./dashboard.module.css";
+import { useTranslations } from "@/lib/i18n/provider";
 
 type FeedbackProps =
   | { kind: "loading"; label: string }
@@ -9,12 +10,13 @@ type FeedbackProps =
   | { kind: "error"; label: string; message: string; onRetry: () => void };
 
 export function DashboardResourceFeedback(props: FeedbackProps) {
+  const { t } = useTranslations();
   if (props.kind === "loading") {
     return (
-      <section className={styles.resourceFeedback} aria-live="polite" aria-label={`Đang tải ${props.label}`}>
+      <section className={styles.resourceFeedback} aria-live="polite" aria-label={t("Loading")}>
         <span className={styles.resourceFeedbackSpinner} aria-hidden="true"><i /><i /><i /></span>
-        <strong>Đang tải {props.label}</strong>
-        <span>Dữ liệu sẽ xuất hiện ngay khi CodeLocal phản hồi.</span>
+        <strong>{t("Loading")}</strong>
+        <span>{t("Data will appear when CodeLocal responds.")}</span>
       </section>
     );
   }
@@ -23,9 +25,9 @@ export function DashboardResourceFeedback(props: FeedbackProps) {
     return (
       <section className={styles.resourceFeedback} aria-live="polite">
         <span className={styles.resourceFeedbackIcon} aria-hidden="true"><AppIcon name="shield" /></span>
-        <strong>Cần đăng nhập</strong>
-        <span>Đăng nhập để tiếp tục với {props.label}.</span>
-        <a className={styles.resourceFeedbackAction} href="/login?next=%2Fdashboard">Tiếp tục</a>
+        <strong>{t("Sign in required")}</strong>
+        <span>{t("Sign in to continue.")}</span>
+        <a className={styles.resourceFeedbackAction} href="/login?next=%2Fdashboard">{t("Continue")}</a>
       </section>
     );
   }
@@ -33,9 +35,9 @@ export function DashboardResourceFeedback(props: FeedbackProps) {
   return (
     <section className={styles.resourceFeedback} aria-live="polite">
       <span className={styles.resourceFeedbackIcon} aria-hidden="true"><AppIcon name="refresh" /></span>
-      <strong>Chưa kết nối được</strong>
-      <span>{props.label} chưa phản hồi. Bạn có thể thử lại.</span>
-      <button className={styles.resourceFeedbackAction} type="button" onClick={props.onRetry}>Thử lại</button>
+      <strong>{t("Unable to connect")}</strong>
+      <span>{t("CodeLocal has not responded. Try again.")}</span>
+      <button className={styles.resourceFeedbackAction} type="button" onClick={props.onRetry}>{t("Retry")}</button>
     </section>
   );
 }

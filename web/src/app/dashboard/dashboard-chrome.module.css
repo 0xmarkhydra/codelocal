@@ -265,12 +265,13 @@
   }
   .mobileBar {
     position: absolute;
+    z-index: 30;
     inset: 0 0 auto;
-    height: 60px;
+    min-height: calc(60px + env(safe-area-inset-top));
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 20px;
+    padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
     border-bottom: 1px solid #ffffff12;
     background: #121516;
   }
@@ -281,8 +282,8 @@
   .closeButton {
     display: grid;
     place-items: center;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border: 1px solid #ffffff18;
     border-radius: 8px;
     color: var(--brand-text);
@@ -301,6 +302,8 @@
       transform 180ms ease,
       visibility 180ms ease;
     background: #121516;
+    padding-top: max(25px, env(safe-area-inset-top));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
   }
   .sidebarOpen {
     visibility: visible;

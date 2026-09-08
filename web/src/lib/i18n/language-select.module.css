@@ -1,0 +1,32 @@
+.control {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.control > span[role="status"] {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.control select {
+  min-height: 44px;
+  width: 100%;
+  max-width: 100%;
+  padding: 8px 28px 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.control select:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}

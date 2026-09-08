@@ -238,8 +238,8 @@ export function taxonomySlug(value: string) {
     .replace(/^-|-$/g, "");
 }
 
-export function formatBlogDate(value: string) {
-  return new Intl.DateTimeFormat("en", {
+export function formatBlogDate(value: string, locale = "en") {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "short",
     day: "numeric",

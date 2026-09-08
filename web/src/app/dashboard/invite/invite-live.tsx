@@ -6,6 +6,8 @@ import { CopyButton } from "../copy-button";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
 import dashboard from "../dashboard.module.css";
 import surface from "../dashboard-surfaces.module.css";
+import { useTranslations } from "@/lib/i18n/provider";
+import { formatDashboardTime } from "../dashboard-format";
 
 type Member = { emailMasked: string; initial: string; joinedAt: number; status: string };
 type Invite = { referralCode: string; invitedBy: string; inviteLink: string; directCount: number; activeCount: number; members: Member[] };
@@ -17,12 +19,14 @@ function isInvite(value: unknown): value is Invite {
 }
 
 function statusLabel(status: string) {
-  if (status === "mcp_active") return "Đang dùng";
+  if (status === "mcp_active") return "Using MCP";
   if (status === "runtime_online") return "Online";
   return "Offline";
 }
 
 export function InviteLive() {
+  const { locale, t } = useTranslations();
+  const number = new Intl.NumberFormat(locale);
   const router = useRouter();
   const [data, setData] = useState<Invite | null>(null);
   const [error, setError] = useState(false);
@@ -51,43 +55,38 @@ export function InviteLive() {
   return (
     <div className={surface.inviteLayout}>
       <section className={surface.inviteHero}>
-        <div className={surface.inviteHeroCopy}>
-          <span className={dashboard.eyebrow}>Invite link</span>
-          <h2>Mời mọi người vào CodeLocal</h2>
-          <p>Chia sẻ link hoặc mã mời. Trạng thái thành viên sẽ cập nhật từ backend hiện có.</p>
-        </div>
         <div className={surface.inviteLinkBox}>
           <div>
-            <small>Link của bạn</small>
+            <small>{t("Your link")}</small>
             <strong title={data.inviteLink}>{data.inviteLink}</strong>
           </div>
-          <CopyButton value={data.inviteLink} label="Copy link" />
+          <CopyButton value={data.inviteLink} label={t("Copy link")} />
         </div>
         <div className={surface.inviteCodeRow}>
-          <span>Mã mời <strong>{data.referralCode}</strong></span>
-          <CopyButton value={data.referralCode} label="Copy code" />
+          <span>{t("Invite code")} <strong>{data.referralCode}</strong></span>
+          <CopyButton value={data.referralCode} label={t("Copy code")} />
         </div>
       </section>
 
       <section className={surface.memberPanel}>
         <div className={surface.memberPanelHead}>
           <div>
-            <span className={dashboard.eyebrow}>Members</span>
-            <h2>{data.directCount} người đã tham gia</h2>
+            <span className={dashboard.eyebrow}>{t("Members")}</span>
+            <h2>{t("{count} members joined", { count: data.directCount })}</h2>
           </div>
-          <div className={surface.memberFilters} role="tablist" aria-label="Invite filters">
-            <button type="button" data-active={filter === "all" || undefined} onClick={() => setFilter("all")}>Tất cả {data.directCount}</button>
-            <button type="button" data-active={filter === "active" || undefined} onClick={() => setFilter("active")}>Đang hoạt động {data.activeCount}</button>
+          <div className={surface.memberFilters} role="group" aria-label={t("Member filters")}>
+            <button type="button" aria-pressed={filter === "all"} data-active={filter === "all" || undefined} onClick={() => setFilter("all")}>{t("All")} {number.format(data.directCount)}</button>
+            <button type="button" aria-pressed={filter === "active"} data-active={filter === "active" || undefined} onClick={() => setFilter("active")}>{t("{count} active", { count: data.activeCount })}</button>
           </div>
         </div>
 
-        {members.length === 0 ? <div className={surface.empty}>Chưa có thành viên phù hợp.</div> : (
+        {members.length === 0 ? <div className={surface.empty}>{t("No matching members.")}</div> : (
           <div className={surface.memberList}>
             {members.map((member, index) => (
               <div className={surface.memberRow} key={`${member.emailMasked}-${member.joinedAt}-${index}`}>
                 <span className={surface.memberAvatar} aria-hidden="true">{member.initial}</span>
-                <div className={surface.identity}><strong>{member.emailMasked}</strong><span>Tham gia {new Date(member.joinedAt).toLocaleString()}</span></div>
-                <span className={surface.memberStatus} data-state={member.status}><i />{statusLabel(member.status)}</span>
+                <div className={surface.identity}><strong>{member.emailMasked}</strong><span>{t("Joined {time}", { time: formatDashboardTime(member.joinedAt, locale) })}</span></div>
+                <span className={surface.memberStatus} data-state={member.status}><i />{t(statusLabel(member.status))}</span>
               </div>
             ))}
           </div>

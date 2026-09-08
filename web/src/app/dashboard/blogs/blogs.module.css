@@ -10,14 +10,8 @@
   gap: var(--space-4);
   align-items: center;
   margin-bottom: var(--space-4);
-  padding: var(--space-4) 18px;
-  border: 1px solid var(--glass-line);
-  border-radius: var(--radius-panel);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.012) 42%, transparent),
-    var(--glass-fill);
-  box-shadow: inset 0 1px var(--glass-highlight), 0 16px 44px rgba(0,0,0,.14);
-  backdrop-filter: blur(var(--glass-blur)) saturate(125%);
+  padding: 12px 0 24px;
+  border-bottom: 1px solid var(--line);
 }
 
 .heroIcon {
@@ -42,24 +36,24 @@
 .sectionHeader h2 { margin: 0; }
 
 .heroCopy h1 {
-  font-size: clamp(24px, 2.3vw, 31px);
+  font-size: 24px;
   font-weight: 650;
-  letter-spacing: -.04em;
+  letter-spacing: 0;
 }
 
 .heroCopy p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .kicker {
   color: #91a8d9;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: .1em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -70,23 +64,23 @@
 }
 
 .primaryAction {
-  min-height: 36px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0 13px;
-  border: 1px solid rgba(139,168,255,.24);
+  border: 1px solid var(--accent);
   border-radius: var(--radius-control);
-  color: #e2e9ff;
-  background: rgba(111,132,255,.1);
-  font-size: 11px;
+  color: #102019;
+  background: var(--accent);
+  font-size: 14px;
   font-weight: 650;
 }
 
 .blogWorkspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
-  gap: var(--space-4);
+  gap: 32px;
   align-items: start;
 }
 
@@ -118,26 +112,19 @@
 .stats strong {
   font-size: 22px;
   line-height: 1;
-  letter-spacing: -.04em;
+  letter-spacing: 0;
 }
 
 .stats span,
 .postRow p,
 .postRow time { color: var(--text-secondary); }
-.stats span { font-size: 9px; }
+.stats span { font-size: 14px; }
 
 .section {
   min-width: 0;
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--glass-line);
-  border-radius: var(--radius-panel);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.035), transparent 28%),
-    var(--glass-fill);
-  box-shadow: inset 0 1px rgba(255,255,255,.045), 0 14px 38px rgba(0,0,0,.12);
-  backdrop-filter: blur(18px) saturate(120%);
+  padding: 20px 0;
 }
 
 .postsSection { min-height: 460px; }
@@ -156,18 +143,19 @@
 
 .sectionHeader h2 {
   font-size: 18px;
-  letter-spacing: -.025em;
+  letter-spacing: 0;
 }
 
 .sectionHeader > a {
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 14px;
 }
 
 .sectionHeader > a:hover { color: var(--text); }
 
 .postToolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding-bottom: var(--space-3);
@@ -182,11 +170,11 @@
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
   color: var(--text);
-  background: rgba(5,9,14,.62);
+  background: var(--surface-sunken);
 }
 
 .searchInput {
-  min-width: 0;
+  min-width: min(100%, 200px);
   flex: 1;
   padding: 0 12px;
   outline: none;
@@ -199,8 +187,9 @@
 }
 
 .statusFilters {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--line);
@@ -209,13 +198,13 @@
 }
 
 .statusFilters button {
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 10px;
   border: 0;
   border-radius: 7px;
   color: var(--text-tertiary);
   background: transparent;
-  font-size: 10px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -260,7 +249,7 @@
 .errorText {
   margin: 0;
   color: var(--danger);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -270,7 +259,7 @@
   border-radius: var(--radius-control);
   color: var(--text-secondary);
   background: rgba(255,255,255,.012);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.55;
 }
 
@@ -281,7 +270,7 @@
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
-  background: rgba(5,9,14,.34);
+  background: var(--surface-sunken);
 }
 
 .postRow {
@@ -313,16 +302,16 @@
 .postRow > div > span {
   color: var(--text-tertiary);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8.5px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: .06em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .postRow strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -332,7 +321,7 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 14px;
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -340,7 +329,7 @@
 
 .postRow time {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -366,7 +355,7 @@
 @media (max-width: 720px) {
   .hero {
     grid-template-columns: auto minmax(0, 1fr);
-    padding: 14px;
+    padding: 12px 0 20px;
   }
 
   .primaryAction {

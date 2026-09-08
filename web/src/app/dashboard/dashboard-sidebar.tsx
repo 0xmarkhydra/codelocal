@@ -6,8 +6,10 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { AppIcon } from "./app-icon";
 import { DashboardNav } from "./dashboard-nav";
 import styles from "./dashboard-chrome.module.css";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export function DashboardSidebar() {
+  const { t } = useTranslations();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
@@ -23,12 +25,12 @@ export function DashboardSidebar() {
     const focusable = () =>
       Array.from(
         sidebar.current?.querySelectorAll<HTMLElement>(
-          "a[href], button, summary",
+          "a[href], button, summary, select",
         ) ?? [],
       ).filter((element) => {
         const details = element.closest("details");
         return (
-          element.getClientRects().length > 0 &&
+          !element.matches(":disabled") && element.getClientRects().length > 0 &&
           (!details || details.open || element.tagName === "SUMMARY")
         );
       });
@@ -80,7 +82,7 @@ export function DashboardSidebar() {
           ref={trigger}
           type="button"
           onClick={() => setOpen(true)}
-          aria-label="Mở điều hướng"
+          aria-label={t("Open navigation")}
           aria-controls="dashboard-sidebar"
           aria-expanded={open}
         >
@@ -91,7 +93,7 @@ export function DashboardSidebar() {
         className={`${styles.backdrop} ${open ? styles.backdropOpen : ""}`}
         type="button"
         onClick={close}
-        aria-label="Đóng điều hướng"
+        aria-label={t("Close navigation")}
         tabIndex={-1}
       />
       <aside
@@ -100,10 +102,10 @@ export function DashboardSidebar() {
         className={`${styles.sidebar} ${open ? styles.sidebarOpen : ""}`}
         role={open ? "dialog" : undefined}
         aria-modal={open || undefined}
-        aria-label="Điều hướng dashboard"
+        aria-label={t("Dashboard navigation")}
       >
         <div className={styles.brandRow}>
-          <Link className={styles.brand} href="/" aria-label="CodeLocal home">
+          <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
             <Image
               src="/codelocal-icon.png"
               alt=""
@@ -119,7 +121,7 @@ export function DashboardSidebar() {
             className={styles.closeButton}
             type="button"
             onClick={close}
-            aria-label="Đóng điều hướng"
+            aria-label={t("Close navigation")}
           >
             <AppIcon name="close" />
           </button>
@@ -129,7 +131,7 @@ export function DashboardSidebar() {
             <AppIcon name="module" size={18} />
           </span>
           <div>
-            <strong>Không gian làm việc</strong>
+            <strong>{t("Workspace")}</strong>
             <span>CodeLocal Cloud</span>
           </div>
         </div>

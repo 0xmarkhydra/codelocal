@@ -39,10 +39,10 @@
 
 .header h1 {
   color: rgba(255, 255, 255, 0.96);
-  font-size: clamp(25px, 2vw, 30px);
+  font-size: 25px;
   font-weight: 650;
   line-height: 1.08;
-  letter-spacing: -0.045em;
+  letter-spacing: 0;
 }
 
 .eyebrow,
@@ -59,8 +59,8 @@
   border: 1px solid rgba(255, 255, 255, 0.065);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.025);
-  color: rgba(219, 229, 243, 0.54);
-  font-size: 10px;
+  color: rgba(219, 229, 243, 0.85);
+  font-size: 12px;
   font-weight: 570;
   white-space: nowrap;
 }
@@ -70,25 +70,24 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 9px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 17px;
-  background: rgba(255, 255, 255, 0.018);
-  backdrop-filter: blur(20px);
+  padding: 8px 0 20px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
 }
 
 .searchBox {
+  min-width: min(100%, 240px);
   flex: 1;
   max-width: 560px;
-  min-height: 38px;
+  min-height: 46px;
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 0 11px;
   border: 1px solid rgba(255, 255, 255, 0.055);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.022);
-  color: rgba(195, 209, 230, 0.42);
+  color: rgba(195, 209, 230, 0.85);
 }
 
 .searchBox input {
@@ -98,11 +97,11 @@
   background: transparent;
   color: rgba(245, 248, 252, 0.88);
   font: inherit;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .searchBox input::placeholder {
-  color: rgba(202, 215, 233, 0.3);
+  color: rgba(202, 215, 233, 0.85);
 }
 
 .searchBox:focus-within {
@@ -112,10 +111,11 @@
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 3px;
   padding: 3px;
   border: 1px solid rgba(255, 255, 255, 0.055);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -129,18 +129,18 @@
 }
 
 .tabs button {
-  min-height: 30px;
+  min-height: 40px;
   padding: 0 11px;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
-  color: rgba(220, 228, 241, 0.43);
-  font-size: 10.5px;
+  color: rgba(220, 228, 241, 0.85);
+  font-size: 14px;
   font-weight: 570;
 }
 
 .tabs button span {
   margin-left: 5px;
-  color: rgba(211, 222, 239, 0.32);
+  color: rgba(211, 222, 239, 0.85);
 }
 
 .tabs button:hover,
@@ -166,10 +166,10 @@
   margin-top: 10px;
   padding: 11px 13px;
   border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 13px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.018);
-  color: rgba(232, 238, 247, 0.7);
-  font-size: 10.5px;
+  color: rgba(232, 238, 247, 0.85);
+  font-size: 14px;
 }
 
 .noticeError {
@@ -199,13 +199,13 @@
   color: rgba(247, 249, 253, 0.9);
   font-size: 15px;
   font-weight: 610;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
 }
 
 .sectionIntro p,
 .sectionIntro > span {
-  color: rgba(211, 222, 238, 0.42);
-  font-size: 10px;
+  color: rgba(211, 222, 238, 0.85);
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -230,8 +230,8 @@
   flex-direction: column;
   padding: 17px;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(20, 26, 35, 0.72), rgba(10, 14, 20, 0.88));
+  border-radius: 8px;
+  background: var(--surface);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.14), inset 0 1px rgba(255, 255, 255, 0.025);
   transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
 }
@@ -239,7 +239,7 @@
 .pluginCard:hover {
   transform: translateY(-1px);
   border-color: rgba(255, 255, 255, 0.115);
-  background: linear-gradient(145deg, rgba(24, 31, 42, 0.76), rgba(11, 16, 23, 0.9));
+  background: var(--surface);
 }
 
 .pluginCard[data-installed="true"] {
@@ -281,12 +281,12 @@
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 14px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
   color: rgba(181, 202, 239, 0.86);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 680;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .nameRow {
@@ -299,15 +299,15 @@
   color: rgba(255, 255, 255, 0.92);
   font-size: 14px;
   font-weight: 620;
-  letter-spacing: -0.022em;
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .pluginIdentity p {
   margin-top: 4px;
-  color: rgba(211, 222, 238, 0.4);
-  font-size: 9.5px;
+  color: rgba(211, 222, 238, 0.85);
+  font-size: 14px;
 }
 
 .verified,
@@ -319,28 +319,28 @@
   border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.024);
-  color: rgba(213, 225, 242, 0.47);
-  font-size: 8.5px;
+  color: rgba(213, 225, 242, 0.85);
+  font-size: 12px;
   font-weight: 590;
 }
 
 .verified {
   gap: 3px;
   min-height: 19px;
-  color: rgba(168, 195, 235, 0.62);
+  color: rgba(168, 195, 235, 0.85);
 }
 
 .installedBadge {
   gap: 4px;
   border-color: rgba(105, 216, 149, 0.13);
-  color: rgba(147, 220, 176, 0.64);
+  color: rgba(147, 220, 176, 0.85);
   background: rgba(27, 62, 42, 0.16);
 }
 
 .description {
   margin-top: 14px;
-  color: rgba(214, 225, 240, 0.48);
-  font-size: 10.5px;
+  color: rgba(214, 225, 240, 0.85);
+  font-size: 16px;
   line-height: 1.6;
 }
 
@@ -364,8 +364,8 @@
   border: 1px solid rgba(255, 255, 255, 0.045);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.022);
-  color: rgba(205, 216, 233, 0.42);
-  font-size: 9px;
+  color: rgba(205, 216, 233, 0.85);
+  font-size: 14px;
 }
 
 .permissions {
@@ -376,16 +376,16 @@
 
 .permissionTitle {
   gap: 6px;
-  color: rgba(206, 219, 237, 0.48);
+  color: rgba(206, 219, 237, 0.85);
 }
 
 .permissionTitle strong {
-  font-size: 9.5px;
+  font-size: 14px;
   font-weight: 590;
 }
 
 .permissionTitle svg {
-  color: rgba(153, 176, 218, 0.52);
+  color: rgba(153, 176, 218, 0.85);
 }
 
 .permissionList {
@@ -397,6 +397,7 @@
 }
 
 .cardFooter {
+  flex-wrap: wrap;
   margin-top: auto;
   padding-top: 16px;
 }
@@ -405,8 +406,8 @@
   min-width: 0;
   display: grid;
   gap: 4px;
-  color: rgba(211, 222, 238, 0.4);
-  font-size: 9.5px;
+  color: rgba(211, 222, 238, 0.85);
+  font-size: 14px;
 }
 
 .installState > span {
@@ -426,7 +427,7 @@
 }
 
 .updateText {
-  color: rgba(193, 210, 238, 0.56);
+  color: rgba(193, 210, 238, 0.85);
 }
 
 .actions {
@@ -436,10 +437,10 @@
 
 .actions button,
 .emptyState button {
-  min-height: 32px;
+  min-height: 44px;
   padding: 0 11px;
-  border-radius: 10px;
-  font-size: 10.5px;
+  border-radius: 8px;
+  font-size: 14px;
   font-weight: 580;
   transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
 }
@@ -458,7 +459,7 @@
 .secondaryButton,
 .emptyState button {
   background: rgba(255, 255, 255, 0.025);
-  color: rgba(220, 229, 242, 0.55);
+  color: rgba(220, 229, 242, 0.85);
 }
 
 .actions button:hover:not(:disabled),
@@ -488,14 +489,14 @@
   gap: 7px;
   padding: 28px;
   border: 1px dashed rgba(255, 255, 255, 0.07);
-  border-radius: 20px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.012);
   text-align: center;
 }
 
 .emptyState svg {
   margin-bottom: 6px;
-  color: rgba(166, 188, 225, 0.46);
+  color: rgba(166, 188, 225, 0.85);
 }
 
 .emptyState strong {
@@ -506,8 +507,8 @@
 
 .emptyState span {
   max-width: 520px;
-  color: rgba(211, 222, 238, 0.42);
-  font-size: 10.5px;
+  color: rgba(211, 222, 238, 0.85);
+  font-size: 14px;
   line-height: 1.55;
 }
 
@@ -518,10 +519,8 @@
 .connectionList,
 .configPanel {
   margin-top: 14px;
-  padding: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.055);
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.018);
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
 }
 
 .connectionList {
@@ -556,8 +555,8 @@
 
 .connectionCopy strong {
   overflow: hidden;
-  color: rgba(238, 243, 250, 0.72);
-  font-size: 10px;
+  color: rgba(238, 243, 250, 0.85);
+  font-size: 14px;
   font-weight: 590;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -565,16 +564,14 @@
 
 .connectionCopy span,
 .connectionCopy small {
-  overflow: hidden;
-  color: rgba(205, 218, 237, 0.4);
-  font-size: 9px;
+  overflow-wrap: anywhere;
+  color: rgba(205, 218, 237, 0.85);
+  font-size: 12px;
   line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .connectionCopy small {
-  color: rgba(226, 150, 160, 0.58);
+  color: rgba(226, 150, 160, 0.85);
 }
 
 .textButton,
@@ -583,7 +580,7 @@
   border: 0;
   cursor: pointer;
   background: transparent;
-  color: rgba(212, 224, 240, 0.47);
+  color: rgba(212, 224, 240, 0.85);
   font: inherit;
 }
 
@@ -591,7 +588,7 @@
   flex: 0 0 auto;
   padding: 6px 7px;
   border-radius: 8px;
-  font-size: 9px;
+  font-size: 14px;
 }
 
 .textButton:hover:not(:disabled),
@@ -627,13 +624,13 @@
 
 .configHeader strong {
   color: rgba(245, 248, 253, 0.8);
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 610;
 }
 
 .configHeader span {
-  color: rgba(205, 217, 234, 0.4);
-  font-size: 9px;
+  color: rgba(205, 217, 234, 0.85);
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -654,13 +651,13 @@
 }
 
 .field > span {
-  color: rgba(215, 226, 240, 0.5);
-  font-size: 9px;
+  color: rgba(215, 226, 240, 0.85);
+  font-size: 14px;
   font-weight: 560;
 }
 
 .field em {
-  color: rgba(203, 215, 232, 0.3);
+  color: rgba(203, 215, 232, 0.85);
   font-style: normal;
   font-weight: 450;
 }
@@ -671,16 +668,16 @@
   min-height: 34px;
   padding: 0 9px;
   border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 9px;
+  border-radius: 8px;
   outline: 0;
-  background: rgba(7, 10, 15, 0.48);
-  color: rgba(240, 245, 251, 0.76);
+  background: var(--surface-sunken);
+  color: rgba(240, 245, 251, 0.85);
   font: inherit;
-  font-size: 9.5px;
+  font-size: 14px;
 }
 
 .field input::placeholder {
-  color: rgba(201, 214, 231, 0.25);
+  color: rgba(201, 214, 231, 0.85);
 }
 
 .field input:focus,
@@ -692,8 +689,8 @@
   align-items: flex-start;
   gap: 6px;
   margin: 0;
-  color: rgba(174, 198, 231, 0.48);
-  font-size: 8.75px;
+  color: rgba(174, 198, 231, 0.85);
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -706,15 +703,15 @@
   margin: 0;
   padding: 8px 9px;
   border: 1px solid rgba(229, 182, 105, 0.12);
-  border-radius: 9px;
+  border-radius: 8px;
   background: rgba(70, 50, 22, 0.16);
-  color: rgba(226, 193, 138, 0.55);
-  font-size: 9px;
+  color: rgba(226, 193, 138, 0.85);
+  font-size: 14px;
   line-height: 1.5;
 }
 
 .configWarning code {
-  color: rgba(240, 213, 168, 0.68);
+  color: rgba(240, 213, 168, 0.85);
 }
 
 .configActions {
@@ -724,12 +721,12 @@
 }
 
 .configActions button {
-  min-height: 32px;
+  min-height: 44px;
   padding: 0 11px;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 580;
 }
 
@@ -748,7 +745,7 @@
 }
 
 @media (max-width: 820px) {
-  .page { padding: 72px 14px 30px; }
+  .page { padding: calc(76px + env(safe-area-inset-top)) 14px 30px; }
   .searchBox input { font-size: 16px; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .searchBox { max-width: none; }
@@ -757,7 +754,7 @@
 }
 
 @media (max-width: 620px) {
-  .page { padding: 72px 10px 84px; }
+  .page { padding: calc(76px + env(safe-area-inset-top)) 16px 32px; }
   .header { align-items: flex-start; flex-direction: column; }
   .installCount { align-self: flex-start; }
   .tabs { width: 100%; }

@@ -10,13 +10,8 @@
   align-items: center;
   gap: 14px;
   margin-bottom: 16px;
-  padding: 18px 20px;
-  border: 1px solid rgba(151, 172, 211, 0.09);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at 12% 0%, rgba(120, 160, 255, 0.09), transparent 15rem),
-    linear-gradient(135deg, rgba(255,255,255,.026), rgba(255,255,255,.008));
-  box-shadow: 0 20px 58px rgba(0,0,0,.16);
+  padding: 12px 0 24px;
+  border-bottom: 1px solid var(--line);
 }
 
 .heroIcon,
@@ -33,7 +28,7 @@
 .heroIcon {
   width: 42px;
   height: 42px;
-  border-radius: 13px;
+  border-radius: 8px;
 }
 
 .heroCopy { min-width: 0; }
@@ -43,24 +38,24 @@
   margin-bottom: 3px;
   color: #7895d6;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: .11em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .hero h1 {
   margin: 0;
-  font-size: clamp(25px, 3vw, 33px);
+  font-size: 25px;
   font-weight: 590;
   line-height: 1;
-  letter-spacing: -.045em;
+  letter-spacing: 0;
 }
 
 .hero p {
   margin: 6px 0 0;
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 14px;
   line-height: 1.4;
 }
 
@@ -70,9 +65,9 @@
   padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  color: #69758a;
+  color: var(--text-secondary);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -87,15 +82,15 @@
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 16px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.016);
 }
 
 .hubGroup h2 {
   margin: 0;
   padding: 11px 13px 8px;
-  color: rgba(202, 214, 232, 0.43);
-  font-size: 10px;
+  color: rgba(202, 214, 232, 0.85);
+  font-size: 14px;
   font-weight: 620;
 }
 
@@ -126,9 +121,9 @@
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
-  color: rgba(182, 200, 237, 0.72);
+  color: rgba(182, 200, 237, 0.85);
 }
 
 .hubCopy {
@@ -139,20 +134,20 @@
 
 .hubCopy strong {
   color: rgba(239, 243, 250, 0.83);
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 590;
 }
 
 .hubCopy small {
   overflow: hidden;
-  color: rgba(202, 214, 232, 0.38);
-  font-size: 9.5px;
+  color: rgba(202, 214, 232, 0.85);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .hubChevron {
-  color: rgba(202, 214, 232, 0.25);
+  color: rgba(202, 214, 232, 0.85);
 }
 
 .runtimeHeading {
@@ -160,10 +155,10 @@
 }
 
 .runtimeHeading span {
-  color: rgba(120, 149, 214, 0.7);
-  font-size: 8.5px;
+  color: rgba(120, 149, 214, 0.85);
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -172,13 +167,13 @@
   color: rgba(244, 247, 252, 0.9);
   font-size: 19px;
   font-weight: 620;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
 }
 
 .runtimeHeading p {
   margin: 4px 0 0;
-  color: rgba(202, 214, 232, 0.4);
-  font-size: 10px;
+  color: rgba(202, 214, 232, 0.85);
+  font-size: 14px;
 }
 
 .shell {
@@ -189,12 +184,13 @@
 .scopePanel {
   min-height: 58px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 9px 11px 9px 14px;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(12, 16, 23, .74);
+  border-radius: 8px;
+  background: var(--surface-sunken);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
@@ -209,15 +205,15 @@
 .targetSelectors label > span {
   color: var(--text-tertiary);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: .09em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .scopeIntro strong {
   color: #d8dee9;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 590;
 }
 
@@ -226,8 +222,8 @@
   gap: 2px;
   padding: 3px;
   border: 1px solid rgba(151,172,211,.08);
-  border-radius: 11px;
-  background: rgba(3,6,10,.45);
+  border-radius: 8px;
+  background: var(--surface-sunken);
 }
 
 .scopeTabs button {
@@ -235,9 +231,9 @@
   padding: 0 12px;
   border: 0;
   border-radius: 8px;
-  color: #667083;
+  color: var(--text-secondary);
   background: transparent;
-  font-size: 9px;
+  font-size: 14px;
   font-weight: 610;
   cursor: pointer;
   transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease;
@@ -247,13 +243,14 @@
 
 .scopeTabs button[data-active="true"] {
   color: #f0f3f8;
-  background: linear-gradient(180deg, rgba(90,126,211,.16), rgba(75,102,166,.08));
+  background: var(--surface);
   box-shadow: inset 0 0 0 1px rgba(120,160,255,.12), 0 4px 16px rgba(0,0,0,.16);
 }
 
 .targetSelectors {
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -265,15 +262,16 @@
 }
 
 .targetSelectors select {
-  min-width: 160px;
+  min-width: 0;
+  width: 240px;
   max-width: 240px;
-  height: 33px;
+  min-height: 44px;
   padding: 0 30px 0 10px;
   border: 1px solid rgba(151,172,211,.1);
-  border-radius: 9px;
+  border-radius: 8px;
   color: #cbd3df;
   background: rgba(255,255,255,.018);
-  font-size: 9px;
+  font-size: 14px;
 }
 
 .feedback {
@@ -281,7 +279,7 @@
   padding: 5px 8px;
   border-radius: 999px;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 14px;
 }
 
 .feedback[data-kind="success"] {
@@ -305,10 +303,9 @@
 .resourceState,
 .emptyState {
   border: 1px solid var(--line);
-  border-radius: 17px;
+  border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(255,255,255,.018), rgba(255,255,255,.006)),
-    rgba(10,14,20,.74);
+    var(--surface);
   box-shadow: 0 18px 50px rgba(0,0,0,.12);
 }
 
@@ -337,23 +334,23 @@
 .panelIcon {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .panelTitle h2,
 .capabilitiesHeader h2 {
   margin: 0;
   color: #edf0f5;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 620;
-  letter-spacing: -.01em;
+  letter-spacing: 0;
 }
 
 .panelTitle p,
 .capabilitiesHeader p {
   margin: 2px 0 0;
   color: var(--text-tertiary);
-  font-size: 8px;
+  font-size: 14px;
 }
 
 .titleLine {
@@ -371,9 +368,9 @@
   padding: 0 5px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  color: #77839a;
+  color: var(--text-secondary);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 12px;
 }
 
 .iconButton {
@@ -384,8 +381,8 @@
   flex: 0 0 auto;
   padding: 0;
   border: 1px solid rgba(151,172,211,.09);
-  border-radius: 9px;
-  color: #738097;
+  border-radius: 8px;
+  color: var(--text-secondary);
   background: rgba(255,255,255,.015);
   cursor: pointer;
   transition: color 140ms ease, border-color 140ms ease, background 140ms ease, transform 140ms ease;
@@ -402,15 +399,15 @@
 .iconButton[data-active="true"] { color: #a8c2fa; background: rgba(83,128,239,.08); }
 
 .primaryAction {
-  color: #07101f;
-  border-color: rgba(139,174,255,.72);
-  background: #91b2ff;
+  color: var(--canvas);
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .primaryAction:hover:not(:disabled) {
-  color: #06101e;
-  border-color: #a9c3ff;
-  background: #a5c0ff;
+  color: var(--canvas);
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
 }
 
 .dangerAction:hover:not(:disabled) {
@@ -432,7 +429,7 @@
   gap: 10px;
   padding: 8px 8px 8px 10px;
   border: 1px solid transparent;
-  border-radius: 11px;
+  border-radius: 8px;
   background: rgba(255,255,255,.018);
   transition: border-color 140ms ease, background 140ms ease;
 }
@@ -449,31 +446,29 @@
 }
 
 .settingMain strong {
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: #d7dde7;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
+  font-size: 14px;
   font-weight: 620;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .settingMain small,
 .secretValue {
   min-width: 0;
   overflow: hidden;
-  color: #687386;
-  font-size: 9px;
+  color: var(--text-secondary);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .secretValue span {
   margin-left: 6px;
-  color: #557f70;
-  font-size: 7px;
+  color: var(--text-secondary);
+  font-size: 14px;
   text-transform: uppercase;
-  letter-spacing: .07em;
+  letter-spacing: 0;
 }
 
 .settingMain input,
@@ -481,16 +476,16 @@
   min-width: 0;
   height: 34px;
   border: 1px solid rgba(151,172,211,.1);
-  border-radius: 9px;
+  border-radius: 8px;
   color: #e0e5ed;
-  background: rgba(2,5,9,.5);
+  background: var(--surface-sunken);
   outline: 0;
 }
 
 .settingMain input {
   width: 100%;
   padding: 0 9px;
-  font-size: 9px;
+  font-size: 14px;
 }
 
 .settingMain input:focus,
@@ -507,9 +502,8 @@
 }
 
 .rowActions .iconButton {
-  width: 29px;
-  height: 29px;
-  opacity: .62;
+  width: 40px;
+  height: 40px;
 }
 
 .settingRow:hover .rowActions .iconButton,
@@ -527,7 +521,7 @@
 .addForm input {
   width: 100%;
   padding: 0 10px;
-  font-size: 9px;
+  font-size: 14px;
 }
 
 .panelEmpty {
@@ -536,11 +530,11 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  color: #596375;
-  font-size: 9px;
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
-.panelEmpty svg { color: #52627d; }
+.panelEmpty svg { color: var(--text-secondary); }
 
 .capabilitiesPanel {
   padding: 14px;
@@ -567,14 +561,14 @@
   gap: 9px;
   padding: 8px 9px;
   border: 1px solid rgba(151,172,211,.07);
-  border-radius: 11px;
+  border-radius: 8px;
   background: rgba(255,255,255,.014);
 }
 
 .capabilityIcon {
   width: 31px;
   height: 31px;
-  border-radius: 9px;
+  border-radius: 8px;
 }
 
 .capabilityCopy {
@@ -586,7 +580,7 @@
 .capabilityCopy strong {
   overflow: hidden;
   color: #dbe1e9;
-  font-size: 9px;
+  font-size: 14px;
   font-weight: 610;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -594,8 +588,8 @@
 
 .capabilityCopy small {
   overflow: hidden;
-  color: #687386;
-  font-size: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -607,9 +601,9 @@
   padding: 4px 7px;
   border: 1px solid rgba(151,172,211,.08);
   border-radius: 999px;
-  color: #6e7787;
+  color: var(--text-secondary);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 14px;
 }
 
 .statusPill::before {
@@ -642,11 +636,12 @@
   text-align: center;
 }
 
-.emptyState svg { color: #647493; }
-.emptyState strong { color: #dce2eb; font-size: 11px; }
-.emptyState span { color: var(--text-tertiary); font-size: 9px; }
+.emptyState svg { color: var(--text-secondary); }
+.emptyState strong { color: #dce2eb; font-size: 14px; }
+.emptyState span { color: var(--text-tertiary); font-size: 14px; }
 
 @media (max-width: 980px) {
+  .settingsGrid { grid-template-columns: 1fr; }
   .scopePanel { align-items: flex-end; flex-wrap: wrap; }
   .feedback { margin-left: 0; }
   .capabilityGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -655,7 +650,7 @@
 @media (max-width: 760px) {
   .hero {
     grid-template-columns: auto minmax(0,1fr);
-    padding: 15px;
+    padding: 12px 0 20px;
   }
 
   .scopeHint { display: none; }
@@ -690,13 +685,13 @@
 
 @media (max-width: 430px) {
   .page { width: 100%; }
-  .hero { margin-bottom: 10px; border-radius: 15px; }
+  .hero { margin-bottom: 10px; border-radius: 8px; }
   .heroIcon { width: 38px; height: 38px; }
   .hero h1 { font-size: 25px; }
   .panel,
-  .capabilitiesPanel { padding: 11px; border-radius: 14px; }
+  .capabilitiesPanel { padding: 11px; border-radius: 8px; }
   .settingRow { min-height: 58px; }
-  .rowActions .iconButton { width: 32px; height: 32px; opacity: 1; }
+  .rowActions .iconButton { width: 40px; height: 40px; opacity: 1; }
   .capability { min-height: 62px; }
 }
 

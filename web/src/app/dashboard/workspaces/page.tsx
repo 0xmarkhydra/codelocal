@@ -1,16 +1,12 @@
 import { LiveWorkspaces } from "./workspaces-live";
 import styles from "../dashboard.module.css";
+import { getTranslations } from "@/lib/i18n/server";
 
-export default function WorkspacesPage() {
+export default async function WorkspacesPage() {
+  const t = await getTranslations();
   return (
     <section className={styles.content}>
-      <header className={styles.header}>
-        <div>
-          <span className={styles.eyebrow}>Projects</span>
-          <h1>Projects</h1>
-          <p>Quản lý dự án, khám phá Code Graph và tri thức trong Project Brain.</p>
-        </div>
-      </header>
+      <h1 className="sr-only">{t("Projects")}</h1>
       <LiveWorkspaces />
     </section>
   );

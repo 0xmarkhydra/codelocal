@@ -19,59 +19,63 @@
 .toolbar {
   position: absolute;
   z-index: 8;
-  left: 64px;
+  left: 74px;
   top: 14px;
-  max-width: min(52%, 500px);
+  max-width: min(calc(100% - 90px), 500px);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
 }
 
 .search {
   width: min(390px, 100%);
-  height: 38px;
+  min-width: 0;
+  height: 44px;
   padding: 0 12px 0 34px;
   border: 1px solid rgba(255,255,255,.085);
-  border-radius: 13px;
+  border-radius: 8px;
   outline: 0;
   color: rgba(242,246,252,.86);
-  background: rgba(13,19,29,.72);
+  background: var(--surface-sunken);
   box-shadow: 0 10px 28px rgba(0,0,0,.18), inset 0 1px rgba(255,255,255,.025);
   backdrop-filter: blur(20px) saturate(120%);
-  font-size: 11px;
+  font-size: 16px;
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
-.search::placeholder { color: rgba(214,225,241,.3); }
+.search::placeholder { color: rgba(214, 225, 241, 0.85); }
 .search:focus { border-color: rgba(111,139,255,.34); box-shadow: 0 10px 28px rgba(0,0,0,.18), 0 0 0 3px rgba(76,101,255,.055); }
 
 .searchIcon {
   position: absolute;
   left: 12px;
-  top: 50%;
+  top: 22px;
   width: 14px;
   height: 14px;
   transform: translateY(-50%);
   fill: none;
-  stroke: rgba(210,222,240,.42);
+  stroke: rgba(210, 222, 240, 0.85);
   stroke-width: 1.7;
   pointer-events: none;
 }
 
 .meta {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   min-height: 34px;
   display: inline-flex;
   align-items: center;
-  padding: 0 9px;
+  padding: 7px 9px;
   border: 1px solid rgba(255,255,255,.07);
-  border-radius: 11px;
-  color: rgba(204,217,236,.38);
-  background: rgba(13,19,29,.62);
+  border-radius: 8px;
+  color: rgba(204, 217, 236, 0.85);
+  background: var(--surface-sunken);
   backdrop-filter: blur(16px);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8.5px;
-  white-space: nowrap;
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .inspector {
@@ -80,36 +84,36 @@
   overflow: auto;
   padding: 18px;
   border: 1px solid rgba(255,255,255,.075);
-  border-radius: 20px;
-  background: linear-gradient(155deg, rgba(23,31,45,.82), rgba(10,15,23,.93));
+  border-radius: 8px;
+  background: var(--surface);
   box-shadow: 0 22px 60px rgba(0,0,0,.24), inset 0 1px rgba(255,255,255,.03);
   backdrop-filter: blur(24px);
 }
 
 .inspectorHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .identity { min-width: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 11px; align-items: center; }
-.avatar { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--node-color) 40%, rgba(255,255,255,.07)); border-radius: 13px; color: rgba(246,250,255,.88); background: color-mix(in srgb, var(--node-color) 12%, rgba(8,14,24,.9)); }
+.avatar { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--node-color) 40%, rgba(255,255,255,.07)); border-radius: 8px; color: rgba(246,250,255,.88); background: color-mix(in srgb, var(--node-color) 12%, rgba(8,14,24,.9)); }
 .avatar svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
-.identity small { color: rgba(207,219,237,.34); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
-.identity h3 { min-width: 0; margin: 4px 0 0; overflow-wrap: anywhere; color: rgba(251,252,255,.9); font-size: 15px; font-weight: 620; line-height: 1.25; letter-spacing: -.02em; }
-.close { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 9px; color: rgba(210,222,240,.38); background: transparent; cursor: pointer; }
+.identity small { color: rgba(207, 219, 237, 0.85); font-size: 12px; text-transform: uppercase; letter-spacing: 0; }
+.identity h3 { min-width: 0; margin: 4px 0 0; overflow-wrap: anywhere; color: rgba(251,252,255,.9); font-size: 15px; font-weight: 620; line-height: 1.25; letter-spacing: 0; }
+.close { width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 8px; color: rgba(210, 222, 240, 0.85); background: transparent; cursor: pointer; }
 .close:hover { color: rgba(255,255,255,.82); background: rgba(255,255,255,.05); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 15px; }
-.chips span { padding: 5px 8px; border: 1px solid rgba(255,255,255,.065); border-radius: 999px; color: rgba(208,220,238,.4); background: rgba(255,255,255,.02); font-size: 8.5px; }
-.summary { margin: 15px 0 0; color: rgba(218,228,242,.48); font-size: 10.5px; line-height: 1.65; }
+.chips span { padding: 5px 8px; border: 1px solid rgba(255,255,255,.065); border-radius: 999px; color: rgba(208, 220, 238, 0.85); background: rgba(255,255,255,.02); font-size: 14px; }
+.summary { margin: 15px 0 0; color: rgba(218, 228, 242, 0.85); font-size: 14px; line-height: 1.65; }
 .facts { display: grid; margin: 18px 0 0; border-top: 1px solid rgba(255,255,255,.055); }
 .facts div { min-width: 0; display: grid; grid-template-columns: minmax(78px,.55fr) minmax(0,1fr); gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.045); }
-.facts dt { color: rgba(201,214,233,.32); font-size: 8.5px; }
-.facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: rgba(232,239,248,.64); font-family: var(--font-geist-mono), monospace; font-size: 9px; text-align: right; }
+.facts dt { color: rgba(201, 214, 233, 0.85); font-size: 12px; }
+.facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: rgba(232, 239, 248, 0.85); font-family: var(--font-geist-mono), monospace; font-size: 14px; text-align: right; }
 
 @media (max-width: 1050px) {
-  .shell[data-inspector="true"] { grid-template-columns: 1fr; }
-  .inspector { height: auto; max-height: 320px; }
+  .shell[data-inspector="true"] { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+  .inspector { height: auto; max-height: min(35dvh, 320px); }
 }
 
 @media (max-width: 720px) {
-  .viewportShell { min-height: 470px; }
-  .toolbar { left: 56px; right: 10px; max-width: none; }
+  .viewportShell { min-height: 0; }
+  .toolbar { left: 74px; right: 10px; max-width: none; }
   .search { width: 100%; }
   .meta { display: none; }
 }

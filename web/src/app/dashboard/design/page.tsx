@@ -2,6 +2,7 @@ import { AppIcon } from "../app-icon";
 import dashboard from "../dashboard.module.css";
 import styles from "./design.module.css";
 import { PenpotDesignFrame } from "./penpot-design-frame";
+import { getTranslations } from "@/lib/i18n/server";
 
 const DEFAULT_DESIGN_URL = "https://design.codelocal.cloud";
 
@@ -17,34 +18,27 @@ function resolveDesignUrl() {
   }
 }
 
-export default function DesignPage() {
+export default async function DesignPage() {
+  const t = await getTranslations();
   const designUrl = resolveDesignUrl();
 
   return (
     <section className={dashboard.content}>
       <div className={styles.page}>
-        <header className={styles.hero}>
-          <div className={styles.heroIcon} aria-hidden="true"><AppIcon name="edit" size={24} /></div>
-          <div className={styles.heroCopy}>
-            <span className={styles.kicker}>System Plugin · Penpot 2.17</span>
-            <h1>Design</h1>
-            <p>Thiết kế trong Penpot bằng chính CodeLocal identity, rồi dùng managed MCP để tạo hoặc chỉnh sửa design từ agent.</p>
-          </div>
-          <span className={styles.status} data-active="true"><i aria-hidden="true" />SSO + Managed MCP</span>
-        </header>
+        <h1 className="sr-only">{t("Design")}</h1>
 
         <div className={styles.embedShell}>
           <div className={styles.embedBar}>
             <span><i aria-hidden="true" />design.codelocal.cloud</span>
             <a href={designUrl} target="_blank" rel="noreferrer">
-              Open in new tab <AppIcon name="external" size={14} />
+              {t("Open in new tab")} <AppIcon name="external" size={14} />
             </a>
           </div>
           <PenpotDesignFrame designUrl={designUrl} />
         </div>
 
         <p className={styles.embedFallback}>
-          Nếu trình duyệt chặn embedded workspace, <a href={designUrl} target="_blank" rel="noreferrer">mở Penpot trong tab riêng</a>. Cả hai đường dẫn dùng cùng CodeLocal SSO.
+          {t("Embedded workspace blocked?")} <a href={designUrl} target="_blank" rel="noreferrer">{t("Open Penpot in a new tab")}</a>. {t("Both use the same CodeLocal SSO.")}
         </p>
       </div>
     </section>

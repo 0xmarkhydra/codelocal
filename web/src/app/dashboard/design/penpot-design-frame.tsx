@@ -5,6 +5,7 @@ import { isAccountResource } from "@/lib/contracts/account";
 import { isWorkspacesResource } from "@/lib/contracts/resources";
 import { useDashboardResource } from "../use-dashboard-resource";
 import styles from "./design.module.css";
+import { useTranslations } from "@/lib/i18n/provider";
 
 const PENPOT_TOKEN_MESSAGE = "codelocal:penpot-mcp-token";
 const MAX_AUTO_CONNECTIONS = 10;
@@ -25,6 +26,7 @@ function isPenpotTokenMessage(value: unknown): value is PenpotTokenMessage {
 }
 
 export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
+  const { t } = useTranslations();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const tokenRef = useRef("");
   const connectedRef = useRef(new Set<string>());
@@ -100,7 +102,7 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
       className={styles.designFrame}
       referrerPolicy="strict-origin-when-cross-origin"
       src={designUrl}
-      title="CodeLocal Penpot Design Workspace"
+      title={t("CodeLocal Penpot Design Workspace")}
     />
   );
 }

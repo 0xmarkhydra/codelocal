@@ -6,38 +6,38 @@ import { AppIcon, type AppIconName } from "./app-icon";
 import { DashboardResourceFeedback } from "./dashboard-resource-feedback";
 import styles from "./overview.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages";
 
-const number = new Intl.NumberFormat("vi-VN", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
 const destinations: {
   icon: AppIconName;
-  title: string;
-  description: string;
+  title: MessageKey;
+  description: MessageKey;
   href: string;
 }[] = [
   {
     icon: "connection",
-    title: "Kết nối AI",
-    description: "Thiết lập MCP cho client của bạn",
+    title: "Connect AI",
+    description: "Set up MCP for your client",
     href: "/dashboard/connect",
   },
   {
     icon: "skill",
-    title: "Khám phá Skills",
-    description: "Khả năng mở rộng cho AI",
+    title: "Explore skills",
+    description: "Extend your AI capabilities",
     href: "/dashboard/skills",
   },
   {
     icon: "shield",
-    title: "Kiểm tra bảo mật",
-    description: "Quản lý phiên và quyền truy cập",
+    title: "Review security",
+    description: "Manage sessions and access",
     href: "/dashboard/security",
   },
 ];
 
 export function LiveOverview() {
+  const { locale, t } = useTranslations();
+  const number = new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 });
   const { state, retry } = useDashboardResource(
     "/api/v1/dashboard/overview",
     isDashboardOverview,
@@ -45,7 +45,7 @@ export function LiveOverview() {
   if (state.kind !== "ready")
     return (
       <DashboardResourceFeedback
-        label="tổng quan workspace"
+        label={t("Overview")}
         {...(state.kind === "error"
           ? { kind: "error" as const, message: state.message, onRetry: retry }
           : { kind: state.kind })}
@@ -54,26 +54,26 @@ export function LiveOverview() {
   const overview = state.value;
   return (
     <div className={styles.overview}>
-      <section className={styles.metrics} aria-label="Số liệu tài khoản">
+      <section className={styles.metrics} aria-label={t("Account metrics")}>
         <Metric
           icon="folder"
-          label="Dự án"
+          label={t("Projects")}
           value={number.format(overview.workspaces.total)}
-          detail={`${overview.workspaces.active} đang hoạt động`}
+          detail={t("{count} active", { count: overview.workspaces.active })}
           tone="purple"
           href="/dashboard/workspaces"
         />
         <Metric
           icon="device"
-          label="Thiết bị online"
+          label={t("Online devices")}
           value={number.format(overview.devices.online)}
-          detail={`${overview.devices.paired} thiết bị đã ghép nối`}
+          detail={t("{count} paired devices", { count: overview.devices.paired })}
           tone="cyan"
           href="/dashboard/devices"
         />
         <Metric
           icon="connection"
-          label="MCP calls / 24 giờ"
+          label={t("MCP calls / 24 hours")}
           value={
             overview.usage.available
               ? number.format(overview.usage.last24h.calls)
@@ -81,15 +81,15 @@ export function LiveOverview() {
           }
           detail={
             overview.usage.available
-              ? "Lượt gọi được ghi nhận"
-              : "Chưa có dữ liệu sử dụng"
+              ? t("Recorded calls")
+              : t("No usage data yet")
           }
           tone="orange"
           href="/dashboard/usage"
         />
         <Metric
           icon="usage"
-          label="Tokens / 24 giờ"
+          label={t("Tokens / 24 hours")}
           value={
             overview.usage.available
               ? number.format(overview.usage.last24h.totalTokensEstimated)
@@ -97,8 +97,8 @@ export function LiveOverview() {
           }
           detail={
             overview.usage.available
-              ? "Ước tính từ hoạt động MCP"
-              : "Chưa có dữ liệu sử dụng"
+              ? t("Estimated from MCP activity")
+              : t("No usage data yet")
           }
           tone="pink"
           href="/dashboard/usage"
@@ -108,23 +108,22 @@ export function LiveOverview() {
         <section className={styles.projects}>
           <header className={styles.panelHead}>
             <div>
-              <h2>Dự án gần đây</h2>
-              <span>Workspace được kết nối với tài khoản</span>
+              <h2>{t("Recent projects")}</h2>
+              <span>{t("Workspaces connected to your account")}</span>
             </div>
             <Link href="/dashboard/workspaces">
-              Xem tất cả <span aria-hidden="true">↗</span>
+              {t("View all")} <span aria-hidden="true">↗</span>
             </Link>
           </header>
           {overview.workspaces.recent.length === 0 ? (
             <div className={styles.empty}>
               <AppIcon name="folder" size={30} />
-              <strong>Không gian cho dự án đầu tiên.</strong>
+              <strong>{t("Your first project starts here.")}</strong>
               <p>
-                Chạy <code>codelocal .</code> trong thư mục dự án để kết nối
-                workspace của bạn.
+                {t("Run {command} in your project directory to connect your workspace.", { command: "codelocal ." })}
               </p>
               <Link href="/dashboard/connect">
-                Hướng dẫn kết nối <span aria-hidden="true">↗</span>
+                {t("Connection guide")} <span aria-hidden="true">↗</span>
               </Link>
             </div>
           ) : (
@@ -148,10 +147,10 @@ export function LiveOverview() {
                   >
                     <i />
                     {workspace.status === "active"
-                      ? "Online"
+                      ? t("Online")
                       : workspace.status === "sleeping"
-                        ? "Đang nghỉ"
-                        : "Offline"}
+                        ? t("Sleeping")
+                        : t("Offline")}
                   </span>
                   <AppIcon name="chevron-right" size={14} />
                 </Link>
@@ -159,15 +158,14 @@ export function LiveOverview() {
             </div>
           )}
           <div className={styles.projectsFoot}>
-            <AppIcon name="shield" size={13} /> Chỉ hiển thị workspace bạn được
-            phép truy cập.
+            <AppIcon name="shield" size={13} /> {t("Only workspaces you can access are shown.")}
           </div>
         </section>
         <section className={styles.quickAccess}>
           <header className={styles.panelHead}>
             <div>
-              <h2>Bước tiếp theo</h2>
-              <span>Thiết lập không gian làm việc</span>
+              <h2>{t("Next steps")}</h2>
+              <span>{t("Set up your workspace")}</span>
             </div>
             <AppIcon name="target" size={18} />
           </header>
@@ -178,8 +176,8 @@ export function LiveOverview() {
                   <AppIcon name={item.icon} size={18} />
                 </span>
                 <div>
-                  <strong>{item.title}</strong>
-                  <small>{item.description}</small>
+                  <strong>{t(item.title)}</strong>
+                  <small>{t(item.description)}</small>
                 </div>
                 <AppIcon name="chevron-right" size={14} />
               </Link>
@@ -188,9 +186,9 @@ export function LiveOverview() {
         </section>
       </div>
       <div className={styles.dataNote}>
-        <span>Dữ liệu từ lần tải gần nhất · MCP tokens là số ước tính</span>
+        <span>{t("Latest loaded data · MCP tokens are estimates")}</span>
         <button type="button" onClick={retry}>
-          <AppIcon name="refresh" size={13} /> Làm mới
+          <AppIcon name="refresh" size={13} /> {t("Refresh")}
         </button>
       </div>
     </div>

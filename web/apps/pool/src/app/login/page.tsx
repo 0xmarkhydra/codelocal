@@ -2,9 +2,11 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LanguageSelect, useTranslations } from "@codelocal/i18n/provider";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t, message } = useTranslations();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -19,11 +21,11 @@ export default function LoginPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ password }),
       });
-      if (!response.ok) throw new Error(response.status === 401 ? "Sai mật khẩu Pool." : "Không thể đăng nhập Pool.");
+      if (!response.ok) throw new Error(response.status === 401 ? "Incorrect Pool password." : "Could not sign in to Pool.");
       router.replace("/");
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể đăng nhập Pool.");
+      setError(cause instanceof Error && cause.message === "Incorrect Pool password." ? cause.message : "Could not sign in to Pool.");
     } finally {
       setBusy(false);
     }
@@ -32,12 +34,13 @@ export default function LoginPage() {
   return (
     <main className="loginShell">
       <form className="loginCard" onSubmit={submit}>
+        <div className="loginTopbar"><h1>CodeLocal Pool</h1><LanguageSelect /></div>
         <label>
-          Operator password
+          {t("Operator password")}
           <input autoComplete="current-password" autoFocus onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
         </label>
-        <button className="primaryButton" disabled={busy} type="submit">{busy ? "Đang đăng nhập…" : "Đăng nhập"}</button>
-        {error ? <p className="errorText">{error}</p> : null}
+        <button className="primaryButton" disabled={busy} type="submit">{busy ? t("Signing in…") : t("Sign in")}</button>
+        {error ? <p className="errorText" role="alert">{message(error)}</p> : null}
       </form>
     </main>
   );

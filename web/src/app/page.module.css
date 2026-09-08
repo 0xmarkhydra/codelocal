@@ -11,14 +11,15 @@
 }
 .skipLink { position: absolute; top: -100px; left: 20px; z-index: 10; padding: 14px; background: var(--brand-accent); color: #102018; }
 .skipLink:focus { top: 12px; }
-.nav { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.nav { min-height: 84px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-block: 12px; }
+.navActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; min-width: 0; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 23px; font-weight: 650; white-space: nowrap; }
 .brand img { border-radius: 7px; }
 .brandDot { color: var(--brand-accent); margin-left: -9px; }
-.navLinks { display: flex; gap: 30px; align-items: center; font-size: 14px; color: var(--brand-muted); }
+.navLinks { display: flex; flex-wrap: wrap; gap: 12px 30px; align-items: center; font-size: 14px; color: var(--brand-muted); }
 .navLinks a, .footer nav a { padding-block: 12px; }
 .navLinks a:hover, .footer a:hover { color: var(--brand-accent); }
-.navButton, .primaryButton, .secondaryButton { display: inline-flex; justify-content: center; align-items: center; gap: 14px; min-height: 46px; padding: 12px 18px; border-radius: 6px; font-size: 14px; font-weight: 550; transition: background 160ms ease; }
+.navButton, .primaryButton, .secondaryButton { max-width:100%; text-align:center; display: inline-flex; justify-content: center; align-items: center; gap: 14px; min-height: 46px; padding: 12px 18px; border-radius: 6px; font-size: 14px; font-weight: 550; transition: background 160ms ease; }
 .navButton { border: 1px solid var(--brand-line); }
 .navButton:hover, .secondaryButton:hover { background: #ffffff0d; }
 .primaryButton { background: var(--brand-accent); color: #102219; border: 1px solid var(--brand-accent); }
@@ -43,7 +44,8 @@
 .clients div > span { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--brand-muted); }
 .principles { background: #f0f3f2; color: #17211e; padding-block: 88px; }
 .sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 48px; margin-bottom: 44px; }
-.sectionHeading h2, .productBand h2, .closing h2 { font-size: 44px; font-weight: 520; line-height: 1.17; margin: 17px 0 0; }
+.sectionHeading h2, .productBand h2, .closing h2 { max-width: 700px; font-size: 44px; font-weight: 520; line-height: 1.35; margin: 17px 0 0; }
+.closing h2 { margin-inline: auto; }
 .sectionHeading h2 > span, .closing h2 > span { color: var(--brand-muted); }
 .sectionHeading > p { max-width: 340px; font-size: 16px; color: var(--brand-muted); line-height: 1.75; margin: 0 0 4px; }
 .principles .eyebrow { color: #35624d; }
@@ -103,18 +105,19 @@
   .container, .nav, .clients, .heroFoot { width: calc(100% - 40px); }
   .nav { flex-wrap: wrap; gap: 8px 16px; padding-block: 16px 6px; }
   .brand { font-size: 21px; }
-  .navButton { margin-left: auto; padding: 10px 12px; font-size: 12px; }
+  .navActions { margin-left:auto; }
+  .navButton { padding: 10px 12px; font-size: 14px; }
   .navLinks { order: 3; width: 100%; justify-content: space-between; gap: 14px; }
   .hero { height: calc(100svh - 180px); min-height: 600px; max-height: 740px; }
   .heroCopy { padding-top: 22px; }
   .hero h1 { font-size: 64px; }
   .hero h2 { font-size: 23px; max-width: 430px; }
-  .hero p { max-width: 350px; font-size: 15px; }
+  .hero p { max-width: 350px; font-size: 16px; }
   .heroImage { padding-top: 300px; object-fit: contain; }
   .heroFoot { bottom: 13px; justify-content: center; }
   .heroFoot > span:last-child { display: none; }
   .actions { gap: 10px; }
-  .primaryButton, .secondaryButton { padding: 12px 14px; font-size: 13px; gap: 10px; }
+  .primaryButton, .secondaryButton { padding: 12px 14px; font-size: 14px; gap: 10px; }
   .clients { padding-block: 24px; }
   .clients > div { gap: 18px 26px; }
   .clients strong { font-size: 18px; }

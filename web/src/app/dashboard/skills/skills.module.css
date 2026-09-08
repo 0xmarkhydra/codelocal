@@ -32,10 +32,10 @@
 .header h1 {
   margin: 0;
   color: rgba(255, 255, 255, 0.96);
-  font-size: clamp(25px, 2vw, 30px);
+  font-size: 25px;
   font-weight: 650;
   line-height: 1.08;
-  letter-spacing: -0.045em;
+  letter-spacing: 0;
 }
 
 .eyebrow,
@@ -48,7 +48,7 @@
 .skillMeta,
 .adminRow span,
 .muted {
-  color: rgba(219, 228, 242, 0.62);
+  color: rgba(219, 228, 242, 0.85);
 }
 
 .eyebrow,
@@ -65,8 +65,8 @@
   border: 1px solid rgba(255, 255, 255, 0.065);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.025);
-  color: rgba(225, 232, 243, 0.68);
-  font-size: 10px;
+  color: rgba(225, 232, 243, 0.85);
+  font-size: 14px;
   font-weight: 560;
   white-space: nowrap;
 }
@@ -89,21 +89,20 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 17px;
-  background: rgba(255, 255, 255, 0.018);
-  backdrop-filter: blur(20px);
+  padding: 8px 0 20px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
 }
 
 .toolbar > div {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
 }
 
 .toolbar > span {
-  font-size: 10px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -111,15 +110,15 @@
 .skillControls button,
 .rating button,
 .adminPanel button {
-  min-height: 32px;
+  min-height: 40px;
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.028);
-  color: rgba(235, 241, 250, 0.68);
+  color: rgba(235, 241, 250, 0.85);
   cursor: pointer;
   font: inherit;
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 560;
   padding: 0 11px;
   transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
@@ -170,10 +169,10 @@
   margin-top: 10px;
   padding: 11px 13px;
   border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 13px;
-  color: rgba(232, 238, 247, 0.72);
+  border-radius: 8px;
+  color: rgba(232, 238, 247, 0.85);
   background: rgba(255, 255, 255, 0.018);
-  font-size: 10.5px;
+  font-size: 14px;
 }
 
 .noticeError {
@@ -193,7 +192,7 @@
   margin-top: 14px;
   padding: 3px;
   border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.022);
 }
 
@@ -202,12 +201,12 @@
   min-height: 30px;
   appearance: none;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
-  color: rgba(220, 228, 241, 0.43);
+  color: rgba(220, 228, 241, 0.85);
   cursor: pointer;
   font: inherit;
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 570;
   padding: 0 11px;
 }
@@ -244,13 +243,13 @@
   color: rgba(247, 249, 253, 0.88);
   font-size: 15px;
   font-weight: 610;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
 }
 
 .sectionIntro p {
   max-width: 580px;
   margin: 0;
-  font-size: 10px;
+  font-size: 14px;
   line-height: 1.5;
   text-align: right;
 }
@@ -263,8 +262,8 @@
   gap: 14px;
   padding: 17px;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(20, 26, 35, 0.72), rgba(10, 14, 20, 0.88));
+  border-radius: 8px;
+  background: var(--surface);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.14), inset 0 1px rgba(255, 255, 255, 0.025);
   transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
 }
@@ -272,7 +271,7 @@
 .skillCard:hover {
   transform: translateY(-1px);
   border-color: rgba(255, 255, 255, 0.115);
-  background: linear-gradient(145deg, rgba(24, 31, 42, 0.76), rgba(11, 16, 23, 0.9));
+  background: var(--surface);
 }
 
 .skillIcon {
@@ -281,7 +280,7 @@
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 14px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.028);
   color: rgba(151, 176, 224, 0.9);
 }
@@ -297,6 +296,7 @@
 .skillHeading {
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
@@ -315,7 +315,7 @@
   color: rgba(255, 255, 255, 0.91);
   font-size: 14px;
   font-weight: 620;
-  letter-spacing: -0.022em;
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -323,8 +323,8 @@
 .skillHeading p {
   margin-top: 4px;
   overflow: hidden;
-  color: rgba(222, 230, 242, 0.66);
-  font-size: 10px;
+  color: rgba(222, 230, 242, 0.85);
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -338,16 +338,16 @@
   border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.024);
-  color: rgba(214, 224, 238, 0.46);
-  font-size: 9px;
+  color: rgba(214, 224, 238, 0.85);
+  font-size: 12px;
   font-weight: 580;
   text-transform: capitalize;
 }
 
 .description {
   margin-top: 13px;
-  color: rgba(222, 230, 242, 0.66);
-  font-size: 11px;
+  color: rgba(222, 230, 242, 0.85);
+  font-size: 16px;
   line-height: 1.55;
 }
 
@@ -374,21 +374,21 @@
   border: 1px solid rgba(255, 255, 255, 0.045);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.022);
-  color: rgba(213, 223, 238, 0.6);
-  font-size: 9.5px;
+  color: rgba(213, 223, 238, 0.85);
+  font-size: 14px;
 }
 
 .skillMeta {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.045);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .skillMeta span + span::before {
   content: "·";
   margin-right: 6px;
-  color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .permissionLine {
@@ -397,30 +397,30 @@
   align-items: center;
   gap: 7px;
   margin-top: 9px;
-  color: rgba(214, 225, 240, 0.62);
-  font-size: 10px;
+  color: rgba(214, 225, 240, 0.85);
+  font-size: 14px;
 }
 
 .permissionLine svg {
   flex: 0 0 auto;
-  color: rgba(153, 176, 218, 0.5);
+  color: rgba(153, 176, 218, 0.85);
 }
 
 .skillControls {
   margin-top: 12px;
   padding: 3px;
   border: 1px solid rgba(255, 255, 255, 0.055);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.018);
 }
 
 .skillControls button {
   min-height: 29px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
-  color: rgba(220, 229, 242, 0.58);
-  font-size: 10px;
+  color: rgba(220, 229, 242, 0.85);
+  font-size: 14px;
   padding: 0 9px;
 }
 
@@ -433,19 +433,19 @@
 
 .rating {
   margin-top: 9px;
-  color: rgba(211, 222, 238, 0.38);
-  font-size: 9.5px;
+  color: rgba(211, 222, 238, 0.85);
+  font-size: 14px;
 }
 
 .rating button {
-  width: 25px;
-  min-width: 25px;
-  min-height: 25px;
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
   border: 0;
   background: transparent;
-  color: rgba(214, 224, 238, 0.25);
-  font-size: 13px;
+  color: rgba(214, 224, 238, 0.85);
+  font-size: 14px;
 }
 
 .rating .ratingActive {
@@ -463,25 +463,25 @@
   gap: 7px;
   padding: 28px;
   border: 1px dashed rgba(255, 255, 255, 0.07);
-  border-radius: 20px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.012);
   text-align: center;
 }
 
 .emptyState svg {
   margin-bottom: 6px;
-  color: rgba(166, 188, 225, 0.46);
+  color: rgba(166, 188, 225, 0.85);
 }
 
 .emptyState strong {
-  color: rgba(255, 255, 255, 0.77);
+  color: rgba(255, 255, 255, 0.85);
   font-size: 14px;
   font-weight: 600;
 }
 
 .emptyState span {
   max-width: 520px;
-  font-size: 10.5px;
+  font-size: 14px;
   line-height: 1.55;
 }
 
@@ -489,8 +489,8 @@
   margin-top: 18px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(20, 26, 35, 0.7), rgba(10, 14, 20, 0.88));
+  border-radius: 8px;
+  background: var(--surface);
   box-shadow: 0 15px 40px rgba(0, 0, 0, 0.14), inset 0 1px rgba(255, 255, 255, 0.022);
 }
 
@@ -513,7 +513,7 @@
   color: rgba(255, 255, 255, 0.88);
   font-size: 15px;
   font-weight: 610;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
 }
 
 .adminPanel > .muted {
@@ -538,8 +538,8 @@
 
 .adminRow strong {
   overflow: hidden;
-  color: rgba(240, 244, 251, 0.76);
-  font-size: 10.5px;
+  color: rgba(240, 244, 251, 0.85);
+  font-size: 14px;
   font-weight: 580;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -547,7 +547,7 @@
 
 .adminRow span,
 .muted {
-  font-size: 9.5px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -560,17 +560,17 @@
   max-width: 190px;
   height: 32px;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
+  border-radius: 8px;
   outline: 0;
   background: rgba(255, 255, 255, 0.025);
   color: rgba(244, 247, 252, 0.8);
   font: inherit;
-  font-size: 10px;
+  font-size: 14px;
   padding: 0 9px;
 }
 
 .adminActions input::placeholder {
-  color: rgba(206, 218, 235, 0.28);
+  color: rgba(206, 218, 235, 0.85);
 }
 
 @media (max-width: 1080px) {
@@ -580,17 +580,17 @@
 }
 
 @media (max-width: 820px) {
-  .page { padding: 72px 14px 28px; }
+  .page { padding: calc(76px + env(safe-area-inset-top)) 14px 28px; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .toolbar > span { white-space: normal; }
 }
 
 @media (max-width: 620px) {
-  .page { padding: 72px 10px 84px; }
+  .page { padding: calc(76px + env(safe-area-inset-top)) 16px 32px; }
   .header { align-items: flex-start; flex-direction: column; margin-bottom: 14px; }
   .header h1 { font-size: 28px; }
   .status { align-self: flex-start; }
-  .toolbar { border-radius: 15px; }
+  .toolbar { border-radius: 8px; }
   .toolbar > div { width: 100%; }
   .toolbar button { flex: 1; }
   .tabs { width: 100%; overflow-x: auto; scrollbar-width: thin; }

@@ -1,4 +1,6 @@
 "use client";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey, MessageValues } from "@/lib/i18n/messages";
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppIcon } from "../app-icon";
@@ -54,12 +56,12 @@ type AdminSkillItem = {
 
 type AdminResource = { items?: AdminSkillItem[] };
 
-type Notice = { kind: "success" | "error"; text: string } | null;
+type Notice = { kind: "success" | "error"; text: string; values?: MessageValues } | null;
 
-const views: Array<{ id: SkillView; label: string }> = [
-  { id: "for-you", label: "For You" },
+const views: Array<{ id: SkillView; label: MessageKey }> = [
+  { id: "for-you", label: "For you" },
   { id: "explore", label: "Explore" },
-  { id: "mine", label: "My Skills" },
+  { id: "mine", label: "My skills" },
   { id: "built-in", label: "Built-in" },
 ];
 
@@ -72,15 +74,19 @@ function scopeLabel(scope: string) {
   }
 }
 
-function permissionLabel(skill: SkillItem) {
+function permissionLabel(skill: SkillItem, t: ReturnType<typeof useTranslations>["t"]) {
   const capabilities = skill.capabilities?.filter(Boolean) ?? [];
-  if (skill.kind === "knowledge" && capabilities.length === 0) return "Knowledge only · no runtime permissions";
-  if (capabilities.length === 0) return `${skill.kind} · authorization required at execution`;
-  return `Requires ${capabilities.join(", ")}`;
+  if (skill.kind === "knowledge" && capabilities.length === 0) return t("Knowledge only · no runtime permissions");
+  if (capabilities.length === 0) return t("{kind} · authorization required at execution", { kind: skill.kind });
+  return t("Requires {capabilities}", { capabilities: capabilities.join(", ") });
 }
 
 function stateLabel(state: string) {
-  return state.replaceAll("_", " ");
+  const labels: Record<string, MessageKey> = {
+    active: "Active", candidate: "Candidate", evaluating: "Evaluating",
+    canary: "Canary", promoted: "Promoted", rolled_back: "Rolled back", disabled: "Disabled",
+  };
+  return labels[state] ?? state;
 }
 
 function isRoutableState(skill: SkillItem) {
@@ -107,6 +113,8 @@ function SkillCard({
   mutateState: (skill: SkillItem, mode: SkillMode, pinnedVersion?: string) => Promise<void>;
   rate: (skill: SkillItem, rating: number) => Promise<void>;
 }) {
+  const { locale, t, message } = useTranslations();
+  const number = new Intl.NumberFormat(locale);
   const tags = (skill.tags ?? []).slice(0, 4);
   const mode = (skill.mode || "auto") as SkillMode;
   const canRate = skill.scope === "community" && skill.state === "promoted";
@@ -119,37 +127,38 @@ function SkillCard({
         <div className={styles.skillHeading}>
           <div>
             <h2>{skill.name}</h2>
-            <p>{skill.publisher} · {scopeLabel(skill.scope)} · v{skill.version}</p>
+            <p>{skill.publisher} · {message(scopeLabel(skill.scope))} · v{skill.version}</p>
           </div>
-          <span className={styles.autoBadge}>{stateLabel(skill.state)}</span>
+          <span className={styles.autoBadge}>{message(stateLabel(skill.state))}</span>
         </div>
         <p className={styles.description}>
-          {tags.length ? tags.join(" · ") : "Reusable CodeLocal expertise selected automatically when it materially improves the task."}
+          {tags.length ? tags.join(" · ") : t("Reusable CodeLocal expertise selected automatically when it materially improves the task.")}
         </p>
         {tags.length > 0 && (
-          <div className={styles.tags} aria-label={`${skill.name} tags`}>
+          <div className={styles.tags} aria-label={t("{name} tags", { name: skill.name })}>
             {tags.map((tag) => <span key={tag}>{tag}</span>)}
           </div>
         )}
         <div className={styles.skillMeta}>
-          <span>Quality {Math.round(skill.quality * 100)}%</span>
-          {skill.ratingCount ? <span>★ {skill.ratingAverage?.toFixed(1)} · {skill.ratingCount}</span> : null}
-          {skill.pinnedVersion ? <span>Pinned v{skill.pinnedVersion}</span> : null}
+          <span>{t("Quality {score}", { score: new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(skill.quality) })}</span>
+          {skill.ratingCount ? <span>★ {new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(skill.ratingAverage ?? 0)} · {number.format(skill.ratingCount)}</span> : null}
+          {skill.pinnedVersion ? <span>{t("Pinned v{version}", { version: skill.pinnedVersion })}</span> : null}
         </div>
         <div className={styles.permissionLine}>
           <AppIcon name="shield" size={15} />
-          <span>{permissionLabel(skill)}</span>
+          <span>{permissionLabel(skill, t)}</span>
         </div>
-        <div className={styles.skillControls} aria-label={`${skill.name} behavior`}>
+        <div className={styles.skillControls} role="group" aria-label={t("{name} behavior", { name: skill.name })}>
           {(["auto", "prefer", "disabled"] as SkillMode[]).map((choice) => (
             <button
               className={mode === choice ? styles.controlActive : undefined}
               disabled={busy}
+              aria-pressed={mode === choice}
               key={choice}
               onClick={() => void mutateState(skill, choice, skill.pinnedVersion)}
               type="button"
             >
-              {choice === "auto" ? "Auto" : choice === "prefer" ? "Prefer" : "Disable"}
+              {t(choice === "auto" ? "Auto" : choice === "prefer" ? "Prefer" : "Disable")}
             </button>
           ))}
           {isRoutableState(skill) && (
@@ -158,16 +167,17 @@ function SkillCard({
               onClick={() => void mutateState(skill, mode, skill.pinnedVersion ? "" : skill.version)}
               type="button"
             >
-              {skill.pinnedVersion ? "Unpin" : "Pin version"}
+              {t(skill.pinnedVersion ? "Unpin" : "Pin version")}
             </button>
           )}
         </div>
         {canRate && (
-          <div className={styles.rating} aria-label={`Rate ${skill.name}`}>
-            <span>Your rating</span>
+          <div className={styles.rating} role="group" aria-label={t("Rate {name}", { name: skill.name })}>
+            <span>{t("Your rating")}</span>
             {[1, 2, 3, 4, 5].map((value) => (
               <button
-                aria-label={`${value} star${value === 1 ? "" : "s"}`}
+                aria-label={t("{count} stars", { count: value })}
+                aria-pressed={skill.userRating === value}
                 className={(skill.userRating ?? 0) >= value ? styles.ratingActive : undefined}
                 disabled={busy}
                 key={value}
@@ -182,12 +192,13 @@ function SkillCard({
   );
 }
 
-function EmptyView({ title, copy }: { title: string; copy: string }) {
+function EmptyView({ title, copy }: { title: MessageKey; copy: MessageKey }) {
+  const { t } = useTranslations();
   return (
     <div className={styles.emptyState}>
       <AppIcon name="skill" size={22} />
-      <strong>{title}</strong>
-      <span>{copy}</span>
+      <strong>{t(title)}</strong>
+      <span>{t(copy)}</span>
     </div>
   );
 }
@@ -205,31 +216,32 @@ function AdminPanel({
   importAdmin: () => void;
   storageConfigured: boolean;
 }) {
+  const { t, message } = useTranslations();
   const [scores, setScores] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, string>>({});
   return (
     <section className={styles.adminPanel}>
       <div className={styles.adminHeader}>
         <div>
-          <p className={styles.eyebrow}>Admin moderation</p>
-          <h2>Skill promotion queue</h2>
+          <p className={styles.eyebrow}>{t("Admin moderation")}</p>
+          <h2>{t("Skill promotion queue")}</h2>
         </div>
-        <button className={styles.primaryButton} disabled={busy || !storageConfigured} onClick={importAdmin} type="button">Import candidate</button>
+        <button className={styles.primaryButton} disabled={busy || !storageConfigured} onClick={importAdmin} type="button">{t("Import candidate")}</button>
       </div>
-      {items.length === 0 ? <p className={styles.muted}>No shared Skill versions are waiting for moderation.</p> : items.map((item) => {
+      {items.length === 0 ? <p className={styles.muted}>{t("No shared Skill versions are waiting for moderation.")}</p> : items.map((item) => {
         const key = `${item.id}@${item.version}`;
         return (
           <div className={styles.adminRow} key={key}>
             <div>
               <strong>{item.name} · v{item.version}</strong>
-              <span>{item.publisher} · {item.scope} · {stateLabel(item.state)}</span>
+              <span>{item.publisher} · {message(scopeLabel(item.scope))} · {message(stateLabel(item.state))}</span>
             </div>
             <div className={styles.adminActions}>
-              {item.state === "candidate" && <button disabled={busy} onClick={() => void action(item, "evaluate-start")} type="button">Start evaluation</button>}
+              {item.state === "candidate" && <button disabled={busy} onClick={() => void action(item, "evaluate-start")} type="button">{t("Start evaluation")}</button>}
               {item.state === "evaluating" && (
                 <>
                   <input
-                    aria-label={`Evaluation score for ${item.name}`}
+                    aria-label={t("Evaluation score for {name}", { name: item.name })}
                     max="1"
                     min="0"
                     onChange={(event) => setScores((current) => ({ ...current, [key]: event.target.value }))}
@@ -239,9 +251,9 @@ function AdminPanel({
                     value={scores[key] ?? ""}
                   />
                   <input
-                    aria-label={`Evaluation evidence for ${item.name}`}
+                    aria-label={t("Evaluation evidence for {name}", { name: item.name })}
                     onChange={(event) => setEvidence((current) => ({ ...current, [key]: event.target.value }))}
-                    placeholder="Evidence summary"
+                    placeholder={t("Evidence summary")}
                     type="text"
                     value={evidence[key] ?? ""}
                   />
@@ -249,11 +261,11 @@ function AdminPanel({
                     disabled={busy || !scores[key] || !evidence[key]}
                     onClick={() => void action(item, "evaluate", Number(scores[key]), evidence[key])}
                     type="button"
-                  >Submit evaluation</button>
+                  >{t("Submit evaluation")}</button>
                 </>
               )}
-              {item.state === "canary" && <button disabled={busy} onClick={() => void action(item, "promote")} type="button">Promote stable</button>}
-              {item.state === "promoted" && <button disabled={busy} onClick={() => void action(item, "rollback")} type="button">Rollback</button>}
+              {item.state === "canary" && <button disabled={busy} onClick={() => void action(item, "promote")} type="button">{t("Promote stable")}</button>}
+              {item.state === "promoted" && <button disabled={busy} onClick={() => void action(item, "rollback")} type="button">{t("Rollback")}</button>}
             </div>
           </div>
         );
@@ -263,6 +275,7 @@ function AdminPanel({
 }
 
 export function SkillsHub() {
+  const { t, message } = useTranslations();
   const [view, setView] = useState<SkillView>("for-you");
   const [resource, setResource] = useState<SkillsResource>({ autoUse: true, storageConfigured: false, items: [] });
   const [account, setAccount] = useState<AccountResource | null>(null);
@@ -288,10 +301,9 @@ export function SkillsHub() {
     setAccount(nextAccount);
     if (nextAccount.isAdmin) {
       const adminResponse = await fetch("/api/v1/admin/skills", { credentials: "include", cache: "no-store" });
-      if (adminResponse.ok) {
-        const admin = await adminResponse.json() as AdminResource;
-        setAdminItems(Array.isArray(admin.items) ? admin.items : []);
-      }
+      if (!adminResponse.ok) throw new Error(await responseError(adminResponse));
+      const admin = await adminResponse.json() as AdminResource;
+      setAdminItems(Array.isArray(admin.items) ? admin.items : []);
     } else {
       setAdminItems([]);
     }
@@ -307,15 +319,6 @@ export function SkillsHub() {
     return () => { cancelled = true; };
   }, [load]);
 
-  const refresh = useCallback(async () => {
-    try {
-      await load();
-      setLoadFailed(false);
-    } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not refresh Skills." });
-    }
-  }, [load]);
-
   const mutation = useCallback(async (url: string, method: string, body?: unknown) => {
     if (!account?.csrf) throw new Error("Security token unavailable. Refresh the page and try again.");
     const response = await fetch(url, {
@@ -328,21 +331,27 @@ export function SkillsHub() {
     return response;
   }, [account]);
 
-  const withMutation = useCallback(async (work: () => Promise<void>, success: string) => {
+  const withMutation = useCallback(async (work: () => Promise<void>, success: MessageKey, values?: MessageValues) => {
     setBusy(true);
     setNotice(null);
     try {
       await work();
-      await refresh();
-      setNotice({ kind: "success", text: success });
+      try {
+        await load();
+        setLoadFailed(false);
+        setNotice({ kind: "success", text: success, values });
+      } catch {
+        setLoadFailed(true);
+        setNotice({ kind: "error", text: "Change saved, but Skills could not refresh. Reload before making another change." });
+      }
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Skill operation failed." });
     } finally {
       setBusy(false);
     }
-  }, [refresh]);
+  }, [load]);
 
-  const uploadPackage = useCallback(async (event: ChangeEvent<HTMLInputElement>, endpoint: string, success: string) => {
+  const uploadPackage = useCallback(async (event: ChangeEvent<HTMLInputElement>, endpoint: string, success: MessageKey) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -356,14 +365,14 @@ export function SkillsHub() {
   const mutateState = useCallback(async (skill: SkillItem, mode: SkillMode, pinnedVersion = "") => {
     await withMutation(
       async () => { await mutation(`/api/v1/skills/${encodeURIComponent(skill.id)}/state`, "PATCH", { mode, pinnedVersion }); },
-      `${skill.name} behavior updated.`,
+      "{name} behavior updated.", { name: skill.name },
     );
   }, [mutation, withMutation]);
 
   const rate = useCallback(async (skill: SkillItem, rating: number) => {
     await withMutation(
       async () => { await mutation(`/api/v1/skills/${encodeURIComponent(skill.id)}/rating`, "POST", { rating }); },
-      `Rated ${skill.name} ${rating}/5.`,
+      "Rated {name} {rating}/5.", { name: skill.name, rating },
     );
   }, [mutation, withMutation]);
 
@@ -372,7 +381,7 @@ export function SkillsHub() {
     const suffix = action === "evaluate-start" ? "/evaluate/start" : action === "evaluate" ? "/evaluate" : `/${action}`;
     await withMutation(async () => {
       await mutation(`${base}${suffix}`, "POST", action === "evaluate" ? { score, evidence } : undefined);
-    }, `${item.name} ${action.replace("-", " ")} completed.`);
+    }, "{name} updated.", { name: item.name });
   }, [mutation, withMutation]);
 
   const visibleSkills = useMemo(() => {
@@ -384,7 +393,7 @@ export function SkillsHub() {
     }
   }, [resource.items, view]);
 
-  const emptyCopy = view === "explore"
+  const emptyCopy: { title: MessageKey; copy: MessageKey } = view === "explore"
     ? { title: "No Community Skills yet", copy: "Published candidates and promoted Community Skills will appear here. Candidates are never auto-routed before evaluation and promotion." }
     : view === "mine"
       ? { title: "No Personal Skills yet", copy: "Import a private .skill.json package. It stays scoped to your account and can be reused across projects." }
@@ -392,42 +401,35 @@ export function SkillsHub() {
 
   return (
     <section className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <p className={styles.eyebrow}>CodeLocal Intelligence</p>
-          <h1>Skills</h1>
-          <p className={styles.lede}>Chat normally. CodeLocal finds and combines useful expertise automatically.</p>
-        </div>
+      <h1 className="sr-only">{t("Skills")}</h1>
+      <div className={styles.toolbar}>
         <div className={styles.status} data-active={resource.autoUse || undefined}>
           <span className={styles.statusDot} aria-hidden="true" />
-          {resource.autoUse ? "Auto-use on" : "Auto-use off"}
+          {t(resource.autoUse ? "Auto-use on" : "Auto-use off")}
         </div>
-      </header>
-
-      <div className={styles.toolbar}>
         <div>
-          <button className={styles.primaryButton} disabled={busy || !resource.storageConfigured} onClick={() => personalInput.current?.click()} type="button">Import Personal</button>
-          <button disabled={busy || !resource.storageConfigured} onClick={() => communityInput.current?.click()} type="button">Publish Community</button>
+          <button className={styles.primaryButton} disabled={busy || loading || loadFailed || !resource.storageConfigured} onClick={() => personalInput.current?.click()} type="button">{t("Import personal")}</button>
+          <button disabled={busy || loading || loadFailed || !resource.storageConfigured} onClick={() => communityInput.current?.click()} type="button">{t("Publish to community")}</button>
         </div>
-        <span>{resource.storageConfigured ? "Cloud Skill storage ready" : "Cloud Skill storage is not configured"}</span>
+        <span>{t(resource.storageConfigured ? "Cloud Skill storage ready" : "Cloud Skill storage is not configured")}</span>
         <input accept=".json,.skill.json,application/json" hidden onChange={(event) => void uploadPackage(event, "/api/v1/skills/import", "Personal Skill imported.")} ref={personalInput} type="file" />
         <input accept=".json,.skill.json,application/json" hidden onChange={(event) => void uploadPackage(event, "/api/v1/skills/publish", "Community Skill submitted for review.")} ref={communityInput} type="file" />
         <input accept=".json,.skill.json,application/json" hidden onChange={(event) => void uploadPackage(event, "/api/v1/admin/skills/import", "Admin Skill candidate imported.")} ref={adminInput} type="file" />
       </div>
 
-      {account?.requiresReauthentication && <div className={styles.noticeError}>Sensitive Skill imports require a fresh sign-in session.</div>}
-      {notice && <div className={notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}>{notice.text}</div>}
+      {account?.requiresReauthentication && <div className={styles.noticeError}>{t("Sensitive Skill imports require a fresh sign-in session.")}</div>}
+      {notice && <div role="status" className={notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}>{message(notice.text, notice.values)}</div>}
 
-      <nav className={styles.tabs} aria-label="Skill views">
+      <nav className={styles.tabs} aria-label={t("Skill views")}>
         {views.map((item) => (
-          <button aria-current={view === item.id ? "page" : undefined} className={view === item.id ? styles.activeTab : undefined} key={item.id} onClick={() => setView(item.id)} type="button">{item.label}</button>
+          <button aria-pressed={view === item.id} className={view === item.id ? styles.activeTab : undefined} key={item.id} onClick={() => setView(item.id)} type="button">{t(item.label)}</button>
         ))}
       </nav>
 
       <div className={styles.content}>
         <div className={styles.sectionIntro}>
-          <h2>{view === "for-you" ? "Ready when relevant" : view === "built-in" ? "Built-in intelligence" : view === "explore" ? "Community market" : "Your reusable skills"}</h2>
-          <p>{view === "for-you" ? "No install step. Eligible Skills are selected directly from chat." : "Manage visibility and preference without mixing project-specific knowledge into Project Brain."}</p>
+          <h2>{t(view === "for-you" ? "Ready when relevant" : view === "built-in" ? "Built-in intelligence" : view === "explore" ? "Community market" : "Your reusable skills")}</h2>
+          <p>{t(view === "for-you" ? "No install step. Eligible Skills are selected directly from chat." : "Manage visibility and preference without mixing project-specific knowledge into Project Brain.")}</p>
         </div>
         {loading && <EmptyView title="Loading Skills" copy="Reading your current CodeLocal Skill catalog…" />}
         {!loading && loadFailed && <EmptyView title="Skills unavailable" copy="The Skill API could not be loaded. Chat continues with safe built-in fallback knowledge." />}
@@ -436,7 +438,7 @@ export function SkillsHub() {
       </div>
 
       {account?.isAdmin && (
-        <AdminPanel action={adminAction} busy={busy} importAdmin={() => adminInput.current?.click()} items={adminItems} storageConfigured={resource.storageConfigured} />
+        <AdminPanel action={adminAction} busy={busy || loading || loadFailed} importAdmin={() => adminInput.current?.click()} items={adminItems} storageConfigured={resource.storageConfigured} />
       )}
     </section>
   );

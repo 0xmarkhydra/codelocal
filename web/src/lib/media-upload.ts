@@ -1,5 +1,6 @@
 "use client";
 
+import { translate, type MessageKey, type MessageValues } from "@/lib/i18n/messages";
 import {
   isMediaAssetPrepareResponse,
   isMediaAssetResponse,
@@ -10,12 +11,18 @@ import {
 const SUPPORTED_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
 
+export class MediaUploadError extends Error {
+  constructor(readonly messageKey: MessageKey, readonly values: MessageValues = {}) {
+    super(translate("en", messageKey, values));
+  }
+}
+
 function bytesToHex(buffer: ArrayBuffer) {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function fileSHA256(file: File) {
-  if (!globalThis.crypto?.subtle) throw new Error("This browser cannot hash media securely.");
+  if (!globalThis.crypto?.subtle) throw new MediaUploadError("This browser cannot hash media securely.");
   const digest = await globalThis.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   return bytesToHex(digest);
 }
@@ -58,7 +65,7 @@ async function proxyUpload(file: File, assetID: string, csrf: string) {
     },
     body: file,
   });
-  if (!response.ok) throw new Error(`Image upload failed (${response.status}).`);
+  if (!response.ok) throw new MediaUploadError("Image upload failed ({status}).", { status: String(response.status) });
 }
 
 type MediaVariantName = "original" | "thumb" | "medium" | "large";
@@ -72,8 +79,8 @@ export function publicMediaVariantURL(assetID: string, variant: MediaVariantName
 }
 
 export async function uploadMediaAsset(file: File, csrf: string, options: { preserveOriginal?: boolean } = {}): Promise<MediaAsset> {
-  if (!SUPPORTED_MEDIA_TYPES.has(file.type)) throw new Error("Use a JPEG, PNG, or WebP image.");
-  if (file.size <= 0 || file.size > MAX_MEDIA_BYTES) throw new Error("Image must be smaller than 25 MB.");
+  if (!SUPPORTED_MEDIA_TYPES.has(file.type)) throw new MediaUploadError("Use a JPEG, PNG, or WebP image.");
+  if (file.size <= 0 || file.size > MAX_MEDIA_BYTES) throw new MediaUploadError("Image must be smaller than 25 MB.");
 
   const sha256 = await fileSHA256(file);
   const prepare = await fetch("/api/v1/media/assets/prepare", {
@@ -88,7 +95,7 @@ export async function uploadMediaAsset(file: File, csrf: string, options: { pres
   });
   const preparedBody = await readJSON(prepare);
   if (!prepare.ok || !isMediaAssetPrepareResponse(preparedBody)) {
-    throw new Error(`Unable to prepare image upload (${prepare.status}).`);
+    throw new MediaUploadError("Unable to prepare image upload ({status}).", { status: String(prepare.status) });
   }
 
   if (preparedBody.asset.status === "ready") return preparedBody.asset;
@@ -107,7 +114,7 @@ export async function uploadMediaAsset(file: File, csrf: string, options: { pres
   });
   const finalizedBody = await readJSON(finalize);
   if (!finalize.ok || !isMediaAssetResponse(finalizedBody) || finalizedBody.asset.status !== "ready") {
-    throw new Error(`Image processing failed (${finalize.status}).`);
+    throw new MediaUploadError("Image processing failed ({status}).", { status: String(finalize.status) });
   }
   return finalizedBody.asset;
 }

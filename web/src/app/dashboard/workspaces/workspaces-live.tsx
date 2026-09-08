@@ -11,16 +11,18 @@ import { AppIcon } from "../app-icon";
 import { formatDashboardTime } from "../dashboard-format";
 import styles from "../dashboard.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
+import { useTranslations } from "@/lib/i18n/provider";
 
 function statusLabel(status: "active" | "sleeping" | "offline") {
   switch (status) {
-    case "active": return "Trực tuyến";
-    case "sleeping": return "Đang nghỉ";
-    default: return "Ngoại tuyến";
+    case "active": return "Online";
+    case "sleeping": return "Sleeping";
+    default: return "Offline";
   }
 }
 
 export function LiveWorkspaces() {
+  const { locale, t } = useTranslations();
   const { state, retry } = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const csrf = account.state.kind === "ready" ? account.state.value.csrf : undefined;
@@ -28,7 +30,7 @@ export function LiveWorkspaces() {
   const [page, setPage] = useState(1);
 
   if (state.kind !== "ready") {
-    return <DashboardResourceFeedback label="Projects" {...(state.kind === "error" ? { kind: "error" as const, message: state.message, onRetry: retry } : { kind: state.kind })} />;
+    return <DashboardResourceFeedback label={t("Projects")} {...(state.kind === "error" ? { kind: "error" as const, message: state.message, onRetry: retry } : { kind: state.kind })} />;
   }
 
   const resource = state.value;
@@ -43,10 +45,10 @@ export function LiveWorkspaces() {
   return (
     <section className={styles.workspaceSection} aria-live="polite">
       <div className={styles.workspaceToolbar}>
-        <div className={styles.summaryPills} aria-label="Project summary">
-          <span><strong>{resource.summary.total}</strong> dự án</span>
-          <span data-state="active"><i />{resource.summary.active} trực tuyến</span>
-          {(resource.summary.sleeping + resource.summary.offline) > 0 ? <span data-state="sleeping"><i />{resource.summary.sleeping + resource.summary.offline} đang nghỉ</span> : null}
+        <div className={styles.summaryPills} aria-label={t("Project summary")}>
+          <span>{t("{count} projects", { count: resource.summary.total })}</span>
+          <span data-state="active"><i />{t("{count} online", { count: resource.summary.active })}</span>
+          {(resource.summary.sleeping + resource.summary.offline) > 0 ? <span data-state="sleeping"><i />{t("{count} inactive", { count: resource.summary.sleeping + resource.summary.offline })}</span> : null}
         </div>
         <DashboardListControls
           query={query}
@@ -55,15 +57,15 @@ export function LiveWorkspaces() {
           totalPages={totalPages}
           totalResults={filtered.length}
           onPageChange={setPage}
-          placeholder="Tìm project"
+          placeholder={t("Search projects")}
         />
       </div>
 
       {visible.length === 0 ? (
         <div className={styles.appleEmptyState}>
           <span className={styles.emptyFolderIcon} aria-hidden="true" />
-          <strong>{query ? "Không tìm thấy workspace" : "Chưa có workspace"}</strong>
-          <p>{query ? "Thử một từ khóa khác." : "Chạy codelocal . trong thư mục dự án để thêm workspace."}</p>
+          <strong>{t(query ? "No matching workspaces" : "No workspaces yet")}</strong>
+          <p>{query ? t("Try another search.") : t("Run {command} in your project directory to connect your workspace.", { command: "codelocal ." })}</p>
         </div>
       ) : (
         <div className={styles.workspaceGrid}>
@@ -72,7 +74,7 @@ export function LiveWorkspaces() {
               <Link
                 className={styles.workspaceChatLink}
                 href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}
-                aria-label={`Mở Code Graph của dự án ${workspace.workspaceName}`}
+                aria-label={t("Open Code Graph for {name}", { name: workspace.workspaceName })}
               >
                 <span className={styles.workspaceFolderLarge} data-state={workspace.status} aria-hidden="true">
                   <AppIcon name="folder" size={25} />
@@ -80,21 +82,21 @@ export function LiveWorkspaces() {
                 </span>
                 <span className={styles.workspaceCardBody}>
                   <h2>{workspace.workspaceName}</h2>
-                  <span>{workspace.deviceName} · {statusLabel(workspace.status)}</span>
-                  <small>Cập nhật {formatDashboardTime(workspace.lastSeenAt)}</small>
+                  <span>{workspace.deviceName} · {t(statusLabel(workspace.status))}</span>
+                  <small>{t("Updated {time}", { time: formatDashboardTime(workspace.lastSeenAt, locale) })}</small>
                 </span>
                 <span className={styles.workspaceChatAction}>Code Graph <AppIcon name="chevron-right" size={14} /></span>
               </Link>
               <div className={styles.workspaceCardActions}>
                 <details className={styles.workspaceOverflow}>
-                  <summary aria-label={`Thêm thao tác cho ${workspace.workspaceName}`}><span aria-hidden="true">•••</span></summary>
+                  <summary aria-label={t("More actions for {name}", { name: workspace.workspaceName })}><span aria-hidden="true">•••</span></summary>
                   <div>
                     <Link className={styles.secondaryCardAction} href="/dashboard/knowledge">Project Brain</Link>
                     <ResourceMutationButton
                       endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
                       csrf={csrf}
-                      label="Xóa"
-                      confirmMessage={`Xóa ${workspace.workspaceName} khỏi CodeLocal? Dự án và tệp vẫn được giữ nguyên.`}
+                      label={t("Remove")}
+                      confirmMessage={t("Remove {name} from CodeLocal? Your project and files will be preserved.", { name: workspace.workspaceName })}
                       disabled={!workspace.runtimeOnline}
                       onSuccess={retry}
                     />

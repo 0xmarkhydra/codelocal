@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import styles from "../auth-surface.module.css";
+import { useTranslations } from "@/lib/i18n/provider";
 
 type Context = {
   clientId: string;
@@ -25,6 +26,7 @@ function isContext(value: unknown): value is Context {
 }
 
 export function AuthorizePanel({ error }: { error: string }) {
+  const { t, message } = useTranslations();
   const router = useRouter();
   const [context, setContext] = useState<Context | null>(null);
   const [failure, setFailure] = useState("");
@@ -49,14 +51,14 @@ export function AuthorizePanel({ error }: { error: string }) {
       });
   }, [router]);
 
-  if (failure) return <div className={styles.alert}>{failure}</div>;
-  if (!context) return <div className={styles.hint}>Validating the OAuth request…</div>;
+  if (failure) return <div className={styles.alert}>{failure === "Invalid OAuth authorization request." || failure === "Invalid authorization response." ? t(failure) : t("CodeLocal could not be reached.")}</div>;
+  if (!context) return <div className={styles.hint}>{t("Validating the OAuth request…")}</div>;
 
   return (
     <>
-      {error ? <div className={styles.alert}>{error}</div> : null}
+      {error ? <div className={styles.alert}>{message(error)}</div> : null}
       <div className={styles.codeBlock}>{context.clientName}<br />{context.resource}</div>
-      <p className={styles.hint}>Signed in as {context.email}. This client can access only devices and workspaces belonging to this CodeLocal account.</p>
+      <p className={styles.hint}>{t("Signed in as {email}. This client can access only devices and workspaces belonging to this CodeLocal account.", { email: context.email })}</p>
       <form className={styles.form} method="post" action="/authorize">
         <input type="hidden" name="client_id" value={context.clientId} />
         <input type="hidden" name="redirect_uri" value={context.redirectUri} />
@@ -66,9 +68,9 @@ export function AuthorizePanel({ error }: { error: string }) {
         <input type="hidden" name="state" value={context.state} />
         <input type="hidden" name="csrf" value={context.csrf} />
         <input type="hidden" name="ui" value="next" />
-        <button className={styles.button} type="submit">Authorize MCP client</button>
+        <button className={styles.button} type="submit">{t("Authorize MCP client")}</button>
       </form>
-      <div className={styles.switcher}><Link href="/dashboard/connect">Cancel and return to MCP Connections</Link></div>
+      <div className={styles.switcher}><Link href="/dashboard/connect">{t("Cancel and return to MCP Connections")}</Link></div>
     </>
   );
 }

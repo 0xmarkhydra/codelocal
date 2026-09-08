@@ -2,37 +2,42 @@ import Image from "next/image";
 import Link from "next/link";
 import type { BlogBlock, BlogPost, BlogSeries } from "@/lib/blog";
 import { formatBlogDate, getSeriesPosts, taxonomySlug } from "@/lib/blog";
+import { getLocale, getTranslations } from "@/lib/i18n/server";
+import { LanguageSelect } from "@/lib/i18n/provider";
 import styles from "./blog.module.css";
 
-export function BlogHeader() {
+export async function BlogHeader() {
+  const t = await getTranslations();
   return (
     <header className={styles.siteHeader}>
-      <Link className={styles.brand} href="/" aria-label="CodeLocal home">
+      <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
         <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
         <span>CodeLocal</span>
-        <em>Blog</em>
+        <em>{t("Journal")}</em>
       </Link>
-      <nav className={styles.headerNav} aria-label="Blog navigation">
-        <Link href="/blogs">Latest</Link>
-        <Link href="/blogs/series">Series</Link>
-        <Link href="/security">Security</Link>
+      <nav className={styles.headerNav} aria-label={t("Blog navigation")}>
+        <Link href="/blogs">{t("Latest")}</Link>
+        <Link href="/blogs/series">{t("Series")}</Link>
+        <Link href="/security">{t("Security")}</Link>
       </nav>
-      <Link className={styles.openApp} href="/dashboard">Open app</Link>
+      <LanguageSelect />
+      <Link className={styles.openApp} href="/dashboard">{t("Open app")}</Link>
     </header>
   );
 }
 
-export function BlogFooter() {
+export async function BlogFooter() {
+  const t = await getTranslations();
   return (
     <footer className={styles.siteFooter}>
       <div>
-        <strong>CodeLocal Blog</strong>
-        <p>Practical notes on local-first AI infrastructure, agents and project intelligence.</p>
+        <strong>{t("CodeLocal Blog")}</strong>
+        <p>{t("Practical notes on local-first AI infrastructure, agents and project intelligence.")}</p>
       </div>
-      <nav aria-label="Footer navigation">
-        <Link href="/">Product</Link>
-        <Link href="/security">Security</Link>
-        <Link href="/support">Support</Link>
+      <nav aria-label={t("Footer navigation")}>
+        <Link href="/">{t("Product")}</Link>
+        <Link href="/security">{t("Security")}</Link>
+        <Link href="/support">{t("Support")}</Link>
       </nav>
     </footer>
   );
@@ -49,52 +54,56 @@ export function TaxonomyLinks({ post }: { post: BlogPost }) {
   );
 }
 
-export function PostCard({ post, compact = false }: { post: BlogPost; compact?: boolean }) {
+export async function PostCard({ post, compact = false }: { post: BlogPost; compact?: boolean }) {
+  const t = await getTranslations();
+  const locale = await getLocale();
   return (
     <article className={`${styles.postCard} ${compact ? styles.postCardCompact : ""}`}>
       <div className={styles.postCardMeta}>
-        {post.series ? <span>Part {post.series.part}</span> : <span>Standalone</span>}
-        <time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt)}</time>
-        <span>{post.readingMinutes} min</span>
+        {post.series ? <span>{t("Part {count}", { count: post.series.part })}</span> : <span>{t("Standalone")}</span>}
+        <time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt, locale)}</time>
+        <span>{t("{count} min read", { count: post.readingMinutes })}</span>
       </div>
       <h2><Link href={`/blogs/${post.slug}`}>{post.title}</Link></h2>
       <p>{post.excerpt}</p>
       <TaxonomyLinks post={post} />
-      <Link className={styles.readMore} href={`/blogs/${post.slug}`}>Read article <span aria-hidden="true">→</span></Link>
+      <Link className={styles.readMore} href={`/blogs/${post.slug}`}>{t("Read article")} <span aria-hidden="true">→</span></Link>
     </article>
   );
 }
 
-export function ArticleAbout({ post, seriesTitle }: { post: BlogPost; seriesTitle?: string }) {
-  const monogram = post.author.name.trim().charAt(0).toUpperCase() || "C";
+export async function ArticleAbout({ post, seriesTitle }: { post: BlogPost; seriesTitle?: string }) {
+  const t = await getTranslations();
+  const locale = await getLocale();
+  const monogram = new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(post.author.name.trim())[Symbol.iterator]().next().value?.segment.toLocaleUpperCase(locale) || "C";
   const description = post.series && seriesTitle
-    ? `Part ${post.series.part} in ${seriesTitle}.`
+    ? t("Part {count} in {series}.", { count: post.series.part, series: seriesTitle })
     : post.official
-      ? "An original article from the CodeLocal team."
-      : "An article from the CodeLocal community.";
+      ? t("An original article from the CodeLocal team.")
+      : t("An article from the CodeLocal community.");
 
   return (
     <div className={`${styles.asideCard} ${styles.aboutCard}`}>
       <div className={styles.aboutTopline}>
-        <span>About this article</span>
-        <span className={styles.aboutBadge}>{post.official ? "Original" : "Community"}</span>
+        <span>{t("About this article")}</span>
+        <span className={styles.aboutBadge}>{t(post.official ? "Original" : "Community")}</span>
       </div>
       <Link className={styles.aboutCategory} href={`/blogs/category/${taxonomySlug(post.category)}`}>{post.category}</Link>
       <p>{description}</p>
       <dl className={styles.aboutMeta}>
         <div>
-          <dt>Published</dt>
-          <dd><time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt)}</time></dd>
+          <dt>{t("Published")}</dt>
+          <dd><time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt, locale)}</time></dd>
         </div>
         <div>
-          <dt>Reading time</dt>
-          <dd>{post.readingMinutes} min</dd>
+          <dt>{t("Reading time")}</dt>
+          <dd>{t("{count} min read", { count: post.readingMinutes })}</dd>
         </div>
       </dl>
       <div className={styles.aboutAuthor}>
         <span className={styles.authorMonogram} aria-hidden="true">{monogram}</span>
         <div>
-          <span>Written by</span>
+          <span>{t("Written by")}</span>
           <Link href={`/users/${post.author.slug}`}>{post.author.name}</Link>
           <small>{post.author.role}</small>
         </div>
@@ -103,18 +112,17 @@ export function ArticleAbout({ post, seriesTitle }: { post: BlogPost; seriesTitl
   );
 }
 
-export function RelatedReading({ posts }: { posts: BlogPost[] }) {
+export async function RelatedReading({ posts }: { posts: BlogPost[] }) {
   if (posts.length === 0) return null;
+  const t = await getTranslations();
 
   return (
     <section className={styles.related} aria-labelledby="related-reading">
       <header className={styles.relatedHeader}>
         <div>
-          <span className={styles.relatedEyebrow}>Curated next</span>
-          <h2 id="related-reading">Keep reading</h2>
+          <h2 id="related-reading">{t("Keep reading")}</h2>
         </div>
-        <p>Continue exploring practical ideas for building, securing and operating AI agents.</p>
-        <Link className={styles.relatedBrowse} href="/blogs">Browse all stories <span aria-hidden="true">↗</span></Link>
+        <Link className={styles.relatedBrowse} href="/blogs">{t("View all articles")} <span aria-hidden="true">↗</span></Link>
       </header>
       <div className={`${styles.postGrid} ${styles.relatedGrid}`}>
         {posts.map((post) => <PostCard key={post.slug} post={post} compact />)}
@@ -123,13 +131,15 @@ export function RelatedReading({ posts }: { posts: BlogPost[] }) {
   );
 }
 
-export function SeriesCard({ series, posts: suppliedPosts }: { series: BlogSeries; posts?: BlogPost[] }) {
+export async function SeriesCard({ series, posts: suppliedPosts }: { series: BlogSeries; posts?: BlogPost[] }) {
+  const t = await getTranslations();
+  const locale = await getLocale();
   const posts = suppliedPosts ?? getSeriesPosts(series.slug);
   return (
     <article className={styles.seriesCard}>
       <div className={styles.seriesCardTop}>
-        <span>{series.status === "complete" ? "Complete series" : "Active series"}</span>
-        <em>{posts.length} parts</em>
+        <span>{t(series.status === "complete" ? "Complete series" : "Active series")}</span>
+        <em>{t("{count} parts", { count: posts.length })}</em>
       </div>
       <h2><Link href={`/blogs/series/${series.slug}`}>{series.title}</Link></h2>
       <p>{series.description}</p>
@@ -137,13 +147,13 @@ export function SeriesCard({ series, posts: suppliedPosts }: { series: BlogSerie
         <ol>
           {posts.map((post) => (
             <li key={post.slug}>
-              <span>{String(post.series?.part ?? 0).padStart(2, "0")}</span>
+              <span>{new Intl.NumberFormat(locale, { minimumIntegerDigits: 2 }).format(post.series?.part ?? 0)}</span>
               <Link href={`/blogs/${post.slug}`}>{post.title}</Link>
             </li>
           ))}
         </ol>
       )}
-      <Link className={styles.readMore} href={`/blogs/series/${series.slug}`}>Explore series <span aria-hidden="true">→</span></Link>
+      <Link className={styles.readMore} href={`/blogs/series/${series.slug}`}>{t("Explore series")} <span aria-hidden="true">→</span></Link>
     </article>
   );
 }
@@ -191,12 +201,13 @@ export function BlogBlocks({ blocks }: { blocks: BlogBlock[] }) {
   );
 }
 
-export function EmptyState({ query }: { query?: string }) {
+export async function EmptyState({ query }: { query?: string }) {
+  const t = await getTranslations();
   return (
     <div className={styles.emptyState}>
-      <strong>No articles found.</strong>
-      <p>{query ? `Nothing matched “${query}”. Try a broader search.` : "There are no published articles in this view yet."}</p>
-      <Link href="/blogs">View all articles</Link>
+      <strong>{t("No articles found.")}</strong>
+      <p>{query ? t("Nothing matched “{query}”. Try a broader search.", { query }) : t("There are no published articles in this view yet.")}</p>
+      <Link href="/blogs">{t("View all articles")}</Link>
     </div>
   );
 }

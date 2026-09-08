@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { AppIcon, type AppIconName } from "../dashboard/app-icon";
 import styles from "./architecture-model.module.css";
 
 const stages: {
-  title: string;
-  short: string;
+  title: MessageKey;
+  short: MessageKey;
   icon: AppIconName;
-  copy: string;
+  copy: MessageKey;
   tone: string;
 }[] = [
   {
@@ -95,6 +97,7 @@ function Deck({
 }
 
 export function ArchitectureModel() {
+  const { t } = useTranslations();
   const [active, setActive] = useState(1);
   const viewport = useRef<HTMLDivElement>(null);
 
@@ -125,10 +128,10 @@ export function ArchitectureModel() {
     <div className={styles.model}>
       <div className={styles.modelBar}>
         <span>
-          <i /> THE CODELOCAL MODEL
+          <i /> {t("The CodeLocal model")}
         </span>
         <span>
-          ARCHITECTURE EXPLORER <span aria-hidden="true">↗</span>
+          {t("Architecture")} <span aria-hidden="true">↗</span>
         </span>
       </div>
       <div
@@ -136,7 +139,7 @@ export function ArchitectureModel() {
         className={styles.viewport}
         tabIndex={0}
         role="region"
-        aria-label="3D architecture diagram. Scroll horizontally on small screens."
+        aria-label={t("CodeLocal architecture diagram")}
       >
         <svg
           className={styles.diagram}
@@ -145,14 +148,10 @@ export function ArchitectureModel() {
           aria-labelledby={`${id}-title ${id}-description`}
         >
           <title id={`${id}-title`}>
-            One connected system. Your machine at the center of execution.
+            {t("One connected system. Your machine at the center of execution.")}
           </title>
           <desc id={`${id}-description`}>
-            AI clients connect by MCP to CodeLocal. CodeLocal routes approved
-            requests to your local machine, where files, Git, terminal and
-            browser actions run. Project Brain provides sanitized durable
-            knowledge to the control layer. The cloud and local machine have
-            separate privacy boundaries.
+            {t("AI clients connect by MCP to CodeLocal. CodeLocal routes approved requests to your local machine. Project Brain provides sanitized durable knowledge. Cloud and local execution have separate privacy boundaries.")}
           </desc>
           <defs>
             <clipPath id={`${id}-brand-clip`}>
@@ -237,15 +236,9 @@ export function ArchitectureModel() {
             strokeOpacity=".22"
             strokeDasharray="4 7"
           />
-          <text
-            className={styles.zoneLabel}
-            x="550"
-            y="76"
-            textAnchor="middle"
-            fill="#b5a0cf"
-          >
-            CLOUD / IDENTITY · ROUTING · KNOWLEDGE
-          </text>
+          <foreignObject x="367" y="30" width="366" height="54">
+            <div className={styles.zoneLabel}>{t("Cloud: identity, routing, knowledge")}</div>
+          </foreignObject>
           <rect
             x="784"
             y="134"
@@ -257,15 +250,9 @@ export function ArchitectureModel() {
             strokeOpacity=".22"
             strokeDasharray="4 7"
           />
-          <text
-            className={styles.zoneLabel}
-            x="924"
-            y="117"
-            textAnchor="middle"
-            fill="#99cbbb"
-          >
-            LOCAL / YOUR PRIVACY BOUNDARY
-          </text>
+          <foreignObject x="784" y="77" width="280" height="50">
+            <div className={styles.zoneLabel}>{t("Local: your privacy boundary")}</div>
+          </foreignObject>
           <g
             className={styles.wires}
             fill="none"
@@ -293,10 +280,10 @@ export function ArchitectureModel() {
             y="244"
             textAnchor="middle"
           >
-            APPROVED RPC
+            RPC
           </text>
           <text className={styles.wireLabel} x="566" y="385">
-            CONTEXT
+            {t("Context")}
           </text>
 
           <g className={styles.node} data-selected={active === 0}>
@@ -358,24 +345,11 @@ export function ArchitectureModel() {
               textAnchor="middle"
               fill="#93baf3"
             >
-              01 / YOUR AI
+              01 / AI
             </text>
-            <text
-              className={styles.nodeTitle}
-              x="182"
-              y="381"
-              textAnchor="middle"
-            >
-              Different AIs. One entry.
-            </text>
-            <text
-              className={styles.nodeCopy}
-              x="182"
-              y="404"
-              textAnchor="middle"
-            >
-              ChatGPT · Claude · Codex · more
-            </text>
+            <foreignObject x="32" y="365" width="300" height="85">
+              <div className={styles.nodeCaption}><strong>{t("Different AIs. One entry.")}</strong><span>ChatGPT · Claude · Codex</span></div>
+            </foreignObject>
           </g>
 
           <g className={styles.node} data-selected={active === 1}>
@@ -451,7 +425,7 @@ export function ArchitectureModel() {
               textAnchor="middle"
               fill="#c7a4f5"
             >
-              02 / THE CONTROL LAYER
+              02 / {t("Control layer")}
             </text>
             <text
               className={styles.coreTitle}
@@ -523,24 +497,11 @@ export function ArchitectureModel() {
               textAnchor="middle"
               fill="#94d9bd"
             >
-              03 / YOUR MACHINE
+              03 / {t("Your machine")}
             </text>
-            <text
-              className={styles.nodeTitle}
-              x="924"
-              y="383"
-              textAnchor="middle"
-            >
-              Local power. Your rules.
-            </text>
-            <text
-              className={styles.nodeCopy}
-              x="924"
-              y="406"
-              textAnchor="middle"
-            >
-              Files · Git · Terminal · Browser
-            </text>
+            <foreignObject x="794" y="359" width="260" height="60">
+              <div className={styles.nodeCaption}><strong>{t("Local power. Your rules.")}</strong><span>{t("Files · Git · Terminal · Browser")}</span></div>
+            </foreignObject>
             <path
               d="M915 420v8l8 4 8-4v-8l-8-4Z m4 4 3 3 5-6"
               fill="none"
@@ -594,30 +555,20 @@ export function ArchitectureModel() {
             >
               04 / PROJECT BRAIN
             </text>
-            <text className={styles.nodeTitle} x="775" y="479">
-              Intelligence that stays.
-            </text>
-            <text className={styles.nodeCopy} x="775" y="502">
-              Decisions · Knowledge · Verified experience
-            </text>
+            <foreignObject x="775" y="459" width="305" height="86">
+              <div className={`${styles.nodeCaption} ${styles.brainCaption}`}><strong>{t("Intelligence that stays.")}</strong><span>{t("Decisions · Knowledge · Verified experience")}</span></div>
+            </foreignObject>
             <path d="M674 478h81" fill="none" stroke="#d9aa9160" />
           </g>
-          <text
-            className={styles.footerLabel}
-            x="550"
-            y="580"
-            textAnchor="middle"
-          >
-            A MODEL OF THE SYSTEM — NOT LIVE ACTIVITY
-          </text>
+          <foreignObject x="60" y="563" width="1000" height="35">
+            <div className={styles.footerLabel}>{t("System model, not live activity")}</div>
+          </foreignObject>
         </svg>
       </div>
-      <p className={styles.mobileHint}>
-        Swipe to explore the model <span aria-hidden="true">↔</span>
-      </p>
       <div
         className={styles.controls}
-        aria-label="Explore each part of the architecture"
+        role="group"
+        aria-label={t("Explore each part of the architecture")}
       >
         {stages.map((item, index) => (
           <button
@@ -633,8 +584,8 @@ export function ArchitectureModel() {
             </span>
             <span>
               <small>0{index + 1}</small>
-              <strong>{item.title}</strong>
-              <em>{item.short}</em>
+              <strong>{t(item.title)}</strong>
+              <em>{t(item.short)}</em>
             </span>
             <span className={styles.stepArrow} aria-hidden="true">
               ↗
@@ -649,9 +600,9 @@ export function ArchitectureModel() {
         aria-atomic="true"
       >
         <span data-tone={stage.tone}>
-          0{active + 1} / {stage.title}
+          0{active + 1} / {t(stage.title)}
         </span>
-        <p>{stage.copy}</p>
+        <p>{t(stage.copy)}</p>
       </div>
     </div>
   );

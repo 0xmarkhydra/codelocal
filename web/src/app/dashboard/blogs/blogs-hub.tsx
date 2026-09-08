@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 import { isAccountResource } from "@/lib/contracts/account";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey, MessageValues } from "@/lib/i18n/messages";
 import {
   isBlogPostResource,
   isBlogPostsResource,
@@ -13,12 +15,17 @@ import {
 import { useDashboardResource } from "../use-dashboard-resource";
 import styles from "./blogs.module.css";
 
-function formatDate(value: number) {
+type Notice = { key: MessageKey; values?: MessageValues } | null;
+const statusLabels = { draft: "Draft", scheduled: "Scheduled", published: "Published", archived: "Archived", active: "Active", complete: "Complete" } as const;
+
+function formatDate(value: number, locale: string) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
 export function BlogsHub() {
+  const { locale, t, message } = useTranslations();
+  const number = new Intl.NumberFormat(locale);
   const router = useRouter();
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const resource = useDashboardResource("/api/v1/blog/posts", isBlogPostsResource);
@@ -27,8 +34,8 @@ export function BlogsHub() {
   const [seriesTitle, setSeriesTitle] = useState("");
   const [creating, setCreating] = useState(false);
   const [creatingSeries, setCreatingSeries] = useState(false);
-  const [error, setError] = useState("");
-  const [seriesError, setSeriesError] = useState("");
+  const [error, setError] = useState<Notice>(null);
+  const [seriesError, setSeriesError] = useState<Notice>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all");
 
@@ -54,7 +61,7 @@ export function BlogsHub() {
     event.preventDefault();
     if (creating || account.state.kind !== "ready" || !title.trim()) return;
     setCreating(true);
-    setError("");
+    setError(null);
     try {
       const response = await fetch("/api/v1/blog/posts", {
         method: "POST",
@@ -68,12 +75,14 @@ export function BlogsHub() {
       });
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok || !isBlogPostResource(body)) {
-        setError(response.status === 409 ? "A post already uses that slug. Try a more specific title." : `Unable to create draft (${response.status}).`);
+        setError(response.status === 409
+          ? { key: "A post already uses that slug. Try a more specific title." }
+          : { key: "Unable to create draft ({status}).", values: { status: String(response.status) } });
         return;
       }
       router.push(`/dashboard/blogs/${body.post.id}`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to create draft.");
+    } catch {
+      setError({ key: "Unable to create draft." });
     } finally {
       setCreating(false);
     }
@@ -83,7 +92,7 @@ export function BlogsHub() {
     event.preventDefault();
     if (creatingSeries || account.state.kind !== "ready" || !seriesTitle.trim()) return;
     setCreatingSeries(true);
-    setSeriesError("");
+    setSeriesError(null);
     try {
       const response = await fetch("/api/v1/blog/series", {
         method: "POST",
@@ -97,12 +106,14 @@ export function BlogsHub() {
       });
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok || !isBlogSeriesResource(body)) {
-        setSeriesError(response.status === 409 ? "A series already uses that slug. Try a more specific title." : `Unable to create series (${response.status}).`);
+        setSeriesError(response.status === 409
+          ? { key: "A series already uses that slug. Try a more specific title." }
+          : { key: "Unable to create series ({status}).", values: { status: String(response.status) } });
         return;
       }
       router.push(`/dashboard/blogs/series/${body.series.id}`);
-    } catch (caught) {
-      setSeriesError(caught instanceof Error ? caught.message : "Unable to create series.");
+    } catch {
+      setSeriesError({ key: "Unable to create series." });
     } finally {
       setCreatingSeries(false);
     }
@@ -112,20 +123,20 @@ export function BlogsHub() {
     <div className={styles.blogWorkspace}>
       <section className={`${styles.section} ${styles.postsSection}`}>
         <div className={styles.sectionHeader}>
-          <div><span className={styles.kicker}>Your content</span><h2>Posts</h2></div>
-          <Link href="/blogs">Open public blog</Link>
+          <div><h2>{t("Posts")}</h2></div>
+          <Link href="/blogs">{t("Open public blog")}</Link>
         </div>
 
         <div className={styles.postToolbar}>
           <input
-            aria-label="Search posts"
+            aria-label={t("Search posts")}
             className={styles.searchInput}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search title, excerpt, category or tag"
+            placeholder={t("Search title, excerpt, category or tag")}
             type="search"
             value={query}
           />
-          <div className={styles.statusFilters} role="group" aria-label="Filter posts by status">
+          <div className={styles.statusFilters} role="group" aria-label={t("Filter posts by status")}>
             {(["all", "published", "draft"] as const).map((status) => (
               <button
                 aria-pressed={statusFilter === status}
@@ -134,32 +145,32 @@ export function BlogsHub() {
                 onClick={() => setStatusFilter(status)}
                 type="button"
               >
-                {status === "all" ? "All" : status === "published" ? "Published" : "Drafts"}
+                {t(status === "all" ? "All" : status === "published" ? "Published" : "Drafts")}
               </button>
             ))}
           </div>
         </div>
 
-        {resource.state.kind === "loading" && <div className={styles.emptyState}>Loading posts…</div>}
+        {resource.state.kind === "loading" && <div className={styles.emptyState}>{t("Loading posts…")}</div>}
         {resource.state.kind === "error" && (
           <div className={styles.emptyState}>
-            <p>{resource.state.message}</p>
-            <button type="button" onClick={resource.retry}>Try again</button>
+            <p>{message(resource.state.message)}</p>
+            <button type="button" onClick={resource.retry}>{t("Try again")}</button>
           </div>
         )}
-        {resource.state.kind === "unauthenticated" && <div className={styles.emptyState}>Sign in again to manage your posts.</div>}
-        {resource.state.kind === "ready" && posts.length === 0 && <div className={styles.emptyState}>No posts yet. Create your first draft from the right panel.</div>}
-        {resource.state.kind === "ready" && posts.length > 0 && filteredPosts.length === 0 && <div className={styles.emptyState}>No posts match this search or filter.</div>}
+        {resource.state.kind === "unauthenticated" && <div className={styles.emptyState}>{t("Sign in again to manage your posts.")}</div>}
+        {resource.state.kind === "ready" && posts.length === 0 && <div className={styles.emptyState}>{t("No posts yet.")}</div>}
+        {resource.state.kind === "ready" && posts.length > 0 && filteredPosts.length === 0 && <div className={styles.emptyState}>{t("No posts match this search or filter.")}</div>}
         {resource.state.kind === "ready" && filteredPosts.length > 0 && (
           <div className={styles.postList}>
             {filteredPosts.map((post) => (
               <Link className={styles.postRow} href={`/dashboard/blogs/${post.id}`} key={post.id}>
                 <div>
-                  <span>{post.status} · {post.category || "Uncategorized"}</span>
+                  <span>{t(statusLabels[post.status])} · {post.category || t("Uncategorized")}</span>
                   <strong>{post.title}</strong>
-                  <p>{post.excerpt || "No excerpt yet."}</p>
+                  <p>{post.excerpt || t("No excerpt yet.")}</p>
                 </div>
-                <time dateTime={new Date(post.updatedAt).toISOString()}>{formatDate(post.updatedAt)}</time>
+                <time dateTime={new Date(post.updatedAt).toISOString()}>{formatDate(post.updatedAt, locale)}</time>
               </Link>
             ))}
           </div>
@@ -167,61 +178,64 @@ export function BlogsHub() {
       </section>
 
       <aside className={styles.sideRail}>
-        <div className={styles.stats} aria-label="Blog summary">
-          <article><strong>{counts.published}</strong><span>Published</span></article>
-          <article><strong>{counts.drafts}</strong><span>Drafts</span></article>
-          <article><strong>{counts.series}</strong><span>Series</span></article>
+        <div className={styles.stats} aria-label={t("Blog summary")}>
+          <article><strong>{resource.state.kind === "ready" ? number.format(counts.published) : "—"}</strong><span>{t("Published")}</span></article>
+          <article><strong>{resource.state.kind === "ready" ? number.format(counts.drafts) : "—"}</strong><span>{t("Drafts")}</span></article>
+          <article><strong>{seriesResource.state.kind === "ready" ? number.format(counts.series) : "—"}</strong><span>{t("Series")}</span></article>
         </div>
 
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
-            <div><span className={styles.kicker}>Write</span><h2>New draft</h2></div>
+            <div><h2>{t("New draft")}</h2></div>
           </div>
           <form className={styles.createForm} onSubmit={createDraft}>
             <input
-              aria-label="Post title"
+              aria-label={t("Post title")}
+              disabled={creating}
               maxLength={200}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="What do you want to write about?"
+              placeholder={t("Post title")}
               value={title}
             />
             <button disabled={creating || account.state.kind !== "ready" || !title.trim()} type="submit">
-              {creating ? "Creating…" : "Create draft"}
+              {t(creating ? "Creating…" : "Create draft")}
             </button>
           </form>
-          {error && <p className={styles.errorText} role="alert">{error}</p>}
+          {error && <p className={styles.errorText} role="alert">{t(error.key, error.values)}</p>}
         </section>
 
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
-            <div><span className={styles.kicker}>Learning paths</span><h2>Series</h2></div>
+            <div><h2>{t("Series")}</h2></div>
           </div>
           <form className={styles.createForm} onSubmit={createSeries}>
             <input
-              aria-label="Series title"
+              aria-label={t("Series title")}
+              disabled={creatingSeries}
               maxLength={200}
               onChange={(event) => setSeriesTitle(event.target.value)}
-              placeholder="Create a new series"
+              placeholder={t("Series title")}
               value={seriesTitle}
             />
             <button disabled={creatingSeries || account.state.kind !== "ready" || !seriesTitle.trim()} type="submit">
-              {creatingSeries ? "Creating…" : "Create series"}
+              {t(creatingSeries ? "Creating…" : "Create series")}
             </button>
           </form>
-          {seriesError && <p className={styles.errorText} role="alert">{seriesError}</p>}
-          {seriesResource.state.kind === "loading" && <div className={styles.emptyState}>Loading series…</div>}
-          {seriesResource.state.kind === "error" && <div className={styles.emptyState}><p>{seriesResource.state.message}</p><button type="button" onClick={seriesResource.retry}>Try again</button></div>}
-          {seriesResource.state.kind === "ready" && series.length === 0 && <div className={styles.emptyState}>No series yet.</div>}
+          {seriesError && <p className={styles.errorText} role="alert">{t(seriesError.key, seriesError.values)}</p>}
+          {seriesResource.state.kind === "loading" && <div className={styles.emptyState}>{t("Loading series…")}</div>}
+          {seriesResource.state.kind === "unauthenticated" && <div className={styles.emptyState}>{t("Sign in again to manage your series.")}</div>}
+          {seriesResource.state.kind === "error" && <div className={styles.emptyState}><p>{message(seriesResource.state.message)}</p><button type="button" onClick={seriesResource.retry}>{t("Try again")}</button></div>}
+          {seriesResource.state.kind === "ready" && series.length === 0 && <div className={styles.emptyState}>{t("No series yet.")}</div>}
           {seriesResource.state.kind === "ready" && series.length > 0 && (
             <div className={styles.postList}>
               {series.map((item) => (
                 <Link className={styles.postRow} href={`/dashboard/blogs/series/${item.id}`} key={item.id}>
                   <div>
-                    <span>{item.status}</span>
+                    <span>{t(statusLabels[item.status])}</span>
                     <strong>{item.title}</strong>
-                    <p>{item.description || "No description yet."}</p>
+                    <p>{item.description || t("No description yet.")}</p>
                   </div>
-                  <time dateTime={new Date(item.updatedAt).toISOString()}>{formatDate(item.updatedAt)}</time>
+                  <time dateTime={new Date(item.updatedAt).toISOString()}>{formatDate(item.updatedAt, locale)}</time>
                 </Link>
               ))}
             </div>

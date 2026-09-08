@@ -1,4 +1,6 @@
 "use client";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey, MessageValues } from "@/lib/i18n/messages";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
@@ -63,11 +65,11 @@ type ConnectionInput = {
   bearerToken: string;
 };
 
-type Notice = { kind: "success" | "error"; text: string } | null;
+type Notice = { kind: "success" | "error"; text: string; values?: MessageValues } | null;
 
 const hostedPenpotMcpEndpoint = "https://design.codelocal.cloud/mcp/stream";
 
-const permissionLabels: Record<string, string> = {
+const permissionLabels: Record<string, MessageKey> = {
   external_read: "Read external data",
   external_write: "Create or update external data",
   external_delete: "Delete external data",
@@ -105,10 +107,6 @@ function responseError(response: Response) {
       }
     })
     .catch(() => `Request failed (${response.status}).`);
-}
-
-function capabilityLabel(value: string) {
-  return permissionLabels[value] ?? value.replaceAll("_", " ");
 }
 
 function workspaceValue(workspace: WorkspaceItem) {
@@ -151,9 +149,10 @@ function PluginCard({
   workspaces: WorkspaceItem[];
   install: (plugin: PluginItem) => Promise<void>;
   uninstall: (plugin: PluginItem) => Promise<void>;
-  connect: (plugin: PluginItem, input: ConnectionInput) => Promise<void>;
+  connect: (plugin: PluginItem, input: ConnectionInput) => Promise<boolean>;
   disconnect: (plugin: PluginItem, connection: PluginConnection) => Promise<void>;
 }) {
+  const { t, message } = useTranslations();
   const capabilities = plugin.capabilities ?? [];
   const categories = (plugin.categories ?? []).slice(0, 3);
   const connections = plugin.connections ?? [];
@@ -183,14 +182,14 @@ function PluginCard({
   async function submitConnection() {
     const selected = parseWorkspaceValue(selectedWorkspace);
     if (!selected || !endpoint.trim() || (isPenpot && connections.length === 0 && !bearerToken.trim())) return;
-    await connect(plugin, {
+    const connected = await connect(plugin, {
       ...selected,
       endpoint: endpoint.trim(),
       bearerEnv: bearerEnv.trim(),
       bearerToken: bearerToken.trim(),
     });
     setBearerToken("");
-    setShowConfig(false);
+    if (connected) setShowConfig(false);
   }
 
   return (
@@ -201,31 +200,30 @@ function PluginCard({
           <div>
             <div className={styles.nameRow}>
               <h2>{plugin.name}</h2>
-              {plugin.publisherVerified && <span className={styles.verified} title="Verified publisher"><AppIcon name="check" size={11} /> Verified</span>}
+              {plugin.publisherVerified && <span className={styles.verified} title={t("Verified publisher")}><AppIcon name="check" size={11} /> {t("Verified")}</span>}
             </div>
             <p>{plugin.publisher} · v{plugin.version}</p>
           </div>
         </div>
-        {plugin.featured && !plugin.installed && <span className={styles.featuredBadge}>Featured</span>}
-        {plugin.installed && <span className={styles.installedBadge}><AppIcon name="check" size={12} /> {plugin.system ? "System" : "Installed"}</span>}
+        {plugin.featured && !plugin.installed && <span className={styles.featuredBadge}>{t("Featured")}</span>}
+        {plugin.installed && <span className={styles.installedBadge}><AppIcon name="check" size={12} /> {t(plugin.system ? "System" : "Installed")}</span>}
       </div>
 
-      <p className={styles.description}>{plugin.description || "Extend CodeLocal with reusable tools and external data."}</p>
+      <p className={styles.description}>{plugin.description || t("Extend CodeLocal with reusable tools and external data.")}</p>
 
       {categories.length > 0 && (
-        <div className={styles.categories} aria-label={`${plugin.name} categories`}>
+        <div className={styles.categories} aria-label={t("{name} categories", { name: plugin.name })}>
           {categories.map((category) => <span key={category}>{category}</span>)}
-          {(plugin.executionTargets ?? []).map((target) => <span key={`runtime-${target}`}>{target === "local" ? "Local runtime" : "Cloud runtime"}</span>)}
+          {(plugin.executionTargets ?? []).map((target) => <span key={`runtime-${target}`}>{t(target === "local" ? "Local runtime" : "Cloud runtime")}</span>)}
         </div>
       )}
 
       <div className={styles.permissions}>
-        <div className={styles.permissionTitle}><AppIcon name="shield" size={15} /><strong>Permissions</strong></div>
+        <div className={styles.permissionTitle}><AppIcon name="shield" size={15} /><strong>{t("Permissions")}</strong></div>
         <div className={styles.permissionList}>
           {capabilities.length === 0
-            ? <span>No runtime permissions declared</span>
-            : capabilities.slice(0, 4).map((capability) => <span key={capability}>{capabilityLabel(capability)}</span>)}
-          {capabilities.length > 4 && <span>+{capabilities.length - 4} more</span>}
+            ? <span>{t("No runtime permissions declared")}</span>
+            : capabilities.map((capability) => <span key={capability}>{permissionLabels[capability] ? t(permissionLabels[capability]) : capability}</span>)}
         </div>
       </div>
 
@@ -236,11 +234,11 @@ function PluginCard({
               <div className={styles.connectionCopy}>
                 <strong>{connectionDeviceLabel(connection, workspaces)}</strong>
                 <span>
-                  {connection.state === "ready" ? `${connection.toolCount} tools ready` : connection.state === "error" ? "Connection needs attention" : "Configured"}
+                  {connection.state === "ready" ? t("{count} tools ready", { count: connection.toolCount }) : t(connection.state === "error" ? "Connection needs attention" : "Configured")}
                 </span>
-                {connection.lastError && <small title={connection.lastError}>{connection.lastError}</small>}
+                {connection.lastError && <small title={connection.lastError}>{message(connection.lastError)}</small>}
               </div>
-              <button className={styles.textButton} disabled={busy} onClick={() => void disconnect(plugin, connection)} type="button">Disconnect</button>
+              <button className={styles.textButton} disabled={busy} onClick={() => void disconnect(plugin, connection)} type="button">{t("Disconnect")}</button>
             </div>
           ))}
         </div>
@@ -250,53 +248,53 @@ function PluginCard({
         <div className={styles.configPanel}>
           <div className={styles.configHeader}>
             <div>
-              <strong>Configure connection</strong>
-              <span>{isPenpot ? "Connect this device to CodeLocal's hosted Penpot MCP." : "The MCP server is installed on your selected CodeLocal device."}</span>
+              <strong>{t("Configure connection")}</strong>
+              <span>{t(isPenpot ? "Connect this device to CodeLocal's hosted Penpot MCP." : "The MCP server is installed on your selected CodeLocal device.")}</span>
             </div>
-            <button aria-label="Close Plugin configuration" className={styles.iconButton} onClick={() => setShowConfig(false)} type="button">×</button>
+            <button aria-label={t("Close Plugin configuration")} title={t("Close Plugin configuration")} disabled={busy} className={styles.iconButton} onClick={() => setShowConfig(false)} type="button"><AppIcon name="close" size={16} /></button>
           </div>
           <label className={styles.field}>
-            <span>Device / workspace</span>
+            <span>{t("Device / workspace")}</span>
             <select onChange={(event) => setSelectedWorkspace(event.target.value)} value={selectedWorkspace}>
-              <option value="">Select a running workspace</option>
+              <option value="">{t("Select a running workspace")}</option>
               {onlineWorkspaces.map((workspace) => <option key={`${workspace.deviceId}-${workspace.workspaceId}`} value={workspaceValue(workspace)}>{workspaceLabel(workspace)}</option>)}
             </select>
           </label>
           <label className={styles.field}>
-            <span>MCP endpoint</span>
+            <span>{t("MCP endpoint")}</span>
             <input autoComplete="off" inputMode="url" onChange={(event) => setEndpoint(event.target.value)} placeholder="https://example.com/mcp" readOnly={isPenpot} type="url" value={endpoint} />
           </label>
           <label className={styles.field}>
-            <span>{isPenpot ? "Penpot MCP key or copied server URL" : <>Bearer token <em>optional</em></>}</span>
-            <input autoCapitalize="none" autoComplete="new-password" disabled={Boolean(bearerEnv)} onChange={(event) => setBearerToken(event.target.value)} placeholder="Stored encrypted by CodeLocal" spellCheck={false} type="password" value={bearerToken} />
+            <span>{isPenpot ? t("Penpot MCP key or copied server URL") : <>{t("Bearer token")} <em>{t("Optional")}</em></>}</span>
+            <input autoCapitalize="none" autoComplete="new-password" disabled={Boolean(bearerEnv)} onChange={(event) => setBearerToken(event.target.value)} placeholder={t("Stored encrypted by CodeLocal")} spellCheck={false} type="password" value={bearerToken} />
           </label>
           {!isPenpot && <label className={styles.field}>
-            <span>Or local token env <em>optional</em></span>
+            <span>{t("Or local token environment variable")} <em>{t("Optional")}</em></span>
             <input autoCapitalize="none" autoComplete="off" disabled={Boolean(bearerToken)} onChange={(event) => setBearerEnv(event.target.value)} placeholder="GITHUB_TOKEN" spellCheck={false} value={bearerEnv} />
           </label>}
-          <p className={styles.credentialNote}><AppIcon name="shield" size={13} />{isPenpot ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal stores it encrypted and never writes it into your repository." : "Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device."}</p>
-          {onlineWorkspaces.length === 0 && <p className={styles.configWarning}>No running CodeLocal workspace found. Start <code>codelocal</code> on a paired device first.</p>}
+          <p className={styles.credentialNote}><AppIcon name="shield" size={13} />{t(isPenpot ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal stores it encrypted and never writes it into your repository." : "Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device.")}</p>
+          {onlineWorkspaces.length === 0 && <p className={styles.configWarning}>{t("No running CodeLocal workspace found. Start {command} on a paired device first.", { command: "codelocal" })}</p>}
           <div className={styles.configActions}>
-            <button className={styles.secondaryButton} disabled={busy} onClick={() => setShowConfig(false)} type="button">Cancel</button>
-            <button className={styles.primaryButton} disabled={busy || !selectedWorkspace || !endpoint.trim() || (isPenpot && connections.length === 0 && !bearerToken.trim())} onClick={() => void submitConnection()} type="button">{busy ? "Connecting…" : "Connect & test"}</button>
+            <button className={styles.secondaryButton} disabled={busy} onClick={() => setShowConfig(false)} type="button">{t("Cancel")}</button>
+            <button className={styles.primaryButton} disabled={busy || !selectedWorkspace || !endpoint.trim() || (isPenpot && connections.length === 0 && !bearerToken.trim())} onClick={() => void submitConnection()} type="button">{t(busy ? "Connecting…" : "Connect & test")}</button>
           </div>
         </div>
       )}
 
       <div className={styles.cardFooter}>
         <div className={styles.installState}>
-          {plugin.installed && plugin.setupRequired && readyConnections > 0 && <span><span className={styles.statusDot} data-ready="true" />{readyConnections} {readyConnections === 1 ? "device" : "devices"} ready</span>}
-          {plugin.installed && plugin.setupRequired && readyConnections === 0 && hasConnectionError && <span><span className={styles.statusDot} data-error="true" />Connection needs attention</span>}
-          {plugin.installed && plugin.setupRequired && readyConnections === 0 && !hasConnectionError && <span><span className={styles.statusDot} />Connection not configured</span>}
-          {plugin.installed && !plugin.setupRequired && <span><span className={styles.statusDot} data-ready="true" />Ready</span>}
-          {!plugin.installed && <span>Install to make this Plugin available to CodeLocal.</span>}
-          {plugin.updateAvailable && <span className={styles.updateText}>A newer manifest is available.</span>}
+          {plugin.installed && plugin.setupRequired && readyConnections > 0 && <span><span className={styles.statusDot} data-ready="true" />{t("{count} devices ready", { count: readyConnections })}</span>}
+          {plugin.installed && plugin.setupRequired && readyConnections === 0 && hasConnectionError && <span><span className={styles.statusDot} data-error="true" />{t("Connection needs attention")}</span>}
+          {plugin.installed && plugin.setupRequired && readyConnections === 0 && !hasConnectionError && <span><span className={styles.statusDot} />{t("Connection not configured")}</span>}
+          {plugin.installed && !plugin.setupRequired && <span><span className={styles.statusDot} data-ready="true" />{t("Ready")}</span>}
+          {!plugin.installed && <span>{t("Install to make this Plugin available to CodeLocal.")}</span>}
+          {plugin.updateAvailable && <span className={styles.updateText}>{t("A newer manifest is available.")}</span>}
         </div>
         <div className={styles.actions}>
-          {!plugin.installed && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{busy ? "Installing…" : "Install"}</button>}
-          {plugin.installed && plugin.updateAvailable && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{busy ? "Updating…" : "Update"}</button>}
-          {plugin.installed && plugin.setupRequired && <button className={styles.primaryButton} disabled={busy} onClick={openConfigure} type="button">{connections.length > 0 ? "Configure" : "Connect"}</button>}
-          {plugin.installed && !plugin.system && <button className={styles.secondaryButton} disabled={busy || connections.length > 0} onClick={() => void uninstall(plugin)} title={connections.length > 0 ? "Disconnect all devices before removing this Plugin" : undefined} type="button">Remove</button>}
+          {!plugin.installed && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{t(busy ? "Installing…" : "Install")}</button>}
+          {plugin.installed && plugin.updateAvailable && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{t(busy ? "Updating…" : "Update")}</button>}
+          {plugin.installed && plugin.setupRequired && <button className={styles.primaryButton} disabled={busy} onClick={openConfigure} type="button">{t(connections.length > 0 ? "Configure" : "Connect")}</button>}
+          {plugin.installed && !plugin.system && <button className={styles.secondaryButton} disabled={busy || connections.length > 0} onClick={() => void uninstall(plugin)} title={connections.length > 0 ? t("Disconnect all devices before removing this Plugin") : undefined} type="button">{t("Remove")}</button>}
         </div>
       </div>
     </article>
@@ -304,16 +302,19 @@ function PluginCard({
 }
 
 function EmptyState({ installed }: { installed: boolean }) {
+  const { t } = useTranslations();
   return (
     <div className={styles.emptyState}>
       <AppIcon name="plugin" size={24} />
-      <strong>{installed ? "No Plugins installed" : "No Plugins found"}</strong>
-      <span>{installed ? "Install a Plugin from Explore and it will appear here." : "Try a different search term."}</span>
+      <strong>{t(installed ? "No Plugins installed" : "No Plugins found")}</strong>
+      <span>{t(installed ? "Install a Plugin from Explore and it will appear here." : "Try a different search term.")}</span>
     </div>
   );
 }
 
 export function PluginsHub() {
+  const { locale, t, message } = useTranslations();
+  const number = new Intl.NumberFormat(locale);
   const [view, setView] = useState<PluginView>("explore");
   const [resource, setResource] = useState<PluginsResource>({ items: [], installedCount: 0 });
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
@@ -362,7 +363,7 @@ export function PluginsHub() {
   const refresh = useCallback(async () => {
     await load();
     setLoadFailed(false);
-  }, [load]);
+  }, [load, setLoadFailed]);
 
   const mutationHeaders = useCallback((json = false) => {
     if (!account?.csrf) throw new Error("Security token unavailable. Reload the page and try again.");
@@ -387,7 +388,7 @@ export function PluginsHub() {
     try {
       await mutateInstall(plugin, "POST");
       await refresh();
-      setNotice({ kind: "success", text: `${plugin.name} installed. Choose Connect to configure it on a CodeLocal device.` });
+      setNotice({ kind: "success", text: "{name} installed.", values: { name: plugin.name } });
       setView("installed");
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Plugin install failed." });
@@ -397,19 +398,19 @@ export function PluginsHub() {
   }, [mutateInstall, refresh]);
 
   const uninstall = useCallback(async (plugin: PluginItem) => {
-    if (!window.confirm(`Remove ${plugin.name} from CodeLocal?`)) return;
+    if (!window.confirm(t("Remove {name} from CodeLocal?", { name: plugin.name }))) return;
     setBusyPlugin(plugin.id);
     setNotice(null);
     try {
       await mutateInstall(plugin, "DELETE");
       await refresh();
-      setNotice({ kind: "success", text: `${plugin.name} removed.` });
+      setNotice({ kind: "success", text: "{name} removed.", values: { name: plugin.name } });
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Plugin removal failed." });
     } finally {
       setBusyPlugin("");
     }
-  }, [mutateInstall, refresh]);
+  }, [mutateInstall, refresh, t]);
 
   const connect = useCallback(async (plugin: PluginItem, input: ConnectionInput) => {
     setBusyPlugin(plugin.id);
@@ -425,20 +426,22 @@ export function PluginsHub() {
       const payload = await response.json() as { connection?: PluginConnection };
       await refresh();
       if (payload.connection?.state === "ready") {
-        setNotice({ kind: "success", text: `${plugin.name} connected. ${payload.connection.toolCount} tools discovered on the selected device.` });
+        setNotice({ kind: "success", text: "{name} connected. {count} tools discovered on the selected device.", values: { name: plugin.name, count: payload.connection.toolCount } });
+        return true;
       } else {
-        setNotice({ kind: "error", text: payload.connection?.lastError || `${plugin.name} was configured, but its MCP server is not ready yet.` });
+        setNotice({ kind: "error", text: payload.connection?.lastError || "{name} was configured, but its MCP server is not ready yet.", values: { name: plugin.name } });
+        return false;
       }
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Plugin connection failed." });
-      throw error;
+      return false;
     } finally {
       setBusyPlugin("");
     }
   }, [mutationHeaders, refresh]);
 
   const disconnect = useCallback(async (plugin: PluginItem, connection: PluginConnection) => {
-    if (!window.confirm(`Disconnect ${plugin.name} from this CodeLocal device?`)) return;
+    if (!window.confirm(t("Disconnect {name} from this CodeLocal device?", { name: plugin.name }))) return;
     setBusyPlugin(plugin.id);
     setNotice(null);
     try {
@@ -449,13 +452,13 @@ export function PluginsHub() {
       });
       if (!response.ok) throw new Error(await responseError(response));
       await refresh();
-      setNotice({ kind: "success", text: `${plugin.name} disconnected from the device.` });
+      setNotice({ kind: "success", text: "{name} disconnected from the device.", values: { name: plugin.name } });
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Plugin disconnect failed." });
     } finally {
       setBusyPlugin("");
     }
-  }, [mutationHeaders, refresh]);
+  }, [mutationHeaders, refresh, t]);
 
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -470,46 +473,39 @@ export function PluginsHub() {
       .sort((left, right) => {
         if (left.installed !== right.installed) return left.installed ? -1 : 1;
         if (left.featured !== right.featured) return left.featured ? -1 : 1;
-        return left.name.localeCompare(right.name);
+        return left.name.localeCompare(right.name, locale);
       });
-  }, [resource.items, search, view]);
+  }, [resource.items, search, view, locale]);
 
   return (
     <section className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <p className={styles.eyebrow}>Extend CodeLocal</p>
-          <h1>Plugins</h1>
-          <p className={styles.lede}>Install capabilities once, then use them naturally from chat.</p>
-        </div>
-        <div className={styles.installCount}><AppIcon name="plugin" size={14} />{resource.installedCount} installed</div>
-      </header>
-
+      <h1 className="sr-only">{t("Plugins")}</h1>
       <div className={styles.toolbar}>
+        <div className={styles.installCount}><AppIcon name="plugin" size={14} />{t("{count} installed", { count: resource.installedCount })}</div>
         <div className={styles.searchBox}>
           <AppIcon name="search" size={16} />
-          <input aria-label="Search Plugins" onChange={(event) => setSearch(event.target.value)} placeholder="Search plugins" type="search" value={search} />
+          <input aria-label={t("Search Plugins")} onChange={(event) => setSearch(event.target.value)} placeholder={t("Search Plugins")} type="search" value={search} />
         </div>
-        <nav className={styles.tabs} aria-label="Plugin views">
-          <button aria-current={view === "explore" ? "page" : undefined} className={view === "explore" ? styles.activeTab : undefined} onClick={() => setView("explore")} type="button">Explore</button>
-          <button aria-current={view === "installed" ? "page" : undefined} className={view === "installed" ? styles.activeTab : undefined} onClick={() => setView("installed")} type="button">Installed <span>{resource.installedCount}</span></button>
+        <nav className={styles.tabs} aria-label={t("Plugin views")}>
+          <button aria-pressed={view === "explore"} className={view === "explore" ? styles.activeTab : undefined} onClick={() => setView("explore")} type="button">{t("Explore")}</button>
+          <button aria-pressed={view === "installed"} className={view === "installed" ? styles.activeTab : undefined} onClick={() => setView("installed")} type="button">{t("Installed")} <span>{number.format(resource.installedCount)}</span></button>
         </nav>
       </div>
 
-      {account?.requiresReauthentication && <div className={styles.notice}>Your session is old. Installing or connecting a new Plugin will ask you to sign in again.</div>}
-      {notice && <div className={notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}>{notice.text}</div>}
+      {account?.requiresReauthentication && <div className={styles.notice}>{t("Your session is old. Installing or connecting a new Plugin will ask you to sign in again.")}</div>}
+      {notice && <div role="status" className={notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}>{message(notice.text, notice.values)}</div>}
 
       <div className={styles.sectionIntro}>
         <div>
-          <h2>{view === "explore" ? "Plugin Directory" : "Installed Plugins"}</h2>
-          <p>{view === "explore" ? "Curated integrations with explicit permissions and immutable manifest versions." : "These Plugins are enabled for your CodeLocal account."}</p>
+          <h2>{t(view === "explore" ? "Plugin Directory" : "Installed Plugins")}</h2>
+          <p>{t(view === "explore" ? "Curated integrations with explicit permissions and immutable manifest versions." : "These Plugins are enabled for your CodeLocal account.")}</p>
         </div>
-        <span>{visible.length} {visible.length === 1 ? "plugin" : "plugins"}</span>
+        <span>{t("{count} plugins", { count: visible.length })}</span>
       </div>
 
       <div className={styles.grid}>
-        {loading && <div className={styles.emptyState}><AppIcon name="refresh" size={24} /><strong>Loading Plugins</strong><span>Reading your Plugin catalog…</span></div>}
-        {!loading && loadFailed && <div className={styles.emptyState}><AppIcon name="plugin" size={24} /><strong>Plugin catalog unavailable</strong><span>The backend could not load your Plugin state.</span><button onClick={() => { setLoading(true); void refresh().finally(() => setLoading(false)); }} type="button">Retry</button></div>}
+        {loading && <div className={styles.emptyState}><AppIcon name="refresh" size={24} /><strong>{t("Loading Plugins")}</strong><span>{t("Reading your Plugin catalog…")}</span></div>}
+        {!loading && loadFailed && <div className={styles.emptyState}><AppIcon name="plugin" size={24} /><strong>{t("Plugin catalog unavailable")}</strong><span>{t("The backend could not load your Plugin state.")}</span><button onClick={() => { setLoading(true); void refresh().catch(() => setLoadFailed(true)).finally(() => setLoading(false)); }} type="button">{t("Retry")}</button></div>}
         {!loading && !loadFailed && visible.map((plugin) => (
           <PluginCard busy={busyPlugin === plugin.id} connect={connect} disconnect={disconnect} install={install} key={plugin.id} plugin={plugin} uninstall={uninstall} workspaces={workspaces} />
         ))}

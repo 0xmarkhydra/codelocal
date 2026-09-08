@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { CodeGraphResource } from "@/lib/contracts/code-graph";
+import { useTranslations } from "@/lib/i18n/provider";
 import type { AppIconName } from "../app-icon";
 import { AppIcon } from "../app-icon";
 import { NeuralGraphStage, NeuralStageNode } from "../neural-graph-stage";
@@ -40,6 +41,8 @@ function inspectorIconName(kind: string): AppIconName {
 }
 
 export function CodeGraphView({ graph }: { graph: CodeGraphResource }) {
+  const { locale, t } = useTranslations();
+  const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
   const [selectedID, setSelectedID] = useState<string | null>(graph.selectedId ?? null);
   const selected = graph.nodes.find((node) => node.id === selectedID) ?? null;
   const primaryID = graph.selectedId
@@ -73,45 +76,45 @@ export function CodeGraphView({ graph }: { graph: CodeGraphResource }) {
     <div className={viewStyles.shell} data-inspector={selected ? "true" : undefined}>
       <div className={viewStyles.main}>
         <div className={viewStyles.toolbar}>
-          <span className={viewStyles.meta}>{graph.view === "files" ? "Files" : "Architecture"} · {graph.nodes.length}/{graph.edges.length}</span>
+          <span className={viewStyles.meta}>{t(graph.view === "files" ? "Files" : "Architecture")} · {t("{count} nodes", { count: graph.nodes.length })} · {t("{count} relationships", { count: graph.edges.length })}</span>
         </div>
         <NeuralGraphStage
           nodes={nodes}
           edges={edges}
           selectedId={selectedID}
           onSelect={setSelectedID}
-          ariaLabel={`Code Graph with ${graph.nodes.length} nodes and ${graph.edges.length} relationships`}
-          emptyLabel="No code relationships"
+          ariaLabel={t("Code Graph with {nodes} nodes and {edges} relationships", { nodes: graph.nodes.length, edges: graph.edges.length })}
+          emptyLabel={t("No code relationships")}
           legend={[
-            { label: "Module", color: colors.module },
-            { label: "File", color: colors.file },
-            { label: "Symbol", color: colors.symbol },
-            { label: "External", color: colors.external },
+            { label: t("Module"), color: colors.module },
+            { label: t("File"), color: colors.file },
+            { label: t("Symbol"), color: colors.symbol },
+            { label: t("External"), color: colors.external },
           ]}
         />
       </div>
 
       {selected && (
-        <aside className={viewStyles.inspector} aria-label="Code node details">
+        <aside className={viewStyles.inspector} aria-label={t("Code node details")}>
           <div className={viewStyles.inspectorHead}>
             <div className={viewStyles.identity}>
               <span className={viewStyles.avatar} style={{ "--node-color": colors[codeGroup(selected.kind)] } as CSSProperties}><AppIcon name={inspectorIconName(selected.kind)} size={17} /></span>
               <div><small>{selected.kind}</small><h3>{selected.qualifiedName || selected.name}</h3></div>
             </div>
-            <button className={viewStyles.close} type="button" aria-label="Close inspector" onClick={() => setSelectedID(null)}><AppIcon name="close" size={15} /></button>
+            <button className={viewStyles.close} type="button" aria-label={t("Close inspector")} onClick={() => setSelectedID(null)}><AppIcon name="close" size={15} /></button>
           </div>
           <div className={viewStyles.chips}>
             {selected.resolutionMode && <span>{selected.resolutionMode}</span>}
-            {selected.canonical && <span>canonical</span>}
-            <span>{relationCount(selected.id, graph)} links</span>
+            {selected.canonical && <span>{t("Canonical")}</span>}
+            <span>{t("{count} links", { count: relationCount(selected.id, graph) })}</span>
           </div>
           {selected.summary && <p className={viewStyles.summary}>{selected.summary}</p>}
           <dl className={viewStyles.facts}>
-            {selected.path && <div><dt>Path</dt><dd>{selected.path}</dd></div>}
-            {selected.line ? <div><dt>Position</dt><dd>{selected.line}:{selected.column || 1}</dd></div> : null}
-            <div><dt>Repository</dt><dd>{selected.repositoryPath || "."}</dd></div>
-            <div><dt>Provider</dt><dd>{selected.provider || "structural"}</dd></div>
-            <div><dt>Confidence</dt><dd>{Math.round(selected.confidence * 100)}%</dd></div>
+            {selected.path && <div><dt>{t("Path")}</dt><dd>{selected.path}</dd></div>}
+            {selected.line ? <div><dt>{t("Position")}</dt><dd>{selected.line}:{selected.column || 1}</dd></div> : null}
+            <div><dt>{t("Repository")}</dt><dd>{selected.repositoryPath || "."}</dd></div>
+            <div><dt>{t("Provider")}</dt><dd>{selected.provider || t("Structural")}</dd></div>
+            <div><dt>{t("Confidence")}</dt><dd>{percent.format(selected.confidence)}</dd></div>
           </dl>
         </aside>
       )}

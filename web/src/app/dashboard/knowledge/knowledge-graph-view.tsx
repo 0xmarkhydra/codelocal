@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { KnowledgeGraphNode, KnowledgeGraphResource } from "@/lib/contracts/knowledge";
+import { useTranslations } from "@/lib/i18n/provider";
 import type { AppIconName } from "../app-icon";
 import { AppIcon } from "../app-icon";
 import { formatDashboardTime } from "../dashboard-format";
@@ -61,6 +62,8 @@ function inspectorIconName(kind: string): AppIconName {
 }
 
 export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource }) {
+  const { locale, t } = useTranslations();
+  const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
   const [query, setQuery] = useState("");
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
@@ -110,51 +113,51 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraphResource })
       <div className={viewStyles.main}>
         <div className={viewStyles.toolbar}>
           <AppIcon className={viewStyles.searchIcon} name="search" size={14} />
-          <label className="sr-only" htmlFor="knowledge-graph-search">Search Brain</label>
+          <label className="sr-only" htmlFor="knowledge-graph-search">{t("Search Brain")}</label>
           <input
             id="knowledge-graph-search"
             className={viewStyles.search}
             type="search"
             value={query}
-            placeholder="Search brain…"
+            placeholder={t("Search brain…")}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <span className={viewStyles.meta}>{graph.nodes.length} · {graph.edges.length}</span>
+          <span className={viewStyles.meta}>{t("{count} nodes", { count: graph.nodes.length })} · {t("{count} relationships", { count: graph.edges.length })}</span>
         </div>
         <NeuralGraphStage
           nodes={nodes}
           edges={edges}
           selectedId={selectedID}
           onSelect={setSelectedID}
-          ariaLabel={`Brain graph with ${graph.nodes.length} nodes and ${graph.edges.length} relationships`}
-          emptyLabel="No knowledge yet"
+          ariaLabel={t("Brain graph with {nodes} nodes and {edges} relationships", { nodes: graph.nodes.length, edges: graph.edges.length })}
+          emptyLabel={t("No knowledge yet")}
           legend={[
-            { label: "Project", color: colors.project },
-            { label: "Knowledge", color: colors.knowledge },
-            { label: "Skill", color: colors.skill },
-            { label: "Memory", color: colors.memory },
+            { label: t("Project"), color: colors.project },
+            { label: t("Knowledge"), color: colors.knowledge },
+            { label: t("Skill"), color: colors.skill },
+            { label: t("Memory"), color: colors.memory },
           ]}
         />
       </div>
 
       {selected && (
-        <aside className={viewStyles.inspector} aria-label="Knowledge node details">
+        <aside className={viewStyles.inspector} aria-label={t("Knowledge node details")}>
           <div className={viewStyles.inspectorHead}>
             <div className={viewStyles.identity}>
               <span className={viewStyles.avatar} style={{ "--node-color": colors[graphGroup(selected.kind)] } as CSSProperties}><AppIcon name={inspectorIconName(selected.kind)} size={17} /></span>
               <div><small>{selected.kind.replaceAll("_", " ")}</small><h3>{selected.name}</h3></div>
             </div>
-            <button className={viewStyles.close} type="button" aria-label="Close inspector" onClick={() => setSelectedID(null)}><AppIcon name="close" size={15} /></button>
+            <button className={viewStyles.close} type="button" aria-label={t("Close inspector")} onClick={() => setSelectedID(null)}><AppIcon name="close" size={15} /></button>
           </div>
           <div className={viewStyles.chips}>
             {selected.scope && <span>{selected.scope}</span>}
-            <span>{Math.max(0, connected.size - 1)} links</span>
+            <span>{t("{count} links", { count: Math.max(0, connected.size - 1) })}</span>
           </div>
           {selected.summary && <p className={viewStyles.summary}>{selected.summary}</p>}
           <dl className={viewStyles.facts}>
-            <div><dt>Confidence</dt><dd>{Math.round(selected.confidence * 100)}%</dd></div>
-            <div><dt>Importance</dt><dd>{Math.round(selected.importance * 100)}%</dd></div>
-            <div><dt>Seen</dt><dd>{formatDashboardTime(selected.lastSeenAt ?? 0)}</dd></div>
+            <div><dt>{t("Confidence")}</dt><dd>{percent.format(selected.confidence)}</dd></div>
+            <div><dt>{t("Importance")}</dt><dd>{percent.format(selected.importance)}</dd></div>
+            <div><dt>{t("Seen")}</dt><dd>{formatDashboardTime(selected.lastSeenAt ?? 0, locale)}</dd></div>
           </dl>
         </aside>
       )}

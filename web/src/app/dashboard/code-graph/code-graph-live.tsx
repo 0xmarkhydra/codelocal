@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { isCodeGraphResource } from "@/lib/contracts/code-graph";
 import { isWorkspacesResource } from "@/lib/contracts/resources";
+import { useTranslations } from "@/lib/i18n/provider";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
 import styles from "../dashboard.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
@@ -23,6 +24,9 @@ function workspaceKey(deviceId: string, workspaceId: string) {
 }
 
 export function LiveCodeGraph() {
+  const { locale, t } = useTranslations();
+  const number = new Intl.NumberFormat(locale);
+  const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
   const searchParams = useSearchParams();
   const workspaces = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
   const requestedDeviceId = searchParams.get("deviceId") || "";
@@ -58,7 +62,7 @@ export function LiveCodeGraph() {
   if (workspaces.state.kind !== "ready") {
     return (
       <DashboardResourceFeedback
-        label="Code Graph checkout catalog"
+        label={t("Code Graph checkout catalog")}
         {...(workspaces.state.kind === "error"
           ? { kind: "error" as const, message: workspaces.state.message, onRetry: workspaces.retry }
           : { kind: workspaces.state.kind })}
@@ -78,14 +82,14 @@ export function LiveCodeGraph() {
   }
 
   const value = graph.state.value;
-  const stateTitle = stateCopy(value.state);
+  const stateTitle = t(stateCopy(value.state));
   const repositoryValue = repositoryPath || value.repositories[0]?.path || "";
 
   return (
     <>
       <section className={styles.codeGraphControls}>
         <label>
-          <span>Checkout</span>
+          <span>{t("Checkout")}</span>
           <select
             value={selectedWorkspace ? workspaceKey(selectedWorkspace.deviceId, selectedWorkspace.workspaceId) : ""}
             disabled={workspaceItems.length === 0}
@@ -96,49 +100,47 @@ export function LiveCodeGraph() {
               setQueryInput("");
             }}
           >
-            {workspaceItems.length === 0 && <option value="">No authorized checkout</option>}
+            {workspaceItems.length === 0 && <option value="">{t("No authorized checkout")}</option>}
             {workspaceItems.map((workspace) => {
               const key = workspaceKey(workspace.deviceId, workspace.workspaceId);
               return (
                 <option value={key} key={key}>
-                  {workspace.workspaceName} · {workspace.deviceName} · {workspace.runtimeOnline ? "online" : workspace.status}
+                  {workspace.workspaceName} · {workspace.deviceName} · {workspace.runtimeOnline ? t("Online") : workspace.status === "offline" ? t("Offline") : workspace.status}
                 </option>
               );
             })}
           </select>
         </label>
         <label>
-          <span>Repository</span>
+          <span>{t("Repository")}</span>
           <select value={repositoryValue} disabled={value.repositories.length === 0} onChange={(event) => setRepositoryPath(event.target.value)}>
-            {value.repositories.length === 0 && <option value="">No snapshot</option>}
+            {value.repositories.length === 0 && <option value="">{t("No snapshot")}</option>}
             {value.repositories.map((repository) => (
               <option value={repository.path} key={repository.path}>
-                {repository.path === "." ? "Primary repository" : repository.path}
+                {repository.path === "." ? t("Primary repository") : repository.path}
               </option>
             ))}
           </select>
         </label>
         <label>
-          <span>View</span>
+          <span>{t("View")}</span>
           <select value={view} onChange={(event) => setView(event.target.value === "files" ? "files" : "architecture")}>
-            <option value="architecture">Architecture</option>
-            <option value="files">Files</option>
+            <option value="architecture">{t("Architecture")}</option>
+            <option value="files">{t("Files")}</option>
           </select>
         </label>
         <label>
-          <span>Depth</span>
+          <span>{t("Depth")}</span>
           <select value={String(depth)} onChange={(event) => setDepth(Math.min(3, Math.max(1, Number(event.target.value))))}>
-            <option value="1">Depth 1</option>
-            <option value="2">Depth 2</option>
-            <option value="3">Depth 3</option>
+            {[1, 2, 3].map((count) => <option key={count} value={count}>{t("Depth {count}", { count })}</option>)}
           </select>
         </label>
         <form className={styles.codeGraphSearchForm} onSubmit={submitQuery}>
           <label>
-            <span>Symbol</span>
-            <input value={queryInput} maxLength={160} placeholder="Function, method, file or symbol…" onChange={(event) => setQueryInput(event.target.value)} />
+            <span>{t("Symbol")}</span>
+            <input value={queryInput} maxLength={160} placeholder={t("Function, method, file or symbol…")} onChange={(event) => setQueryInput(event.target.value)} />
           </label>
-          <button type="submit">Inspect</button>
+          <button type="submit">{t("Inspect")}</button>
         </form>
       </section>
 
@@ -150,23 +152,27 @@ export function LiveCodeGraph() {
         <>
           <section className={styles.codeGraphState} data-state="current">
             <div>
-              <h2>{value.status === "ambiguous" ? "Multiple matches" : `${value.context?.workspaceName ?? "Workspace"} · ${value.nodes.length} nodes`}</h2>
+              <h2>{value.status === "ambiguous" ? t("Multiple matches") : `${value.context?.workspaceName ?? t("Workspace")} · ${t("{count} nodes", { count: value.nodes.length })}`}</h2>
             </div>
-            <span className={styles.liveBadge}>{value.truncated ? "Truncated" : "Live"}</span>
+            <span className={styles.liveBadge}>{t(value.truncated ? "Truncated" : "Latest snapshot")}</span>
           </section>
 
           {value.impact && (
             <section className={styles.codeImpact} data-risk={value.impact.risk}>
-              <div><strong>{value.impact.directCallers} callers · {value.impact.affectedFiles} files · {value.impact.risk}</strong></div>
               <dl>
-                <div><dt>Callees</dt><dd>{value.impact.directCallees}</dd></div>
-                <div><dt>Semantic</dt><dd>{value.impact.semanticEdges}/{value.impact.evidenceEdges}</dd></div>
-                <div><dt>Confidence</dt><dd>{Math.round(value.impact.averageConfidence * 100)}%</dd></div>
+                <div><dt>{t("Callers")}</dt><dd>{number.format(value.impact.directCallers)}</dd></div>
+                <div><dt>{t("Affected files")}</dt><dd>{number.format(value.impact.affectedFiles)}</dd></div>
+                <div><dt>{t("Risk")}</dt><dd>{value.impact.risk === "high" ? t("High") : value.impact.risk === "medium" ? t("Medium") : value.impact.risk === "low" ? t("Low") : value.impact.risk}</dd></div>
+                <div><dt>{t("Callees")}</dt><dd>{number.format(value.impact.directCallees)}</dd></div>
+                <div><dt>{t("Semantic")}</dt><dd>{number.format(value.impact.semanticEdges)}/{number.format(value.impact.evidenceEdges)}</dd></div>
+                <div><dt>{t("Confidence")}</dt><dd>{percent.format(value.impact.averageConfidence)}</dd></div>
               </dl>
             </section>
           )}
 
-          <CodeGraphView key={`${graphURL}:${value.selectedId ?? "none"}:${value.nodes.length}`} graph={value} />
+          <div className={styles.codeGraphStage}>
+            <CodeGraphView key={`${graphURL}:${value.selectedId ?? "none"}:${value.nodes.length}`} graph={value} />
+          </div>
         </>
       )}
     </>

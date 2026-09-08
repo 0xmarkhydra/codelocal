@@ -7,27 +7,29 @@ import { isAccountResource } from "@/lib/contracts/account";
 import { AppIcon, type AppIconName } from "./app-icon";
 import styles from "./dashboard-chrome.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
+import { LanguageSelect, useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages";
 
-type NavigationItem = { label: string; href: string; icon: AppIconName };
-const groups: { label: string; items: NavigationItem[] }[] = [
+type NavigationItem = { label: MessageKey | "Project Brain" | "Code Graph"; href: string; icon: AppIconName };
+const groups: { label: MessageKey; items: NavigationItem[] }[] = [
   {
-    label: "WORKSPACE",
+    label: "Workspace",
     items: [
-      { label: "Tổng quan", href: "/dashboard", icon: "module" },
-      { label: "Dự án", href: "/dashboard/workspaces", icon: "folder" },
+      { label: "Overview", href: "/dashboard", icon: "module" },
+      { label: "Projects", href: "/dashboard/workspaces", icon: "folder" },
       { label: "Design", href: "/dashboard/design", icon: "edit" },
-      { label: "Thiết bị", href: "/dashboard/devices", icon: "device" },
-      { label: "Kết nối MCP", href: "/dashboard/connect", icon: "connection" },
+      { label: "Devices", href: "/dashboard/devices", icon: "device" },
+      { label: "MCP connections", href: "/dashboard/connect", icon: "connection" },
     ],
   },
   {
-    label: "INTELLIGENCE",
+    label: "Intelligence",
     items: [
       { label: "Project Brain", href: "/dashboard/knowledge", icon: "brain" },
       { label: "Code Graph", href: "/dashboard/code-graph", icon: "code" },
       { label: "Skills", href: "/dashboard/skills", icon: "skill" },
       { label: "Plugins", href: "/dashboard/plugins", icon: "plugin" },
-      { label: "Mức sử dụng", href: "/dashboard/usage", icon: "usage" },
+      { label: "Usage", href: "/dashboard/usage", icon: "usage" },
     ],
   },
 ];
@@ -39,6 +41,7 @@ function NavLink({
   item: NavigationItem;
   pathname: string;
 }) {
+  const { t } = useTranslations();
   const active =
     pathname === item.href ||
     (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
@@ -49,7 +52,7 @@ function NavLink({
       aria-current={active ? "page" : undefined}
     >
       <AppIcon name={item.icon} size={18} />
-      <span>{item.label}</span>
+      <span>{item.label === "Project Brain" || item.label === "Code Graph" ? item.label : t(item.label)}</span>
       {active && <i aria-hidden="true" />}
     </Link>
   );
@@ -60,6 +63,7 @@ export function DashboardNav({
   children,
   compact = false,
 }: { onNavigate?: () => void; children?: ReactNode; compact?: boolean } = {}) {
+  const { t } = useTranslations();
   const pathname = usePathname();
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const readyAccount =
@@ -68,24 +72,24 @@ export function DashboardNav({
     <>
       <nav
         className={styles.nav}
-        aria-label="Dashboard navigation"
+        aria-label={t("Dashboard navigation")}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest("a")) onNavigate?.();
         }}
       >
         {(compact ? groups.slice(0, 1) : groups).map((group) => (
           <div className={styles.navGroup} key={group.label}>
-            <span className={styles.navLabel}>{group.label}</span>
+            <span className={styles.navLabel}>{t(group.label)}</span>
             {group.items.map((item) => (
               <NavLink item={item} pathname={pathname} key={item.href} />
             ))}
           </div>
         ))}
         <div className={styles.navGroup}>
-          <span className={styles.navLabel}>QUẢN LÝ</span>
+          <span className={styles.navLabel}>{t("Management")}</span>
           <NavLink
             item={{
-              label: "Cài đặt",
+              label: "Settings",
               href: "/dashboard/settings",
               icon: "settings",
             }}
@@ -93,7 +97,7 @@ export function DashboardNav({
           />
           <NavLink
             item={{
-              label: "Bảo mật",
+              label: "Security",
               href: "/dashboard/security",
               icon: "shield",
             }}
@@ -102,7 +106,7 @@ export function DashboardNav({
           {readyAccount?.isAdmin && (
             <NavLink
               item={{
-                label: "Quản trị",
+                label: "Administration",
                 href: "/dashboard/admin",
                 icon: "admin",
               }}
@@ -119,12 +123,12 @@ export function DashboardNav({
       >
         <span>
           <AppIcon name="device" size={19} />
-          <small>SẮP RA MẮT</small>
+          <small>{t("Coming soon")}</small>
         </span>
         <strong>
           CodeLocal Desktop <span aria-hidden="true">↗</span>
         </strong>
-        <p>Ngôi nhà mới cho AI chat.</p>
+        <p>{t("A new home for AI chat.")}</p>
       </Link>
       {readyAccount ? (
         <details className={styles.account}>
@@ -135,24 +139,25 @@ export function DashboardNav({
             <span className={styles.accountCopy}>
               <strong title={readyAccount.email}>{readyAccount.email}</strong>
               <small>
-                {readyAccount.isAdmin ? "Admin" : "Tài khoản cá nhân"}
+                {readyAccount.isAdmin ? t("Admin") : t("Personal account")}
               </small>
             </span>
             <AppIcon name="chevron-down" size={14} />
           </summary>
           <div className={styles.accountMenu}>
+            <LanguageSelect />
             <Link href="/dashboard/account" onClick={onNavigate}>
-              Tài khoản
+              {t("Account")}
             </Link>
             <form method="post" action="/logout">
               <input type="hidden" name="csrf" value={readyAccount.csrf} />
               <input type="hidden" name="next" value="/dashboard" />
-              <button type="submit">Đăng xuất</button>
+              <button type="submit">{t("Sign out")}</button>
             </form>
           </div>
         </details>
       ) : (
-        <Link
+        <><LanguageSelect /><Link
           className={styles.accountFallback}
           href={
             account.state.kind === "unauthenticated"
@@ -161,8 +166,8 @@ export function DashboardNav({
           }
         >
           <AppIcon name="user" size={17} />
-          {account.state.kind === "unauthenticated" ? "Đăng nhập" : "Tài khoản"}
-        </Link>
+          {account.state.kind === "unauthenticated" ? t("Sign in") : t("Account")}
+        </Link></>
       )}
     </>
   );

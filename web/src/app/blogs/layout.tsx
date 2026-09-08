@@ -1,24 +1,26 @@
 import type { Metadata } from "next";
 import { validateBlogRegistry } from "@/lib/blog-validation";
+import { getTranslations } from "@/lib/i18n/server";
 import { BlogFooter, BlogHeader } from "../blog/_components";
 import styles from "../blog/blog.module.css";
 
 validateBlogRegistry();
 
-export const metadata: Metadata = {
-  title: {
-    default: "Blog",
-    template: "%s · CodeLocal Blog",
-  },
-  description:
-    "Practical notes from CodeLocal and the community on local-first AI infrastructure, coding agents, MCP, security and durable project intelligence.",
-  openGraph: {
-    title: "CodeLocal Blog",
-    description:
-      "Practical notes on local-first AI infrastructure, coding agents, MCP, security and durable project intelligence.",
-    type: "website",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations();
+  return {
+    title: {
+      default: t("Journal"),
+      template: `%s · ${t("CodeLocal Blog")}`,
+    },
+    description: t("Practical notes on local-first AI infrastructure, agents and project intelligence."),
+    openGraph: {
+      title: t("CodeLocal Blog"),
+      description: t("Practical notes on local-first AI infrastructure, agents and project intelligence."),
+      type: "website",
+    },
+  };
+}
 
 export default function BlogsLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

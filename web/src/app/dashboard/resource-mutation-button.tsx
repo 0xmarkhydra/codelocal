@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./dashboard.module.css";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey, MessageValues } from "@/lib/i18n/messages";
 
-type MutationState = { kind: "idle" | "saving" | "success" | "error"; message?: string };
+type MutationState = { kind: "idle" | "saving" | "success" | "error"; message?: { key: MessageKey; values?: MessageValues } | { text: string } };
 
 type ResourceMutationButtonProps = {
   endpoint: string;
@@ -25,24 +27,25 @@ function safeRedirectTarget(value: string) {
   }
 }
 
-async function responseMessage(response: Response) {
+async function responseMessage(response: Response): Promise<NonNullable<MutationState["message"]>> {
   try {
     const payload = await response.json() as { message?: unknown; error?: unknown };
-    if (typeof payload.message === "string" && payload.message.length <= 240) return payload.message;
     switch (payload.error) {
-      case "invalid_csrf": return "Security token expired. Reload the page and try again.";
-      case "workspace_runtime_offline": return "Start CodeLocal on that machine before removing workspace access.";
-      case "device_not_found": return "This device is no longer available to revoke.";
-      case "workspace_not_found": return "This workspace is no longer authorized.";
-      case "device_already_revoked": return "This device has already been revoked.";
-      default: return `CodeLocal rejected this change (${response.status}).`;
+      case "invalid_csrf": return { key: "Security token expired. Reload the page and try again." };
+      case "workspace_runtime_offline": return { key: "Start CodeLocal on that machine before removing workspace access." };
+      case "device_not_found": return { key: "This device is no longer available to revoke." };
+      case "workspace_not_found": return { key: "This workspace is no longer authorized." };
+      case "device_already_revoked": return { key: "This device has already been revoked." };
     }
+    if (typeof payload.message === "string" && payload.message.length <= 240) return { text: payload.message };
   } catch {
-    return `CodeLocal rejected this change (${response.status}).`;
+    // Non-JSON responses still carry an HTTP status.
   }
+  return { key: "CodeLocal rejected this change ({status}).", values: { status: String(response.status) } };
 }
 
 export function ResourceMutationButton({ endpoint, csrf, label, confirmMessage, disabled, onSuccess }: ResourceMutationButtonProps) {
+  const { t, message } = useTranslations();
   const router = useRouter();
   const [state, setState] = useState<MutationState>({ kind: "idle" });
   const unavailable = disabled || !csrf || state.kind === "saving" || state.kind === "success";
@@ -68,19 +71,19 @@ export function ResourceMutationButton({ endpoint, csrf, label, confirmMessage, 
         setState({ kind: "error", message: await responseMessage(response) });
         return;
       }
-      setState({ kind: "success", message: "Updated" });
+      setState({ kind: "success" });
       onSuccess();
     } catch {
-      setState({ kind: "error", message: "CodeLocal could not be reached." });
+      setState({ kind: "error", message: { key: "CodeLocal could not be reached." } });
     }
   }
 
   return (
     <div className={styles.resourceMutation}>
       <button className={styles.resourceDanger} type="button" disabled={unavailable} onClick={mutate}>
-        {state.kind === "saving" ? "Working…" : state.kind === "success" ? "Updated" : label}
+        {state.kind === "saving" ? t("Working…") : state.kind === "success" ? t("Updated") : label}
       </button>
-      {state.kind === "error" && state.message && <small role="status">{state.message}</small>}
+      {state.kind === "error" && state.message && <small role="status">{"key" in state.message ? t(state.message.key, state.message.values) : message(state.message.text)}</small>}
     </div>
   );
 }

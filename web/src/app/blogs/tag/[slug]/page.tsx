@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { PostCard } from "../../../blog/_components";
 import styles from "../../../blog/blog.module.css";
 import { getTags, taxonomySlug } from "@/lib/blog";
+import { getTranslations } from "@/lib/i18n/server";
 import { decodeBlogRouteSlug, getBlogTagsForRender, getPostsByTagSlugForRender } from "@/lib/blog-server";
 
 type TagPageProps = { params: Promise<{ slug: string }> };
@@ -16,18 +17,20 @@ async function resolveTag(slug: string) {
 }
 
 export async function generateMetadata({ params }: TagPageProps): Promise<Metadata> {
+  const t = await getTranslations();
   const { slug: routeSlug } = await params;
   const slug = decodeBlogRouteSlug(routeSlug);
   const tag = await resolveTag(slug);
-  if (!tag) return { title: "Tag not found", robots: { index: false, follow: false } };
+  if (!tag) return { title: t("Tag not found"), robots: { index: false, follow: false } };
   return {
     title: `#${tag}`,
-    description: `CodeLocal Blog articles tagged ${tag}.`,
+    description: t("CodeLocal Blog articles tagged {tag}.", { tag }),
     alternates: { canonical: `/blogs/tag/${slug}` },
   };
 }
 
 export default async function TagPage({ params }: TagPageProps) {
+  const t = await getTranslations();
   const { slug: routeSlug } = await params;
   const slug = decodeBlogRouteSlug(routeSlug);
   const [tag, posts] = await Promise.all([resolveTag(slug), getPostsByTagSlugForRender(slug)]);
@@ -36,14 +39,13 @@ export default async function TagPage({ params }: TagPageProps) {
   return (
     <main className={styles.page}>
       <header className={styles.taxonomyHeader}>
-        <span className={styles.eyebrow}>Tag</span>
+        <span className={styles.eyebrow}>{t("Tag")}</span>
         <h1>#{tag}</h1>
-        <p>Every public CodeLocal Blog article connected to {tag}.</p>
       </header>
       <section className={styles.section} aria-labelledby="tagged-articles">
         <div className={styles.sectionHead}>
-          <div><span className={styles.sectionLabel}>Archive</span><h2 id="tagged-articles">Tagged articles</h2></div>
-          <p>{posts.length} {posts.length === 1 ? "article" : "articles"}</p>
+          <h2 id="tagged-articles">{t("Tagged articles")}</h2>
+          <p>{t("{count} articles", { count: posts.length })}</p>
         </div>
         <div className={styles.postGrid}>{posts.map((post) => <PostCard key={post.slug} post={post} compact />)}</div>
       </section>

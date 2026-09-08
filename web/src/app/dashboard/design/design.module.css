@@ -20,15 +20,15 @@
   width: 42px;
   height: 42px;
   border: 1px solid rgba(255,255,255,.09);
-  border-radius: 13px;
+  border-radius: 8px;
   background: rgba(255,255,255,.035);
   color: var(--text-primary);
 }
 
 .heroCopy { display: grid; gap: 4px; }
-.kicker { color: var(--text-tertiary); font-size: 11px; font-weight: 650; letter-spacing: .11em; text-transform: uppercase; }
-.hero h1 { margin: 0; color: var(--text-primary); font-size: clamp(26px, 3vw, 34px); letter-spacing: -.04em; }
-.hero p { max-width: 720px; margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.kicker { color: var(--text-tertiary); font-size: 12px; font-weight: 650; letter-spacing: 0; text-transform: uppercase; }
+.hero h1 { margin: 0; color: var(--text-primary); font-size: 26px; letter-spacing: 0; }
+.hero p { max-width: 720px; margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
 
 .status {
   display: inline-flex;
@@ -40,7 +40,7 @@
   border-radius: 999px;
   color: var(--text-secondary);
   background: rgba(255,255,255,.025);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -48,25 +48,28 @@
 .status[data-active="true"] i { background: #68c78f; box-shadow: 0 0 0 3px rgba(104,199,143,.1); }
 
 .embedShell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 680px;
   height: calc(100dvh - 190px);
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.075);
-  border-radius: 18px;
-  background: #111722;
+  border-radius: 8px;
+  background: var(--surface-sunken);
   box-shadow: 0 24px 70px rgba(0,0,0,.2);
 }
 
 .embedBar {
-  height: 42px;
+  min-height: 44px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 14px;
+  padding: 8px 14px;
   border-bottom: 1px solid rgba(255,255,255,.08);
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .embedBar span,
@@ -98,7 +101,8 @@
 .designFrame {
   display: block;
   width: 100%;
-  height: calc(100% - 42px);
+  height: 100%;
+  min-height: 0;
   border: 0;
   background: #fff;
 }
@@ -106,7 +110,7 @@
 .embedFallback {
   margin: -10px 2px 0;
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -118,6 +122,6 @@
 @media (max-width: 620px) {
   .heroIcon { display: none; }
   .hero { grid-template-columns: 1fr; }
-  .embedShell { min-height: 560px; height: calc(100dvh - 170px); border-radius: 14px; }
+  .embedShell { min-height: 560px; height: calc(100dvh - 170px); border-radius: 8px; }
   .embedBar span { display: none; }
 }

@@ -5,6 +5,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { ArticleAbout, BlogBlocks, RelatedReading, TaxonomyLinks } from "../../blog/_components";
 import styles from "../../blog/blog.module.css";
 import { blogPosts, formatBlogDate } from "@/lib/blog";
+import { getLocale, getTranslations } from "@/lib/i18n/server";
 import {
   decodeBlogRouteSlug,
   getBlogPostForRender,
@@ -23,10 +24,11 @@ export function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: ArticleProps): Promise<Metadata> {
+  const t = await getTranslations();
   const { slug: routeSlug } = await params;
   const slug = decodeBlogRouteSlug(routeSlug);
   const post = await getBlogPostForRender(slug);
-  if (!post) return { title: "Article not found", robots: { index: false, follow: false } };
+  if (!post) return { title: t("Article not found"), robots: { index: false, follow: false } };
 
   return {
     title: post.title,
@@ -46,6 +48,8 @@ export async function generateMetadata({ params }: ArticleProps): Promise<Metada
 }
 
 export default async function ArticlePage({ params }: ArticleProps) {
+  const t = await getTranslations();
+  const locale = await getLocale();
   const { slug: routeSlug } = await params;
   const slug = decodeBlogRouteSlug(routeSlug);
   const post = await getBlogPostForRender(slug);
@@ -83,14 +87,14 @@ export default async function ArticlePage({ params }: ArticleProps) {
       />
 
       <header className={styles.articleHeader}>
-        <span className={styles.eyebrow}>{series ? `Series · Part ${post.series?.part}` : "Standalone article"}</span>
+        <span className={styles.eyebrow}>{series ? t("Series · Part {count}", { count: post.series?.part ?? 0 }) : t("Standalone article")}</span>
         <h1>{post.title}</h1>
         <p>{post.excerpt}</p>
         <div className={styles.articleMeta}>
           <Link href={`/users/${post.author.slug}`}><strong>{post.author.name}</strong></Link>
           <span>{post.author.role}</span>
-          <time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt)}</time>
-          <span>{post.readingMinutes} min read</span>
+          <time dateTime={post.publishedAt}>{formatBlogDate(post.publishedAt, locale)}</time>
+          <span>{t("{count} min read", { count: post.readingMinutes })}</span>
         </div>
       </header>
 
@@ -111,10 +115,10 @@ export default async function ArticlePage({ params }: ArticleProps) {
       {series && (
         <div className={styles.seriesBanner}>
           <div>
-            <span>Part {post.series?.part} of {seriesPosts.length}</span>
+            <span>{t("Part {part} of {count}", { part: post.series?.part ?? 0, count: seriesPosts.length })}</span>
             <strong>{series.title}</strong>
           </div>
-          <Link href={`/blogs/series/${series.slug}`}>View full series →</Link>
+          <Link href={`/blogs/series/${series.slug}`}>{t("View full series")} <span aria-hidden="true">→</span></Link>
         </div>
       )}
 
@@ -123,16 +127,16 @@ export default async function ArticlePage({ params }: ArticleProps) {
           <TaxonomyLinks post={post} />
           <BlogBlocks blocks={post.blocks} />
           {series && (previous || next) && (
-            <nav className={styles.prevNext} aria-label="Series navigation">
+            <nav className={styles.prevNext} aria-label={t("Series navigation")}>
               {previous ? (
                 <Link href={`/blogs/${previous.slug}`}>
-                  <span>← Previous part</span>
+                  <span><span aria-hidden="true">← </span>{t("Previous part")}</span>
                   <strong>{previous.title}</strong>
                 </Link>
               ) : <span />}
               {next ? (
                 <Link href={`/blogs/${next.slug}`}>
-                  <span>Next part →</span>
+                  <span>{t("Next part")}<span aria-hidden="true"> →</span></span>
                   <strong>{next.title}</strong>
                 </Link>
               ) : <span />}
@@ -144,13 +148,13 @@ export default async function ArticlePage({ params }: ArticleProps) {
           <ArticleAbout post={post} seriesTitle={series?.title} />
           {series && (
             <div className={styles.asideCard}>
-              <span>Series progress</span>
+              <span>{t("Series progress")}</span>
               <strong>{series.title}</strong>
               <ol className={styles.seriesProgress}>
                 {seriesPosts.map((entry) => (
                   <li key={entry.slug} data-current={entry.slug === post.slug}>
-                    <Link href={`/blogs/${entry.slug}`}>
-                      <span>{String(entry.series?.part ?? 0).padStart(2, "0")}</span>
+                    <Link href={`/blogs/${entry.slug}`} aria-current={entry.slug === post.slug ? "page" : undefined}>
+                      <span>{new Intl.NumberFormat(locale, { minimumIntegerDigits: 2 }).format(entry.series?.part ?? 0)}</span>
                       {entry.title}
                     </Link>
                   </li>

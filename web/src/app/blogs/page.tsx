@@ -2,6 +2,7 @@ import Link from "next/link";
 import { EmptyState, PostCard, SeriesCard } from "../blog/_components";
 import styles from "../blog/blog.module.css";
 import { taxonomySlug } from "@/lib/blog";
+import { getTranslations } from "@/lib/i18n/server";
 import {
   getBlogCategoriesForRender,
   getBlogPostsForRender,
@@ -14,6 +15,7 @@ type BlogHomeProps = {
 };
 
 export default async function BlogHome({ searchParams }: BlogHomeProps) {
+  const t = await getTranslations();
   const params = await searchParams;
   const queryValue = Array.isArray(params.q) ? params.q[0] : params.q;
   const query = queryValue?.trim() ?? "";
@@ -33,26 +35,20 @@ export default async function BlogHome({ searchParams }: BlogHomeProps) {
     <main className={styles.page}>
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>CodeLocal Journal</span>
-          <h1>Build AI agents that can act without losing control.</h1>
-          <p>
-            Engineering notes, product thinking and practical guides from CodeLocal and its community for local-first AI,
-            MCP, project intelligence and safer agent workflows.
-          </p>
+          <h1>{t("CodeLocal Blog")}</h1>
+          <p>{t("Practical notes on local-first AI infrastructure, agents and project intelligence.")}</p>
         </div>
         <aside className={styles.heroAside}>
-          <strong>Find what you need</strong>
-          <p>Search across titles, summaries, categories and tags.</p>
           <form className={styles.searchForm} action="/blogs" method="get">
-            <label className="sr-only" htmlFor="blog-search">Search the CodeLocal Blog</label>
+            <label className="sr-only" htmlFor="blog-search">{t("Search the CodeLocal Blog")}</label>
             <input
               id="blog-search"
               name="q"
               type="search"
               defaultValue={query}
-              placeholder="MCP, security, Project Brain…"
+              placeholder={t("Search articles")}
             />
-            <button type="submit">Search</button>
+            <button type="submit">{t("Search")}</button>
           </form>
         </aside>
       </section>
@@ -61,10 +57,8 @@ export default async function BlogHome({ searchParams }: BlogHomeProps) {
         <section className={styles.section} aria-labelledby="featured-posts">
           <div className={styles.sectionHead}>
             <div>
-              <span className={styles.sectionLabel}>Featured</span>
-              <h2 id="featured-posts">Start here</h2>
+              <h2 id="featured-posts">{t("Featured articles")}</h2>
             </div>
-            <p>Explicitly curated by CodeLocal editors</p>
           </div>
           <div className={styles.postGrid}>
             {featured.map((post) => <PostCard key={post.slug} post={post} />)}
@@ -75,10 +69,9 @@ export default async function BlogHome({ searchParams }: BlogHomeProps) {
       <section className={styles.section} aria-labelledby="latest-posts">
         <div className={styles.sectionHead}>
           <div>
-            <span className={styles.sectionLabel}>{query ? "Search" : "Latest"}</span>
-            <h2 id="latest-posts">{query ? `Results for “${query}”` : "All articles"}</h2>
+            <h2 id="latest-posts">{query ? t("Results for “{query}”", { query }) : t("All articles")}</h2>
           </div>
-          <p>{posts.length} {posts.length === 1 ? "article" : "articles"}</p>
+          <p>{t("{count} articles", { count: posts.length })}</p>
         </div>
         {posts.length > 0 ? (
           <div className={styles.postGrid}>
@@ -91,10 +84,9 @@ export default async function BlogHome({ searchParams }: BlogHomeProps) {
         <section className={styles.section} aria-labelledby="blog-series">
           <div className={styles.sectionHead}>
             <div>
-              <span className={styles.sectionLabel}>Learn in order</span>
-              <h2 id="blog-series">Series</h2>
+              <h2 id="blog-series">{t("Series")}</h2>
             </div>
-            <Link className={styles.readMore} href="/blogs/series">View all series <span aria-hidden="true">→</span></Link>
+            <Link className={styles.readMore} href="/blogs/series">{t("View all series")} <span aria-hidden="true">→</span></Link>
           </div>
           <div className={styles.seriesGrid}>
             {series.slice(0, 6).map((item) => (
@@ -108,10 +100,9 @@ export default async function BlogHome({ searchParams }: BlogHomeProps) {
         <section className={styles.section} aria-labelledby="explore-blog">
           <div className={styles.sectionHead}>
             <div>
-              <span className={styles.sectionLabel}>Explore</span>
-              <h2 id="explore-blog">Topics</h2>
+              <h2 id="explore-blog">{t("Topics")}</h2>
             </div>
-            <p>Browse by category or tag</p>
+            <p>{t("Browse by category or tag")}</p>
           </div>
           <div className={styles.taxonomyCloud}>
             {categories.map((category) => (

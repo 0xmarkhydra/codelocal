@@ -4,8 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAccountResource } from "@/lib/contracts/account";
 import { isBlogPostResource, isBlogSeriesCollectionResource } from "@/lib/contracts/blog";
-import { privateMediaVariantURL, uploadMediaAsset } from "@/lib/media-upload";
+import { MediaUploadError, privateMediaVariantURL, uploadMediaAsset } from "@/lib/media-upload";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey, MessageValues } from "@/lib/i18n/messages";
+import { useUnsavedWarning } from "./use-unsaved-warning";
 import { useDashboardResource } from "../use-dashboard-resource";
+import { AppIcon } from "../app-icon";
 import dashboard from "../dashboard.module.css";
 import styles from "./blog-editor.module.css";
 
@@ -125,8 +129,10 @@ function paragraphContentWithImages(source: unknown[], body: string, images: Edi
 }
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+type Notice = { key: MessageKey; values?: MessageValues } | null;
 
 export function BlogEditor({ postID }: { postID: string }) {
+  const { t, message } = useTranslations();
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const resource = useDashboardResource(`/api/v1/blog/posts/${encodeURIComponent(postID)}`, isBlogPostResource);
   const seriesResource = useDashboardResource("/api/v1/blog/series", isBlogSeriesCollectionResource);
@@ -146,9 +152,10 @@ export function BlogEditor({ postID }: { postID: string }) {
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [mediaBusy, setMediaBusy] = useState<"cover" | "image" | "">("");
-  const [actionError, setActionError] = useState("");
+  const [actionError, setActionError] = useState<Notice>(null);
   const editVersion = useRef(0);
   const saveQueue = useRef<Promise<boolean>>(Promise.resolve(true));
+  useUnsavedWarning(dirty || Boolean(mediaBusy));
 
   const post = resource.state.kind === "ready" ? resource.state.value.post : undefined;
   const series = seriesResource.state.kind === "ready" ? seriesResource.state.value.series.filter((item) => item.status !== "archived") : [];
@@ -192,14 +199,15 @@ export function BlogEditor({ postID }: { postID: string }) {
   }), [body, category, coverAssetID, excerpt, images, seriesID, seriesPart, slug, sourceContent, structured, tags, title, visibility]);
 
   const save = useCallback(() => {
-    if (!post || !dirty || account.state.kind !== "ready") return Promise.resolve(true);
+    if (!dirty) return Promise.resolve(true);
+    if (!post || account.state.kind !== "ready") return Promise.resolve(false);
     const snapshot = payload;
     const version = editVersion.current;
     const csrf = account.state.value.csrf;
 
     const run = async () => {
       setSaveState("saving");
-      setActionError("");
+      setActionError(null);
       try {
         const response = await fetch(`/api/v1/blog/posts/${encodeURIComponent(post.id)}`, {
           method: "PATCH",
@@ -215,7 +223,9 @@ export function BlogEditor({ postID }: { postID: string }) {
         if (!response.ok || !isBlogPostResource(responseBody)) {
           if (editVersion.current === version) {
             setSaveState("error");
-            setActionError(response.status === 409 ? "That URL slug or series part is already in use." : `Save failed (${response.status}).`);
+            setActionError(response.status === 409
+              ? { key: "That URL slug or series part is already in use." }
+              : { key: "Save failed ({status}).", values: { status: String(response.status) } });
           }
           return false;
         }
@@ -228,10 +238,10 @@ export function BlogEditor({ postID }: { postID: string }) {
         setDirty(true);
         setSaveState("idle");
         return false;
-      } catch (error) {
+      } catch {
         if (editVersion.current === version) {
           setSaveState("error");
-          setActionError(error instanceof Error ? error.message : "Save failed.");
+          setActionError({ key: "Save failed." });
         }
         return false;
       }
@@ -268,7 +278,7 @@ export function BlogEditor({ postID }: { postID: string }) {
   async function upload(file: File, kind: "cover" | "image") {
     if (account.state.kind !== "ready") return;
     setMediaBusy(kind);
-    setActionError("");
+    setActionError(null);
     try {
       const asset = await uploadMediaAsset(file, account.state.value.csrf);
       if (kind === "cover") {
@@ -286,7 +296,9 @@ export function BlogEditor({ postID }: { postID: string }) {
       }
       markDirty();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Image upload failed.");
+      setActionError(error instanceof MediaUploadError
+        ? { key: error.messageKey, values: error.values }
+        : { key: "Image upload failed." });
     } finally {
       setMediaBusy("");
     }
@@ -305,7 +317,7 @@ export function BlogEditor({ postID }: { postID: string }) {
   async function setPublished(published: boolean) {
     if (!post || account.state.kind !== "ready") return;
     if (!(await save())) return;
-    setActionError("");
+    setActionError(null);
     try {
       const response = await fetch(`/api/v1/blog/posts/${encodeURIComponent(post.id)}/${published ? "publish" : "unpublish"}`, {
         method: "POST",
@@ -313,36 +325,36 @@ export function BlogEditor({ postID }: { postID: string }) {
         headers: { Accept: "application/json", "X-CSRF-Token": account.state.value.csrf },
       });
       if (!response.ok) {
-        setActionError(`Unable to ${published ? "publish" : "unpublish"} (${response.status}).`);
+        setActionError({ key: published ? "Unable to publish ({status})." : "Unable to unpublish ({status}).", values: { status: String(response.status) } });
         return;
       }
       resource.retry();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Publishing action failed.");
+    } catch {
+      setActionError({ key: "Publishing action failed." });
     }
   }
 
   if (resource.state.kind === "loading") {
-    return <section className={dashboard.content}><div className={styles.state}>Loading editor…</div></section>;
+    return <section className={dashboard.content}><div className={styles.state}>{t("Loading editor…")}</div></section>;
   }
   if (resource.state.kind !== "ready" || !post) {
-    const message = resource.state.kind === "error" ? resource.state.message : "This post is not available.";
-    return <section className={dashboard.content}><div className={styles.state}>{message}</div></section>;
+    const notice = resource.state.kind === "error" ? message(resource.state.message) : t("This post is not available.");
+    return <section className={dashboard.content}><div className={styles.state}>{notice}</div></section>;
   }
 
   return (
     <section className={`${dashboard.content} ${dashboard.editorContent}`}>
       <div className={styles.editor}>
         <header className={styles.topbar}>
-          <Link href="/dashboard/blogs">← Blogs</Link>
+          <Link href="/dashboard/blogs" aria-label={t("Back to blogs")} title={t("Back to blogs")}><AppIcon name="chevron-left" size={18} aria-hidden="true" /></Link>
           <span className={styles.saveState} aria-live="polite">
-            {mediaBusy ? "Processing image…" : saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : dirty ? "Unsaved" : ""}
+            {mediaBusy ? t("Processing image…") : saveState === "saving" ? t("Saving…") : saveState === "saved" ? t("Saved") : saveState === "error" ? t("Save failed") : dirty ? t("Unsaved") : ""}
           </span>
           <div className={styles.actions}>
-            {post.status === "published" && <Link href={`/blogs/${post.slug}`}>View</Link>}
-            <button type="button" onClick={() => void save()} disabled={!dirty || saveState === "saving" || Boolean(mediaBusy)}>Save</button>
+            {post.status === "published" && <Link href={`/blogs/${post.slug}`}>{t("View post")}</Link>}
+            <button type="button" onClick={() => void save()} disabled={!dirty || account.state.kind !== "ready" || saveState === "saving" || Boolean(mediaBusy)}>{t("Save")}</button>
             <button className={styles.publish} type="button" onClick={() => void setPublished(post.status !== "published")} disabled={Boolean(mediaBusy)}>
-              {post.status === "published" ? "Unpublish" : "Publish"}
+              {t(post.status === "published" ? "Unpublish" : "Publish")}
             </button>
           </div>
         </header>
@@ -351,32 +363,32 @@ export function BlogEditor({ postID }: { postID: string }) {
           {coverAssetID && (
             <div className={styles.coverPreview}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={privateMediaVariantURL(coverAssetID, "large")} alt="Post cover preview" />
+              <img src={privateMediaVariantURL(coverAssetID, "large")} alt={t("Post cover preview")} />
             </div>
           )}
-          <textarea className={styles.title} maxLength={200} aria-label="Title" value={title} onChange={(event) => change(setTitle, event.target.value)} placeholder="Post title" rows={2} />
-          <textarea className={styles.excerpt} maxLength={700} aria-label="Excerpt" value={excerpt} onChange={(event) => change(setExcerpt, event.target.value)} placeholder="Short description for previews and SEO" rows={3} />
+          <textarea className={styles.title} maxLength={200} aria-label={t("Title")} value={title} onChange={(event) => change(setTitle, event.target.value)} placeholder={t("Post title")} rows={2} />
+          <textarea className={styles.excerpt} maxLength={700} aria-label={t("Excerpt")} value={excerpt} onChange={(event) => change(setExcerpt, event.target.value)} placeholder={t("Short description for previews and SEO")} rows={3} />
           <textarea
             className={styles.body}
-            aria-label="Post body"
+            aria-label={t("Post body")}
             value={body}
             onChange={structured ? undefined : (event) => change(setBody, event.target.value)}
             readOnly={structured}
-            placeholder="Start writing…"
+            placeholder={t("Start writing…")}
             rows={18}
           />
-          {structured && <p>Structured blocks are preserved exactly. Edit headings, lists, code and callouts with the Blog tool; metadata and images remain editable here.</p>}
+          {structured && <p>{t("Structured blocks are preserved exactly. Edit headings, lists, code and callouts with the Blog tool; metadata and images remain editable here.")}</p>}
 
           {images.length > 0 && (
-            <section className={styles.inlineImages} aria-label="Article images">
+            <section className={styles.inlineImages} aria-label={t("Article images")}>
               {images.map((image, index) => (
                 <article className={styles.inlineImage} key={`${image.assetId}-${index}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={privateMediaVariantURL(image.assetId, "medium")} alt={image.alt || "Article image preview"} />
+                  <img src={privateMediaVariantURL(image.assetId, "medium")} alt={image.alt || t("Article image preview")} />
                   <div>
-                    <input value={image.alt} maxLength={300} onChange={(event) => updateImage(index, { alt: event.target.value })} placeholder="Alt text for accessibility" />
-                    <input value={image.caption} maxLength={500} onChange={(event) => updateImage(index, { caption: event.target.value })} placeholder="Caption (optional)" />
-                    <button type="button" onClick={() => removeImage(index)}>Remove image</button>
+                    <input value={image.alt} maxLength={300} onChange={(event) => updateImage(index, { alt: event.target.value })} aria-label={t("Alt text for accessibility")} placeholder={t("Alt text for accessibility")} />
+                    <input value={image.caption} maxLength={500} onChange={(event) => updateImage(index, { caption: event.target.value })} aria-label={t("Caption (optional)")} placeholder={t("Caption (optional)")} />
+                    <button type="button" onClick={() => removeImage(index)}>{t("Remove image")}</button>
                   </div>
                 </article>
               ))}
@@ -385,25 +397,25 @@ export function BlogEditor({ postID }: { postID: string }) {
         </main>
 
         <aside className={styles.settings}>
-          <h2>Post settings</h2>
-          <label>URL slug<input value={slug} onChange={(event) => change(setSlug, event.target.value)} /></label>
-          <label>Category<input maxLength={80} value={category} onChange={(event) => change(setCategory, event.target.value)} /></label>
-          <label>Tags<input value={tags} onChange={(event) => change(setTags, event.target.value)} placeholder="AI, MCP, Agents" /></label>
-          <label>Visibility
+          <h2>{t("Post settings")}</h2>
+          <label>{t("URL slug")}<input value={slug} onChange={(event) => change(setSlug, event.target.value)} /></label>
+          <label>{t("Category")}<input maxLength={80} value={category} onChange={(event) => change(setCategory, event.target.value)} /></label>
+          <label>{t("Tags")}<input value={tags} onChange={(event) => change(setTags, event.target.value)} /></label>
+          <label>{t("Visibility")}
             <select value={visibility} onChange={(event) => change(setVisibility, event.target.value)}>
-              <option value="public">Public</option>
-              <option value="unlisted">Unlisted</option>
-              <option value="private">Private</option>
+              <option value="public">{t("Public")}</option>
+              <option value="unlisted">{t("Unlisted")}</option>
+              <option value="private">{t("Private")}</option>
             </select>
           </label>
-          <label>Series
+          <label>{t("Series")}
             <select value={seriesID} onChange={(event) => changeSeries(event.target.value)}>
-              <option value="">No series</option>
+              <option value="">{t("No series")}</option>
               {series.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
             </select>
           </label>
           {seriesID && (
-            <label>Part number
+            <label>{t("Part number")}
               <input
                 type="number"
                 min={1}
@@ -415,19 +427,19 @@ export function BlogEditor({ postID }: { postID: string }) {
           )}
 
           <div className={styles.mediaPanel}>
-            <strong>Media</strong>
-            <span>JPEG, PNG or WebP. CodeLocal stores optimized durable WebP variants.</span>
+            <strong>{t("Media")}</strong>
+            <span>{t("JPEG, PNG or WebP.")}</span>
             <label className={styles.uploadButton}>
-              {mediaBusy === "cover" ? "Processing cover…" : coverAssetID ? "Replace cover" : "Upload cover"}
+              {t(mediaBusy === "cover" ? "Processing cover…" : coverAssetID ? "Replace cover" : "Upload cover")}
               <input type="file" accept="image/jpeg,image/png,image/webp" disabled={Boolean(mediaBusy)} onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = "";
                 if (file) void upload(file, "cover");
               }} />
             </label>
-            {coverAssetID && <button type="button" className={styles.removeMedia} onClick={() => { setCoverAssetID(""); markDirty(); }}>Remove cover</button>}
+            {coverAssetID && <button type="button" className={styles.removeMedia} onClick={() => { setCoverAssetID(""); markDirty(); }}>{t("Remove cover")}</button>}
             <label className={styles.uploadButton}>
-              {mediaBusy === "image" ? "Processing image…" : "Add article image"}
+              {t(mediaBusy === "image" ? "Processing image…" : "Add article image")}
               <input type="file" accept="image/jpeg,image/png,image/webp" disabled={Boolean(mediaBusy)} onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = "";
@@ -435,8 +447,8 @@ export function BlogEditor({ postID }: { postID: string }) {
               }} />
             </label>
           </div>
-          {seriesResource.state.kind === "error" && <p className={styles.error} role="alert">Series unavailable: {seriesResource.state.message}</p>}
-          {actionError && <p className={styles.error} role="alert">{actionError}</p>}
+          {seriesResource.state.kind === "error" && <p className={styles.error} role="alert">{t("Series unavailable: {reason}", { reason: message(seriesResource.state.message) })}</p>}
+          {actionError && <p className={styles.error} role="alert">{t(actionError.key, actionError.values)}</p>}
         </aside>
       </div>
     </section>

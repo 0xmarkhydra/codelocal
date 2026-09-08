@@ -1,9 +1,11 @@
 import dashboard from "../dashboard.module.css";
 import { LeaderboardLive } from "./leaderboard-live";
+import { getTranslations } from "@/lib/i18n/server";
 
-export default function LeaderboardPage() {
+export default async function LeaderboardPage() {
+  const t = await getTranslations();
   return <section className={dashboard.content}>
-    <header className={dashboard.header}><div><span className={dashboard.eyebrow}>30-day usage</span><h1>Leaderboard</h1><p>Top CodeLocal users by estimated MCP payload over the last 30 days.</p></div><span className={dashboard.productionLink}>Privacy-masked</span></header>
+    <h1 className="sr-only">{t("Leaderboard")}</h1>
     <LeaderboardLive />
   </section>;
 }

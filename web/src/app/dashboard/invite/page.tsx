@@ -1,16 +1,12 @@
 import dashboard from "../dashboard.module.css";
 import { InviteLive } from "./invite-live";
+import { getTranslations } from "@/lib/i18n/server";
 
-export default function InvitePage() {
+export default async function InvitePage() {
+  const t = await getTranslations();
   return (
     <section className={dashboard.content}>
-      <header className={dashboard.header}>
-        <div>
-          <span className={dashboard.eyebrow}>Team</span>
-          <h1>Invite</h1>
-          <p>Mời thành viên và theo dõi trạng thái tham gia.</p>
-        </div>
-      </header>
+      <h1 className="sr-only">{t("Invite")}</h1>
       <InviteLive />
     </section>
   );
