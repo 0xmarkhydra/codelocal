@@ -2,39 +2,139 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { AppIcon } from "./app-icon";
 import { DashboardNav } from "./dashboard-nav";
-import styles from "./dashboard.module.css";
+import styles from "./dashboard-chrome.module.css";
 
-export function DashboardSidebar({ title }: { title: string }) {
+export function DashboardSidebar() {
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    document.documentElement.toggleAttribute("data-menu-open", open);
-    return () => document.documentElement.removeAttribute("data-menu-open");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusable = () =>
+      Array.from(
+        sidebar.current?.querySelectorAll<HTMLElement>(
+          "a[href], button, summary",
+        ) ?? [],
+      ).filter((element) => {
+        const details = element.closest("details");
+        return (
+          element.getClientRects().length > 0 &&
+          (!details || details.open || element.tagName === "SUMMARY")
+        );
+      });
+    focusable()[0]?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      const first = items[0];
+      const last = items.at(-1);
+      if (!sidebar.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first)?.focus();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      }
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    const desktop = window.matchMedia("(min-width: 821px)");
+    const handleResize = () => {
+      if (desktop.matches) setOpen(false);
+    };
+    desktop.addEventListener("change", handleResize);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKey);
+      desktop.removeEventListener("change", handleResize);
+    };
   }, [open]);
 
-  return <>
-    <header className={styles.mobileTopBar}>
-      <button className={styles.mobileMenuTrigger} type="button" onClick={() => setOpen(true)} aria-label="Open navigation" aria-expanded={open}>
-        <AppIcon name="menu" size={22} />
-      </button>
-      <strong>{title}</strong>
-      <span className={styles.mobileTopBarRight} aria-hidden="true" />
-    </header>
-    {open ? <button className={`${styles.mobileMenuBackdrop} ${styles.mobileMenuBackdropOpen}`} type="button" onClick={() => setOpen(false)} aria-label="Close navigation" /> : null}
-    <aside className={`${styles.sidebar} ${open ? styles.sidebarOpen : ""}`} aria-hidden={!open || undefined} aria-modal={open || undefined} role={open ? "dialog" : undefined}>
-      <div className={styles.brandRow}>
-        <Link className={styles.brand} href="/" aria-label="CodeLocal home">
-          <span className={styles.brandMark} aria-hidden="true"><Image src="/codelocal-icon.png" alt="" width={28} height={28} priority /></span>
-          <span>CodeLocal</span>
+  return (
+    <>
+      <div className={styles.mobileBar}>
+        <Link className={styles.brand} href="/">
+          <Image src="/codelocal-icon.png" alt="" width={27} height={27} />
+          CodeLocal.
         </Link>
-        <div className={styles.brandActions}>
-          <Link className={styles.downloadButton} href="/#how-it-works" aria-label="Install CodeLocal" title="Install CodeLocal"><AppIcon name="download" size={16} /></Link>
-          <button className={styles.mobileMenuClose} type="button" onClick={() => setOpen(false)} aria-label="Close navigation">×</button>
-        </div>
+        <button
+          ref={trigger}
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Mở điều hướng"
+          aria-controls="dashboard-sidebar"
+          aria-expanded={open}
+        >
+          <AppIcon name="menu" size={21} />
+        </button>
       </div>
-      <DashboardNav onNavigate={() => setOpen(false)} />
-    </aside>
-  </>;
+      <button
+        className={`${styles.backdrop} ${open ? styles.backdropOpen : ""}`}
+        type="button"
+        onClick={close}
+        aria-label="Đóng điều hướng"
+        tabIndex={-1}
+      />
+      <aside
+        ref={sidebar}
+        id="dashboard-sidebar"
+        className={`${styles.sidebar} ${open ? styles.sidebarOpen : ""}`}
+        role={open ? "dialog" : undefined}
+        aria-modal={open || undefined}
+        aria-label="Điều hướng dashboard"
+      >
+        <div className={styles.brandRow}>
+          <Link className={styles.brand} href="/" aria-label="CodeLocal home">
+            <Image
+              src="/codelocal-icon.png"
+              alt=""
+              width={32}
+              height={32}
+              priority
+            />
+            <span>
+              CodeLocal<span className={styles.brandDot}>.</span>
+            </span>
+          </Link>
+          <button
+            className={styles.closeButton}
+            type="button"
+            onClick={close}
+            aria-label="Đóng điều hướng"
+          >
+            <AppIcon name="close" />
+          </button>
+        </div>
+        <div className={styles.workspaceBadge}>
+          <span className={styles.workspaceGlyph}>
+            <AppIcon name="module" size={18} />
+          </span>
+          <div>
+            <strong>Không gian làm việc</strong>
+            <span>CodeLocal Cloud</span>
+          </div>
+        </div>
+        <DashboardNav onNavigate={() => setOpen(false)} />
+      </aside>
+    </>
+  );
 }

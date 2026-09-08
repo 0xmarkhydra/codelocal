@@ -8,7 +8,7 @@ export default function WorkspacesPage() {
         <div>
           <span className={styles.eyebrow}>Projects</span>
           <h1>Projects</h1>
-          <p>Quản lý project và mở Chat hoặc Brain đúng context.</p>
+          <p>Quản lý dự án, khám phá Code Graph và tri thức trong Project Brain.</p>
         </div>
       </header>
       <LiveWorkspaces />

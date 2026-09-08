@@ -71,8 +71,8 @@ export function LiveWorkspaces() {
             <article className={styles.workspaceCard} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
               <Link
                 className={styles.workspaceChatLink}
-                href={`/dashboard?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}
-                aria-label={`Trò chuyện với dự án ${workspace.workspaceName}`}
+                href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}
+                aria-label={`Mở Code Graph của dự án ${workspace.workspaceName}`}
               >
                 <span className={styles.workspaceFolderLarge} data-state={workspace.status} aria-hidden="true">
                   <AppIcon name="folder" size={25} />
@@ -83,13 +83,13 @@ export function LiveWorkspaces() {
                   <span>{workspace.deviceName} · {statusLabel(workspace.status)}</span>
                   <small>Cập nhật {formatDashboardTime(workspace.lastSeenAt)}</small>
                 </span>
-                <span className={styles.workspaceChatAction}>Trò chuyện <AppIcon name="chevron-right" size={14} /></span>
+                <span className={styles.workspaceChatAction}>Code Graph <AppIcon name="chevron-right" size={14} /></span>
               </Link>
               <div className={styles.workspaceCardActions}>
                 <details className={styles.workspaceOverflow}>
                   <summary aria-label={`Thêm thao tác cho ${workspace.workspaceName}`}><span aria-hidden="true">•••</span></summary>
                   <div>
-                    <Link className={styles.secondaryCardAction} href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}>Mở Brain</Link>
+                    <Link className={styles.secondaryCardAction} href="/dashboard/knowledge">Project Brain</Link>
                     <ResourceMutationButton
                       endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
                       csrf={csrf}

@@ -1,97 +1,228 @@
 "use client";
 
 import Link from "next/link";
-import { DashboardOverview, isDashboardOverview } from "@/lib/contracts/dashboard";
-import type { AppIconName } from "./app-icon";
-import { AppIcon } from "./app-icon";
+import { isDashboardOverview } from "@/lib/contracts/dashboard";
+import { AppIcon, type AppIconName } from "./app-icon";
 import { DashboardResourceFeedback } from "./dashboard-resource-feedback";
-import styles from "./dashboard.module.css";
-import overviewStyles from "./overview.module.css";
+import styles from "./overview.module.css";
 import { useDashboardResource } from "./use-dashboard-resource";
 
-const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
-
-function workspaceStateLabel(status: DashboardOverview["workspaces"]["recent"][number]["status"]) {
-  switch (status) {
-    case "active": return "Online";
-    case "sleeping": return "Sleeping";
-    default: return "Offline";
-  }
-}
+const number = new Intl.NumberFormat("vi-VN", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+const destinations: {
+  icon: AppIconName;
+  title: string;
+  description: string;
+  href: string;
+}[] = [
+  {
+    icon: "connection",
+    title: "Kết nối AI",
+    description: "Thiết lập MCP cho client của bạn",
+    href: "/dashboard/connect",
+  },
+  {
+    icon: "skill",
+    title: "Khám phá Skills",
+    description: "Khả năng mở rộng cho AI",
+    href: "/dashboard/skills",
+  },
+  {
+    icon: "shield",
+    title: "Kiểm tra bảo mật",
+    description: "Quản lý phiên và quyền truy cập",
+    href: "/dashboard/security",
+  },
+];
 
 export function LiveOverview() {
-  const { state, retry } = useDashboardResource("/api/v1/dashboard/overview", isDashboardOverview);
-
-  if (state.kind !== "ready") {
-    return <DashboardResourceFeedback label="Connections" {...(state.kind === "error" ? { kind: "error" as const, message: state.message, onRetry: retry } : { kind: state.kind })} />;
-  }
-
+  const { state, retry } = useDashboardResource(
+    "/api/v1/dashboard/overview",
+    isDashboardOverview,
+  );
+  if (state.kind !== "ready")
+    return (
+      <DashboardResourceFeedback
+        label="tổng quan workspace"
+        {...(state.kind === "error"
+          ? { kind: "error" as const, message: state.message, onRetry: retry }
+          : { kind: state.kind })}
+      />
+    );
   const overview = state.value;
-  const runtimeOnline = overview.devices.online > 0;
-  const workspaceOnline = overview.workspaces.active > 0;
-
   return (
-    <div className={overviewStyles.overviewShell}>
-      <section className={overviewStyles.connectionCards} aria-label="Connection status">
-        <ConnectionCard icon="user" kind="account" label="Account" value="Signed in" state="online" />
-        <ConnectionCard icon="runtime" kind="runtime" label="Local Runtime" value={runtimeOnline ? `${overview.devices.online} online` : "Offline"} state={runtimeOnline ? "online" : "offline"} />
-        <ConnectionCard icon="folder" kind="workspace" label="Workspaces" value={`${overview.workspaces.active}/${overview.workspaces.total} active`} state={workspaceOnline ? "online" : "idle"} />
-        <ConnectionCard icon="connection" kind="mcp" label="MCP activity" value={overview.usage.available ? `${compactNumber.format(overview.usage.last24h.calls)} calls · 24h` : "No telemetry"} state={overview.usage.available ? "online" : "idle"} />
+    <div className={styles.overview}>
+      <section className={styles.metrics} aria-label="Số liệu tài khoản">
+        <Metric
+          icon="folder"
+          label="Dự án"
+          value={number.format(overview.workspaces.total)}
+          detail={`${overview.workspaces.active} đang hoạt động`}
+          tone="purple"
+          href="/dashboard/workspaces"
+        />
+        <Metric
+          icon="device"
+          label="Thiết bị online"
+          value={number.format(overview.devices.online)}
+          detail={`${overview.devices.paired} thiết bị đã ghép nối`}
+          tone="cyan"
+          href="/dashboard/devices"
+        />
+        <Metric
+          icon="connection"
+          label="MCP calls / 24 giờ"
+          value={
+            overview.usage.available
+              ? number.format(overview.usage.last24h.calls)
+              : "—"
+          }
+          detail={
+            overview.usage.available
+              ? "Lượt gọi được ghi nhận"
+              : "Chưa có dữ liệu sử dụng"
+          }
+          tone="orange"
+          href="/dashboard/usage"
+        />
+        <Metric
+          icon="usage"
+          label="Tokens / 24 giờ"
+          value={
+            overview.usage.available
+              ? number.format(overview.usage.last24h.totalTokensEstimated)
+              : "—"
+          }
+          detail={
+            overview.usage.available
+              ? "Ước tính từ hoạt động MCP"
+              : "Chưa có dữ liệu sử dụng"
+          }
+          tone="pink"
+          href="/dashboard/usage"
+        />
       </section>
-
-      <section className={overviewStyles.connectionMap}>
-        <div className={overviewStyles.panelHead}>
-          <div><span className={styles.eyebrow}>Connection map</span><strong>Luồng hoạt động hiện tại</strong></div>
-          <Link href="/dashboard/workspaces">Workspaces <AppIcon name="chevron-right" size={13} /></Link>
-        </div>
-        <div className={overviewStyles.connectionFlow} aria-label="CodeLocal connection flow">
-          <FlowNode icon="user" label="Account" state="online" />
-          <FlowArrow active />
-          <FlowNode icon="runtime" label="Runtime" state={runtimeOnline ? "online" : "offline"} />
-          <FlowArrow active={runtimeOnline} />
-          <FlowNode icon="folder" label="Workspace" state={workspaceOnline ? "online" : runtimeOnline ? "idle" : "offline"} />
-          <FlowArrow active={workspaceOnline} />
-          <FlowNode icon="brain" label="Brain" state={overview.workspaces.total > 0 ? "online" : "idle"} />
-          <FlowArrow active={overview.workspaces.total > 0} />
-          <FlowNode icon="chat" label="CodeLocal" state="online" />
-        </div>
-      </section>
-
-      <section className={overviewStyles.recentPanel}>
-        <div className={overviewStyles.panelHead}>
-          <div><span className={styles.eyebrow}>Recent</span><strong>Workspaces gần đây</strong></div>
-          <span>{overview.devices.online}/{overview.devices.paired} máy online</span>
-        </div>
-        {overview.workspaces.recent.length === 0 ? <p className={overviewStyles.empty}>Chưa có workspace.</p> : (
-          <div className={overviewStyles.workspaceList}>
-            {overview.workspaces.recent.slice(0, 6).map((workspace) => (
-              <div className={overviewStyles.workspaceRow} key={`${workspace.deviceId}:${workspace.workspaceId}`}>
-                <span className={overviewStyles.workspaceFolder} data-state={workspace.status} aria-hidden="true"><AppIcon name="folder" size={17} /></span>
-                <div><strong>{workspace.workspaceName}</strong><small>{workspace.deviceName}</small></div>
-                <span className={overviewStyles.workspaceState} data-state={workspace.status}><i />{workspaceStateLabel(workspace.status)}</span>
-              </div>
+      <div className={styles.workspaceLayout}>
+        <section className={styles.projects}>
+          <header className={styles.panelHead}>
+            <div>
+              <h2>Dự án gần đây</h2>
+              <span>Workspace được kết nối với tài khoản</span>
+            </div>
+            <Link href="/dashboard/workspaces">
+              Xem tất cả <span aria-hidden="true">↗</span>
+            </Link>
+          </header>
+          {overview.workspaces.recent.length === 0 ? (
+            <div className={styles.empty}>
+              <AppIcon name="folder" size={30} />
+              <strong>Không gian cho dự án đầu tiên.</strong>
+              <p>
+                Chạy <code>codelocal .</code> trong thư mục dự án để kết nối
+                workspace của bạn.
+              </p>
+              <Link href="/dashboard/connect">
+                Hướng dẫn kết nối <span aria-hidden="true">↗</span>
+              </Link>
+            </div>
+          ) : (
+            <div className={styles.workspaceList}>
+              {overview.workspaces.recent.slice(0, 4).map((workspace) => (
+                <Link
+                  className={styles.workspaceRow}
+                  href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}
+                  key={`${workspace.deviceId}:${workspace.workspaceId}`}
+                >
+                  <span className={styles.folderIcon}>
+                    <AppIcon name="folder" size={20} />
+                  </span>
+                  <div>
+                    <strong>{workspace.workspaceName}</strong>
+                    <small>{workspace.deviceName}</small>
+                  </div>
+                  <span
+                    className={styles.workspaceState}
+                    data-state={workspace.status}
+                  >
+                    <i />
+                    {workspace.status === "active"
+                      ? "Online"
+                      : workspace.status === "sleeping"
+                        ? "Đang nghỉ"
+                        : "Offline"}
+                  </span>
+                  <AppIcon name="chevron-right" size={14} />
+                </Link>
+              ))}
+            </div>
+          )}
+          <div className={styles.projectsFoot}>
+            <AppIcon name="shield" size={13} /> Chỉ hiển thị workspace bạn được
+            phép truy cập.
+          </div>
+        </section>
+        <section className={styles.quickAccess}>
+          <header className={styles.panelHead}>
+            <div>
+              <h2>Bước tiếp theo</h2>
+              <span>Thiết lập không gian làm việc</span>
+            </div>
+            <AppIcon name="target" size={18} />
+          </header>
+          <div className={styles.destinations}>
+            {destinations.map((item) => (
+              <Link href={item.href} key={item.href}>
+                <span className={styles.destinationIcon}>
+                  <AppIcon name={item.icon} size={18} />
+                </span>
+                <div>
+                  <strong>{item.title}</strong>
+                  <small>{item.description}</small>
+                </div>
+                <AppIcon name="chevron-right" size={14} />
+              </Link>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      </div>
+      <div className={styles.dataNote}>
+        <span>Dữ liệu từ lần tải gần nhất · MCP tokens là số ước tính</span>
+        <button type="button" onClick={retry}>
+          <AppIcon name="refresh" size={13} /> Làm mới
+        </button>
+      </div>
     </div>
   );
 }
 
-function ConnectionCard({ icon, kind, label, value, state }: { icon: AppIconName; kind: string; label: string; value: string; state: "online" | "idle" | "offline" }) {
+function Metric({
+  icon,
+  label,
+  value,
+  detail,
+  tone,
+  href,
+}: {
+  icon: AppIconName;
+  label: string;
+  value: string;
+  detail: string;
+  tone: string;
+  href: string;
+}) {
   return (
-    <article>
-      <span className={overviewStyles.connectionIcon} data-kind={kind}><AppIcon name={icon} size={18} /></span>
-      <div><small>{label}</small><strong>{value}</strong></div>
-      <i data-state={state} />
-    </article>
+    <Link className={styles.metric} data-tone={tone} href={href}>
+      <span className={styles.metricLabel}>
+        <span>{label}</span>
+        <AppIcon name={icon} size={17} />
+      </span>
+      <strong>{value}</strong>
+      <span className={styles.metricDetail}>
+        {detail}
+        <span aria-hidden="true">↗</span>
+      </span>
+    </Link>
   );
-}
-
-function FlowNode({ icon, label, state }: { icon: AppIconName; label: string; state: "online" | "idle" | "offline" }) {
-  return <div className={overviewStyles.flowNode} data-state={state}><span><AppIcon name={icon} size={17} /></span><strong>{label}</strong><i /></div>;
-}
-
-function FlowArrow({ active }: { active: boolean }) {
-  return <span className={overviewStyles.flowArrow} data-active={active || undefined} aria-hidden="true"><i /></span>;
 }

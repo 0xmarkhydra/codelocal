@@ -1,4 +1,9 @@
 :root {
+  --brand-canvas: #0b0d0e;
+  --brand-text: #f1f4f2;
+  --brand-muted: #abb5b1;
+  --brand-line: #ffffff21;
+  --brand-accent: #b6f3d3;
   --canvas: #07101a;
   --canvas-soft: #09131f;
   --surface: #0b1623;
