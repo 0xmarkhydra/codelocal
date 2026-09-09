@@ -31,9 +31,9 @@ func fixtureAdapter(t *testing.T, handler http.Handler) (*Adapter, *httptest.Ser
 
 func TestNativeOwnerValidationExpiryAndAnonymous(t *testing.T) {
 	var body atomic.Value
-	body.Store(`{"id":"11111111-1111-1111-1111-111111111111","email":"a@example.test","is-active":true}`)
+	body.Store(`{"id":"11111111-1111-1111-1111-111111111111","email":"a@example.test","isActive":true}`)
 	adapter, _ := fixtureAdapter(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/rpc/command/get-profile" || r.Header.Get("Authorization") != "Bearer native-A" ||
+		if r.URL.Path != "/api/rpc/command/get-profile" || r.Header.Get("Authorization") != "Token native-A" ||
 			r.Header.Get("Cookie") != "" || r.Method != http.MethodPost || r.URL.RawQuery != "" {
 			t.Error("native credential sent outside expected API boundary")
 		}
@@ -49,8 +49,9 @@ func TestNativeOwnerValidationExpiryAndAnonymous(t *testing.T) {
 	}
 	for _, invalid := range []string{
 		`{"id":"00000000-0000-0000-0000-000000000000","fullname":"Anonymous User"}`,
-		`{"id":"id","email":"a@example.test","is-active":false}`,
-		`{"id":"id","email":"a@example.test","is-active":true,"is-blocked":true}`,
+		`{"id":"id","email":"a@example.test","isActive":false}`,
+		`{"id":"id","email":"a@example.test","isActive":true,"isBlocked":true}`,
+		`{"id":"id","email":"a@example.test","is-active":true}`,
 		`{}`,
 		`not-json`,
 	} {
@@ -176,7 +177,7 @@ func TestWebSocketOwnerResponseAndRevocation(t *testing.T) {
 						_, _ = w.Write([]byte(`{}`))
 						return
 					}
-					user := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer native-")
+					user := strings.TrimPrefix(r.Header.Get("Authorization"), "Token native-")
 					_ = json.NewEncoder(w).Encode(profile{ID: user, Email: user + "@example.test", Active: true})
 					return
 				}

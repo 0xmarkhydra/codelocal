@@ -101,7 +101,7 @@ func TestPenpotSignedRuntimeToAdapterIntegration(t *testing.T) {
 			_, _ = w.Write([]byte(`{"id":"00000000-0000-0000-0000-000000000000","fullname":"Anonymous User"}`))
 			return
 		}
-		user := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer native-")
+		user := strings.TrimPrefix(r.Header.Get("Authorization"), "Token native-")
 		email := strings.ToLower(user) + "@example.test"
 		_ = json.NewEncoder(w).Encode(profile{ID: user, Email: email, Active: true})
 	}))

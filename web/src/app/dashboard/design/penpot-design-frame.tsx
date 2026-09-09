@@ -29,6 +29,7 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const tokenRef = useRef("");
   const connectedRef = useRef(new Set<string>());
+  const retryAtRef = useRef(0);
   const [tokenRevision, setTokenRevision] = useState(0);
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const workspaces = useDashboardResource("/api/v1/workspaces", isWorkspacesResource);
@@ -71,7 +72,16 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
     if (!targets.length) return;
 
     const controller = new AbortController();
+    let retryTimer: number | undefined;
+    function retryLater() {
+      retryTimer = window.setTimeout(() => setTokenRevision((value) => value + 1),
+        Math.max(1000, retryAtRef.current - Date.now()));
+    }
     async function connectWorkspaces() {
+      if (retryAtRef.current > Date.now()) {
+        retryLater();
+        return;
+      }
       // Bound concurrency, not coverage: later workspaces need credentials too.
       for (const workspace of targets) {
         if (controller.signal.aborted || token !== tokenRef.current) return;
@@ -97,6 +107,15 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
           });
           if (response.status === 401 || response.status === 403) return;
           if (controller.signal.aborted || token !== tokenRef.current) return;
+          if (response.status === 429) {
+            const header = response.headers.get("Retry-After") ?? "";
+            const seconds = Number(header);
+            const until = header.trim() && Number.isFinite(seconds)
+              ? Date.now() + Math.max(1, seconds) * 1000 : Date.parse(header);
+            retryAtRef.current = Number.isFinite(until) ? until : Date.now() + 600_000;
+            retryLater();
+            return;
+          }
           if (response.ok) connectedRef.current.add(key);
         } catch {
           if (controller.signal.aborted) return;
@@ -106,7 +125,10 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
     }
     void connectWorkspaces();
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      window.clearTimeout(retryTimer);
+    };
   }, [account.state, designOrigin, tokenRevision, workspaces.state]);
 
   return (

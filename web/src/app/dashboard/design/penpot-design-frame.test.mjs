@@ -17,6 +17,8 @@ let calls = [];
 let inFlight = 0;
 let peak = 0;
 let hold;
+let responseStatus = 200;
+let timer;
 const items = Array.from({ length: 29 }, (_, i) => ({
   deviceId: "device", workspaceId: `workspace-${i}`, status: "active", runtimeOnline: true,
 }));
@@ -26,13 +28,16 @@ runInNewContext(code, {
   window: {
     addEventListener: (event, listener) => listeners.set(event, listener),
     removeEventListener: (event) => listeners.delete(event),
+    setTimeout: (fn, delay) => { timer = { fn, delay }; return 1; },
+    clearTimeout: () => { timer = undefined; },
   },
   fetch: async (_, options) => {
     calls.push(options);
     peak = Math.max(peak, ++inFlight);
     try {
       if (hold) await new Promise((resolve) => { hold = resolve; });
-      return { ok: true, status: 200 };
+      return { ok: responseStatus === 200, status: responseStatus,
+        headers: { get: () => "600" } };
     } finally {
       inFlight--;
     }
@@ -97,5 +102,24 @@ cleanups = render();
 await flush();
 assert.equal(calls.length, 30);
 assert.ok(calls.slice(1).every((call) => JSON.parse(call.body).bearerToken === "test-account-token-C"));
+message("test-account-token-D");
 cleanups.forEach((cleanup) => cleanup?.());
-console.log("PASS: 29 workspaces, bounded concurrency, CSRF, origin/source checks, token rotation");
+responseStatus = 429;
+calls = [];
+cleanups = render();
+await flush();
+assert.equal(calls.length, 1, "rate limit stops remaining requests");
+assert.ok(timer.delay >= 599000 && timer.delay <= 600000, "Retry-After respected");
+cleanups.forEach((cleanup) => cleanup?.());
+cleanups = render();
+await flush();
+assert.equal(calls.length, 1, "focus rerender cannot bypass cooldown");
+refs[3].current = 0;
+responseStatus = 200;
+cleanups.forEach((cleanup) => cleanup?.());
+cleanups = render();
+await flush();
+assert.equal(calls.length, 30, "queue resumes after cooldown");
+cleanups.forEach((cleanup) => cleanup?.());
+assert.equal(timer, undefined, "unmount cancels retry");
+console.log("PASS: 29 workspaces, bounded concurrency, CSRF, origin/source checks, rotation, rate-limit resume");

@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -218,6 +219,8 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		if input.BearerToken != "" {
 			if err := s.Penpot.ValidateOwner(r.Context(), input.BearerToken, identity.User.Email); err != nil {
+				// Adapter errors contain only fixed reasons, never upstream bodies or credentials.
+				slog.Warn("Penpot connection identity rejected", "reason", err.Error())
 				webutil.JSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_penpot_identity"})
 				return
 			}

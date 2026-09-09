@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -54,8 +55,8 @@ func New(auth *oauth.Server, backend, mcp, ws string) (*Adapter, error) {
 type profile struct {
 	ID      string `json:"id"`
 	Email   string `json:"email"`
-	Active  bool   `json:"is-active"`
-	Blocked bool   `json:"is-blocked"`
+	Active  bool   `json:"isActive"`
+	Blocked bool   `json:"isBlocked"`
 }
 
 // Native Penpot validates both the JWE signature and DB expiry/revocation.
@@ -70,7 +71,8 @@ func (a *Adapter) nativeProfile(ctx context.Context, token string) (profile, err
 	if err != nil {
 		return profile{}, errors.New("Penpot authentication unavailable")
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	// Penpot access tokens use Token; Bearer selects browser-session auth.
+	request.Header.Set("Authorization", "Token "+token)
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/json")
 	response, err := a.client.Do(request)
@@ -79,10 +81,17 @@ func (a *Adapter) nativeProfile(ctx context.Context, token string) (profile, err
 	}
 	defer response.Body.Close()
 	var result profile
-	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&result) != nil ||
-		result.ID == "" || result.ID == "00000000-0000-0000-0000-000000000000" ||
-		!result.Active || result.Blocked || strings.TrimSpace(result.Email) == "" {
-		return profile{}, errors.New("invalid or expired Penpot credential")
+	if response.StatusCode != http.StatusOK {
+		return profile{}, fmt.Errorf("Penpot profile HTTP status %d", response.StatusCode)
+	}
+	if json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&result) != nil {
+		return profile{}, errors.New("invalid Penpot profile JSON")
+	}
+	if result.ID == "" || result.ID == "00000000-0000-0000-0000-000000000000" {
+		return profile{}, errors.New("anonymous Penpot profile")
+	}
+	if !result.Active || result.Blocked || strings.TrimSpace(result.Email) == "" {
+		return profile{}, errors.New("inactive, blocked or incomplete Penpot profile")
 	}
 	return result, nil
 }
