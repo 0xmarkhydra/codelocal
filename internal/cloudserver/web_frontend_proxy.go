@@ -27,6 +27,13 @@ func newWebFrontendProxyFromEnv() (http.Handler, error) {
 	baseDirector := proxy.Director
 	proxy.Director = func(request *http.Request) {
 		baseDirector(request)
+		// Forward only a supported display preference, never browser cookies.
+		if preference, err := request.Cookie("codelocal-language"); err == nil {
+			switch preference.Value {
+			case "en", "vi", "zh-Hans", "hi":
+				request.Header.Set("Accept-Language", preference.Value)
+			}
+		}
 		request.Header.Del("Authorization")
 		request.Header.Del("Cookie")
 		request.Header.Del("X-Real-IP")

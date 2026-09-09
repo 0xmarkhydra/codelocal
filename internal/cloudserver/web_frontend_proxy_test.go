@@ -213,3 +213,37 @@ func TestWebFrontendProxyStripsBrowserSecretsAndClientIPSignals(t *testing.T) {
 		t.Fatalf("presentation proxy leaked browser security headers: %#v", got)
 	}
 }
+
+func TestWebFrontendProxyPreservesOnlySupportedLanguagePreference(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Cookie") != "" || r.Header.Get("Authorization") != "" {
+			t.Error("presentation received browser secrets")
+		}
+		_, _ = io.WriteString(w, r.Header.Get("Accept-Language"))
+	}))
+	defer upstream.Close()
+	t.Setenv("CODELOCAL_WEB_ORIGIN", upstream.URL)
+	proxy, err := newWebFrontendProxyFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, preference := range []string{"en", "vi", "zh-Hans", "hi", "", "unsupported", "vi,fr;q=1"} {
+		t.Run(preference, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://codelocal.test/login", nil)
+			request.Header.Set("Accept-Language", "en-US,en;q=0.8")
+			request.Header.Set("Authorization", "Bearer private-token")
+			request.AddCookie(&http.Cookie{Name: "codelocal_session", Value: "secret-session"})
+			request.AddCookie(&http.Cookie{Name: "codelocal-language", Value: preference})
+			response := httptest.NewRecorder()
+			proxy.ServeHTTP(response, request)
+			want := "en-US,en;q=0.8"
+			switch preference {
+			case "en", "vi", "zh-Hans", "hi":
+				want = preference
+			}
+			if response.Code != http.StatusOK || response.Body.String() != want {
+				t.Fatalf("status=%d language=%q want=%q", response.Code, response.Body.String(), want)
+			}
+		})
+	}
+}
