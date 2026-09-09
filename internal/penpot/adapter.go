@@ -123,14 +123,14 @@ func (a *Adapter) authenticate(ctx context.Context, token string) (oauth.PenpotG
 	if err != nil {
 		return oauth.PenpotGrant{}, errors.New("Penpot workspace unavailable")
 	}
-	authorized := false
+	workspaceExists := false
 	for _, workspace := range workspaces {
 		if workspace.DeviceID == grant.DeviceID && workspace.WorkspaceID == grant.WorkspaceID {
-			authorized, _ = workspace.Capabilities["authorized"].(bool)
+			workspaceExists = true
 			break
 		}
 	}
-	if !authorized {
+	if !workspaceExists {
 		return oauth.PenpotGrant{}, errors.New("Penpot workspace revoked")
 	}
 	secrets, err := a.Auth.Store.MaterializeRuntimeSecrets(ctx, grant.Subject, grant.DeviceID, grant.WorkspaceID)

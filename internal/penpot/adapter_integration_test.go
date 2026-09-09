@@ -72,7 +72,7 @@ CREATE TABLE codelocal_runtime_secrets (
 INSERT INTO codelocal_users(id,email) VALUES ('A','a@example.test'),('B','b@example.test');
 INSERT INTO codelocal_devices(credential_id,user_id,device_id) VALUES ('credential-A','A','device'),('credential-B','B','device');
 INSERT INTO codelocal_workspaces(user_id,device_id,workspace_id,capabilities)
- VALUES ('A','device','workspace','{"authorized":true}'),('B','device','workspace','{"authorized":true}');
+ VALUES ('A','device','workspace','{}'),('B','device','workspace','{}');
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +173,15 @@ func TestPenpotSignedRuntimeToAdapterIntegration(t *testing.T) {
 	}
 	if _, err := adapter.authenticate(ctx, grantB); err == nil {
 		t.Fatal("revoked device retained access")
+	}
+	if _, err := store.DB.Exec(ctx, `DELETE FROM codelocal_workspaces WHERE user_id='A' AND device_id='device' AND workspace_id='workspace'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.authenticate(ctx, grantA); err == nil {
+		t.Fatal("revoked workspace retained access")
+	}
+	if _, err := store.DB.Exec(ctx, `INSERT INTO codelocal_workspaces(user_id,device_id,workspace_id,capabilities) VALUES ('A','device','workspace','{}')`); err != nil {
+		t.Fatal(err)
 	}
 	if err := store.DeleteRuntimeSecret(ctx, "A", cloud.RuntimeScopeWorkspace, "device", "workspace", ref); err != nil {
 		t.Fatal(err)
