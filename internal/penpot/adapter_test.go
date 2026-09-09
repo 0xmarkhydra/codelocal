@@ -139,6 +139,9 @@ func TestAuthenticatedProxySessionBindingAndHeaderIsolation(t *testing.T) {
 			if response.Code != want {
 				t.Fatalf("%s user %s status %d want %d", method, user, response.Code, want)
 			}
+			if user == "A" && response.Header().Get("Mcp-Session-Id") != sealed {
+				t.Fatal("public session ID changed between requests")
+			}
 		}
 	}
 	if calls.Load() != 4 {

@@ -674,6 +674,9 @@ func (h *Hub) Probe(ctx context.Context, name string, authorize bool) (map[strin
 	tools := []CatalogTool{}
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
+			if config.Managed && config.Name == managedPenpotName {
+				return nil, errors.New("managed Penpot MCP request failed")
+			}
 			return nil, err
 		}
 		tools = append(tools, CatalogTool{ServerKey: configKey(config), Server: config.Name, Name: tool.Name, Title: tool.Title, Description: tool.Description, InputSchema: tool.InputSchema, OutputSchema: tool.OutputSchema, Annotations: tool.Annotations, DiscoveredAt: time.Now().UnixMilli()})
@@ -827,6 +830,9 @@ func (h *Hub) Call(ctx context.Context, server, tool string, args map[string]any
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: info.Name, Arguments: args})
 	if err != nil {
+		if config.Managed && config.Name == managedPenpotName {
+			return nil, errors.New("managed Penpot MCP request failed")
+		}
 		return nil, err
 	}
 	h.mu.Lock()

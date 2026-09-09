@@ -174,13 +174,15 @@ func (a *Adapter) ServeMCP(w http.ResponseWriter, r *http.Request) {
 
 func (a *Adapter) serveAuthenticatedMCP(w http.ResponseWriter, r *http.Request, grant oauth.PenpotGrant) {
 	sessionID := ""
+	publicSessionID := ""
 	if values := r.Header.Values("Mcp-Session-Id"); len(values) > 0 {
 		if len(values) != 1 {
 			reject(w, http.StatusUnauthorized)
 			return
 		}
+		publicSessionID = values[0]
 		var err error
-		sessionID, err = a.Auth.OpenPenpotSession(grant, values[0])
+		sessionID, err = a.Auth.OpenPenpotSession(grant, publicSessionID)
 		if err != nil {
 			reject(w, http.StatusUnauthorized)
 			return
@@ -210,6 +212,13 @@ func (a *Adapter) serveAuthenticatedMCP(w http.ResponseWriter, r *http.Request, 
 			response.Header.Del("Location")
 			response.Header.Set("Cache-Control", "no-store")
 			if id := response.Header.Get("Mcp-Session-Id"); id != "" {
+				if sessionID != "" {
+					if id != sessionID {
+						return errors.New("upstream Penpot MCP session changed")
+					}
+					response.Header.Set("Mcp-Session-Id", publicSessionID)
+					return nil
+				}
 				sealed, err := a.Auth.SealPenpotSession(grant, id)
 				if err != nil {
 					return err
