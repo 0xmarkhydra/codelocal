@@ -6,6 +6,8 @@
     "watchPatterns": [
       "Dockerfile",
       "nginx-security-headers.conf",
+      "nginx-mcp-locations.conf.template",
+      "codelocal-mcp-bootstrap.js",
       "railway.json"
     ]
   },

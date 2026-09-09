@@ -17,6 +17,7 @@
       "internal/mcpgateway/**",
       "internal/memory/**",
       "internal/oauth/**",
+      "internal/penpot/**",
       "internal/orchestration/**",
       "internal/plugins/**",
       "internal/project/**",

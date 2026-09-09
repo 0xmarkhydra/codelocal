@@ -36,10 +36,11 @@ var managedPenpotRuntime penpotRuntimeState
 func managedPenpotConfig() (ServerConfig, bool) {
 	if raw := strings.TrimSpace(os.Getenv("CODELOCAL_PENPOT_MCP_URL")); raw != "" {
 		endpoint, err := validURL(raw)
-		if err != nil {
-			return ServerConfig{}, false
+		u, parseErr := url.Parse(endpoint)
+		if err == nil && parseErr == nil && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" {
+			return ServerConfig{Name: managedPenpotName, Enabled: true, Managed: true, Scope: "global", Transport: "http", URL: endpoint}, true
 		}
-		return ServerConfig{Name: managedPenpotName, Enabled: true, Managed: true, Scope: "global", Transport: "http", URL: endpoint}, true
+		// Invalid debug configuration must not remove the reserved system server.
 	}
 	// Penpot is a default-installed System Plugin backed by CodeLocal's hosted
 	// Penpot deployment. The server remains visible before a user connects their

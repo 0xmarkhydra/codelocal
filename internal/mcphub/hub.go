@@ -66,6 +66,7 @@ type catalogFile struct {
 }
 type connected struct {
 	session                 *mcp.ClientSession
+	authKey                 [32]byte
 	connectedAt, lastUsedAt int64
 }
 type ConnectGuard func(ServerConfig) error
@@ -499,16 +500,13 @@ func (h *Hub) managedPenpotQuery(config ServerConfig) (url.Values, error) {
 	resolveSecret := h.secrets
 	h.mu.Unlock()
 	if ref == "" {
-		return nil, nil
+		return nil, errors.New("managed Penpot authentication is unavailable; open CodeLocal Design to connect this account")
 	}
 	value, ok := "", false
 	if resolveSecret != nil {
 		value, ok = resolveSecret(ref)
 	}
-	if !ok {
-		value, ok = os.LookupEnv(ref)
-	}
-	if !ok || strings.TrimSpace(value) == "" {
+	if !ok || strings.TrimSpace(value) == "" || len(value) > 16384 || strings.ContainsAny(value, "\r\n\x00") {
 		return nil, fmt.Errorf("managed Penpot MCP key %s is not configured", ref)
 	}
 	query := url.Values{}
@@ -517,8 +515,25 @@ func (h *Hub) managedPenpotQuery(config ServerConfig) (url.Values, error) {
 }
 
 func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) (*mcp.ClientSession, error) {
+	requestQuery := url.Values(nil)
+	var authKey [32]byte
+	if config.Managed && config.Name == managedPenpotName {
+		var err error
+		requestQuery, err = h.managedPenpotQuery(config)
+		if err != nil {
+			_ = h.disconnect(config.Name)
+			return nil, err
+		}
+		authKey = sha256.Sum256([]byte(config.URL + "\x00" + requestQuery.Encode()))
+	}
 	h.mu.Lock()
 	if s := h.sessions[config.Name]; s != nil {
+		if s.authKey != authKey {
+			delete(h.sessions, config.Name)
+			h.mu.Unlock()
+			_ = s.session.Close()
+			return h.connect(ctx, config, authorize)
+		}
 		s.lastUsedAt = time.Now().UnixMilli()
 		h.mu.Unlock()
 		return s.session, nil
@@ -536,14 +551,8 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 	h.connecting[config.Name] = ch
 	h.mu.Unlock()
 	defer func() { h.mu.Lock(); delete(h.connecting, config.Name); close(ch); h.mu.Unlock() }()
-	requestQuery := url.Values(nil)
 	if config.Managed && config.Name == managedPenpotName {
 		if err := h.ensureManagedPenpot(ctx, config); err != nil {
-			return nil, err
-		}
-		var err error
-		requestQuery, err = h.managedPenpotQuery(config)
-		if err != nil {
 			return nil, err
 		}
 	}
@@ -574,7 +583,27 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 		if err != nil {
 			return nil, err
 		}
-		httpClient := &http.Client{Timeout: 0, Transport: &headerTransport{base: http.DefaultTransport, headers: headers, query: requestQuery}}
+		httpTransport := &headerTransport{base: http.DefaultTransport, headers: headers, query: requestQuery}
+		if len(requestQuery) > 0 {
+			// Native userToken is supplied by the private adapter, never in a
+			// public URL. Runtime settings carry a short-lived signed grant.
+			headers.Set("Authorization", "Bearer "+requestQuery.Get("userToken"))
+			httpTransport.query = nil
+			httpTransport.authenticated = true
+			httpTransport.check = func() error {
+				current, err := h.managedPenpotQuery(config)
+				if err != nil || sha256.Sum256([]byte(config.URL+"\x00"+current.Encode())) != authKey {
+					return errors.New("managed Penpot authentication changed; reconnect required")
+				}
+				return nil
+			}
+		}
+		httpClient := &http.Client{Timeout: 0, Transport: httpTransport}
+		if len(requestQuery) > 0 {
+			httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+				return errors.New("authenticated MCP redirects are not allowed")
+			}
+		}
 		transport = &mcp.StreamableClientTransport{Endpoint: config.URL, HTTPClient: httpClient, DisableStandaloneSSE: config.Managed && config.Name == managedPenpotName}
 	}
 	session, err := client.Connect(ctx, transport, nil)
@@ -582,18 +611,25 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 		return nil, fmt.Errorf("failed to connect MCP %s: %w", config.Name, err)
 	}
 	h.mu.Lock()
-	h.sessions[config.Name] = &connected{session: session, connectedAt: time.Now().UnixMilli(), lastUsedAt: time.Now().UnixMilli()}
+	h.sessions[config.Name] = &connected{session: session, authKey: authKey, connectedAt: time.Now().UnixMilli(), lastUsedAt: time.Now().UnixMilli()}
 	h.mu.Unlock()
 	return session, nil
 }
 
 type headerTransport struct {
-	base    http.RoundTripper
-	headers http.Header
-	query   url.Values
+	base          http.RoundTripper
+	headers       http.Header
+	query         url.Values
+	check         func() error
+	authenticated bool
 }
 
 func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if t.check != nil {
+		if err := t.check(); err != nil {
+			return nil, err
+		}
+	}
 	clone := r.Clone(r.Context())
 	clone.Header = r.Header.Clone()
 	for k, v := range t.headers {
@@ -609,7 +645,12 @@ func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		clone.URL.RawQuery = query.Encode()
 	}
-	return t.base.RoundTrip(clone)
+	response, err := t.base.RoundTrip(clone)
+	if err != nil && (len(t.query) > 0 || t.authenticated) {
+		// Transport errors may embed the credential-bearing URL.
+		return nil, errors.New("authenticated MCP transport unavailable")
+	}
+	return response, err
 }
 func (h *Hub) disconnect(name string) error {
 	h.mu.Lock()

@@ -8,7 +8,6 @@ import styles from "./design.module.css";
 import { useTranslations } from "@/lib/i18n/provider";
 
 const PENPOT_TOKEN_MESSAGE = "codelocal:penpot-mcp-token";
-const MAX_AUTO_CONNECTIONS = 10;
 
 type PenpotTokenMessage = {
   type: typeof PENPOT_TOKEN_MESSAGE;
@@ -42,6 +41,11 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
   }, [designUrl]);
 
   useEffect(() => {
+    window.addEventListener("focus", workspaces.retry);
+    return () => window.removeEventListener("focus", workspaces.retry);
+  }, [workspaces.retry]);
+
+  useEffect(() => {
     function onMessage(event: MessageEvent) {
       if (!designOrigin || event.origin !== designOrigin) return;
       if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
@@ -63,34 +67,44 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
 
     const csrf = account.state.value.csrf;
     const targets = workspaces.state.value.items
-      .filter((workspace) => workspace.runtimeOnline && workspace.status !== "offline")
-      .slice(0, MAX_AUTO_CONNECTIONS);
+      .filter((workspace) => workspace.runtimeOnline && workspace.status !== "offline");
     if (!targets.length) return;
 
     const controller = new AbortController();
-    void Promise.allSettled(targets.map(async (workspace) => {
-      const key = `${workspace.deviceId}:${workspace.workspaceId}`;
-      if (connectedRef.current.has(key)) return;
-
-      const response = await fetch("/api/v1/plugins/penpot/connections", {
-        method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrf,
-        },
-        body: JSON.stringify({
-          deviceId: workspace.deviceId,
-          workspaceId: workspace.workspaceId,
-          endpoint: `${designOrigin}/mcp/stream`,
-          bearerToken: token,
-        }),
-        signal: controller.signal,
-      });
-      if (response.ok) connectedRef.current.add(key);
-    }));
+    async function connectWorkspaces() {
+      // Bound concurrency, not coverage: later workspaces need credentials too.
+      for (const workspace of targets) {
+        if (controller.signal.aborted || token !== tokenRef.current) return;
+        const key = `${workspace.deviceId}:${workspace.workspaceId}`;
+        if (connectedRef.current.has(key)) continue;
+        try {
+          const response = await fetch("/api/v1/plugins/penpot/connections", {
+            method: "POST",
+            credentials: "same-origin",
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrf,
+            },
+            body: JSON.stringify({
+              deviceId: workspace.deviceId,
+              workspaceId: workspace.workspaceId,
+              endpoint: `${designOrigin}/mcp/stream`,
+              bearerToken: token,
+            }),
+            signal: controller.signal,
+          });
+          if (response.status === 401 || response.status === 403) return;
+          if (controller.signal.aborted || token !== tokenRef.current) return;
+          if (response.ok) connectedRef.current.add(key);
+        } catch {
+          if (controller.signal.aborted) return;
+          // Retrying on focus refreshes workspace state and skips completed work.
+        }
+      }
+    }
+    void connectWorkspaces();
 
     return () => controller.abort();
   }, [account.state, designOrigin, tokenRevision, workspaces.state]);

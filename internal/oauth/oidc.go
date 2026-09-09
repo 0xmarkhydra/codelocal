@@ -98,7 +98,7 @@ func encodeJWTPart(value any) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func (c oidcProviderConfig) signToken(claims oidcTokenClaims) (string, error) {
+func (c oidcProviderConfig) signToken(claims any) (string, error) {
 	header, err := encodeJWTPart(map[string]string{"alg": "EdDSA", "kid": c.KeyID, "typ": "JWT"})
 	if err != nil {
 		return "", err
@@ -112,10 +112,10 @@ func (c oidcProviderConfig) signToken(claims oidcTokenClaims) (string, error) {
 	return signed + "." + base64.RawURLEncoding.EncodeToString(signature), nil
 }
 
-func (c oidcProviderConfig) verifyAccessToken(token string, now time.Time) (oidcTokenClaims, error) {
+func (c oidcProviderConfig) verifySignedToken(token string) ([]byte, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return oidcTokenClaims{}, errors.New("malformed OIDC token")
+		return nil, errors.New("malformed OIDC token")
 	}
 	var header struct {
 		Algorithm string `json:"alg"`
@@ -123,15 +123,23 @@ func (c oidcProviderConfig) verifyAccessToken(token string, now time.Time) (oidc
 	}
 	headerRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil || json.Unmarshal(headerRaw, &header) != nil || header.Algorithm != "EdDSA" || header.KeyID != c.KeyID {
-		return oidcTokenClaims{}, errors.New("invalid OIDC token header")
+		return nil, errors.New("invalid OIDC token header")
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil || !ed25519.Verify(c.PublicKey, []byte(parts[0]+"."+parts[1]), signature) {
-		return oidcTokenClaims{}, errors.New("invalid OIDC token signature")
+		return nil, errors.New("invalid OIDC token signature")
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return oidcTokenClaims{}, errors.New("invalid OIDC token payload")
+		return nil, errors.New("invalid OIDC token payload")
+	}
+	return payload, nil
+}
+
+func (c oidcProviderConfig) verifyAccessToken(token string, now time.Time) (oidcTokenClaims, error) {
+	payload, err := c.verifySignedToken(token)
+	if err != nil {
+		return oidcTokenClaims{}, err
 	}
 	var claims oidcTokenClaims
 	if json.Unmarshal(payload, &claims) != nil {

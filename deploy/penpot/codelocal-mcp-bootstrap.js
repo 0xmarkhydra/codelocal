@@ -32,8 +32,8 @@
       },
       body: JSON.stringify(body),
     });
-    if (!response.ok) return null;
-    return response.json().catch(() => null);
+    if (!response.ok) throw new Error("Penpot token lookup unavailable");
+    return response.json();
   }
 
   function tokenFromURL(value) {
@@ -64,7 +64,7 @@
   }
 
   async function provision() {
-    if (provisioning) return;
+    if (provisioning || document.visibilityState === "hidden") return;
     provisioning = true;
     try {
       let token = extractToken(await rpc("get-current-mcp-token", {}));
@@ -77,6 +77,8 @@
       if (!token || token === deliveredToken) return;
       deliveredToken = token;
       window.parent.postMessage({ type: MESSAGE_TYPE, token }, parentOrigin);
+    } catch {
+      // Failed lookups must not rotate the account's existing MCP key.
     } finally {
       provisioning = false;
     }
@@ -85,4 +87,7 @@
   void provision();
   window.setTimeout(() => void provision(), 2500);
   window.addEventListener("focus", () => void provision());
+  window.addEventListener("hashchange", () => void provision());
+  document.addEventListener("visibilitychange", () => void provision());
+  window.setInterval(() => void provision(), 30000);
 })();

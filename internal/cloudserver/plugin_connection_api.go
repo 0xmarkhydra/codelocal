@@ -211,6 +211,18 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plugin_connection", "detail": err.Error()})
 		return
 	}
+	if pluginID == "penpot" {
+		if s.Penpot == nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "penpot_integration_unavailable"})
+			return
+		}
+		if input.BearerToken != "" {
+			if err := s.Penpot.ValidateOwner(r.Context(), input.BearerToken, identity.User.Email); err != nil {
+				webutil.JSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_penpot_identity"})
+				return
+			}
+		}
+	}
 
 	workspace, err := s.pluginConnectionWorkspace(r.Context(), identity.User.ID, input.DeviceID, input.WorkspaceID)
 	if err != nil {
@@ -265,6 +277,14 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 		"bearerEnv": credentialRef,
 	}
 	if credentialSecret != "" {
+		if pluginID == "penpot" {
+			grant, err := s.OAuth.IssuePenpotGrant(r.Context(), identity.User.ID, workspace.DeviceID, workspace.WorkspaceID, credentialSecret)
+			if err != nil {
+				webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "penpot_auth_unavailable"})
+				return
+			}
+			credentialSecret = grant
+		}
 		runtimeArgs["credentialSecret"] = credentialSecret
 	}
 	if previousManagedRef != "" && previousManagedRef != credentialRef {
@@ -314,6 +334,23 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "connection": dto})
+}
+
+func (s *Server) materializePenpotGrant(ctx context.Context, userID, deviceID, workspaceID string, secrets map[string]string) {
+	ref := plugindomain.ManagedCredentialReference("penpot")
+	key := secrets[ref]
+	if key == "" {
+		return
+	}
+	// Never fall back to sending the native key when the adapter/signing fails.
+	delete(secrets, ref)
+	if s.Penpot == nil || s.OAuth == nil {
+		return
+	}
+	grant, err := s.OAuth.IssuePenpotGrant(ctx, userID, deviceID, workspaceID, key)
+	if err == nil {
+		secrets[ref] = grant
+	}
 }
 
 func (s *Server) pluginDisconnectAPI(w http.ResponseWriter, r *http.Request) {

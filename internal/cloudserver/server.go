@@ -31,6 +31,7 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/mcpgateway"
 	"github.com/0xmarkhydra/codelocal/internal/memory"
 	"github.com/0xmarkhydra/codelocal/internal/oauth"
+	"github.com/0xmarkhydra/codelocal/internal/penpot"
 	"github.com/0xmarkhydra/codelocal/internal/projectbrain"
 	"github.com/0xmarkhydra/codelocal/internal/projectidentity"
 	"github.com/0xmarkhydra/codelocal/internal/protocol"
@@ -47,6 +48,7 @@ type Server struct {
 	Workspaces  *gateway.WorkspaceService
 	WebAuth     *webauth.Manager
 	OAuth       *oauth.Server
+	Penpot      *penpot.Adapter
 	MCP         *mcpgateway.Service
 	Memory      *memory.Store
 	Media       *s3MediaStore
@@ -197,6 +199,14 @@ func New(ctx context.Context) (*Server, error) {
 		InstanceID:  instanceID,
 		startedAt:   time.Now(),
 	}
+	// Optional integration failure must not prevent the cloud/runtime starting.
+	if os.Getenv("CODELOCAL_PENPOT_SSO_ONLY") == "true" {
+		s.Penpot, err = penpot.New(oauthServer, os.Getenv("CODELOCAL_PENPOT_BACKEND_URL"),
+			os.Getenv("CODELOCAL_PENPOT_MCP_URL"), os.Getenv("CODELOCAL_PENPOT_WS_URL"))
+		if err != nil {
+			slog.Warn("Penpot integration unavailable: invalid private upstream configuration")
+		}
+	}
 	mcpService.SetBlogMediaImporter(s)
 	s.routes()
 	s.HTTP = &http.Server{
@@ -335,6 +345,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/client/runtime/revocation-ack", s.revocationAck)
 	mux.Handle("/client", s.Hub)
 	mux.Handle("/mcp", s.OAuth.RequireMCP(s.MCP.Handler()))
+	mux.HandleFunc("/api/v1/penpot/mcp", s.Penpot.ServeMCP)
+	mux.HandleFunc("/api/v1/penpot/ws", s.Penpot.ServeWS)
 
 	if os.Getenv("CODELOCAL_ENABLE_PPROF") == "1" {
 		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
@@ -836,6 +848,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("runtime secret materialization failed; config remains usable", "workspaceId", item.WorkspaceID, "error", secretErr)
 				secrets = map[string]string{}
 			}
+			s.materializePenpotGrant(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, secrets)
 			runtimeSettings[item.WorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets}
 		}
 		synced++
@@ -856,6 +869,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("system workspace runtime secret materialization failed", "workspaceId", openMontageSystemWorkspaceID, "error", secretErr)
 				secrets = map[string]string{}
 			}
+			s.materializePenpotGrant(r.Context(), device.UserID, device.DeviceID, openMontageSystemWorkspaceID, secrets)
 			runtimeSettings[openMontageSystemWorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets}
 		}
 	}

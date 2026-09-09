@@ -16,6 +16,6 @@ RUN if [ ! -e /var/www/app/css/ui.css ] && [ -e /var/www/app/css/main.css ]; the
       ln -s main.css /var/www/app/css/ui.css; \
     fi && \
     grep -q '</body>' /var/www/app/index.html && \
-    sed -i 's#</body>#<script src="/codelocal-mcp-bootstrap.js?v=1" defer></script></body>#' /var/www/app/index.html
+    sed -i 's#</body>#<script src="/codelocal-mcp-bootstrap.js?v=2" defer></script></body>#' /var/www/app/index.html
 
 USER penpot:penpot
