@@ -45,6 +45,9 @@ runInNewContext(code, {
       useEffect: (fn) => effects.push(fn),
     };
     if (name === "react/jsx-runtime") return { jsx: (_, props) => props };
+    if (name === "@/lib/i18n/provider") return {
+      useTranslations: () => ({ t: (message) => message }),
+    };
     if (name === "../use-dashboard-resource") return {
       useDashboardResource: (url) => ({
         state: { kind: "ready", value: url.endsWith("/account") ? { csrf: "test-csrf" } : { items } },

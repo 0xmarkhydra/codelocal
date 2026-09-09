@@ -4,6 +4,17 @@ Date: 2026-09-08
 
 Status: **incomplete; do not treat this patch as an end-to-end or security sign-off.**
 
+## Deployment Attempt: 2026-09-09
+
+- User authorized coordinated deployment and use of their Railway CLI.
+- Candidate commit `48de2cb` rebased onto `origin/main` at `3f61d26`, preserving current web/i18n changes. No push or npm publication.
+- Set cloud adapter variables with `--skip-deploys`: SSO-only gate, private backend port 6060, private MCP port 4401 and private WS port 4402.
+- Railway CLI rejected cloud upload with `UPLOAD_FAILED`: `Your trial has expired. Please select a plan to continue using Railway.`
+- No new deployment was started. Frontend proxy variables, frontend/web deployments and local runtime were left unchanged. New cloud variables remain saved for the next deployment.
+- Local candidate nginx image passed `nginx -t`. Rebased narrow Go tests, web typecheck and bootstrap checks passed. Frame test required a mock for the new upstream `useTranslations` hook; product code was not changed for this.
+- Real hosted `execute_code` remains unverified. Activate an eligible Railway plan before resuming cloud deployment, confirming its effective private listen port, then frontend/web deployment and runtime verification.
+- Final rebased checks passed: `go test -p 2 ./...`, web `npm run typecheck`, `npm run build`, `npm run lint`, `npm audit --omit=dev` (zero reported vulnerabilities), both Node regression scripts and `git diff --check`. Temporary nginx validation container removed. Local Node 23 engine warning remains; production image uses Node 22.
+
 ## Checkout And Runtime
 
 - Original checkout: `/Users/levanmong/Documents/codex-mcp`. Existing unrelated changes were preserved.
