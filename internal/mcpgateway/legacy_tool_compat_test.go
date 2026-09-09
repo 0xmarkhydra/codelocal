@@ -180,3 +180,22 @@ func TestLegacyToolCallCompatibilityRejectsUnknownToolWithReconnectHint(t *testi
 		}
 	}
 }
+
+func TestLegacyToolCallCompatibilityIgnoresOtherMCPRoutes(t *testing.T) {
+	const body = `{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"high_level_overview","arguments":{}}}`
+	var received string
+	handler := LegacyToolCallCompatibility(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		received = string(raw)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/penpot/mcp", strings.NewReader(body))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNoContent || received != body {
+		t.Fatalf("non-CodeLocal MCP route was intercepted: status=%d body=%s", recorder.Code, received)
+	}
+}

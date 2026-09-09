@@ -317,7 +317,7 @@ func rewriteLegacyToolCall(raw []byte) ([]byte, bool) {
 // that reconnecting the MCP will refresh the cached schema.
 func LegacyToolCallCompatibility(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.Body == nil || r.ContentLength < 0 || r.ContentLength > legacyToolCompatibilityMaxBody {
+		if r.URL.Path != "/mcp" || r.Method != http.MethodPost || r.Body == nil || r.ContentLength < 0 || r.ContentLength > legacyToolCompatibilityMaxBody {
 			next.ServeHTTP(w, r)
 			return
 		}
