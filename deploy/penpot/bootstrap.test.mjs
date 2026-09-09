@@ -3,8 +3,15 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const source = readFileSync(new URL("./codelocal-mcp-bootstrap.js", import.meta.url), "utf8");
+const securityHeaders = readFileSync(new URL("./nginx-security-headers.conf", import.meta.url), "utf8");
 const token = "test-account-token-not-a-real-credential";
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+assert.match(
+  securityHeaders,
+  /Content-Security-Policy "frame-ancestors 'self' https:\/\/codelocal\.cloud"/,
+  "same-origin MCP plugin iframe and CodeLocal dashboard must remain the only frame ancestors",
+);
 
 function boot(responses, referrer = "https://codelocal.cloud/dashboard/design") {
   const calls = [];
