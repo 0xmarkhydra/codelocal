@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -164,6 +165,7 @@ func (a *Adapter) ServeMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	grant, err := a.authenticate(r.Context(), strings.TrimPrefix(headers[0], "Bearer "))
 	if err != nil {
+		slog.Warn("Penpot MCP grant rejected", "reason", err.Error())
 		reject(w, http.StatusUnauthorized)
 		return
 	}
