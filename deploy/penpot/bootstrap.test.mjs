@@ -4,13 +4,49 @@ import { runInNewContext } from "node:vm";
 
 const source = readFileSync(new URL("./codelocal-mcp-bootstrap.js", import.meta.url), "utf8");
 const securityHeaders = readFileSync(new URL("./nginx-security-headers.conf", import.meta.url), "utf8");
+const frontendDockerfiles = [
+  readFileSync(new URL("./Dockerfile", import.meta.url), "utf8"),
+  readFileSync(new URL("../../Dockerfile.penpot-frontend", import.meta.url), "utf8"),
+];
 const token = "test-account-token-not-a-real-credential";
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 assert.match(
   securityHeaders,
-  /Content-Security-Policy "frame-ancestors 'self' https:\/\/codelocal\.cloud"/,
-  "same-origin MCP plugin iframe and CodeLocal dashboard must remain the only frame ancestors",
+  /Content-Security-Policy "frame-ancestors https:\/\/design\.codelocal\.cloud https:\/\/codelocal\.cloud"/,
+  "Penpot plugin iframe and CodeLocal dashboard must remain the only frame ancestors",
+);
+for (const dockerfile of frontendDockerfiles) {
+  assert.match(
+    dockerfile,
+    /\[ "\$\(grep -o 'hidden:d' .*plugin\.js \| wc -l\)" -eq 1 \]/,
+    "frontend build must fail when the pinned MCP plugin bundle changes",
+  );
+  assert.match(
+    dockerfile,
+    /sed -i 's\/hidden:d\/hidden:!1\/' .*plugin\.js/,
+    "integrated MCP plugin UI must load so its WebSocket bridge can start",
+  );
+  assert.match(
+    dockerfile,
+    /plugin-codelocal-v1\.js/,
+    "patched MCP plugin must use a versioned URL that bypasses stale caches",
+  );
+  assert.match(
+    dockerfile,
+    /plugins\/mcp-codelocal-v1/,
+    "integrated MCP iframe document must use a versioned path",
+  );
+  assert.match(
+    dockerfile,
+    /shared\.js\?version=2\.17\.0-1784702688-codelocal2/,
+    "shared bundle URL must change when its integrated plugin path changes",
+  );
+}
+assert.match(
+  readFileSync(new URL("./nginx-mcp-locations.conf.template", import.meta.url), "utf8"),
+  /location \/mcp\/stream \{\s+access_log off;/,
+  "credential-bearing MCP query forms must never enter access logs",
 );
 
 function boot(responses, referrer = "https://codelocal.cloud/dashboard/design") {

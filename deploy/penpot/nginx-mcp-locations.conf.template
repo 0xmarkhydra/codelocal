@@ -9,6 +9,7 @@ location /mcp/ws {
 }
 
 location /mcp/stream {
+    access_log off;
     set $mcp_stream_backend $PENPOT_MCP_URI/api/v1/penpot/mcp$is_args$args;
     proxy_pass $mcp_stream_backend;
     proxy_http_version 1.1;
