@@ -33,7 +33,7 @@ func TestShippingScriptsRemainNativeGoOnly(t *testing.T) {
 	}
 	for name, script := range manifest.Scripts {
 		lower := strings.ToLower(script)
-		for _, forbidden := range []string{"src/client-v2", "src/server-saas", "src/index.ts", "ts-node", "tsx ", "node src/"} {
+		for _, forbidden := range []string{"src/client-v2", "src/server-saas", "src/index.ts", "node src/", "legacy/typescript-runtime/src/client-v2", "legacy/typescript-runtime/src/server-saas", "legacy/typescript-runtime/src/index.ts", "node legacy/typescript-runtime/src/", "ts-node", "tsx "} {
 			if strings.Contains(lower, forbidden) {
 				t.Fatalf("shipping script %q reintroduced legacy TypeScript runtime dependency %q: %s", name, forbidden, script)
 			}
@@ -52,7 +52,7 @@ func TestReleaseBuilderDoesNotPackageLegacyTypeScriptRuntime(t *testing.T) {
 			return err
 		}
 		text := strings.ToLower(string(raw))
-		for _, forbidden := range []string{"src/client-v2", "src/server-saas", "src/index.ts"} {
+		for _, forbidden := range []string{"src/client-v2", "src/server-saas", "src/index.ts", "legacy/typescript-runtime/src/client-v2", "legacy/typescript-runtime/src/server-saas", "legacy/typescript-runtime/src/index.ts"} {
 			if strings.Contains(text, forbidden) && !strings.HasSuffix(path, "native_runtime_boundary_test.go") {
 				t.Errorf("release builder %s references quarantined legacy runtime %q", filepath.Base(path), forbidden)
 			}

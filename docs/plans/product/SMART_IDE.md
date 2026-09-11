@@ -56,7 +56,7 @@ ChatGPT calls context_for_task(task)
 
 ## Native workspace events
 
-`src/client-entry-v2.ts` installs `src/native-watcher.ts` before `client-v2` loads. Existing Chokidar consumers transparently use `@parcel/watcher` when available.
+`legacy/typescript-runtime/src/client-entry-v2.ts` installs `legacy/typescript-runtime/src/native-watcher.ts` before `client-v2` loads. Existing Chokidar consumers transparently use `@parcel/watcher` when available.
 
 The preferred native backends are:
 
@@ -72,7 +72,7 @@ The persistent index remains a second freshness layer: the next task-context ref
 
 ## Workspace intelligence
 
-`src/workspace-index.ts` persists metadata-derived information under:
+`legacy/typescript-runtime/src/workspace-index.ts` persists metadata-derived information under:
 
 ```text
 ~/.codelocal/indexes/

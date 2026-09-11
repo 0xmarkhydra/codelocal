@@ -28,9 +28,9 @@ This weakens the signal of what is canonical.
 
 ### 1.2 Two runtime generations are visually peers
 
-Production is Go-first under `cmd/` and `internal/`, but the quarantined TypeScript runtime still exists under `src/` with many implementation files and tests.
+Production is Go-first under `cmd/` and `internal/`. The compatibility-only TypeScript runtime is isolated under `legacy/typescript-runtime/`, away from canonical product source paths.
 
-Even though release gates already prevent the legacy TypeScript runtime from becoming the production runtime, the directory name `src/` still looks authoritative to humans and tools.
+Release gates prevent the legacy runtime from becoming production code while keeping its retirement evidence available until physical deletion is safe.
 
 ### 1.3 Several Go packages are becoming internal monoliths
 
@@ -65,7 +65,6 @@ The long-term repository should converge toward:
 ├── package.json
 ├── package-lock.json
 ├── Dockerfile
-├── Dockerfile.reviewer
 ├── .github/
 ├── backend/                      # target Go cloud/API/server product surface
 ├── web/                          # Next.js + TypeScript browser product
@@ -79,8 +78,7 @@ The long-term repository should converge toward:
 ├── scripts/
 ├── cmd/                          # transitional Go entrypoints until migrated safely
 ├── internal/                     # transitional/canonical Go domains until migrated safely
-├── src/                          # quarantined legacy TypeScript until deletion gate passes
-└── legacy/                       # eventual quarantine destination only if deletion is not yet possible
+└── legacy/typescript-runtime/    # quarantined compatibility code until deletion gate passes
 ```
 
 The accepted technology ownership for these surfaces is defined in [`PRODUCT_STACK.md`](./PRODUCT_STACK.md). The product-level directories are a convergence target; `cmd/` and `internal/` remain canonical Go implementation locations until each dependency-safe migration lands.
@@ -236,14 +234,14 @@ internal/version/           version contract
 
 ## 5. Legacy TypeScript quarantine
 
-Current `src/` is intentionally retained because deletion gates are not yet fully satisfied.
+`legacy/typescript-runtime/` is intentionally retained because deletion gates are not yet fully satisfied.
 
 ### Immediate rule
 
 Treat:
 
 ```text
-src/**
+legacy/typescript-runtime/**
 ```
 
 as **legacy reference code, not a default modification target**.
@@ -253,27 +251,11 @@ as **legacy reference code, not a default modification target**.
 After confirming:
 
 - no production script executes legacy runtime entrypoints;
-- no external supported integration imports `src/*`;
+- no external supported integration imports `legacy/typescript-runtime/src/*`;
 - no release artifact requires it;
 - required migration/regression evidence is captured;
 
-then choose one of two outcomes:
-
-#### Preferred
-
-Delete the legacy TypeScript runtime entirely.
-
-#### Transitional fallback
-
-Move it to:
-
-```text
-legacy/typescript-runtime/
-```
-
-with its own README and isolated tooling.
-
-Do not move it merely to make the repository look cleaner if release/test consumers still rely on paths.
+then delete the legacy TypeScript runtime entirely in a dedicated retirement change. Until then, keep it self-contained under `legacy/typescript-runtime/` with its own README, instructions and TypeScript configuration.
 
 ---
 
@@ -541,7 +523,7 @@ Only after the higher-value root/legacy/cloud cleanup lands. These are core runt
 Add lightweight repository checks:
 
 - reject new root `*_PLAN.md` documents;
-- flag new production changes under legacy `src/` unless explicitly allowed;
+- flag new production changes under `legacy/typescript-runtime/` unless explicitly allowed;
 - optionally warn on oversized files/packages;
 - verify docs links;
 - maintain package ownership map.
@@ -571,7 +553,7 @@ This matters especially on the current hardening branch where security/process c
 Repository cleanup is successful when:
 
 - a new engineer can identify production source in under one minute;
-- an agent does not choose legacy `src/` for new implementation by default;
+- an agent does not choose `legacy/typescript-runtime/` for new implementation by default;
 - root contains no feature/master-plan sprawl;
 - every major domain has an explicit owner/location;
 - new docs have one predictable taxonomy;

@@ -11,13 +11,12 @@ on:
       - 'internal/**'
       - '!internal/cloud/**'
       - '!internal/cloudserver/**'
-      - 'src/**'
+      - 'legacy/typescript-runtime/**'
       - 'scripts/**'
       - 'go.mod'
       - 'go.sum'
       - 'package.json'
       - 'package-lock.json'
-      - 'tsconfig.json'
       - '.nvmrc'
   pull_request:
     paths:
@@ -28,13 +27,12 @@ on:
       - 'internal/**'
       - '!internal/cloud/**'
       - '!internal/cloudserver/**'
-      - 'src/**'
+      - 'legacy/typescript-runtime/**'
       - 'scripts/**'
       - 'go.mod'
       - 'go.sum'
       - 'package.json'
       - 'package-lock.json'
-      - 'tsconfig.json'
       - '.nvmrc'
   workflow_dispatch:
 

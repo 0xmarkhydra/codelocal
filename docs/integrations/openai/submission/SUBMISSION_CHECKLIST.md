@@ -26,7 +26,7 @@ This checklist maps the current CodeLocal repository to the OpenAI plugin submis
 - [x] Release notes prepared.
 - [ ] Deploy current Cloud build to production.
 - [ ] Set `OPENAI_APPS_CHALLENGE_TOKEN` to the exact portal challenge token during verification.
-- [ ] Deploy reviewer sandbox as an always-on service using `Dockerfile.reviewer`.
+- [ ] Deploy reviewer sandbox as an always-on service using `deploy/docker/reviewer.Dockerfile`.
 - [ ] Create a dedicated reviewer user/account with sample data only.
 - [ ] Pair reviewer sandbox credentials to that reviewer account and inject them as deployment secrets.
 - [ ] Confirm reviewer login requires no MFA, SMS, inaccessible email confirmation, VPN, or private network.

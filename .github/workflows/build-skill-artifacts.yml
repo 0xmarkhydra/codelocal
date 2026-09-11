@@ -6,7 +6,7 @@ on:
     paths:
       - "cmd/skillpack/**"
       - "internal/skills/**"
-      - "skillpacks/**"
+      - "tools/skillpacks/**"
       - ".github/workflows/build-skill-artifacts.yml"
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
-          with open("skillpacks/ui-ux-pro/manifest.json", "r", encoding="utf-8") as f:
+          with open("tools/skillpacks/ui-ux-pro/manifest.json", "r", encoding="utf-8") as f:
               manifest = json.load(f)
           print(f"ref={manifest['sourceRef']}")
           print(f"tree={manifest['sourceHash']}")
@@ -61,7 +61,7 @@ jobs:
         run: |
           mkdir -p dist/skills
           go run ./cmd/skillpack \
-            -manifest skillpacks/ui-ux-pro/manifest.json \
+            -manifest tools/skillpacks/ui-ux-pro/manifest.json \
             -root .skill-source/ui-ux-pro \
             -out dist/skills/ui-ux-pro-1.0.0.skill.json
 

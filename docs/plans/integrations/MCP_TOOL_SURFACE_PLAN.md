@@ -899,10 +899,10 @@ Likely related:
 
 Legacy TypeScript path may also need parity or explicit retirement decisions:
 
-- `src/server-saas.ts`
-- `src/server-v2.ts`
-- `src/client-v2.ts`
-- `src/protocol.ts`
+- `legacy/typescript-runtime/src/server-saas.ts`
+- `legacy/typescript-runtime/src/server-v2.ts`
+- `legacy/typescript-runtime/src/client-v2.ts`
+- `legacy/typescript-runtime/src/protocol.ts`
 
 Documentation:
 

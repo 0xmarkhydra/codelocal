@@ -38,6 +38,17 @@ Use `codelocal --version` for the installed runtime. Stable installs use `codelo
 
 The canonical backend, Cloud gateway, CLI and local runtime are implemented in Go. The browser product is migrating to Next.js + TypeScript, while Flutter + Dart is the accepted application stack for future mobile and desktop clients; OS-specific bridges remain native only where required. See [Product Stack](./docs/architecture/PRODUCT_STACK.md). The npm distribution only keeps a tiny launcher that selects the correct prebuilt native binary for macOS, Linux or Windows.
 
+## Repository map
+
+| Path | Ownership |
+| --- | --- |
+| `cmd/`, `internal/` | Canonical Go backend, CLI and local runtime |
+| `web/` | Next.js browser product |
+| `deploy/` | Dockerfiles, Railway configs and deployment assets |
+| `tools/`, `scripts/` | Build, release and developer tooling |
+| `docs/` | Architecture, guides, operations and plans |
+| `legacy/typescript-runtime/` | Quarantined compatibility code; not shipped runtime |
+
 ## Why Go
 
 The native runtime now uses one compiled process instead of a Node.js application tree. This reduces runtime dependency surface, avoids Node heap/watcher failure modes, improves concurrency for multiple workspaces and terminals, and makes Cloud deployment a small static-style Go service.

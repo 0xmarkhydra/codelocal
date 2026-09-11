@@ -393,7 +393,7 @@ internal/protocol
 internal/cloudserver
 ```
 
-Do not implement new production continuity behavior in quarantined legacy `src/` except for explicit compatibility evidence/removal work.
+Do not implement new production continuity behavior in `legacy/typescript-runtime/` except for explicit compatibility evidence/removal work.
 
 ## 14. Implementation phases
 

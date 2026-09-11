@@ -13,8 +13,8 @@ CodeLocal is a multi-surface product with explicit technology ownership. The acc
 - CLI/local runtime: **Go**.
 - Native OS bridges: platform-specific code only where required; macOS Computer Engine remains Swift/native.
 - Existing `cmd/` entrypoints and `internal/` Go packages remain canonical during incremental migration; do not mass-move them for cosmetics.
-- `src/` is the quarantined legacy TypeScript runtime. Do not add new product behavior there and do not edit it unless the task explicitly targets legacy compatibility, migration evidence, or deletion work.
-- Root `package.json` orchestrates repository-wide build/release tasks; legacy `src/` is not canonical web TypeScript. New browser TypeScript belongs in `web/`.
+- `legacy/typescript-runtime/` is the quarantined legacy TypeScript runtime. Do not add new product behavior there and do not edit it unless the task explicitly targets legacy compatibility, migration evidence, or deletion work.
+- Root `package.json` orchestrates repository-wide build/release tasks; quarantined legacy TypeScript is not canonical browser code. New browser TypeScript belongs in `web/`.
 
 ## Where new code belongs
 

@@ -33,8 +33,12 @@ for (const required of [
   "docs/guides",
   "docs/operations",
   "docs/integrations",
-  "src/LEGACY_RUNTIME.md",
-  "src/AGENTS.md",
+  "legacy/typescript-runtime/README.md",
+  "legacy/typescript-runtime/AGENTS.md",
+  "legacy/typescript-runtime/tsconfig.json",
+  "deploy/docker/reviewer.Dockerfile",
+  "scripts/release-npm.sh",
+  "tools/skillpacks/ui-ux-pro/manifest.json",
   "internal/cloud/AGENTS.md",
   "internal/cloudserver/AGENTS.md",
   "internal/automation/AGENTS.md",
@@ -46,6 +50,11 @@ for (const required of [
 
 for (const forbidden of [
   "1.5.0",
+  "src",
+  "tsconfig.json",
+  "Dockerfile.reviewer",
+  "release.sh",
+  "skillpacks",
   "internal/ui",
   "docs/plugin-submission",
   "docs/USER_GUIDE.md",
@@ -59,7 +68,7 @@ for (const forbidden of [
 
 const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const scripts = Object.values(pkg.scripts ?? {}).join("\n");
-for (const legacyEntrypoint of ["src/index.ts", "src/client-v2", "src/server-saas", "node src/"]) {
+for (const legacyEntrypoint of ["legacy/typescript-runtime/src/index.ts", "legacy/typescript-runtime/src/client-v2", "legacy/typescript-runtime/src/server-saas", "node legacy/typescript-runtime/src/"]) {
   if (scripts.includes(legacyEntrypoint)) {
     failures.push(`root package script must not execute legacy runtime: ${legacyEntrypoint}`);
   }

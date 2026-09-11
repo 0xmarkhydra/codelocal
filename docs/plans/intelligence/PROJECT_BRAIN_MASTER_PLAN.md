@@ -212,7 +212,7 @@ internal/security/              local policy enforcement
 internal/taskstate/             hot task state
 ```
 
-Legacy TypeScript code such as `src/workspace-index.ts` can provide useful prior concepts, but new production-critical Project Brain behavior should live in the current native Go architecture unless a deliberate migration decision says otherwise.
+Legacy TypeScript code such as `legacy/typescript-runtime/src/workspace-index.ts` can provide useful prior concepts, but new production-critical Project Brain behavior should live in the current native Go architecture unless a deliberate migration decision says otherwise.
 
 Existing strengths already implemented or partially implemented:
 

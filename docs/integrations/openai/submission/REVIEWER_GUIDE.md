@@ -7,7 +7,7 @@ OpenAI reviewers should be able to evaluate the authenticated CodeLocal plugin w
 CodeLocal therefore ships a dedicated reviewer runtime entrypoint and deterministic sample repository:
 
 - binary entrypoint: `cmd/codelocal-reviewer`
-- reviewer image: `Dockerfile.reviewer`
+- reviewer image: `deploy/docker/reviewer.Dockerfile`
 - fixture: `cmd/codelocal-reviewer/fixture/`
 
 ## Deployment model
