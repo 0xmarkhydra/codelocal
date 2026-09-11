@@ -2,9 +2,9 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "Dockerfile.9router",
+    "dockerfilePath": "deploy/docker/9router.Dockerfile",
     "watchPatterns": [
-      "Dockerfile.9router",
+      "deploy/docker/9router.Dockerfile",
       "railway.9router.json"
     ]
   },

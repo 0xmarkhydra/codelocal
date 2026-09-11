@@ -2,9 +2,9 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "Dockerfile.penpot-frontend",
+    "dockerfilePath": "deploy/docker/penpot-frontend.Dockerfile",
     "watchPatterns": [
-      "Dockerfile.penpot-frontend",
+      "deploy/docker/penpot-frontend.Dockerfile",
       "deploy/penpot/**",
       "railway.penpot-frontend.json"
     ]
