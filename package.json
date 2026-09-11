@@ -3,7 +3,7 @@
   "version": "1.5.64",
   "private": true,
   "description": "CodeLocal Go backend/CLI runtime with a Next.js web product.",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "scripts": {
     "build": "go build ./cmd/...",
     "build:web": "npm run build --prefix web",
