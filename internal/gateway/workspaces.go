@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
@@ -35,6 +36,11 @@ type WorkspaceService struct {
 	Activation  *cloud.ActivationStore
 	Hub         *Hub
 	Coordinator *Coordinator
+
+	runtimeRouterMu          sync.Mutex
+	runtimeRouterInitialized bool
+	runtimeRouterErr         error
+	RuntimeRouter            *RuntimeRouter
 }
 
 func activeWorkspaceView(client *Client) *WorkspaceView {
@@ -59,7 +65,21 @@ func activeWorkspaceView(client *Client) *WorkspaceView {
 	}
 }
 
+// Catalog is the product-facing workspace catalog. CodeLocal-managed cloud
+// runtime devices are execution details and must never appear as duplicate
+// user workspaces in MCP, Dashboard or workspace-selection UI.
 func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]WorkspaceView, error) {
+	return s.catalog(ctx, userID, false)
+}
+
+// catalogAll includes managed runtime records. Keep this package-private: it is
+// only for execution routing/activation where the cloud runtime's real client
+// key must be resolved internally.
+func (s *WorkspaceService) catalogAll(ctx context.Context, userID string) ([]WorkspaceView, error) {
+	return s.catalog(ctx, userID, true)
+}
+
+func (s *WorkspaceService) catalog(ctx context.Context, userID string, includeManaged bool) ([]WorkspaceView, error) {
 	records, err := s.Store.ListWorkspaceRecords(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -75,6 +95,9 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 	deviceIDs := []string{}
 	seen := map[string]struct{}{}
 	for _, w := range records {
+		if !includeManaged && managedRuntimeDeviceID(w.DeviceID) {
+			continue
+		}
 		if _, ok := seen[w.DeviceID]; !ok {
 			seen[w.DeviceID] = struct{}{}
 			deviceIDs = append(deviceIDs, w.DeviceID)
@@ -101,6 +124,9 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 	}
 	out := []WorkspaceView{}
 	for _, w := range records {
+		if !includeManaged && managedRuntimeDeviceID(w.DeviceID) {
+			continue
+		}
 		key := ClientKey(userID, w.DeviceID, w.WorkspaceID)
 		owner, _ := s.Coordinator.Owner(ctx, key)
 		local := s.Hub.localClient(key)
@@ -146,7 +172,22 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 	return out, nil
 }
 
+// Activate routes a product workspace through the configured runtime provider
+// set. The original Local Runtime activation path remains in ActivateLocal so
+// provider orchestration cannot recursively call itself.
 func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*WorkspaceView, error) {
+	router, err := s.ensureRuntimeRouter()
+	if err != nil {
+		return nil, err
+	}
+	binding, err := router.Acquire(ctx, RuntimeAcquireRequest{UserID: userID, WorkspaceKey: key, Mode: RuntimeProviderAuto})
+	if err != nil {
+		return nil, err
+	}
+	return binding.Workspace, nil
+}
+
+func (s *WorkspaceService) ActivateLocal(ctx context.Context, userID, key string) (*WorkspaceView, error) {
 	// The connected client is the freshest source of workspace capabilities and
 	// authorization. Avoid rebuilding the durable catalog (DB + several Redis
 	// lookups) on every tool call when this gateway already owns the connection.
@@ -156,7 +197,7 @@ func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*W
 		}
 	}
 	if owner, _ := s.Coordinator.Owner(ctx, key); owner != "" {
-		catalog, err := s.Catalog(ctx, userID)
+		catalog, err := s.catalogAll(ctx, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -166,7 +207,7 @@ func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*W
 			}
 		}
 	}
-	catalog, err := s.Catalog(ctx, userID)
+	catalog, err := s.catalogAll(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +242,7 @@ func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*W
 	// Refresh after activation so protocol/capability gating sees the capabilities
 	// advertised by the newly connected client rather than the sleeping catalog
 	// placeholder created during workspace sync.
-	if refreshed, refreshErr := s.Catalog(ctx, userID); refreshErr == nil {
+	if refreshed, refreshErr := s.catalogAll(ctx, userID); refreshErr == nil {
 		for i := range refreshed {
 			if refreshed[i].Key == key {
 				return &refreshed[i], nil
