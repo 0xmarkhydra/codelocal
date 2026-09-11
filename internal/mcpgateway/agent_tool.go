@@ -76,6 +76,60 @@ func parseBoundedAgentSteps(value any) ([]boundedAgentStep, error) {
 	return steps, nil
 }
 
+func parseOptionalAgentTeam(args map[string]any) ([]agentTeamMember, bool) {
+	raw, exists := args["team"]
+	if !exists || raw == nil {
+		return nil, false
+	}
+	members, err := parseAgentTeam(raw)
+	if err != nil {
+		return nil, true
+	}
+	return members, true
+}
+
+func validateAgentTeamPreconditions(hasTeam bool, team []agentTeamMember, objective string) error {
+	if !hasTeam {
+		return nil
+	}
+	if len(team) == 0 {
+		// parseAgentTeam failed (wrong shape / empty / over cap / bad entry).
+		// Fail loud with the concrete constraint instead of silently ignoring
+		// the caller's team request.
+		return fmt.Errorf("agent team is invalid: team must be a non-empty array (max %d) of {subagent, objective, optional readPaths/writePaths/tokenBudget 1..%d}", maxAgentTeamMembers, maxAgentTeamTokenBudget)
+	}
+	_ = objective
+	return nil
+}
+
+func teamAgentReportsPayload(reports []agentTeamReport) []map[string]any {
+	out := make([]map[string]any, 0, len(reports))
+	for _, report := range reports {
+		entry := map[string]any{"subagent": report.Subagent, "briefId": report.BriefID, "status": report.Status, "summary": report.Summary}
+		if len(report.FilesTouched) > 0 {
+			entry["filesTouched"] = report.FilesTouched
+		}
+		if strings.TrimSpace(report.Verification) != "" {
+			entry["verification"] = report.Verification
+		}
+		if len(report.Followups) > 0 {
+			entry["followups"] = report.Followups
+		}
+		if strings.TrimSpace(report.HaltReason) != "" {
+			entry["haltReason"] = report.HaltReason
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func shadowParallelism(shadow *agentOSV2Shadow) int {
+	if shadow == nil || shadow.Prepared == nil || shadow.Prepared.Team.Parallelism <= 0 {
+		return 2
+	}
+	return shadow.Prepared.Team.Parallelism
+}
+
 func compactDefinitionsByName() map[string]compactToolDef {
 	out := map[string]compactToolDef{}
 	for _, definition := range compactToolDefinitions() {
@@ -476,6 +530,7 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	if err != nil {
 		return errorResult(err), nil
 	}
+	team, hasTeam := parseOptionalAgentTeam(args)
 
 	session := sessionID(req)
 	workspaceKey, err := resolveAgentWorkspaceKey(ctx, s, userID, session, args)
@@ -488,6 +543,9 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	workspace, err := s.Workspaces.Activate(ctx, userID, workspaceKey)
 	if err != nil {
 		return errorResult(err), nil
+	}
+	if teamErr := validateAgentTeamPreconditions(hasTeam, team, objective); teamErr != nil {
+		return errorResult(teamErr), nil
 	}
 	caps := executionCapabilities(workspace)
 	definitions := compactDefinitionsByName()
@@ -526,6 +584,19 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	}
 	initialPlan := plan
 	shadow := prepareAgentOSV2Shadow(ctx, userID, session, workspaceKey, objective, caps, plan, currentAgentState(userID, session, workspaceKey))
+	// S3 fan-out: when the caller supplies team, dispatch members through
+	// scoped bounded executors and join fail-closed. The lead's own steps
+	// still run afterwards so `team` augments (never replaces) the bounded
+	// program; team context stays isolated per member (no transcript forward).
+	var teamReports []agentTeamReport
+	var teamJoin *orchestration.TeamJoin
+	if hasTeam {
+		registry, _, _ := resolveSubagentRegistry(workspace, workspaceKey)
+		teamTaskID := agentOSV2ShadowTaskID(userID, session, workspaceKey, objective, start)
+		reports, join := s.dispatchAgentTeam(ctx, userID, args, req, workspaceKey, teamTaskID, team, registry, shadowParallelism(shadow))
+		teamReports = reports
+		teamJoin = &join
+	}
 	dirtySinceVerify := false
 	haltReason := ""
 	var lastResult *mcp.CallToolResult = contextResult
@@ -755,6 +826,22 @@ func (s *Service) runBoundedAgent(ctx context.Context, userID string, args map[s
 	}
 	if learnedSkillApprovalBlocked {
 		payload["approvalRequired"] = agentResultStructured(lastResult)
+	}
+	if teamJoin != nil {
+		payload["team"] = map[string]any{
+			"members": teamAgentReportsPayload(teamReports),
+			"join":    map[string]any{"verdict": string(teamJoin.Verdict), "complete": teamJoin.Complete, "failed": teamJoin.Failed, "unverified": teamJoin.Unvered, "unknown": teamJoin.Unknown},
+		}
+		if teamJoin.Verdict == orchestration.JoinFailed {
+			payload["status"] = "halted"
+			payload["haltReason"] = "agent team join failed: " + strings.Join(append(append([]string{}, teamJoin.Failed...), teamJoin.Unknown...), ", ")
+			return textResult(payload, false), nil
+		}
+		if teamJoin.Verdict == orchestration.JoinNeedsReview {
+			payload["status"] = "halted"
+			payload["haltReason"] = "agent team completed without verification: " + strings.Join(teamJoin.Unvered, ", ")
+			return textResult(payload, false), nil
+		}
 	}
 	if responseMode == "full" {
 		payload["plan"] = plan

@@ -24,15 +24,10 @@ const (
 )
 
 type dashboardLLMTarget struct {
-	ID        string
-	BaseURL   string
-	APIKey    string
-	Model     string
-	Community bool
-	// Vision marks chat targets that accept image_url/input_image blocks.
-	// Pool-owned targets default to true (canonical chat plane + responses
-	// protocol), while community text-only targets stay false.
-	Vision bool
+	ID      string
+	BaseURL string
+	APIKey  string
+	Model   string
 }
 
 type dashboardSelectedModelError struct {
@@ -86,106 +81,6 @@ func dashboardNormalizeModelSelection(raw string) string {
 	}
 }
 
-func dashboardModelSupportsVision(model string) bool {
-	name := strings.ToLower(strings.TrimSpace(model))
-	switch {
-	case name == dashboardModelMuse,
-		name == dashboardModelMuseLegacy,
-		name == dashboardModelGLM,
-		name == dashboardModelQwen:
-		// Explicit vision routing (Task 1): community sparklines stay
-		// text-only so image requests never default to a target that drops
-		// image_url/input_image blocks.
-		return false
-	case strings.HasPrefix(name, "gpt-"),
-		strings.HasPrefix(name, "gemini-"),
-		strings.HasPrefix(name, "claude-"),
-		strings.HasPrefix(name, "kimi-"),
-		strings.HasPrefix(name, "qwen"):
-		return true
-	default:
-		return false
-	}
-}
-
-// dashboardVisionModelPreference ranks vision-capable candidates for image
-// requests: explicit canonical selections first, then Shop defaults, then the
-// Pool default lane, and finally detected Shop catalog models.
-func dashboardVisionModelPreference() []string {
-	preferred := make([]string, 0, 4)
-	seen := map[string]bool{}
-	appendModel := func(model string) {
-		model = strings.TrimSpace(model)
-		if model == "" || seen[model] {
-			return
-		}
-		seen[model] = true
-		preferred = append(preferred, model)
-	}
-	if _, baseURL, defaultModel, ok := dashboardShopAIKeyConfig(); ok {
-		if dashboardModelSupportsVision(defaultModel) {
-			appendModel(defaultModel)
-		}
-		_ = baseURL
-	}
-	if config, ok := dashboardAIPoolConfigFromEnv(); ok && dashboardModelSupportsVision(config.DefaultModel) {
-		appendModel(config.DefaultModel)
-	}
-	for _, fallback := range []string{"gpt-5.6-sol", "gpt-image-1.5", "gemini-2.5-flash-image"} {
-		if dashboardModelSupportsVision(fallback) {
-			appendModel(fallback)
-		}
-	}
-	return preferred
-}
-
-// dashboardVisionRoute builds a strict vision-capable route for image
-// requests. Pool stays the only execution plane when configured; otherwise it
-// prefers Shop vision models and never falls back to text-only community
-// sparklines.
-func dashboardVisionRoute(selection string) []dashboardLLMTarget {
-	ordered := make([]dashboardLLMTarget, 0, 4)
-	appendTarget := func(target dashboardLLMTarget) {
-		if !target.Vision {
-			return
-		}
-		for _, existing := range ordered {
-			if existing.BaseURL == target.BaseURL && existing.Model == target.Model {
-				return
-			}
-		}
-		ordered = append(ordered, target)
-	}
-	if poolTarget, ok := dashboardAIPoolTarget(""); ok {
-		// Pool-owned lanes keep Vision=true by construction; explicit vision
-		// selections go through Pool unchanged.
-		if selection != dashboardModelAuto {
-			if pool, ok := dashboardAIPoolTarget(selection); ok {
-				appendTarget(pool)
-			}
-		}
-		appendTarget(poolTarget)
-		return ordered
-	}
-	if selection != dashboardModelAuto {
-		if shop, ok := dashboardShopAIKeyTarget(selection); ok {
-			appendTarget(shop)
-		}
-	}
-	for _, candidate := range dashboardVisionModelPreference() {
-		if shop, ok := dashboardShopAIKeyTarget(candidate); ok {
-			appendTarget(shop)
-		}
-	}
-	return ordered
-}
-
-// dashboardVisionBlockedMessage explains why an image request has no vision
-// route instead of falling back to the generic mock reply.
-func dashboardVisionBlockedMessage() string {
-	return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY (model vision như gpt-*) hoặc bật Pool (CODELOCAL_AI_POOL_ENABLED=1) rồi gửi lại ảnh."
-}
-
 func dashboardEmperoTarget(model string) dashboardLLMTarget {
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("CODELOCAL_EMPERO_BASE_URL")), "/")
 	if baseURL == "" {
@@ -195,7 +90,7 @@ func dashboardEmperoTarget(model string) dashboardLLMTarget {
 	if apiKey == "" {
 		apiKey = "free"
 	}
-	return dashboardLLMTarget{ID: "empero:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: true}
+	return dashboardLLMTarget{ID: "empero:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model}
 }
 
 func dashboardMuseTarget(model string) (dashboardLLMTarget, bool) {
@@ -219,7 +114,7 @@ func dashboardMuseTarget(model string) (dashboardLLMTarget, bool) {
 	if apiKey == "" {
 		return dashboardLLMTarget{}, false
 	}
-	return dashboardLLMTarget{ID: "zen:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: true}, true
+	return dashboardLLMTarget{ID: "zen:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model}, true
 }
 
 // dashboardZenLanePinned reports whether dashboard chat is temporarily pinned
@@ -234,31 +129,24 @@ func dashboardZenLanePinned() bool {
 	return ok
 }
 
-// dashboardCommunityBlockedMessage explains why a request still has no route
-// even though providers are configured: community models must not receive
-// workspace-bound, image, or sensitive content.
-func dashboardCommunityBlockedMessage() string {
-	return "Model community miễn phí (Muse 1.3, GLM, Qwen) không nhận nội dung gắn workspace, ảnh hoặc thông tin nhạy cảm. Bạn bỏ workspace đang chọn rồi gửi lại, hoặc chuyển model sang Auto để tiếp tục."
-}
-
+// dashboardLLMRoute resolves the strict route for the selected model.
+// Model nào thì gửi ảnh model đó: image/workspace content flows to the
+// selected target unchanged. No vision lane, no community lane, no model
+// switching behind the user's back. If the upstream provider cannot handle
+// image_url blocks, its error is surfaced directly.
 func dashboardLegacyTarget() (dashboardLLMTarget, bool) {
 	apiKey, baseURL, model := dashboardLLMConfig()
 	if strings.TrimSpace(apiKey) == "" {
 		return dashboardLLMTarget{}, false
 	}
-	community := strings.Contains(strings.ToLower(baseURL), "free.empero.org") ||
-		(strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "muse-") && dashboardUsesZen(baseURL))
-	return dashboardLLMTarget{ID: "legacy:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: community}, true
+	return dashboardLLMTarget{ID: "legacy:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model}, true
 }
 
-func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarget {
+func dashboardLLMRoute(selection string) []dashboardLLMTarget {
 	selection = dashboardNormalizeModelSelection(selection)
 	poolDefault, hasPool := dashboardAIPoolTarget("")
 	ordered := make([]dashboardLLMTarget, 0, 7)
 	appendTarget := func(target dashboardLLMTarget) {
-		if target.Community && !allowCommunity {
-			return
-		}
 		for _, existing := range ordered {
 			if existing.BaseURL == target.BaseURL && existing.Model == target.Model {
 				return
@@ -319,8 +207,8 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 // agent continuity is enabled. Pool already fails over across accounts and
 // upstream sources for the same canonical model; this adds a bounded fallback
 // across other active canonical models so a long-running task can continue.
-func dashboardLLMRouteWithContext(ctx context.Context, selection string, allowCommunity, allowModelFallback bool) []dashboardLLMTarget {
-	route := dashboardLLMRoute(selection, allowCommunity)
+func dashboardLLMRouteWithContext(ctx context.Context, selection string, allowModelFallback bool) []dashboardLLMTarget {
+	route := dashboardLLMRoute(selection)
 	if !allowModelFallback {
 		return route
 	}
@@ -389,44 +277,19 @@ func dashboardLooksSensitive(value string) bool {
 	return false
 }
 
-func dashboardCommunityEligible(req dashboardChatRequest) bool {
-	if strings.TrimSpace(req.Image) != "" || req.ImageMeta != nil || req.Workspace != nil || dashboardLooksSensitive(req.Message) {
-		return false
-	}
-	for _, item := range req.History {
-		if dashboardLooksSensitive(item.Content) {
-			return false
-		}
-	}
-	return true
-}
-
-// dashboardCommunityWorkspaceAllowed reports whether the deployment explicitly
-// opts into sending workspace-bound and image content to community lanes via
-// CODELOCAL_ALLOW_COMMUNITY_WORKSPACE=1. Default off. Enabling it lets free
-// providers receive project context; obvious secrets stay blocked.
-func dashboardCommunityWorkspaceAllowed() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE"))) {
-	case "1", "true", "on", "yes", "enabled":
-		return true
-	default:
-		return false
-	}
-}
-
-// dashboardCommunityOptInEligible mirrors dashboardCommunityEligible but honors
-// the workspace opt-in: workspace and image content may flow to community lanes
-// while obvious secrets in the message or history stay blocked.
-func dashboardCommunityOptInEligible(req dashboardChatRequest) bool {
+// dashboardSharedLaneBlocked reports only obvious secrets/tokens that stay
+// off shared lanes. Images and workspace context always flow to the selected
+// model (model nào gửi ảnh model đó).
+func dashboardSharedLaneBlocked(req dashboardChatRequest) bool {
 	if dashboardLooksSensitive(req.Message) {
-		return false
+		return true
 	}
 	for _, item := range req.History {
 		if dashboardLooksSensitive(item.Content) {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func dashboardTargetCoolingDown(target dashboardLLMTarget) bool {
@@ -498,13 +361,13 @@ func dashboardValidateToolCalls(calls []llmToolCall) error {
 	return nil
 }
 
-func callDashboardLLMWithTools(selection string, allowCommunity bool, messages []map[string]any, tools []map[string]any) (dashboardLLMTarget, []llmToolCall, string, error) {
-	return callDashboardLLMWithToolsContext(context.Background(), selection, allowCommunity, false, messages, tools)
+func callDashboardLLMWithTools(selection string, messages []map[string]any, tools []map[string]any) (dashboardLLMTarget, []llmToolCall, string, error) {
+	return callDashboardLLMWithToolsContext(context.Background(), selection, false, messages, tools)
 }
 
-func callDashboardLLMWithToolsContext(ctx context.Context, selection string, allowCommunity, allowModelFallback bool, messages []map[string]any, tools []map[string]any) (dashboardLLMTarget, []llmToolCall, string, error) {
+func callDashboardLLMWithToolsContext(ctx context.Context, selection string, allowModelFallback bool, messages []map[string]any, tools []map[string]any) (dashboardLLMTarget, []llmToolCall, string, error) {
 	messages = dashboardWithSkillContext(messages)
-	route := dashboardLLMRouteWithContext(ctx, selection, allowCommunity, allowModelFallback)
+	route := dashboardLLMRouteWithContext(ctx, selection, allowModelFallback)
 	if len(route) == 0 {
 		return dashboardLLMTarget{}, nil, "", dashboardRouteError(selection, errors.New("no configured LLM route"))
 	}
@@ -548,16 +411,14 @@ func (w *dashboardCountingWriter) Write(data []byte) (int, error) {
 
 type dashboardLLMExecutionRoute struct {
 	Selection          string
-	AllowCommunity     bool
 	AllowModelFallback bool
 }
 
 type dashboardLLMExecutionRouteKey struct{}
 
-func dashboardWithLLMExecutionRoute(r *http.Request, selection string, allowCommunity, allowModelFallback bool) *http.Request {
+func dashboardWithLLMExecutionRoute(r *http.Request, selection string, allowModelFallback bool) *http.Request {
 	state := dashboardLLMExecutionRoute{
 		Selection:          dashboardNormalizeModelSelection(selection),
-		AllowCommunity:     allowCommunity,
 		AllowModelFallback: allowModelFallback,
 	}
 	return r.WithContext(context.WithValue(r.Context(), dashboardLLMExecutionRouteKey{}, state))
@@ -576,11 +437,11 @@ func dashboardRecoverAgentRound(r *http.Request, messages []map[string]any, tool
 	if !ok {
 		return dashboardLLMTarget{}, nil, "", nil, false
 	}
-	target, calls, content, err := callDashboardLLMWithToolsContext(r.Context(), state.Selection, state.AllowCommunity, state.AllowModelFallback, messages, tools)
+	target, calls, content, err := callDashboardLLMWithToolsContext(r.Context(), state.Selection, state.AllowModelFallback, messages, tools)
 	return target, calls, content, err, true
 }
 
-func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, selection string, allowCommunity bool, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) (dashboardLLMTarget, error) {
+func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, selection string, messages []map[string]any, tools []map[string]any, r *http.Request, s *Server, userID string) (dashboardLLMTarget, error) {
 	skillPlan := dashboardSkillPlanForUser(r.Context(), s, userID, messages)
 	if value := dashboardSkillHeaderValue(skillPlan); value != "" {
 		w.Header().Set(dashboardSkillHeader, value)
@@ -590,8 +451,8 @@ func proxyDashboardLLMRouteStream(w http.ResponseWriter, flusher http.Flusher, s
 	r = r.WithContext(cloud.WithDashboardChatSkills(r.Context(), dashboardSkillMetadata(skillPlan)))
 	messages = dashboardWithSkillPlan(messages, skillPlan)
 	allowModelFallback := dashboardChatModeFromRequest(r) == "agent"
-	r = dashboardWithLLMExecutionRoute(r, selection, allowCommunity, allowModelFallback)
-	route := dashboardLLMRouteWithContext(r.Context(), selection, allowCommunity, allowModelFallback)
+	r = dashboardWithLLMExecutionRoute(r, selection, allowModelFallback)
+	route := dashboardLLMRouteWithContext(r.Context(), selection, allowModelFallback)
 	if len(route) == 0 {
 		return dashboardLLMTarget{}, dashboardRouteError(selection, errors.New("no configured LLM route"))
 	}

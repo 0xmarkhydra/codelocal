@@ -58,18 +58,13 @@ selected request to another model. Only `auto` may use the fallback chain.
 
 ## Privacy boundary
 
-Community providers must not receive:
+Model nào gửi ảnh model đó: image, image metadata, workspace-bound prompts
+và workspace identifiers luôn forward cho đúng model đã chọn. Không có lane
+vision riêng, không tự đổi model sau lưng.
 
-- images or image metadata;
-- workspace-bound prompts or workspace identifiers;
-- obvious secrets/tokens/password material;
-- CodeLocal tool results.
-
-A deployment may explicitly opt in with `CODELOCAL_ALLOW_COMMUNITY_WORKSPACE=1`,
-which permits workspace and image content on community lanes so a free model can
-do project work; obvious secrets stay blocked.
-
-If a community model requests a CodeLocal tool, the tool may execute locally, but the continuation containing the tool result is routed only through a trusted/BYOK lane. This prevents workspace or device data from being forwarded to a community provider.
+Only obvious secrets/tokens/password material stay off shared lanes via
+`dashboardSharedLaneBlocked`. If a model requests a CodeLocal tool, the tool
+may execute locally and the continuation stays on the same selected route.
 
 ## UI contract
 

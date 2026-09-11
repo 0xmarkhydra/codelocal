@@ -86,9 +86,6 @@ func dashboardAIPoolTarget(model string) (dashboardLLMTarget, bool) {
 		BaseURL: config.BaseURL,
 		APIKey:  config.APIKey,
 		Model:   model,
-		// Pool canonical chat models ride the responses lane; only models with
-		// explicit vision-capable families keep image blocks in context.
-		Vision: dashboardModelSupportsVision(model),
 	}, true
 }
 

@@ -132,11 +132,11 @@ func TestDashboardShopAIKeySelectedModelRoutesFirst(t *testing.T) {
 	t.Setenv("CODELOCAL_SHOPAIKEY_BASE_URL", "https://shop.example.test/v1")
 	t.Setenv("CODELOCAL_SHOPAIKEY_MODEL", "qwen3.5-flash")
 
-	direct := dashboardLLMRoute("claude-sonnet-4-6", false)
-	if len(direct) != 1 || direct[0].BaseURL != "https://shop.example.test/v1" || direct[0].Model != "claude-sonnet-4-6" || direct[0].Community {
+	direct := dashboardLLMRoute("claude-sonnet-4-6")
+	if len(direct) != 1 || direct[0].BaseURL != "https://shop.example.test/v1" || direct[0].Model != "claude-sonnet-4-6" {
 		t.Fatalf("direct route=%#v", direct)
 	}
-	auto := dashboardLLMRoute(dashboardModelAuto, false)
+	auto := dashboardLLMRoute(dashboardModelAuto)
 	if len(auto) == 0 || auto[0].Model != "qwen3.5-flash" {
 		t.Fatalf("auto route=%#v", auto)
 	}
@@ -155,7 +155,7 @@ func TestDashboardShopAIKeySelectedModelRetriesWithoutFallback(t *testing.T) {
 	t.Setenv("CODELOCAL_SHOPAIKEY_BASE_URL", server.URL)
 	t.Setenv("CODELOCAL_SHOPAIKEY_MODEL", "qwen3.5-flash")
 
-	target, _, _, err := callDashboardLLMWithTools("claude-opus-5", false, []map[string]any{{"role": "user", "content": "hello"}}, nil)
+	target, _, _, err := callDashboardLLMWithTools("claude-opus-5", []map[string]any{{"role": "user", "content": "hello"}}, nil)
 	if err == nil {
 		t.Fatal("expected selected model error")
 	}

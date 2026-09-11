@@ -1,16 +1,12 @@
-"use client";
-
-import { usePathname } from "next/navigation";
 import { DashboardSidebar } from "./dashboard-sidebar";
-import styles from "./dashboard.module.css";
+import styles from "./dashboard-chrome.module.css";
 
-export function DashboardShell({ children }: Readonly<{ children: React.ReactNode }>) {
-  const pathname = usePathname();
-  const chatRoute = pathname === "/dashboard";
-
+export function DashboardShell({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <main className={`${styles.shell} ${chatRoute ? styles.chatShellLayout : ""}`}>
-      {!chatRoute ? <DashboardSidebar /> : null}
+    <main className={styles.shell}>
+      <DashboardSidebar />
       {children}
     </main>
   );

@@ -13,12 +13,12 @@ import (
 )
 
 // PublicToolSurfaceVersion is the compatibility generation of the public MCP
-// contract. Generation 7 keeps the compact 14-tool catalog and adds durable
-// video artifact publishing through terminal(action=publish_artifact). Bump the
-// generation whenever a public tool schema changes so AI hosts invalidate cached
-// tools/list catalogs. Older calls remain translatable.
+// contract. Generation 8 keeps the compact 14-tool catalog and adds the
+// optional bounded `team` fan-out field on agent(objective, steps, team).
+// Bump the generation whenever a public tool schema changes so AI hosts
+// invalidate cached tools/list catalogs. Older calls remain translatable.
 const (
-	PublicToolSurfaceVersion = 7
+	PublicToolSurfaceVersion = 8
 
 	// Version 1.5.16 was the generation-2 MCP identity. Keep the same release
 	// line and derive the patch from the surface generation so every future
@@ -142,16 +142,12 @@ func toolContractHashForDefinitions(defs []compactToolDef, instructions string) 
 	return toolContractHashForDefinitionsWithVersion(defs, instructions, PublicMCPImplementationVersion)
 }
 
-func legacyPublicToolDefinitions() []compactToolDef {
-	defs := generationFourCompactToolDefinitions()
-	legacy := make([]compactToolDef, 0, len(defs))
-	for _, def := range defs {
-		if def.Name != "blog" {
-			legacy = append(legacy, def)
-		}
-	}
-	return legacy
-}
+var (
+	toolSurfaceOnce  sync.Once
+	toolSurfaceCache ToolSurfaceInfo
+	toolNamesOnce    sync.Once
+	toolNamesCache   map[string]struct{}
+)
 
 func legacyToolSurfaceSummary() string {
 	return fmt.Sprintf("CodeLocal tool surface v%d (%d tools, sha256:%s)", PinnedLegacyPublicToolSurfaceVersion, 20, PinnedLegacyPublicToolSurfaceHash)
@@ -174,13 +170,6 @@ func legacyPublicToolSurfaceHash() string {
 func legacyPublicToolContractHash() string {
 	return toolContractHashForDefinitionsWithVersion(legacyPublicToolDefinitions(), legacyPublicMCPInstructions(), PinnedLegacyPublicMCPImplementationVersion)
 }
-
-var (
-	toolSurfaceOnce  sync.Once
-	toolSurfaceCache ToolSurfaceInfo
-	toolNamesOnce    sync.Once
-	toolNamesCache   map[string]struct{}
-)
 
 func PublicToolSurface() ToolSurfaceInfo {
 	toolSurfaceOnce.Do(func() {

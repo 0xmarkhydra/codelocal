@@ -258,13 +258,7 @@
 }
 
 .threadSidebarFoot {
-  min-height: 28px;
-  display: flex;
-  align-items: center;
-  padding: 0 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.045);
-  color: rgba(180, 195, 219, 0.3);
-  font-size: 9px;
+  display: none;
 }
 
 .chatShell {
@@ -350,7 +344,7 @@
   box-shadow: 0 0 0 2px rgba(105, 216, 149, 0.09);
 }
 
-.brandBlock > div > span {
+.taskContext {
   display: block;
   margin-top: 2px;
   color: rgba(224, 233, 246, 0.48);
@@ -735,11 +729,64 @@
   box-shadow: 0 9px 28px rgba(31, 45, 138, 0.2), inset 0 1px rgba(255,255,255,.12);
 }
 
+.toolSummaryGroup {
+  margin: 0 0 12px;
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.toolSummaryBar {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: background 140ms ease;
+}
+
+.toolSummaryBar::-webkit-details-marker { display: none; }
+.toolSummaryBar:hover { background: rgba(255, 255, 255, 0.04); }
+
+.toolSummaryTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(235, 240, 249, 0.75);
+  font-size: 12px;
+  font-weight: 540;
+}
+
+.toolSummaryTitle svg {
+  color: #69d895;
+}
+
+.toolSummaryChevron {
+  color: rgba(180, 180, 186, 0.5);
+  transition: transform 160ms ease;
+}
+
+.toolSummaryGroup[open] .toolSummaryChevron {
+  transform: rotate(180deg);
+}
+
+.toolSummaryGroup[open] .toolList {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
 .toolList {
   display: grid;
   gap: 7px;
-  margin: 0 0 12px;
-  width: min(560px, 72vw);
+  margin: 0;
+  width: 100%;
 }
 
 .toolPill {
@@ -1684,9 +1731,13 @@
   :global(html[data-keyboard-open="true"]) .chatWorkspace { grid-template-rows: minmax(0, 1fr); gap: 0; }
 }
 
-/* ===== ChatGPT-style presentation pass (desktop + mobile) — presentation only ===== */
+/* ===== Codex-style task workspace (desktop + mobile) — presentation only ===== */
 
-.chatWorkspace { gap: 0; }
+.chatWorkspace {
+  grid-template-columns: 272px minmax(0, 1fr);
+  gap: 0;
+  background: #212121;
+}
 
 .threadSidebar {
   display: flex;
@@ -1695,7 +1746,7 @@
   padding: 12px 10px 10px;
   border: 0;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 22px 0 0 22px;
+  border-radius: 18px 0 0 18px;
   background: #171717;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   backdrop-filter: none;
@@ -1744,13 +1795,24 @@
 
 .threadPane {
   min-height: 0;
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 0;
+  border-top: 0;
+  overflow: hidden;
+}
+
+.threadList {
+  min-height: 0;
   flex: 1 1 auto;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  gap: 7px;
-  margin-top: 8px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1px 1px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.11) transparent;
 }
 
 .threadSidebarHead span {
@@ -1856,7 +1918,7 @@
 .chatShell {
   --chat-border: transparent;
   border: 0;
-  border-radius: 0 24px 24px 0;
+  border-radius: 0 18px 18px 0;
   background: #212121;
   box-shadow: none;
   backdrop-filter: none;
@@ -1870,7 +1932,44 @@
   backdrop-filter: none;
 }
 
-.brandBlock { gap: 9px; }
+.brandBlock {
+  flex: 1 1 auto;
+  gap: 9px;
+  overflow: hidden;
+}
+
+.taskHeading {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.taskHeading h1 {
+  min-width: 0;
+  max-width: min(34vw, 460px);
+  margin: 0;
+  overflow: hidden;
+  color: rgba(236, 236, 241, 0.95);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskContext {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: rgba(180, 180, 186, 0.58);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskContext svg { flex: 0 0 auto; }
 
 .avatar {
   width: 28px;
@@ -1888,7 +1987,10 @@
   font-weight: 600;
 }
 
-.chatActions { gap: 6px; }
+.chatActions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
 
 .tokenUsage {
   padding: 6px 4px;
@@ -1991,6 +2093,41 @@
   background: #303030;
   color: rgba(236, 236, 241, 0.96);
   box-shadow: none;
+}
+
+.toolSummaryGroup {
+  border-color: rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.toolSummaryBar:hover { background: rgba(255, 255, 255, 0.035); }
+
+.toolSummaryTitle {
+  color: rgba(236, 236, 241, 0.72);
+  font-size: 12px;
+  font-weight: 540;
+}
+
+.toolSummaryTitle svg { color: rgba(180, 180, 186, 0.78); }
+.toolSummaryGroup[data-state="done"] .toolSummaryTitle svg { color: #69d895; }
+.toolSummaryGroup[data-state="running"] .toolSummaryTitle svg { color: #d8b46a; animation: toolActivityPulse 1.4s ease-in-out infinite; }
+.toolSummaryGroup[data-state="approval"] .toolSummaryTitle svg { color: #d8b46a; }
+.toolSummaryGroup[data-state="error"] .toolSummaryTitle svg { color: #e58181; }
+
+.toolSummaryGroup[open] .toolList {
+  border-top-color: rgba(255, 255, 255, 0.055);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.toolActionRow[data-status="done"] .toolDot { background: #69d895; }
+.toolActionRow[data-status="running"] .toolDot { background: #d8b46a; animation: toolActivityPulse 1.4s ease-in-out infinite; }
+.toolActionRow[data-status="approval_required"] .toolDot { background: #d8b46a; }
+.toolActionRow[data-status="error"] .toolDot { background: #e58181; }
+
+@keyframes toolActivityPulse {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
 }
 
 .toolPill { border-color: rgba(255, 255, 255, 0.07); background: rgba(255, 255, 255, 0.045); }
@@ -2303,14 +2440,18 @@
 @media (max-width: 560px) {
   .chatWorkspace { grid-template-rows: minmax(0, 1fr); }
 
+  .chatHead { gap: 4px; }
   .brandBlock { gap: 7px; }
-  .nameRow h1 { font-size: 14.5px; }
+  .taskHeading h1 { max-width: 112px; font-size: 13px; }
+  .taskContext { display: none; }
   .tokenUsage { display: none; }
+  .chatActions > .projectPicker { display: none; }
   .projectPickerIcon { display: none; }
 
   .projectPicker { padding: 0 8px; }
   .projectPicker select { font-size: 11px; }
-  .modelPickerName { max-width: 110px; font-size: 11.5px; }
+  .modelPickerName { max-width: 96px; font-size: 11.5px; }
+  .modelPickerCount { display: none; }
 
   .chatShell .chatForm {
     width: calc(100dvw - 26px);
@@ -2338,4 +2479,6 @@
 @media (prefers-reduced-motion: reduce) {
   .threadSidebar,
   .threadDrawerBackdrop { transition: none; }
+  .toolSummaryGroup[data-state="running"] .toolSummaryTitle svg,
+  .toolActionRow[data-status="running"] .toolDot { animation: none; }
 }

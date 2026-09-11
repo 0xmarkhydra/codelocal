@@ -128,18 +128,6 @@ func dashboardChatStoredImage(req dashboardChatRequest) string {
 // dashboardChatCompactEphemeralImage caps multipart data-url payloads before
 // persisting so image history survives turn 2 while the DB row stays bounded.
 // The 1.5MB cap keeps ~1MB source images intact after base64 inflation.
-func dashboardChatVisionTarget(selection string, route []dashboardLLMTarget) (dashboardLLMTarget, bool) {
-	if visionRoute := dashboardVisionRoute(selection); len(visionRoute) > 0 {
-		return visionRoute[0], true
-	}
-	for _, target := range route {
-		if target.Vision {
-			return target, true
-		}
-	}
-	return dashboardLLMTarget{}, false
-}
-
 func dashboardChatCompactEphemeralImage(image string) string {
 	image = strings.TrimSpace(image)
 	const maxStoredImageBytes = 1500 * 1024
@@ -815,28 +803,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	selection := dashboardNormalizeModelSelection(req.Model)
-	allowCommunity := dashboardCommunityEligible(req) && promptWorkspace == nil
-	if dashboardCommunityWorkspaceAllowed() {
-		allowCommunity = dashboardCommunityOptInEligible(req)
-	}
-	hasImage := strings.TrimSpace(req.Image) != "" || req.ImageMeta != nil
-	route := dashboardLLMRoute(selection, allowCommunity)
-	if hasImage {
-		// Task 1: never route image requests to text-only community lanes.
-		// Prefer an explicit vision target; only fall back to the generic lane
-		// when it also accepts images.
-		if visionRoute := dashboardVisionRoute(selection); len(visionRoute) > 0 {
-			route = visionRoute
-		} else {
-			visionCapable := route[:0]
-			for _, target := range route {
-				if target.Vision {
-					visionCapable = append(visionCapable, target)
-				}
-			}
-			route = visionCapable
-		}
-	}
+	route := dashboardLLMRoute(selection)
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -858,22 +825,6 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		// Mock stream when no configured route is available.
 		if len(route) == 0 {
-			if hasImage {
-				nowVision := time.Now().UnixMilli()
-				if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowVision}); err != nil {
-					slog.Warn("dashboard chat stream vision-blocked save user failed", "error", err)
-				}
-				writeSSE("error", map[string]string{"error": dashboardVisionBlockedMessage()})
-				return
-			}
-			if len(dashboardLLMRoute(selection, true)) > 0 {
-				nowBlocked := time.Now().UnixMilli()
-				if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowBlocked}); err != nil {
-					slog.Warn("dashboard chat stream blocked save user failed", "error", err)
-				}
-				writeSSE("error", map[string]string{"error": dashboardCommunityBlockedMessage()})
-				return
-			}
 			lower2 := strings.ToLower(msg)
 			var tcs []dashboardToolCall
 			var reply string
@@ -917,9 +868,6 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			msgs = append(msgs, dashboardAccessResumeInstruction(accessChoice, accessLabel, executionWorkspace))
 		}
 		if req.Image != "" {
-			if visionTarget, ok := dashboardChatVisionTarget(selection, route); ok {
-				selection = visionTarget.Model
-			}
 			msgs = append(msgs, map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": msg}, {"type": "image_url", "image_url": map[string]any{"url": req.Image}}}})
 		} else {
 			msgs = append(msgs, map[string]any{"role": "user", "content": msg})
@@ -932,7 +880,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		if len(resume.Results) > 0 {
 			writeSSE("tool_calls", map[string]any{"tool_calls": resume.Results})
 		}
-		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, allowCommunity, msgs, chatTools, r, s, identity.User.ID); err != nil {
+		if _, err := proxyDashboardLLMRouteStream(w, flusher, selection, msgs, chatTools, r, s, identity.User.ID); err != nil {
 			if r.Context().Err() != nil || errors.Is(err, context.Canceled) {
 				return
 			}
@@ -947,27 +895,11 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	lower := strings.ToLower(msg)
 	if len(route) == 0 {
-		if hasImage {
-			nowVision := time.Now().UnixMilli()
-			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowVision}); err != nil {
-				slog.Warn("dashboard chat vision-blocked save user failed", "error", err, "user", identity.User.ID)
-			}
-			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": dashboardVisionBlockedMessage()})
-			return
-		}
-		if len(dashboardLLMRoute(selection, true)) > 0 {
-			nowBlocked := time.Now().UnixMilli()
-			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowBlocked}); err != nil {
-				slog.Warn("dashboard chat blocked save user failed", "error", err, "user", identity.User.ID)
-			}
-			webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": dashboardCommunityBlockedMessage()})
-			return
-		}
 		var tcs []dashboardToolCall
 		var reply string
 		if req.Image != "" {
 			tcs = []dashboardToolCall{{ID: "mock_img", Name: "image_upload", Arguments: `{"size":` + fmt.Sprintf("%d", len(req.Image)) + `}`, Result: `{"received":true}`, DurationMs: 30, Status: "done"}}
-			reply = "Đã nhận ảnh (" + fmt.Sprintf("%d", len(req.Image)) + " bytes) — CodeLocal sẽ phân tích khi model vision được gắn. Hiện mock đã lưu ảnh vào history backend."
+			reply = "Đã nhận ảnh (" + fmt.Sprintf("%d", len(req.Image)) + " bytes) — đã lưu backend, nhưng chưa có model nào sẵn sàng để phân tích. Bạn gắn key rồi gửi lại."
 		} else if strings.Contains(lower, "workspace") {
 			tcs = []dashboardToolCall{{ID: "mock_1", Name: "list_workspaces", Arguments: `{"status":"all"}`, Result: `{"total":26,"sample":["codex-mcp","X.com","BIDDI"]}`, DurationMs: 42, Status: "done"}}
 			reply = "Đây là workspaces của bạn (Go mock tool call):"
@@ -1010,14 +942,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("dashboard chat save user before execution failed", "error", err)
 	}
 	allowModelFallback := dashboardChatModeFromRequest(r) == "agent"
-	// Task 1: resolve the vision lane before the batch call so image requests
-	// use a vision-capable model instead of the text-only community default.
-	if hasImage {
-		if visionTarget, ok := dashboardChatVisionTarget(selection, route); ok {
-			selection = visionTarget.Model
-		}
-	}
-	target, toolCalls, content, err := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, messages, chatTools)
+	target, toolCalls, content, err := callDashboardLLMWithToolsContext(r.Context(), selection, allowModelFallback, messages, chatTools)
 	if err != nil {
 		webutil.JSON(w, http.StatusBadGateway, map[string]string{"error": "upstream: " + err.Error()})
 		return
@@ -1078,7 +1003,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		nextTarget, nextCalls, nextContent, err2 := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, follow, chatTools)
+		nextTarget, nextCalls, nextContent, err2 := callDashboardLLMWithToolsContext(r.Context(), selection, allowModelFallback, follow, chatTools)
 		if err2 != nil {
 			stopReason = "model connection interrupted after completed tool work"
 			break
@@ -1095,7 +1020,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 		if stopReason == "" {
 			stopReason = "tool execution budget reached"
 		}
-		finalTarget, _, synthesized, synthErr := callDashboardLLMWithToolsContext(r.Context(), selection, allowCommunity, allowModelFallback, dashboardFinalSynthesisMessages(follow, stopReason), nil)
+		finalTarget, _, synthesized, synthErr := callDashboardLLMWithToolsContext(r.Context(), selection, allowModelFallback, dashboardFinalSynthesisMessages(follow, stopReason), nil)
 		if synthErr != nil {
 			finalContent = dashboardFallbackReply(allResults, stopReason)
 		} else {

@@ -103,6 +103,10 @@ func singleOperationResolver(runtimeTool string, required ...string) func(map[st
 }
 
 func generationFourCompactToolDefinitions() []compactToolDef {
+	return generationFourCompactToolDefinitionsForSurface(false)
+}
+
+func generationFourCompactToolDefinitionsForSurface(includeTeam bool) []compactToolDef {
 	path := str("Workspace-relative path.")
 	approval := str("One-time approval token returned by an approval-required result.")
 	processID := str("CodeLocal process ID.")
@@ -127,6 +131,18 @@ func generationFourCompactToolDefinitions() []compactToolDef {
 			"confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1, "description": "Optional confidence score."},
 		},
 		"required":             []string{"kind", "summary", "scope"},
+		"additionalProperties": false,
+	}
+	agentTeamMemberSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"subagent":    map[string]any{"type": "string", "minLength": 1, "maxLength": 64, "description": "Subagent name: builtin role (quick/investigator/implementer/tester/reviewer/security/deep) or project/global .codelocal/agents/<name>."},
+			"objective":   map[string]any{"type": "string", "minLength": 1, "maxLength": 2000, "description": "Single concrete objective for this team member."},
+			"readPaths":   map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"type": "string"}, "description": "Optional read scope hints for the member brief."},
+			"writePaths":  map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"type": "string"}, "description": "Optional write scope hints for the member brief."},
+			"tokenBudget": map[string]any{"type": "integer", "minimum": 1, "maximum": 64000, "description": "Optional per-member token budget override."},
+		},
+		"required":             []string{"subagent", "objective"},
 		"additionalProperties": false,
 	}
 
@@ -190,15 +206,8 @@ func generationFourCompactToolDefinitions() []compactToolDef {
 			Annotations: compactAnnotations("Find task context", true, false, false), Resolve: singleOperationResolver("context_for_task", "taskHint"),
 		},
 		{
-			Name: "agent", Title: "Run bounded agent plan", Description: "Execute a bounded multi-step CodeLocal action program in one MCP call. Prefer this for continuation-sensitive work and workflows with multiple dependent steps (for example browser/computer -> edit -> verify -> git) so progress is checkpointed locally while minimizing AI-host MCP round trips. CodeLocal automatically grounds the objective with context, validates every step against a conservative autonomous policy, replans from fresh task state, and can run context-aware verification after edits. It never auto-confirms approvals, Git writes/pushes, open-world actions, physical input, or other unbounded side effects.",
-			Schema: objectSchema(map[string]any{
-				"objective":     str("Concrete objective for this bounded execution run."),
-				"steps":         map[string]any{"type": "array", "minItems": 1, "maxItems": 12, "items": agentStep, "description": "Model-authored action program. Later steps must not depend on unseen output from earlier steps."},
-				"autoVerify":    boolean("After successful edits, automatically run verify.changes and missing recognized verification checks. Defaults to true."),
-				"stopWhenReady": boolean("Stop once the quality gate reaches ready. Defaults to true."),
-				"responseMode":  map[string]any{"type": "string", "enum": []string{"compact", "full"}, "description": "Response verbosity. Defaults to compact; use full for debugging/review to include the full plan and execution trace."},
-				"workspaceKey":  workspaceKeySchema,
-			}, "objective", "steps"),
+			Name: "agent", Title: "Run bounded agent plan", Description: "Execute a bounded multi-step CodeLocal action program in one MCP call. Prefer this for continuation-sensitive work and workflows with multiple dependent steps (for example browser/computer -> edit -> verify -> git) so progress is checkpointed locally while minimizing AI-host MCP round trips. CodeLocal automatically grounds the objective with context, validates every step against a conservative autonomous policy, replans from fresh task state, and can run context-aware verification after edits. It never auto-confirms approvals, Git writes/pushes, open-world actions, physical input, or other unbounded side effects." + agentTeamDescriptionSuffix(includeTeam),
+			Schema: agentToolSchema(agentStep, agentTeamMemberSchema, includeTeam),
 			Annotations: compactAnnotations("Run bounded agent plan", false, true, true),
 			Execute: func(ctx context.Context, service *Service, userID string, args map[string]any, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return service.runBoundedAgent(ctx, userID, args, req)
@@ -311,8 +320,43 @@ func generationFourCompactToolDefinitions() []compactToolDef {
 	return append(tools, generationFiveCompactAutomationToolDefinitions()...)
 }
 
+func legacyPublicToolDefinitions() []compactToolDef {
+	// Pinned generation-2 ABI: legacy definitions never gain the generation-8
+	// agent.team field, so their surface/contract hashes stay frozen.
+	defs := generationFourCompactToolDefinitionsForSurface(false)
+	legacy := make([]compactToolDef, 0, len(defs))
+	for _, def := range defs {
+		if def.Name != "blog" {
+			legacy = append(legacy, def)
+		}
+	}
+	return legacy
+}
+
+func agentTeamDescriptionSuffix(includeTeam bool) string {
+	if !includeTeam {
+		return ""
+	}
+	return " Optional team fans out to bounded subagents (builtin roles or .codelocal/agents/*) with isolated context and fail-closed join."
+}
+
+func agentToolSchema(agentStep, agentTeamMemberSchema map[string]any, includeTeam bool) json.RawMessage {
+	properties := map[string]any{
+		"objective":     str("Concrete objective for this bounded execution run."),
+		"steps":         map[string]any{"type": "array", "minItems": 1, "maxItems": 12, "items": agentStep, "description": "Model-authored action program. Later steps must not depend on unseen output from earlier steps."},
+		"autoVerify":    boolean("After successful edits, automatically run verify.changes and missing recognized verification checks. Defaults to true."),
+		"stopWhenReady": boolean("Stop once the quality gate reaches ready. Defaults to true."),
+		"responseMode":  map[string]any{"type": "string", "enum": []string{"compact", "full"}, "description": "Response verbosity. Defaults to compact; use full for debugging/review to include the full plan and execution trace."},
+		"workspaceKey":  workspaceKeySchema,
+	}
+	if includeTeam {
+		properties["team"] = map[string]any{"type": "array", "minItems": 1, "maxItems": 4, "items": agentTeamMemberSchema, "description": "Optional bounded subagent fan-out. Each member runs with isolated context under its own tool allowlist and joins fail-closed."}
+	}
+	return objectSchema(properties, "objective", "steps")
+}
+
 func compactToolDefinitions() []compactToolDef {
-	generationFour := generationFourCompactToolDefinitions()
+	generationFour := generationFourCompactToolDefinitionsForSurface(true)
 	byName := make(map[string]compactToolDef, len(generationFour))
 	for _, def := range generationFour {
 		byName[def.Name] = def

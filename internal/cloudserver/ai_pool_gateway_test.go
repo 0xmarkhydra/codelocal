@@ -67,7 +67,7 @@ func TestDashboardAIPoolTargetIsPrivateAndModelScoped(t *testing.T) {
 	if !ok {
 		t.Fatal("expected default Pool target")
 	}
-	if target.BaseURL != "https://pool.example.test/v1" || target.APIKey != "pool-key" || target.Model != "codelocal-auto" || target.Community {
+	if target.BaseURL != "https://pool.example.test/v1" || target.APIKey != "pool-key" || target.Model != "codelocal-auto" {
 		t.Fatalf("unexpected target: %#v", target)
 	}
 	if _, ok := dashboardAIPoolTarget("cc/claude-sonnet"); ok {
@@ -123,7 +123,7 @@ func TestDashboardAIPoolCatalogMakesUnqualifiedComboRoutable(t *testing.T) {
 	if !reflect.DeepEqual(selectable, wantSelectable) {
 		t.Fatalf("selectable=%v want=%v", selectable, wantSelectable)
 	}
-	route := dashboardLLMRoute("premium-coding", false)
+	route := dashboardLLMRoute("premium-coding")
 	if len(route) != 1 || route[0].ID != "ai-pool:premium-coding" {
 		t.Fatalf("discovered canonical model must route only through Pool: %#v", route)
 	}

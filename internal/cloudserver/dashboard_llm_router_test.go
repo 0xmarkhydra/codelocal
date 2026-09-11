@@ -2,7 +2,6 @@ package cloudserver
 
 import (
 	"context"
-	"strings"
 	"testing"
 )
 
@@ -44,18 +43,20 @@ func TestDashboardNormalizeModelSelection(t *testing.T) {
 	}
 }
 
-func TestDashboardCommunityEligibility(t *testing.T) {
-	if !dashboardCommunityEligible(dashboardChatRequest{Message: "xin chào"}) {
-		t.Fatal("plain chat should be community eligible")
+func TestDashboardSharedLaneBlocking(t *testing.T) {
+	if dashboardSharedLaneBlocked(dashboardChatRequest{Message: "xin chào"}) {
+		t.Fatal("plain chat should not be blocked")
 	}
-	if dashboardCommunityEligible(dashboardChatRequest{Message: "token=secret"}) {
-		t.Fatal("secret-like message must stay off community providers")
+	if !dashboardSharedLaneBlocked(dashboardChatRequest{Message: "token=secret"}) {
+		t.Fatal("secret-like message must stay off shared lanes")
 	}
-	if dashboardCommunityEligible(dashboardChatRequest{Message: "xem project", Workspace: &dashboardChatWorkspace{WorkspaceID: "private"}}) {
-		t.Fatal("workspace-bound chat must stay off community providers")
+	// Model nào gửi ảnh model đó: image and workspace content must flow to
+	// the selected model unchanged.
+	if dashboardSharedLaneBlocked(dashboardChatRequest{Message: "xem project", Workspace: &dashboardChatWorkspace{WorkspaceID: "private"}}) {
+		t.Fatal("workspace-bound chat must flow to the selected model")
 	}
-	if dashboardCommunityEligible(dashboardChatRequest{Message: "xem ảnh", Image: "data:image/png;base64,AA=="}) {
-		t.Fatal("image chat must stay off community providers")
+	if dashboardSharedLaneBlocked(dashboardChatRequest{Message: "xem ảnh", Image: "data:image/png;base64,AA=="}) {
+		t.Fatal("image chat must flow to the selected model")
 	}
 }
 
@@ -67,27 +68,18 @@ func TestDashboardLLMRouteOrder(t *testing.T) {
 	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://opencode.ai/zen/v1")
 	t.Setenv("CODELOCAL_LLM_MODEL", dashboardModelMuse)
 
-	route := dashboardLLMRoute(dashboardModelAuto, true)
+	route := dashboardLLMRoute(dashboardModelAuto)
 	if len(route) < 3 || route[0].Model != dashboardModelGLM || route[1].Model != dashboardModelQwen || route[2].Model != dashboardModelMuse {
 		t.Fatalf("unexpected auto route: %#v", route)
 	}
 
-	privateRoute := dashboardLLMRoute(dashboardModelGLM, false)
-	if len(privateRoute) != 0 {
-		t.Fatalf("explicit community model must not fall back for private chat: %#v", privateRoute)
-	}
-
-	explicitRoute := dashboardLLMRoute(dashboardModelQwen, true)
+	explicitRoute := dashboardLLMRoute(dashboardModelQwen)
 	if len(explicitRoute) != 1 || explicitRoute[0].Model != dashboardModelQwen {
 		t.Fatalf("explicit model route must be strict: %#v", explicitRoute)
 	}
-	privateMuseRoute := dashboardLLMRoute(dashboardModelMuse, false)
-	if len(privateMuseRoute) != 0 {
-		t.Fatalf("direct free Muse must not receive private context: %#v", privateMuseRoute)
-	}
-	privateAutoRoute := dashboardLLMRoute(dashboardModelAuto, false)
-	if len(privateAutoRoute) != 0 {
-		t.Fatalf("direct free fallbacks must not receive private context: %#v", privateAutoRoute)
+	explicitMuseRoute := dashboardLLMRoute(dashboardModelMuse)
+	if len(explicitMuseRoute) != 1 || explicitMuseRoute[0].Model != dashboardModelMuse {
+		t.Fatalf("explicit muse route must stay strict: %#v", explicitMuseRoute)
 	}
 }
 
@@ -97,7 +89,7 @@ func TestDashboardAIPoolDefaultsAutoToMuseSpark13(t *testing.T) {
 	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
 
-	route := dashboardLLMRoute(dashboardModelAuto, false)
+	route := dashboardLLMRoute(dashboardModelAuto)
 	if len(route) != 1 || route[0].ID != "ai-pool:"+dashboardModelMuse || route[0].Model != dashboardModelMuse {
 		t.Fatalf("Auto should default to Muse Spark 1.3 through Pool: %#v", route)
 	}
@@ -117,128 +109,40 @@ func TestDashboardAIPoolRouteIsExclusiveWhenConfigured(t *testing.T) {
 	t.Setenv("CODELOCAL_LLM_API_KEY", "legacy-key")
 	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://legacy.example.test/v1")
 
-	route := dashboardLLMRoute(dashboardModelAuto, true)
-	if len(route) != 1 || route[0].ID != "ai-pool:codelocal-auto" || route[0].Community {
+	route := dashboardLLMRoute(dashboardModelAuto)
+	if len(route) != 1 || route[0].ID != "ai-pool:codelocal-auto" {
 		t.Fatalf("AI Pool must be the only auto target: %#v", route)
 	}
 
-	explicit := dashboardLLMRoute("gpt-5.6-sol", true)
-	if len(explicit) != 1 || explicit[0].ID != "ai-pool:gpt-5.6-sol" || explicit[0].Community {
+	explicit := dashboardLLMRoute("gpt-5.6-sol")
+	if len(explicit) != 1 || explicit[0].ID != "ai-pool:gpt-5.6-sol" {
 		t.Fatalf("canonical Pool selection should route strictly through Pool: %#v", explicit)
 	}
-	legacyNamed := dashboardLLMRoute(dashboardModelGLM, true)
+	legacyNamed := dashboardLLMRoute(dashboardModelGLM)
 	if len(legacyNamed) != 1 || legacyNamed[0].ID != "ai-pool:"+dashboardModelGLM {
 		t.Fatalf("legacy-named selections must still go through Pool: %#v", legacyNamed)
 	}
-	providerQualified := dashboardLLMRoute("cc/claude-sonnet", false)
+	providerQualified := dashboardLLMRoute("cc/claude-sonnet")
 	if len(providerQualified) != 0 {
 		t.Fatalf("provider-qualified ids must never be routable from CodeLocal UI: %#v", providerQualified)
 	}
 }
 
-func TestDashboardCommunityModelWithoutPrivateContextNeedsAllowCommunity(t *testing.T) {
+func TestDashboardExplicitModelReceivesImageAndWorkspace(t *testing.T) {
 	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
 	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
 	t.Setenv("OPENCODE_ZEN_API_KEY", "")
-	if got := dashboardLLMRoute(dashboardModelMuse, false); len(got) != 0 {
-		t.Fatalf("community muse with private context must have no route: %#v", got)
-	}
-	if got := dashboardLLMRoute(dashboardModelMuse, true); len(got) != 1 {
-		t.Fatalf("community muse without private context must route: %#v", got)
-	}
-	if msg := dashboardCommunityBlockedMessage(); !strings.Contains(msg, "Auto") || !strings.Contains(msg, "workspace") {
-		t.Fatalf("blocked message must guide the user: %q", msg)
-	}
-}
 
-func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {
-	clearAIPoolEnv(t)
-	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
-	if dashboardCommunityWorkspaceAllowed() {
-		t.Fatal("community workspace opt-in must default to off")
-	}
-	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "1")
-	if !dashboardCommunityWorkspaceAllowed() {
-		t.Fatal("community workspace opt-in must engage when set")
-	}
-
-	withWorkspace := dashboardChatRequest{
-		Message:   "lam di",
+	withImageWorkspace := dashboardChatRequest{
+		Message:   "phân tích ảnh này",
 		Workspace: &dashboardChatWorkspace{WorkspaceID: "codex-mcp"},
 		Image:     "data:image/png;base64,AA==",
 	}
-	if dashboardCommunityEligible(withWorkspace) {
-		t.Fatal("default lane must keep blocking workspace and image content")
+	if dashboardSharedLaneBlocked(withImageWorkspace) {
+		t.Fatal("image plus workspace request must stay routable for the selected model")
 	}
-	if !dashboardCommunityOptInEligible(withWorkspace) {
-		t.Fatal("opt-in lane must allow workspace and image content")
-	}
-	secretReq := dashboardChatRequest{Message: "deploy with password=hunter2"}
-	if dashboardCommunityOptInEligible(secretReq) {
-		t.Fatal("opt-in lane must keep blocking obvious secrets")
-	}
-
-	// End to end through the handler formula: explicit Muse plus attached
-	// workspace routes once the deployment opts in.
-	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
-	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
-	t.Setenv("OPENCODE_ZEN_API_KEY", "")
-	allowCommunity := dashboardCommunityEligible(withWorkspace)
-	if dashboardCommunityWorkspaceAllowed() {
-		allowCommunity = dashboardCommunityOptInEligible(withWorkspace)
-	}
-	if !allowCommunity {
-		t.Fatal("opt-in request must be community eligible")
-	}
-	if got := dashboardLLMRoute(dashboardModelMuse, allowCommunity); len(got) != 1 {
-		t.Fatalf("opt-in muse route=%#v want one zen target", got)
-	}
-}
-
-func TestDashboardVisionRoutingPrefersVisionTargets(t *testing.T) {
-	clearAIPoolEnv(t)
-	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
-	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "shop-key")
-	t.Setenv("SHOPAIKEY_API_KEY", "")
-	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
-	t.Setenv("CODELOCAL_SHOPAIKEY_MODEL", "gpt-5.6-sol")
-	t.Setenv("OPENCODE_ZEN_API_KEY", "zen-key")
-
-	if dashboardModelSupportsVision(dashboardModelMuse) {
-		t.Fatal("community Muse must stay text-only for explicit vision routing")
-	}
-	if !dashboardModelSupportsVision("gpt-5.6-sol") {
-		t.Fatal("gpt vision family must be vision-capable")
-	}
-
-	route := dashboardVisionRoute(dashboardModelAuto)
-	if len(route) == 0 || !route[0].Vision || route[0].Model != "gpt-5.6-sol" {
-		t.Fatalf("vision route must prefer Shop vision default: %#v", route)
-	}
-	for _, target := range route {
-		if target.Community {
-			t.Fatalf("vision route must never include community targets: %#v", route)
-		}
-	}
-
-	if target, ok := dashboardChatVisionTarget(dashboardModelAuto, dashboardLLMRoute(dashboardModelAuto, false)); !ok || target.Model != "gpt-5.6-sol" {
-		t.Fatalf("chat vision target must resolve the vision lane: %#v %v", target, ok)
-	}
-}
-
-func TestDashboardVisionBlockedWithoutVisionLane(t *testing.T) {
-	clearAIPoolEnv(t)
-	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
-	t.Setenv("SHOPAIKEY_API_KEY", "")
-	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
-	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
-	t.Setenv("OPENCODE_ZEN_API_KEY", "")
-
-	if got := dashboardVisionRoute(dashboardModelAuto); len(got) != 0 {
-		t.Fatalf("vision route without vision providers must be empty: %#v", got)
-	}
-	if msg := dashboardVisionBlockedMessage(); !strings.Contains(msg, "CODELOCAL_SHOPAIKEY_API_KEY") || !strings.Contains(msg, "Pool") {
-		t.Fatalf("vision blocked message must name the fix: %q", msg)
+	if got := dashboardLLMRoute(dashboardModelMuse); len(got) != 1 || got[0].Model != dashboardModelMuse {
+		t.Fatalf("explicit muse with image+workspace must route strictly: %#v", got)
 	}
 }

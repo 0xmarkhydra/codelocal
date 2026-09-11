@@ -81,8 +81,8 @@ export function LiveWorkspaces() {
                 <small>Cập nhật {formatDashboardTime(workspace.lastSeenAt)}</small>
               </div>
               <div className={styles.workspaceCardActions}>
-                <Link className={styles.primaryCardAction} href={`/dashboard?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}>Chat với dự án <AppIcon name="chevron-right" size={14} /></Link>
-                <Link className={styles.secondaryCardAction} href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}>Brain</Link>
+                <Link className={styles.primaryCardAction} href={`/dashboard/code-graph?deviceId=${encodeURIComponent(workspace.deviceId)}&workspaceId=${encodeURIComponent(workspace.workspaceId)}`}>Mở Code Graph <AppIcon name="chevron-right" size={14} /></Link>
+                <Link className={styles.secondaryCardAction} href="/dashboard/knowledge">Project Brain</Link>
                 <ResourceMutationButton
                   endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
                   csrf={csrf}

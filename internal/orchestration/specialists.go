@@ -1,9 +1,6 @@
 package orchestration
 
-import (
-	"errors"
-	"strings"
-)
+import "errors"
 
 type Specialist string
 
@@ -67,24 +64,5 @@ func ValidateDelegation(policies map[Specialist]SpecialistPolicy, request Delega
 // RecommendSpecialist maps semantic work to a bounded role. Engine/model choice
 // remains separate so provider names never leak into planning.
 func RecommendSpecialist(taskKind string, complexity int, securitySensitive bool) Specialist {
-	if securitySensitive {
-		return SpecialistSecurity
-	}
-	kind := strings.ToLower(strings.TrimSpace(taskKind))
-	if strings.Contains(kind, "review") {
-		return SpecialistReviewer
-	}
-	if strings.Contains(kind, "test") || strings.Contains(kind, "verify") {
-		return SpecialistTester
-	}
-	if strings.Contains(kind, "investig") || strings.Contains(kind, "diagnos") {
-		return SpecialistInvestigator
-	}
-	if complexity >= 4 {
-		return SpecialistDeep
-	}
-	if strings.Contains(kind, "implement") || strings.Contains(kind, "fix") || strings.Contains(kind, "refactor") {
-		return SpecialistImplementer
-	}
-	return SpecialistQuick
+	return RecommendSubagent(BuiltinSubagentDefinitions(), SubagentRoutingQuery{TaskKind: taskKind, Complexity: complexity, SecuritySensitive: securitySensitive}).Role
 }

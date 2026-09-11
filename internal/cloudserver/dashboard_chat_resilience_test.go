@@ -25,7 +25,7 @@ func TestDashboardLLMRouteWithContextAddsActivePoolFallbackModels(t *testing.T) 
 	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
 	t.Setenv("CODELOCAL_AI_POOL_MODEL", "gpt-5.6-sol")
 
-	route := dashboardLLMRouteWithContext(context.Background(), "gpt-5.6-sol", false, true)
+	route := dashboardLLMRouteWithContext(context.Background(), "gpt-5.6-sol", true)
 	if len(route) < 2 {
 		t.Fatalf("route=%#v want selected model plus at least one fallback", route)
 	}

@@ -40,6 +40,7 @@ export type AppIconName =
   | "image"
   | "upload"
   | "copy"
+  | "terminal"
   | "external";
 
 type Props = Omit<SVGProps<SVGSVGElement>, "name"> & {
@@ -101,6 +102,7 @@ export function AppIcon({ name, size = 18, ...props }: Props) {
       {name === "image" && <><rect x="3.25" y="4.25" width="17.5" height="15.5" rx="2.25" /><circle cx="8.25" cy="9" r="1.6" /><path d="m4.5 17 4.65-4.6 3.2 3 2.15-2.1 5 4.7" /></>}
       {name === "upload" && <><path d="M12 15.25V4.75m0 0-4 4m4-4 4 4" /><path d="M5 17.25v2h14v-2" /></>}
       {name === "copy" && <><rect x="8" y="8" width="11.5" height="11.5" rx="2" /><path d="M16 8V6.5a2 2 0 0 0-2-2H6.5a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2H8" /></>}
+      {name === "terminal" && <><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></>}
       {name === "external" && <><path d="M13 5h6v6M19 5l-8 8" /><path d="M10 7H6.5A1.5 1.5 0 0 0 5 8.5v9A1.5 1.5 0 0 0 6.5 19h9a1.5 1.5 0 0 0 1.5-1.5V14" /></>}
     </svg>
   );

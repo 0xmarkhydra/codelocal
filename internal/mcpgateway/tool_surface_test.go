@@ -19,23 +19,23 @@ func TestPublicToolSurfaceGenerationSevenPublishesVideoArtifacts(t *testing.T) {
 	if first.Version != PublicToolSurfaceVersion {
 		t.Fatalf("surface version=%d want public version=%d", first.Version, PublicToolSurfaceVersion)
 	}
-	if first.Version != 7 {
-		t.Fatalf("surface version=%d want generation 7", first.Version)
+	if first.Version != 8 {
+		t.Fatalf("surface version=%d want generation 8", first.Version)
 	}
 	if first.Count != len(compactToolDefinitions()) || first.Count != 14 {
-		t.Fatalf("generation 7 should keep exactly 14 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
+		t.Fatalf("generation 8 should keep exactly 14 tools: surface=%d registry=%d", first.Count, len(compactToolDefinitions()))
 	}
 	if len(first.Hash) != 64 {
-		t.Fatalf("generation-7 surface hash must be sha256: %q", first.Hash)
+		t.Fatalf("generation-8 surface hash must be sha256: %q", first.Hash)
 	}
 	for _, name := range []string{"workspace", "context", "terminal", "blog", "browser", "computer"} {
 		if _, ok := currentPublicToolNames()[name]; !ok {
-			t.Fatalf("generation 7 must advertise %s", name)
+			t.Fatalf("generation 8 must advertise %s", name)
 		}
 	}
 	for _, removed := range []string{"device", "project", "dependency", "lsp", "process", "approvals", "security", "mobile"} {
 		if _, ok := currentPublicToolNames()[removed]; ok {
-			t.Fatalf("generation 7 must not advertise grouped/internal tool %s", removed)
+			t.Fatalf("generation 8 must not advertise grouped/internal tool %s", removed)
 		}
 	}
 	publishArtifact := false
@@ -51,7 +51,25 @@ func TestPublicToolSurfaceGenerationSevenPublishesVideoArtifacts(t *testing.T) {
 		}
 	}
 	if !publishArtifact {
-		t.Fatal("generation 7 terminal schema must advertise publish_artifact")
+		t.Fatal("generation 8 terminal schema must advertise publish_artifact")
+	}
+	agentTeam := false
+	for _, def := range compactToolDefinitions() {
+		if def.Name != "agent" {
+			continue
+		}
+		var schema struct {
+			Properties map[string]any `json:"properties"`
+		}
+		if err := json.Unmarshal(def.Schema, &schema); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := schema.Properties["team"]; ok {
+			agentTeam = true
+		}
+	}
+	if !agentTeam {
+		t.Fatal("generation 8 agent schema must advertise optional team fan-out")
 	}
 }
 
