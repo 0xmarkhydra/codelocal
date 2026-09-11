@@ -7,7 +7,6 @@ import (
 )
 
 func TestDashboardSelectableModels(t *testing.T) {
-	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
 	t.Setenv("SHOPAIKEY_API_KEY", "")
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
@@ -60,7 +59,6 @@ func TestDashboardCommunityEligibility(t *testing.T) {
 }
 
 func TestDashboardLLMRouteOrder(t *testing.T) {
-	clearAIPoolEnv(t)
 	t.Setenv("OPENCODE_ZEN_API_KEY", "test-key")
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
 	t.Setenv("CODELOCAL_LLM_API_KEY", "test-key")
@@ -91,53 +89,7 @@ func TestDashboardLLMRouteOrder(t *testing.T) {
 	}
 }
 
-func TestDashboardAIPoolDefaultsAutoToMuseSpark13(t *testing.T) {
-	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test/v1")
-	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
-	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
-	t.Setenv("CODELOCAL_AI_POOL_MODEL", "")
-
-	route := dashboardLLMRoute(dashboardModelAuto, false)
-	if len(route) != 1 || route[0].ID != "ai-pool:"+dashboardModelMuse || route[0].Model != dashboardModelMuse {
-		t.Fatalf("Auto should default to Muse Spark 1.3 through Pool: %#v", route)
-	}
-}
-
-func TestDashboardAIPoolRouteIsExclusiveWhenConfigured(t *testing.T) {
-	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", "https://pool.example.test")
-	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "pool-key")
-	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
-	t.Setenv("CODELOCAL_AI_POOL_MODEL", "codelocal-auto")
-	// Deliberately configure every legacy provider too. Pool must still be the
-	// only execution plane once enabled.
-	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "shop-key")
-	t.Setenv("SHOPAIKEY_API_KEY", "shop-key")
-	t.Setenv("OPENCODE_ZEN_API_KEY", "zen-key")
-	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
-	t.Setenv("CODELOCAL_LLM_API_KEY", "legacy-key")
-	t.Setenv("CODELOCAL_LLM_BASE_URL", "https://legacy.example.test/v1")
-
-	route := dashboardLLMRoute(dashboardModelAuto, true)
-	if len(route) != 1 || route[0].ID != "ai-pool:codelocal-auto" || route[0].Community {
-		t.Fatalf("AI Pool must be the only auto target: %#v", route)
-	}
-
-	explicit := dashboardLLMRoute("gpt-5.6-sol", true)
-	if len(explicit) != 1 || explicit[0].ID != "ai-pool:gpt-5.6-sol" || explicit[0].Community {
-		t.Fatalf("canonical Pool selection should route strictly through Pool: %#v", explicit)
-	}
-	legacyNamed := dashboardLLMRoute(dashboardModelGLM, true)
-	if len(legacyNamed) != 1 || legacyNamed[0].ID != "ai-pool:"+dashboardModelGLM {
-		t.Fatalf("legacy-named selections must still go through Pool: %#v", legacyNamed)
-	}
-	providerQualified := dashboardLLMRoute("cc/claude-sonnet", false)
-	if len(providerQualified) != 0 {
-		t.Fatalf("provider-qualified ids must never be routable from CodeLocal UI: %#v", providerQualified)
-	}
-}
-
 func TestDashboardCommunityModelWithoutPrivateContextNeedsAllowCommunity(t *testing.T) {
-	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
 	t.Setenv("CODELOCAL_LLM_API_KEY", "zen-key")
 	t.Setenv("OPENCODE_ZEN_API_KEY", "")
@@ -153,7 +105,6 @@ func TestDashboardCommunityModelWithoutPrivateContextNeedsAllowCommunity(t *test
 }
 
 func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {
-	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
 	if dashboardCommunityWorkspaceAllowed() {
 		t.Fatal("community workspace opt-in must default to off")
@@ -197,7 +148,6 @@ func TestDashboardCommunityWorkspaceOptIn(t *testing.T) {
 }
 
 func TestDashboardVisionRoutingPrefersVisionTargets(t *testing.T) {
-	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_ALLOW_COMMUNITY_WORKSPACE", "")
 	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "shop-key")
 	t.Setenv("SHOPAIKEY_API_KEY", "")
@@ -228,7 +178,6 @@ func TestDashboardVisionRoutingPrefersVisionTargets(t *testing.T) {
 }
 
 func TestDashboardVisionBlockedWithoutVisionLane(t *testing.T) {
-	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
 	t.Setenv("SHOPAIKEY_API_KEY", "")
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "zen")
@@ -238,7 +187,7 @@ func TestDashboardVisionBlockedWithoutVisionLane(t *testing.T) {
 	if got := dashboardVisionRoute(dashboardModelAuto); len(got) != 0 {
 		t.Fatalf("vision route without vision providers must be empty: %#v", got)
 	}
-	if msg := dashboardVisionBlockedMessage(); !strings.Contains(msg, "CODELOCAL_SHOPAIKEY_API_KEY") || !strings.Contains(msg, "Pool") {
+	if msg := dashboardVisionBlockedMessage(); !strings.Contains(msg, "CODELOCAL_SHOPAIKEY_API_KEY") || strings.Contains(msg, "Pool") {
 		t.Fatalf("vision blocked message must name the fix: %q", msg)
 	}
 }

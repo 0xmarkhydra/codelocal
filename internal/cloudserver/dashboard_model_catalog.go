@@ -403,28 +403,7 @@ func dashboardUniqueModels(groups ...[]string) []string {
 	return out
 }
 
-func dashboardPoolSelectableModels(ctx context.Context) []string {
-	if _, ok := dashboardAIPoolConfigFromEnv(); !ok {
-		return nil
-	}
-	models, err := dashboardAIPoolModels(ctx)
-	if err != nil {
-		return nil
-	}
-	// Pool already exposes only canonical models that have at least one usable
-	// route. Do not apply the generic "popular 20" cap: the CodeLocal picker must
-	// reflect the complete active Pool catalog so an explicit user selection is
-	// always routable.
-	return dashboardAIPoolModelIDs(models, 0)
-}
-
-func dashboardCuratedModels(ctx context.Context) []string {
-	if _, ok := dashboardAIPoolConfigFromEnv(); ok {
-		return dashboardUniqueModels(
-			[]string{dashboardModelAuto},
-			dashboardPoolSelectableModels(ctx),
-		)
-	}
+func dashboardCuratedModels(_ context.Context) []string {
 	return dashboardUniqueModels(
 		[]string{dashboardModelAuto},
 		[]string{dashboardModelGLM, dashboardModelQwen, dashboardModelMuse},
@@ -432,21 +411,6 @@ func dashboardCuratedModels(ctx context.Context) []string {
 }
 
 func dashboardSelectableModels(ctx context.Context) ([]string, error) {
-	// Pool configured means Pool owns the complete CodeLocal chat model catalog.
-	// Do not mix legacy/provider-specific models into the picker, otherwise a user
-	// can select a model that bypasses Pool and breaks the single control-plane
-	// contract.
-	if _, ok := dashboardAIPoolConfigFromEnv(); ok {
-		models, err := dashboardAIPoolModels(ctx)
-		if err != nil {
-			return []string{dashboardModelAuto}, err
-		}
-		return dashboardUniqueModels(
-			[]string{dashboardModelAuto},
-			dashboardAIPoolModelIDs(models, 0),
-		), nil
-	}
-
 	// Temporary direct-Zen lane: an explicitly configured Zen credential pins
 	// the picker to Auto + Muse Spark 1.3 so chat stays on the single
 	// temporary model instead of the ShopAIKey/curated catalogs.

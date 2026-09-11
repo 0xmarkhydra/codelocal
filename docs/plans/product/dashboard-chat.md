@@ -89,7 +89,7 @@
   - Chỉ dựng `{role, content}` (+ `tool_call_id/name`), bỏ hoàn toàn `message.Image`. Ảnh các turn trước không bao giờ quay lại LLM context.
 - Router `internal/cloudserver/dashboard_llm_router.go`:
   - `dashboardCommunityEligible(req)` = false khi `req.Image!="" || req.ImageMeta!=nil || req.Workspace!=nil || sensitive`. Mặc định `allowCommunity=false` khi có ảnh/workspace.
-  - `dashboardLLMRoute(selection, allowCommunity)` lọc `if target.Community && !allowCommunity { skip }`. `dashboardEmperoTarget` (GLM/Qwen) và `dashboardMuseTarget` (Muse Spark 1.3) đều `Community:true`. Nếu Pool (`CODELOCAL_AI_POOL_ENABLED=1`) tắt và ShopAIKey (`CODELOCAL_SHOPAIKEY_API_KEY`) chưa cấu hình -> `route` rỗng -> rơi vào nhánh mock stream (`Đã nhận ảnh...`), không gọi LLM vision thật.
+  - `dashboardLLMRoute(selection, allowCommunity)` lọc `if target.Community && !allowCommunity { skip }`. `dashboardEmperoTarget` (GLM/Qwen) và `dashboardMuseTarget` (Muse Spark 1.3) đều `Community:true`. Nếu ShopAIKey (`CODELOCAL_SHOPAIKEY_API_KEY`) chưa cấu hình -> `route` rỗng -> rơi vào nhánh mock stream (`Đã nhận ảnh...`), không gọi LLM vision thật.
   - `CODELOCAL_ALLOW_COMMUNITY_WORKSPACE=1` mới cho ảnh/workspace qua community lane (`dashboardCommunityOptInEligible`), mặc định off.
 - Protocol `dashboardProtocolForModel`:
   - Zen (`opencode.ai/zen/v1`) + `muse-*` -> `responses` (`responsesInput` convert `image_url->{input_image}`). Muse Spark 1.3 free text-only hoặc gateway drop block ảnh.
@@ -98,14 +98,14 @@
   - Chưa cấu hình `CODELOCAL_MEDIA_S3_*` (hoặc Skill storage fallback) -> `s.Media==nil` -> mọi `ImageMeta` đều 503, chỉ còn đường multipart base64.
 
 ### 10.3. Root cause chốt
-1. `allowCommunity=false` khi có ảnh/workspace + Pool/Shop chưa cấu hình -> route rỗng -> mock, AI không bao giờ thấy ảnh.
+1. `allowCommunity=false` khi có ảnh/workspace + ShopAIKey chưa cấu hình -> route rỗng -> mock, AI không bao giờ thấy ảnh.
 2. Dù có route, default Auto về Muse Spark 1.3 (text-only) nên block `image_url/input_image` bị bỏ.
 3. History (`dashboardPersistedHistoryMessages` + FE `history.slice(-12)`) drop ảnh -> turn 2 mất context.
 4. Multipart fallback (`ephemeralImage`) cố ý `storedImage=""` để tránh DB phình -> không persist, history API (`dashboardChatHistoryImageURL`) không có gì để resolve.
 5. `ImageMeta` yêu cầu S3 deduplicated + presigned GET TTL 3 phút (`defaultMediaURLTTL`); S3 chưa bật -> 503.
 
 ### 10.4. Plan fix (ghi để implement tiếp)
-- [x] Task 1 — Vision routing: `Vision` trên `dashboardLLMTarget`, `dashboardModelSupportsVision` (Muse/GLM/Qwen = text-only), `dashboardVisionRoute` ưu tiên Pool rồi Shop vision, batch+stream resolve `selection` qua `dashboardChatVisionTarget`; không vision route -> lỗi rõ `dashboardVisionBlockedMessage` thay vì mock `Đã nhận ảnh`.
+- [x] Task 1 — Vision routing: `Vision` trên `dashboardLLMTarget`, `dashboardModelSupportsVision` (Muse/GLM/Qwen = text-only), `dashboardVisionRoute` ưu tiên Shop vision, batch+stream resolve `selection` qua `dashboardChatVisionTarget`; không vision route -> lỗi rõ `dashboardVisionBlockedMessage` thay vì mock `Đã nhận ảnh`.
 - [x] Task 2 — Giữ ảnh trong history: `dashboardChatHistoryItem.Image` + `dashboardRequestHistoryMessages`/`dashboardPersistedHistoryMessages` rebuild `content:[{text},{image_url}]`, giữ tối đa 2 ảnh inline gần nhất (meta JSON S3 chỉ resolve ở turn 1); FE gửi kèm `image` cho history user có ảnh.
 - [x] Task 3 — Persist multipart: `storedImage=""` -> `dashboardChatCompactEphemeralImage` (cap 1.5MB data-url); `GET /history` vẫn resolve được URL hiển thị.
 - [x] Task 4 — FE feedback: `media_not_configured`/`media_upload_incomplete`/thiếu vision route báo rõ trong `friendlyChatFailure` + `uploadImage`; nút gửi đã disable khi `imageUploading`.

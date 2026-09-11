@@ -6,7 +6,7 @@ const source = readFileSync(new URL("./codelocal-mcp-bootstrap.js", import.meta.
 const securityHeaders = readFileSync(new URL("./nginx-security-headers.conf", import.meta.url), "utf8");
 const frontendDockerfiles = [
   readFileSync(new URL("./Dockerfile", import.meta.url), "utf8"),
-  readFileSync(new URL("../../Dockerfile.penpot-frontend", import.meta.url), "utf8"),
+  readFileSync(new URL("../docker/penpot-frontend.Dockerfile", import.meta.url), "utf8"),
 ];
 const token = "test-account-token-not-a-real-credential";
 const flush = () => new Promise((resolve) => setImmediate(resolve));

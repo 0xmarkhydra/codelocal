@@ -237,7 +237,7 @@ function waitForChatRetry(delayMs: number, signal: AbortSignal) {
 
 function friendlyChatFailure(message: string) {
   if (/model vision|chưa có model vision/i.test(message)) {
-    return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY (model vision như gpt-*) hoặc bật Pool rồi gửi lại ảnh.";
+    return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY với model vision như gpt-* rồi gửi lại ảnh.";
   }
   if (/chưa bật upload ảnh|media_upload_incomplete|media_not_configured/i.test(message)) {
     return "Hệ thống chưa bật upload ảnh (S3); ảnh vẫn gửi trực tiếp được nhưng chỉ lưu gọn trong lịch sử. Hãy gửi lại ảnh nếu backend báo media_upload_incomplete.";
@@ -363,15 +363,15 @@ export function DashboardChat() {
     () => workspaceItems.find((workspace) => workspaceKey(workspace) === selectedWorkspaceKey),
     [selectedWorkspaceKey, workspaceItems],
   );
-  const poolModels = useMemo(
+  const activeModels = useMemo(
     () => models.filter((model) => model !== "auto").sort(compareModelsByStrength),
     [models],
   );
-  const visiblePoolModels = useMemo(() => {
+  const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLocaleLowerCase("vi");
-    if (!query) return poolModels;
-    return poolModels.filter((model) => `${model} ${modelLabel(model)}`.toLocaleLowerCase("vi").includes(query));
-  }, [modelSearch, poolModels]);
+    if (!query) return activeModels;
+    return activeModels.filter((model) => `${model} ${modelLabel(model)}`.toLocaleLowerCase("vi").includes(query));
+  }, [modelSearch, activeModels]);
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
   const activeThreadModel = activeThread?.model;
   const activeThreadWorkspaceKey = activeThread?.workspaceKey;
@@ -1236,7 +1236,7 @@ export function DashboardChat() {
                 onClick={() => setModelPickerOpen((open) => !open)}
               >
                 <span className={styles.modelPickerName}>{modelLabel(selectedModel)}</span>
-                {poolModels.length > 0 ? <span className={styles.modelPickerCount}>{poolModels.length}</span> : null}
+                {activeModels.length > 0 ? <span className={styles.modelPickerCount}>{activeModels.length}</span> : null}
                 <span className={styles.modelPickerChevron} aria-hidden="true">⌄</span>
               </button>
               {modelPickerOpen ? (
@@ -1251,7 +1251,7 @@ export function DashboardChat() {
                       aria-label="Tìm model"
                     />
                   </label>
-                  <div className={styles.modelPickerSummary}>CodeLocal Pool · {poolModels.length} Active · mạnh → nhẹ</div>
+                  <div className={styles.modelPickerSummary}>{activeModels.length} model đang hoạt động · mạnh → nhẹ</div>
                   <div className={styles.modelOptionList} role="listbox" aria-label="Model đang hoạt động">
                     {!modelSearch.trim() ? (
                       <button
@@ -1266,10 +1266,10 @@ export function DashboardChat() {
                         }}
                       >
                         <span>Auto</span>
-                        <small>Pool tự chọn model mặc định</small>
+                        <small>Tự chọn model mặc định</small>
                       </button>
                     ) : null}
-                    {visiblePoolModels.map((model) => (
+                    {visibleModels.map((model) => (
                       <button
                         className={`${styles.modelOption} ${selectedModel === model ? styles.modelOptionActive : ""}`}
                         type="button"
@@ -1286,7 +1286,7 @@ export function DashboardChat() {
                         {modelLabel(model) !== model ? <small>{model}</small> : null}
                       </button>
                     ))}
-                    {visiblePoolModels.length === 0 ? <p className={styles.modelEmpty}>Không tìm thấy model Active.</p> : null}
+                    {visibleModels.length === 0 ? <p className={styles.modelEmpty}>Không tìm thấy model Active.</p> : null}
                   </div>
                 </div>
               ) : null}

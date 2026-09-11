@@ -9,41 +9,6 @@ import (
 	"testing"
 )
 
-func TestDashboardLLMRouteWithContextAddsActivePoolFallbackModels(t *testing.T) {
-	pool := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":[{"id":"gpt-5.6-sol","owned_by":"pool"},{"id":"gpt-5.6-alt","owned_by":"pool"},{"id":"qwen3.8-flash","owned_by":"pool"}]}`)
-	}))
-	defer pool.Close()
-
-	t.Setenv("CODELOCAL_AI_POOL_BASE_URL", pool.URL)
-	t.Setenv("CODELOCAL_AI_POOL_API_KEY", "test-key")
-	t.Setenv("CODELOCAL_AI_POOL_ENABLED", "1")
-	t.Setenv("CODELOCAL_AI_POOL_MODEL", "gpt-5.6-sol")
-
-	route := dashboardLLMRouteWithContext(context.Background(), "gpt-5.6-sol", false, true)
-	if len(route) < 2 {
-		t.Fatalf("route=%#v want selected model plus at least one fallback", route)
-	}
-	if route[0].Model != "gpt-5.6-sol" {
-		t.Fatalf("first model=%q want selected model", route[0].Model)
-	}
-	foundSameFamilyFallback := false
-	for _, target := range route[1:] {
-		if target.Model == "gpt-5.6-alt" {
-			foundSameFamilyFallback = true
-			break
-		}
-	}
-	if !foundSameFamilyFallback {
-		t.Fatalf("route=%#v missing same-family pool fallback", route)
-	}
-}
-
 func TestChatCompletionsStreamDetectsTruncatedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

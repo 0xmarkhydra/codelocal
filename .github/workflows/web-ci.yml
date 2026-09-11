@@ -5,12 +5,12 @@ on:
     branches: [main, dev, go-migration]
     paths:
       - 'web/**'
-      - 'Dockerfile.web'
+      - 'deploy/docker/web.Dockerfile'
       - 'railway.web.json'
   pull_request:
     paths:
       - 'web/**'
-      - 'Dockerfile.web'
+      - 'deploy/docker/web.Dockerfile'
       - 'railway.web.json'
   workflow_dispatch:
 
@@ -37,7 +37,7 @@ jobs:
       - name: Build Next.js web image
         run: >-
           docker build
-          --file Dockerfile.web
+          --file deploy/docker/web.Dockerfile
           --build-arg CODELOCAL_BACKEND_URL=http://codelocal-backend.railway.internal:3333
           --tag codelocal-web:ci
           .

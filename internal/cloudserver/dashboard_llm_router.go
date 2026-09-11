@@ -19,8 +19,6 @@ const (
 	dashboardModelQwen       = "qwen3.8-flash"
 	dashboardModelMuse       = "muse-spark-1.3-contributor-free"
 	dashboardModelMuseLegacy = "muse-spark-1.2-contributor-free"
-
-	dashboardMaxFallbackTargets = 6
 )
 
 type dashboardLLMTarget struct {
@@ -30,8 +28,7 @@ type dashboardLLMTarget struct {
 	Model     string
 	Community bool
 	// Vision marks chat targets that accept image_url/input_image blocks.
-	// Pool-owned targets default to true (canonical chat plane + responses
-	// protocol), while community text-only targets stay false.
+	// Community text-only targets stay false.
 	Vision bool
 }
 
@@ -109,8 +106,7 @@ func dashboardModelSupportsVision(model string) bool {
 }
 
 // dashboardVisionModelPreference ranks vision-capable candidates for image
-// requests: explicit canonical selections first, then Shop defaults, then the
-// Pool default lane, and finally detected Shop catalog models.
+// requests: Shop defaults first, then detected Shop catalog models.
 func dashboardVisionModelPreference() []string {
 	preferred := make([]string, 0, 4)
 	seen := map[string]bool{}
@@ -128,9 +124,6 @@ func dashboardVisionModelPreference() []string {
 		}
 		_ = baseURL
 	}
-	if config, ok := dashboardAIPoolConfigFromEnv(); ok && dashboardModelSupportsVision(config.DefaultModel) {
-		appendModel(config.DefaultModel)
-	}
 	for _, fallback := range []string{"gpt-5.6-sol", "gpt-image-1.5", "gemini-2.5-flash-image"} {
 		if dashboardModelSupportsVision(fallback) {
 			appendModel(fallback)
@@ -140,9 +133,8 @@ func dashboardVisionModelPreference() []string {
 }
 
 // dashboardVisionRoute builds a strict vision-capable route for image
-// requests. Pool stays the only execution plane when configured; otherwise it
-// prefers Shop vision models and never falls back to text-only community
-// sparklines.
+// requests. It prefers Shop vision models and never falls back to text-only
+// community sparklines.
 func dashboardVisionRoute(selection string) []dashboardLLMTarget {
 	ordered := make([]dashboardLLMTarget, 0, 4)
 	appendTarget := func(target dashboardLLMTarget) {
@@ -155,17 +147,6 @@ func dashboardVisionRoute(selection string) []dashboardLLMTarget {
 			}
 		}
 		ordered = append(ordered, target)
-	}
-	if poolTarget, ok := dashboardAIPoolTarget(""); ok {
-		// Pool-owned lanes keep Vision=true by construction; explicit vision
-		// selections go through Pool unchanged.
-		if selection != dashboardModelAuto {
-			if pool, ok := dashboardAIPoolTarget(selection); ok {
-				appendTarget(pool)
-			}
-		}
-		appendTarget(poolTarget)
-		return ordered
 	}
 	if selection != dashboardModelAuto {
 		if shop, ok := dashboardShopAIKeyTarget(selection); ok {
@@ -183,7 +164,7 @@ func dashboardVisionRoute(selection string) []dashboardLLMTarget {
 // dashboardVisionBlockedMessage explains why an image request has no vision
 // route instead of falling back to the generic mock reply.
 func dashboardVisionBlockedMessage() string {
-	return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY (model vision như gpt-*) hoặc bật Pool (CODELOCAL_AI_POOL_ENABLED=1) rồi gửi lại ảnh."
+	return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY với model vision như gpt-* rồi gửi lại ảnh."
 }
 
 func dashboardEmperoTarget(model string) dashboardLLMTarget {
@@ -222,10 +203,10 @@ func dashboardMuseTarget(model string) (dashboardLLMTarget, bool) {
 	return dashboardLLMTarget{ID: "zen:" + model, BaseURL: baseURL, APIKey: apiKey, Model: model, Community: true}, true
 }
 
-// dashboardZenLanePinned reports whether dashboard chat is temporarily pinned
-// to the direct OpenCode Zen lane. While Pool is bypassed and Zen is
-// explicitly configured with a credential, the model picker offers only Auto
-// and Muse Spark 1.3 instead of the ShopAIKey/curated catalogs.
+// dashboardZenLanePinned reports whether dashboard chat is pinned to the
+// direct OpenCode Zen lane. When Zen is explicitly configured with a
+// credential, the model picker offers only Auto and Muse Spark 1.3 instead of
+// the ShopAIKey/curated catalogs.
 func dashboardZenLanePinned() bool {
 	if !strings.EqualFold(strings.TrimSpace(os.Getenv("CODELOCAL_LLM_PROVIDER")), "zen") {
 		return false
@@ -253,7 +234,6 @@ func dashboardLegacyTarget() (dashboardLLMTarget, bool) {
 
 func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarget {
 	selection = dashboardNormalizeModelSelection(selection)
-	poolDefault, hasPool := dashboardAIPoolTarget("")
 	ordered := make([]dashboardLLMTarget, 0, 7)
 	appendTarget := func(target dashboardLLMTarget) {
 		if target.Community && !allowCommunity {
@@ -265,21 +245,6 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 			}
 		}
 		ordered = append(ordered, target)
-	}
-
-	// Once CodeLocal Pool is configured it is the only chat execution plane.
-	// Auto uses the Pool default model, while explicit canonical selections are
-	// forwarded to Pool unchanged. Legacy providers remain available only for
-	// environments that have not enabled Pool yet.
-	if hasPool {
-		if selection == dashboardModelAuto {
-			appendTarget(poolDefault)
-			return ordered
-		}
-		if pool, ok := dashboardAIPoolTarget(selection); ok {
-			appendTarget(pool)
-		}
-		return ordered
 	}
 
 	glm := dashboardEmperoTarget(dashboardModelGLM)
@@ -315,68 +280,8 @@ func dashboardLLMRoute(selection string, allowCommunity bool) []dashboardLLMTarg
 	return ordered
 }
 
-// dashboardLLMRouteWithContext expands the strict route only when autonomous
-// agent continuity is enabled. Pool already fails over across accounts and
-// upstream sources for the same canonical model; this adds a bounded fallback
-// across other active canonical models so a long-running task can continue.
-func dashboardLLMRouteWithContext(ctx context.Context, selection string, allowCommunity, allowModelFallback bool) []dashboardLLMTarget {
-	route := dashboardLLMRoute(selection, allowCommunity)
-	if !allowModelFallback {
-		return route
-	}
-	if _, ok := dashboardAIPoolConfigFromEnv(); !ok {
-		return route
-	}
-
-	appendTarget := func(target dashboardLLMTarget) {
-		for _, existing := range route {
-			if existing.BaseURL == target.BaseURL && existing.Model == target.Model {
-				return
-			}
-		}
-		if len(route) < dashboardMaxFallbackTargets {
-			route = append(route, target)
-		}
-	}
-	if fallback, ok := dashboardAIPoolTarget(""); ok {
-		appendTarget(fallback)
-	}
-	models, err := dashboardAIPoolModels(ctx)
-	if err != nil {
-		return route
-	}
-
-	selection = dashboardNormalizeModelSelection(selection)
-	family := dashboardModelFamily(selection)
-	for _, sameFamily := range []bool{true, false} {
-		for _, model := range models {
-			if len(route) >= dashboardMaxFallbackTargets {
-				return route
-			}
-			if model.ID == selection {
-				continue
-			}
-			isSameFamily := family != "" && dashboardModelFamily(model.ID) == family
-			if isSameFamily != sameFamily {
-				continue
-			}
-			if target, ok := dashboardAIPoolTarget(model.ID); ok {
-				appendTarget(target)
-			}
-		}
-	}
-	return route
-}
-
-func dashboardModelFamily(model string) string {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" || model == dashboardModelAuto {
-		return ""
-	}
-	if index := strings.IndexByte(model, '-'); index > 0 {
-		return model[:index]
-	}
-	return model
+func dashboardLLMRouteWithContext(_ context.Context, selection string, allowCommunity, _ bool) []dashboardLLMTarget {
+	return dashboardLLMRoute(selection, allowCommunity)
 }
 
 func dashboardLooksSensitive(value string) bool {

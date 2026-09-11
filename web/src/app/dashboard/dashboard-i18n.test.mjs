@@ -307,78 +307,7 @@ try {
 assert.equal(dictionary.translate("en", "{count} nodes", { count: 1 }), "1 node");
 console.log("Dashboard checks passed in four languages: graphs, health, Shots, blogs, editor draft preservation and localized save failures.");
 
-const { PoolDashboard } = load("../../../apps/pool/src/app/pool-dashboard.tsx");
-const { default: PoolLogin } = load("../../../apps/pool/src/app/login/page.tsx");
-const poolModel = {
-  id: "provider:model", active: true, state: "healthy", availableRoutes: 0, totalRoutes: 0,
-  availableSources: 9, totalSources: 12,
-  sources: [{ state: "healthy", provider: "Provider 原文", upstream: "Upstream हिन्दी", quotaRemainingPercent: 42, quotaResetAt: "2026-09-09T08:00:00Z" }],
-};
-const poolSource = { id: "s1", name: "Source 原文", kind: "openai-compatible", baseUrl: "https://example.com/v1", priority: 0, enabled: true, managedBy: "pool" };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-try {
-  for (locale of ["en", "vi", "zh-Hans", "hi"]) {
-    const t = (key, values) => dictionary.translate(locale, key, values);
-    let timer;
-    globalThis.window = { setTimeout: (fn) => { timer = fn; return 1; }, clearTimeout() {}, confirm: () => false };
-    globalThis.fetch = async (url) => Response.json(url.endsWith("/models")
-      ? { models: [poolModel] } : { sources: [poolSource], storageConfigured: true });
-    hooks = editorHooks();
-    const draw = () => { hooks.begin(); return PoolDashboard(); };
-    let html = renderToStaticMarkup(draw());
-    visible(html, t("Loading Pool status…"));
-    assert.ok(!html.includes(t("{count} discovered", { count: 0 })));
-    hooks.flush();
-    timer();
-    await tick();
-    let tree = draw();
-    html = renderToStaticMarkup(tree);
-    for (const key of ["Models", "Sources", "Priority", "Quota left", "Active", "Enabled", "Delete"]) visible(html, t(key));
-    for (const value of ["Provider 原文", "Upstream हिन्दी", "Source 原文", "https://example.com/v1"]) visible(html, value);
-    visible(html, t("Priority {priority}", { priority: 0 }));
-    visible(html, new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(.42));
-    const routeMetric = findElement(tree, (node) => node.type === "article" && React.Children.toArray(node.props.children).some((child) => child.props?.children === t("Routes")));
-    assert.equal(routeMetric.props.children[1].props.children[0], "0");
-    assert.ok(!html.includes("Phase 1") && !html.includes("Phase 2"));
-    const test = findElement(tree, (node) => node.type === "button" && node.props["aria-label"] === t("Test {model}", { model: poolModel.id }));
-    globalThis.fetch = async (url) => {
-      assert.equal(url, "/api/pool/models/provider%3Amodel/test");
-      return Response.json({ error: "pool_unavailable" }, { status: 502 });
-    };
-    test.props.onClick();
-    await tick();
-    visible(renderToStaticMarkup(draw()), t("Pool unavailable"));
-    // A failed logout must keep the operator in the current view.
-    let redirected = false;
-    router.replace = () => { redirected = true; };
-    globalThis.fetch = async () => Response.json({ error: "invalid_origin" }, { status: 403 });
-    findElement(draw(), (node) => node.type === "button" && node.props.children === t("Sign out")).props.onClick();
-    await tick();
-    assert.equal(redirected, false);
-    visible(renderToStaticMarkup(draw()), t("Could not sign out. Try again."));
-    // Priority zero and user-entered values must survive language changes.
-    tree = draw();
-    findElement(tree, (node) => node.type === "input" && node.props.type === "number").props.onChange({ target: { value: "0" } });
-    tree = draw();
-    let sent;
-    globalThis.fetch = async (_url, init) => { sent = JSON.parse(init.body); return Response.json({ error: "invalid_source" }, { status: 400 }); };
-    await findElement(tree, (node) => node.type === "form").props.onSubmit({ preventDefault() {} });
-    assert.equal(sent.priority, 0);
-    visible(renderToStaticMarkup(draw()), t("Invalid source details."));
-    hooks = editorHooks();
-    const login = () => { hooks.begin(); return PoolLogin(); };
-    globalThis.fetch = async () => Response.json({}, { status: 401 });
-    await findElement(login(), (node) => node.type === "form").props.onSubmit({ preventDefault() {} });
-    visible(renderToStaticMarkup(login()), t("Incorrect Pool password."));
-    visible(renderToStaticMarkup(login()), t("Operator password"));
-  }
-} finally {
-  hooks = undefined;
-  globalThis.fetch = originalFetch;
-  globalThis.window = originalWindow;
-}
-console.log("Pool checks passed in four languages: loading, quota, zero route counts, priority zero, encoded IDs, login and failed logout.");
-
 const { SkillsHub } = load("./skills/skills-hub.tsx");
 try {
   locale = "vi";

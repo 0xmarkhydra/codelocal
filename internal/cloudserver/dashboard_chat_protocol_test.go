@@ -41,13 +41,6 @@ func TestDashboardProtocolForZenModels(t *testing.T) {
 	}
 }
 
-func TestDashboardProtocolForMuseThroughPoolUsesResponses(t *testing.T) {
-	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
-	if got := dashboardProtocolForModel("https://pool.example.test/v1", dashboardModelMuse); got != dashboardProtocolResponses {
-		t.Fatalf("Muse through Pool protocol=%v want Responses", got)
-	}
-}
-
 func TestDashboardProtocolForNonZenProviderUsesChatCompletions(t *testing.T) {
 	t.Setenv("CODELOCAL_LLM_PROVIDER", "")
 	if got := dashboardProtocolForModel("https://api.openai.com/v1", "custom-model"); got != dashboardProtocolChatCompletions {

@@ -52,7 +52,4 @@ assert.match(connect, /<details[^>]*\bopen\b/);
 for (const stylesheet of ["./dashboard/blogs/blog-editor.module.css", "./dashboard/blogs/series-editor.module.css"]) {
   assert.ok(read(stylesheet).includes(":focus-within"));
 }
-const poolStyles = "../../apps/pool/src/app/pool.module.css";
-assert.ok(declarations(poolStyles, ".nav", "flex-wrap").includes("wrap"));
-assert.ok(!declarations(poolStyles, ".nav", "display").includes("none"));
-console.log("Interface source checks passed: contrast, graph sizing, toolbar wrapping, upload focus, Pool navigation.");
+console.log("Interface source checks passed: contrast, graph sizing, toolbar wrapping and upload focus.");

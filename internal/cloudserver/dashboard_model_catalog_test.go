@@ -175,7 +175,6 @@ func TestDashboardShopAIKeySelectedModelRetriesWithoutFallback(t *testing.T) {
 }
 
 func TestDashboardSelectableModelsPinsZenLane(t *testing.T) {
-	clearAIPoolEnv(t)
 	t.Setenv("CODELOCAL_SHOPAIKEY_API_KEY", "")
 	t.Setenv("SHOPAIKEY_API_KEY", "")
 	t.Setenv("CODELOCAL_SHOPAIKEY_BASE_URL", "")
