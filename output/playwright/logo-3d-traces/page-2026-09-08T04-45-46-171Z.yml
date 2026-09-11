@@ -1,0 +1,173 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - link "Skip to content" [ref=e3] [cursor=pointer]:
+      - /url: "#main-content"
+    - generic [ref=e4]:
+      - link "CodeLocal home" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e6]: CodeLocal.
+      - navigation "Primary navigation" [ref=e7]:
+        - link "Product" [ref=e8] [cursor=pointer]:
+          - /url: "#system"
+        - link "How it works" [ref=e9] [cursor=pointer]:
+          - /url: "#how-it-works"
+        - link "Security" [ref=e10] [cursor=pointer]:
+          - /url: /security
+        - link "Blog" [ref=e11] [cursor=pointer]:
+          - /url: /blogs
+      - generic [ref=e12]:
+        - link "Sign in" [ref=e13] [cursor=pointer]:
+          - /url: /login
+        - link "Dashboard" [ref=e14] [cursor=pointer]:
+          - /url: /dashboard
+          - text: Dashboard
+          - generic [aria-hidden] [ref=e15]: ↗
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - generic [ref=e18]: LOCAL-FIRST. LIMITLESS POSSIBILITIES.
+        - heading "Your code. Your machine. Supercharged." [level=1] [ref=e20]: Your code.Your machine.Supercharged.
+        - paragraph [ref=e21]: A shared brain for your projects. Connect your AI to the knowledge, skills and local tools that make great work happen.
+        - generic [ref=e22]:
+          - link "Enter your workspace" [ref=e23] [cursor=pointer]:
+            - /url: /dashboard
+            - text: Enter your workspace
+            - generic [aria-hidden] [ref=e24]: ↗
+          - link "Explore the system" [ref=e25] [cursor=pointer]:
+            - /url: "#system"
+            - text: Explore the system
+            - generic [aria-hidden] [ref=e26]: ↓
+        - generic [ref=e27]: Workspace scoped. Local execution. Your control.
+      - generic [ref=e31]:
+        - generic [aria-hidden] [ref=e32]:
+          - generic [ref=e53]: 01 / PROJECT BRAIN
+          - generic [ref=e54]: 02 / LOCAL RUNTIME
+          - generic [ref=e55]: 03 / VERIFIED SKILLS
+        - generic [ref=e56]:
+          - generic [ref=e57]: CODELOCAL / INTELLIGENCE CORE
+          - generic [ref=e58]: PRODUCT CONCEPT · 01
+    - region "Compatible MCP clients" [ref=e59]:
+      - generic [ref=e60]: YOUR AI. ONE CONNECTED WORKSPACE.
+      - generic [ref=e61]:
+        - strong [ref=e62]: ChatGPT / Codex
+        - strong [ref=e63]: Claude
+        - strong [ref=e64]: Kimi
+        - strong [ref=e65]: DeepSeek
+        - generic [ref=e66]: Any MCP client ↗
+    - generic [ref=e67]:
+      - generic [ref=e68]:
+        - generic [ref=e69]:
+          - generic [ref=e70]: ONE CONNECTED SYSTEM
+          - heading "Your AI. Your machine. One shared intelligence." [level=2] [ref=e71]: Your AI. Your machine.One shared intelligence.
+        - paragraph [ref=e72]: From the first prompt to the next breakthrough.Explore how the pieces connect.
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - generic [ref=e75]: THE CODELOCAL MODEL
+          - generic [ref=e77]:
+            - text: ARCHITECTURE EXPLORER
+            - generic [aria-hidden] [ref=e78]: ↗
+        - region "3D architecture diagram. Scroll horizontally on small screens." [ref=e79]:
+          - img "One connected system. Your machine at the center of execution. AI clients connect by MCP to CodeLocal. CodeLocal routes approved requests to your local machine, where files, Git, terminal and browser actions run. Project Brain provides sanitized durable knowledge to the control layer. The cloud and local machine have separate privacy boundaries." [ref=e80]:
+            - generic [ref=e84]: CLOUD / IDENTITY · ROUTING · KNOWLEDGE
+            - generic [ref=e86]: LOCAL / YOUR PRIVACY BOUNDARY
+            - generic [ref=e93]: MCP
+            - generic [ref=e94]: APPROVED RPC
+            - generic [ref=e95]: CONTEXT
+            - generic [ref=e96]:
+              - generic [ref=e132]: 01 / YOUR AI
+              - generic [ref=e133]: Different AIs. One entry.
+              - generic [ref=e134]: ChatGPT · Claude · Codex · more
+            - generic [ref=e135]:
+              - generic [ref=e157]: 02 / THE CONTROL LAYER
+              - generic [ref=e158]: CodeLocal
+            - generic [ref=e159]:
+              - generic [ref=e176]: 03 / YOUR MACHINE
+              - generic [ref=e177]: Local power. Your rules.
+              - generic [ref=e178]: Files · Git · Terminal · Browser
+            - generic [ref=e180]:
+              - generic [ref=e200]: 04 / PROJECT BRAIN
+              - generic [ref=e201]: Intelligence that stays.
+              - generic [ref=e202]: Decisions · Knowledge · Verified experience
+            - generic [ref=e203]: A MODEL OF THE SYSTEM — NOT LIVE ACTIVITY
+        - generic "Explore each part of the architecture" [ref=e204]:
+          - button "01 Bring your AI Any compatible client" [ref=e205] [cursor=pointer]:
+            - generic [ref=e210]:
+              - generic [ref=e211]: "01"
+              - strong [ref=e212]: Bring your AI
+              - emphasis [ref=e213]: Any compatible client
+            - generic [aria-hidden] [ref=e214]: ↗
+          - button "02 Connect through CodeLocal One control layer" [pressed] [ref=e215] [cursor=pointer]:
+            - generic [ref=e220]:
+              - generic [ref=e221]: "02"
+              - strong [ref=e222]: Connect through CodeLocal
+              - emphasis [ref=e223]: One control layer
+            - generic [aria-hidden] [ref=e224]: ↗
+          - button "03 Run on your machine Local tools. Local control." [ref=e225] [cursor=pointer]:
+            - generic [ref=e230]:
+              - generic [ref=e231]: "03"
+              - strong [ref=e232]: Run on your machine
+              - emphasis [ref=e233]: Local tools. Local control.
+            - generic [aria-hidden] [ref=e234]: ↗
+          - button "04 Keep the intelligence Remember. Verify. Reuse." [ref=e235] [cursor=pointer]:
+            - generic [ref=e241]:
+              - generic [ref=e242]: "04"
+              - strong [ref=e243]: Keep the intelligence
+              - emphasis [ref=e244]: Remember. Verify. Reuse.
+            - generic [aria-hidden] [ref=e245]: ↗
+        - generic [ref=e246]:
+          - generic [ref=e247]: 02 / Connect through CodeLocal
+          - paragraph [ref=e248]: CodeLocal resolves the project, supplies bounded context and routes requests. Workspace authorization and approval policy determine what can run.
+      - generic [ref=e249]:
+        - generic [ref=e250]: Powerful by design. Scoped by default.
+        - paragraph [ref=e254]: Raw source and execution stay local. Cloud connects identity, routing and sanitized project knowledge.
+        - link "Explore security" [ref=e255] [cursor=pointer]:
+          - /url: /security
+          - text: Explore security ↗
+    - generic [ref=e256]:
+      - generic [ref=e257]:
+        - generic [ref=e258]:
+          - generic [ref=e259]: FROM ZERO TO CONNECTED
+          - heading "Your next chapter. Three steps away." [level=2] [ref=e260]: Your next chapter.Three steps away.
+        - link "Connection guide" [ref=e261] [cursor=pointer]:
+          - /url: /dashboard/connect
+          - text: Connection guide
+          - generic [aria-hidden] [ref=e262]: ↗
+      - list [ref=e263]:
+        - listitem [ref=e264]:
+          - generic [ref=e265]: "01"
+          - heading "Install the runtime" [level=3] [ref=e266]
+          - paragraph [ref=e267]: On the machine where your code lives.
+          - code [ref=e268]: npm install -g codelocal@latest
+        - listitem [ref=e269]:
+          - generic [ref=e270]: "02"
+          - heading "Connect your workspace" [level=3] [ref=e271]
+          - paragraph [ref=e272]: Pair your device and choose the project AI can access.
+          - code [ref=e273]: codelocal .
+        - listitem [ref=e274]:
+          - generic [ref=e275]: "03"
+          - heading "Bring your favorite AI" [level=3] [ref=e276]
+          - paragraph [ref=e277]: Connect a compatible client through your MCP endpoint.
+          - code [ref=e278]: One project. Shared context.
+    - generic [ref=e279]:
+      - generic [ref=e284]:
+        - generic [ref=e285]: NEXT UP / CODELOCAL DESKTOP
+        - heading "A new home for your AI." [level=2] [ref=e286]
+        - paragraph [ref=e287]: Chat is moving to the desktop app. Your web dashboard stays focused on projects, devices and knowledge.
+        - generic [ref=e288]:
+          - text: Coming soon
+          - generic [ref=e289]: macOS · Windows · Linux
+      - link "Explore dashboard" [ref=e290] [cursor=pointer]:
+        - /url: /dashboard
+        - text: Explore dashboard
+        - generic [aria-hidden] [ref=e291]: ↗
+    - generic [ref=e292]:
+      - link "CodeLocal." [ref=e293] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e294]: Built for your machine. Ready for your ideas.
+      - navigation "Footer navigation" [ref=e295]:
+        - link "Privacy" [ref=e296] [cursor=pointer]:
+          - /url: /privacy
+        - link "Terms" [ref=e297] [cursor=pointer]:
+          - /url: /terms
+        - link "Support" [ref=e298] [cursor=pointer]:
+          - /url: /support
+  - button "Open Next.js Dev Tools" [ref=e304] [cursor=pointer]

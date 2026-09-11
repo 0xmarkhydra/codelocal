@@ -1,0 +1,32 @@
+▲ Next.js 16.3.1 (Turbopack)
+- Local:         http://127.0.0.1:3100
+- Network:       http://127.0.0.1:3100
+✓ Ready in 303ms
+✓ Running next.config.ts took 126ms
+
+✓ Generated AGENTS.md for AI agents. Set `agentRules: false` in next.config to disable.
+ HEAD / 200 in 432ms (next.js: 108ms, proxy.ts: 146ms, application-code: 177ms)
+ GET / 200 in 240ms (next.js: 67ms, proxy.ts: 36ms, application-code: 138ms)
+ GET /dashboard 200 in 129ms (next.js: 25ms, proxy.ts: 5ms, application-code: 98ms)
+ GET / 200 in 753ms (next.js: 398ms, proxy.ts: 94ms, application-code: 261ms)
+ GET / 200 in 406ms (next.js: 19ms, proxy.ts: 21ms, application-code: 366ms)
+Turbopack build encountered 1 error:
+./src/app
+Error: Could not find the Next.js package (next/package.json)
+Resolved from: /Users/levanmong/Documents/codex-mcp/web/src/app
+Filesystem root used for resolution: /Users/levanmong/Documents/codex-mcp/web
+
+Possible causes:
+  - node_modules is being reorganized by a concurrent install (e.g. pnpm adding a package with a `next` peer dependency). This is transient and should clear once the install completes.
+  - node_modules/next was removed, renamed, or has a broken symlink.
+  - The workspace root is incorrect — see turbopack.root in the Next.js config docs for how to configure it.
+  - In a monorepo, the Next.js package may only exist in a directory above the closest directory containing a package manager lockfile. The workspace root is detected by locating the nearest package manager lockfile.
+  - Next.js is installed globally rather than as a project dependency. This is not supported; install it locally.
+
+Note: To ensure a hermetic build and a portable cache, files outside of the workspace root are not compiled.
+
+https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory
+
+
+✓ Compiled in 2.8s
+✓ Compiled in 990ms

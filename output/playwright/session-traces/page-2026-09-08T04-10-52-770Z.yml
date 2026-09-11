@@ -1,0 +1,96 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e152] [cursor=pointer]
+  - alert [ref=e146]
+  - main [ref=e156]:
+    - complementary "Điều hướng dashboard" [ref=e157]:
+      - link "CodeLocal home" [ref=e159] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e160]: CodeLocal.
+      - generic [ref=e166]:
+        - strong [ref=e167]: Personal workspace
+        - generic [ref=e168]: CodeLocal Cloud
+      - navigation "Dashboard navigation" [ref=e169]:
+        - generic [ref=e170]:
+          - generic [ref=e171]: WORKSPACE
+          - link "Tổng quan" [ref=e172] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Dự án" [ref=e178] [cursor=pointer]:
+            - /url: /dashboard/workspaces
+          - link "Thiết bị" [ref=e182] [cursor=pointer]:
+            - /url: /dashboard/devices
+          - link "Kết nối MCP" [ref=e187] [cursor=pointer]:
+            - /url: /dashboard/connect
+        - generic [ref=e193]:
+          - generic [ref=e194]: INTELLIGENCE
+          - link "Project Brain" [ref=e195] [cursor=pointer]:
+            - /url: /dashboard/knowledge
+          - link "Code Graph" [ref=e201] [cursor=pointer]:
+            - /url: /dashboard/code-graph
+          - link "Skills" [ref=e206] [cursor=pointer]:
+            - /url: /dashboard/skills
+          - link "Mức sử dụng" [ref=e211] [cursor=pointer]:
+            - /url: /dashboard/usage
+        - generic [ref=e215]:
+          - generic [ref=e216]: QUẢN LÝ
+          - link "Cài đặt" [ref=e217] [cursor=pointer]:
+            - /url: /dashboard/settings
+          - link "Bảo mật" [ref=e222] [cursor=pointer]:
+            - /url: /dashboard/security
+      - link "SẮP RA MẮT CodeLocal Desktop Ngôi nhà mới cho AI chat." [ref=e227] [cursor=pointer]:
+        - /url: /#desktop
+        - generic [ref=e228]: SẮP RA MẮT
+        - strong [ref=e233]:
+          - text: CodeLocal Desktop
+          - generic [aria-hidden] [ref=e234]: ↗
+        - paragraph [ref=e235]: Ngôi nhà mới cho AI chat.
+      - link "Tài khoản" [ref=e236] [cursor=pointer]:
+        - /url: /dashboard/account
+    - generic [ref=e240]:
+      - generic [ref=e241]:
+        - generic [ref=e242]:
+          - text: Workspace
+          - generic [aria-hidden] [ref=e243]: /
+          - strong [ref=e244]: Tổng quan
+        - link "Kết nối AI" [ref=e245] [cursor=pointer]:
+          - /url: /dashboard/connect
+      - generic [ref=e248]:
+        - generic [ref=e249]:
+          - generic [ref=e250]:
+            - text: YOUR WORKSPACE, CONNECTED.
+            - heading "Mọi thứ trong tầm tay." [level=1] [ref=e251]
+            - paragraph [ref=e252]: Dự án, thiết bị và tri thức. Một không gian để quản lý tất cả.
+          - link "Xem dự án" [ref=e253] [cursor=pointer]:
+            - /url: /dashboard/workspaces
+        - region [ref=e256]:
+          - generic [ref=e257]:
+            - generic [ref=e258]: PROJECT INTELLIGENCE
+            - heading "Ý tưởng nối tiếp. Tri thức ở lại." [level=2] [ref=e263]: Ý tưởng nối tiếp.Tri thức ở lại.
+            - paragraph [ref=e264]: Khám phá những gì CodeLocal ghi nhớ về dự án. Kết nối context để mỗi phiên làm việc có một khởi đầu tốt hơn.
+            - link "Khám phá Project Brain" [ref=e265] [cursor=pointer]:
+              - /url: /dashboard/knowledge
+              - text: Khám phá Project Brain
+              - generic [aria-hidden] [ref=e266]: ↗
+          - generic [ref=e267]:
+            - generic [ref=e272]:
+              - generic [ref=e275]: CL
+              - generic [ref=e277]: ⌘
+              - generic [ref=e279]: ↗
+              - generic [ref=e281]: ✧
+            - generic [ref=e283]: MINH HỌA / INTELLIGENCE CORE
+        - generic [ref=e284]:
+          - strong [ref=e289]: Chưa kết nối được
+          - generic [ref=e290]: tổng quan workspace chưa phản hồi. Bạn có thể thử lại.
+          - button "Thử lại" [ref=e291] [cursor=pointer]
+        - generic [ref=e292]:
+          - generic [ref=e297]:
+            - strong [ref=e298]: Cuộc trò chuyện tiếp theo, trên desktop.
+            - paragraph [ref=e299]: Chat web đang tạm ẩn. Bạn sẽ làm việc cùng AI trong ứng dụng CodeLocal Desktop.
+          - link "Desktop · Sắp ra mắt" [ref=e300] [cursor=pointer]:
+            - /url: /#desktop
+            - text: Desktop · Sắp ra mắt
+            - generic [aria-hidden] [ref=e301]: ↗
+        - generic [ref=e302]:
+          - generic [ref=e303]: Thực thi cục bộ. Quyền truy cập theo workspace.
+          - link "Cần hỗ trợ?" [ref=e307] [cursor=pointer]:
+            - /url: /support
+            - text: Cần hỗ trợ? ↗

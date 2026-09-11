@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>山水杭州 · Three.js</title>
+  <style>
+    :root { --ink:#1f3d32; --paper:#eef4ee; --card:#f7faf6ee; }
+    html,body{margin:0;height:100%;font-family:"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;background:#d7e4d6;overflow:hidden}
+    #c{position:fixed;inset:0}
+    .ui{position:fixed;z-index:2;color:var(--ink)}
+    .brand{top:16px;left:18px;font-size:22px;font-weight:650;letter-spacing:.08em}
+    .brand small{display:block;font-size:11px;opacity:.65;letter-spacing:.2em;margin-top:2px}
+    .panel{top:16px;left:16px;width:230px;margin-top:58px;background:var(--card);backdrop-filter:blur(10px);border-radius:16px;padding:12px;box-shadow:0 10px 30px #0001}
+    .panel h3{margin:0 0 8px;font-size:13px}
+    .spot{width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:10px;cursor:pointer;color:var(--ink);font-size:13px}
+    .spot:hover,.spot.on{background:#d9ead8}
+    .info{position:fixed;top:16px;right:16px;width:250px;background:var(--card);backdrop-filter:blur(10px);border-radius:16px;padding:14px 16px;box-shadow:0 10px 30px #0001}
+    .info h2{margin:0 0 6px;font-size:18px}
+    .info p{margin:0;font-size:12px;line-height:1.55;opacity:.8}
+    .bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:8px;background:var(--card);padding:8px;border-radius:999px;box-shadow:0 10px 30px #0002}
+    .bar button{border:0;background:#e7f0e6;border-radius:999px;padding:8px 14px;cursor:pointer;color:var(--ink)}
+    .bar button.on{background:#2d6a4f;color:#fff}
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ui brand">山水杭州<small>HANGZHOU SPATIAL ATLAS</small></div>
+<div class="ui panel">
+  <h3>地标 Landmarks</h3>
+  <div id="list"></div>
+</div>
+<div class="ui info" id="info">
+  <h2>杭州</h2>
+  <p>Kéo xoay · lăn zoom · click địa danh để bay tới. Đây là bản tái tạo, không phải file gốc của @NFT_Chen.</p>
+</div>
+<div class="bar">
+  <button id="btnDay" class="on">Ngày</button>
+  <button id="btnSunset">Hoàng hôn</button>
+  <button id="btnNight">Đêm</button>
+  <button id="btnTour">Auto-tour</button>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.168.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.168.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#d7e8d4');
+scene.fog = new THREE.Fog('#d7e8d4', 80, 220);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 800);
+camera.position.set(38, 28, 48);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.48;
+controls.minDistance = 8;
+controls.maxDistance = 140;
+controls.target.set(0, 2, 0);
+
+const hemi = new THREE.HemisphereLight('#fff6e0', '#6a8f6a', 0.9);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight('#fff4d6', 1.4);
+sun.position.set(40, 50, 20);
+sun.castShadow = true;
+scene.add(sun);
+const ambient = new THREE.AmbientLight('#b9d4c4', 0.35);
+scene.add(ambient);
+
+function box(w,h,d,color,x,y,z){
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(w,h,d),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.75 })
+  );
+  m.position.set(x,y,z);
+  m.castShadow = m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(90, 90, 1.2, 64),
+  new THREE.MeshStandardMaterial({ color: '#b7d3a8', roughness: 1 })
+);
+ground.position.y = -0.6;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const water = new THREE.Mesh(
+  new THREE.CircleGeometry(16, 48),
+  new THREE.MeshStandardMaterial({ color: '#7ec8c9', roughness: 0.15, metalness: 0.2 })
+);
+water.rotation.x = -Math.PI/2;
+water.position.set(-18, 0.05, -6);
+scene.add(water);
+
+function hill(x,z,r,h,col='#6f9e62'){
+  const m = new THREE.Mesh(
+    new THREE.ConeGeometry(r, h, 7),
+    new THREE.MeshStandardMaterial({ color: col, flatShading: true })
+  );
+  m.position.set(x, h/2, z);
+  m.castShadow = true;
+  scene.add(m);
+}
+hill(-28, -18, 10, 14, '#5d8a52');
+hill(-34, -10, 7, 9, '#7aa56a');
+hill(-22, -24, 8, 11, '#4f7a46');
+hill(8, -32, 12, 16, '#628c55');
+hill(18, -28, 7, 9, '#7eaa6c');
+
+function tree(x,z,s=1){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12*s,0.16*s,0.8*s,6),
+    new THREE.MeshStandardMaterial({ color:'#7a5a3a' })
+  );
+  trunk.position.y = 0.4*s;
+  const leaf = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.7*s, 0),
+    new THREE.MeshStandardMaterial({ color:'#3f7d3a', flatShading:true })
+  );
+  leaf.position.y = 1.1*s;
+  g.add(trunk, leaf);
+  g.position.set(x,0,z);
+  scene.add(g);
+}
+for (let i=0;i<70;i++){
+  const a = Math.random()*Math.PI*2;
+  const r = 20 + Math.random()*55;
+  tree(Math.cos(a)*r, Math.sin(a)*r, 0.7+Math.random()*0.8);
+}
+
+function pagoda(x,z){
+  const g = new THREE.Group();
+  for (let i=0;i<6;i++){
+    const w = 2.4 - i*0.28;
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(w, 1.05, w),
+      new THREE.MeshStandardMaterial({ color: i%2? '#c44536':'#f2efe6' })
+    );
+    floor.position.y = 0.7 + i*1.15;
+    const roof = new THREE.Mesh(
+      new THREE.ConeGeometry(w*0.85, 0.45, 4),
+      new THREE.MeshStandardMaterial({ color:'#8b2e22' })
+    );
+    roof.position.y = floor.position.y + 0.65;
+    roof.rotation.y = Math.PI/4;
+    g.add(floor, roof);
+  }
+  g.position.set(x,0,z);
+  scene.add(g);
+}
+pagoda(-14, -2);
+
+for (let i=0;i<40;i++){
+  const h = 2 + Math.random()*10;
+  box(1.2+Math.random(), h, 1.2+Math.random(), Math.random()>0.5?'#dfe8e4':'#c9d6cf',
+    8+Math.random()*28-6, h/2, 6+Math.random()*22-8);
+}
+
+box(3.2, 22, 3.2, '#7aa8b8', 16, 11, 10);
+box(3.2, 22, 3.2, '#7aa8b8', 20.5, 11, 10);
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(2.2, 24, 16),
+  new THREE.MeshStandardMaterial({ color:'#d4b15a', metalness:0.35, roughness:0.35 })
+);
+ball.position.set(18.2, 2.2, 14);
+scene.add(ball);
+
+const lotus = new THREE.Mesh(
+  new THREE.CylinderGeometry(5.5, 6.2, 1.6, 16),
+  new THREE.MeshStandardMaterial({ color:'#e8f0ea' })
+);
+lotus.position.set(6, 0.9, 22);
+scene.add(lotus);
+const bowl = new THREE.Mesh(
+  new THREE.SphereGeometry(3.8, 16, 10, 0, Math.PI*2, 0, Math.PI/2),
+  new THREE.MeshStandardMaterial({ color:'#f4f7f2', side: THREE.DoubleSide })
+);
+bowl.position.set(6, 1.5, 22);
+scene.add(bowl);
+
+const river = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 8),
+  new THREE.MeshStandardMaterial({ color:'#6fb7c0', roughness:0.2 })
+);
+river.rotation.x = -Math.PI/2;
+river.position.set(10, 0.04, 18);
+scene.add(river);
+
+const spots = [
+  { id:'westlake', name:'西湖 West Lake', desc:'Hồ Tây — mặt nước và đồi trà xung quanh.', pos:new THREE.Vector3(-18,8,6), look:new THREE.Vector3(-18,0,-6) },
+  { id:'leifeng', name:'雷峰塔 Leifeng Pagoda', desc:'Tháp Lôi Phong nhiều tầng đỏ-trắng.', pos:new THREE.Vector3(-6,10,10), look:new THREE.Vector3(-14,4,-2) },
+  { id:'qianjiang', name:'钱江新城 Qianjiang New City', desc:'Cặp tháp kính và quả cầu vàng.', pos:new THREE.Vector3(28,16,28), look:new THREE.Vector3(18,8,12) },
+  { id:'lotus', name:'奥体大莲花 Olympic Lotus', desc:'Sân vận động hoa sen.', pos:new THREE.Vector3(16,12,36), look:new THREE.Vector3(6,2,22) },
+  { id:'tea', name:'龙井茶山 Longjing Hills', desc:'Đồi trà / núi phía tây nam.', pos:new THREE.Vector3(-40,16,-8), look:new THREE.Vector3(-28,6,-16) },
+];
+
+const list = document.getElementById('list');
+const info = document.getElementById('info');
+let flying = null, tour = false, tourI = 0, tourT = 0;
+
+function flyTo(s){
+  flying = {
+    fromCam: camera.position.clone(),
+    fromTgt: controls.target.clone(),
+    toCam: s.pos.clone(),
+    toTgt: s.look.clone(),
+    t: 0
+  };
+  document.querySelectorAll('.spot').forEach(b => b.classList.toggle('on', b.dataset.id===s.id));
+  info.innerHTML = `<h2>${s.name}</h2><p>${s.desc}</p>`;
+}
+
+spots.forEach(s=>{
+  const b = document.createElement('button');
+  b.className = 'spot';
+  b.dataset.id = s.id;
+  b.textContent = s.name;
+  b.onclick = () => { tour=false; flyTo(s); };
+  list.appendChild(b);
+  const pin = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 10, 10),
+    new THREE.MeshStandardMaterial({ color:'#2d6a4f', emissive:'#1b4332' })
+  );
+  pin.position.copy(s.look).setY(s.look.y + 6);
+  scene.add(pin);
+});
+
+function setMode(mode){
+  document.querySelectorAll('.bar button').forEach(b=>b.classList.remove('on'));
+  if(mode==='day'){
+    btnDay.classList.add('on');
+    scene.background.set('#d7e8d4'); scene.fog.color.set('#d7e8d4');
+    hemi.color.set('#fff6e0'); sun.color.set('#fff4d6'); sun.intensity=1.4; ambient.intensity=0.35;
+  } else if(mode==='sunset'){
+    btnSunset.classList.add('on');
+    scene.background.set('#f0c9a0'); scene.fog.color.set('#f0c9a0');
+    hemi.color.set('#ffd0a8'); sun.color.set('#ff8a4c'); sun.intensity=1.1; ambient.intensity=0.25;
+  } else {
+    btnNight.classList.add('on');
+    scene.background.set('#1b2430'); scene.fog.color.set('#1b2430');
+    hemi.color.set('#8aa0c8'); sun.color.set('#6f86b8'); sun.intensity=0.35; ambient.intensity=0.15;
+  }
+}
+const btnDay = document.getElementById('btnDay');
+const btnSunset = document.getElementById('btnSunset');
+const btnNight = document.getElementById('btnNight');
+const btnTour = document.getElementById('btnTour');
+btnDay.onclick = ()=>setMode('day');
+btnSunset.onclick = ()=>setMode('sunset');
+btnNight.onclick = ()=>setMode('night');
+btnTour.onclick = ()=>{ tour=!tour; btnTour.classList.toggle('on', tour); if(tour){ tourI=0; flyTo(spots[0]); } };
+
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  if(flying){
+    flying.t = Math.min(1, flying.t + dt*0.55);
+    const k = flying.t*flying.t*(3-2*flying.t);
+    camera.position.lerpVectors(flying.fromCam, flying.toCam, k);
+    controls.target.lerpVectors(flying.fromTgt, flying.toTgt, k);
+    if(flying.t>=1) flying=null;
+  }
+  if(tour && !flying){
+    tourT += dt;
+    if(tourT>3.2){ tourT=0; tourI=(tourI+1)%spots.length; flyTo(spots[tourI]); }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

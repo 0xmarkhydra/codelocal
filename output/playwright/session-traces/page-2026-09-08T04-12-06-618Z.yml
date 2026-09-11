@@ -1,0 +1,185 @@
+- generic [ref=f1e1]:
+  - main [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - link "CodeLocal." [ref=f1e4] [cursor=pointer]:
+        - /url: /
+      - button "Mở điều hướng" [expanded] [active] [ref=f1e5] [cursor=pointer]
+    - button "Đóng điều hướng" [ref=f1e199]
+    - complementary "Điều hướng dashboard" [ref=f1e200]:
+      - generic [ref=f1e201]:
+        - link "CodeLocal home" [ref=f1e202] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f1e203]: CodeLocal.
+        - button "Đóng điều hướng" [ref=f1e204] [cursor=pointer]
+      - generic [ref=f1e212]:
+        - strong [ref=f1e213]: Personal workspace
+        - generic [ref=f1e214]: CodeLocal Cloud
+      - navigation "Dashboard navigation" [ref=f1e215]:
+        - generic [ref=f1e216]:
+          - generic [ref=f1e217]: WORKSPACE
+          - link "Tổng quan" [ref=f1e218] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Dự án" [ref=f1e224] [cursor=pointer]:
+            - /url: /dashboard/workspaces
+          - link "Thiết bị" [ref=f1e228] [cursor=pointer]:
+            - /url: /dashboard/devices
+          - link "Kết nối MCP" [ref=f1e233] [cursor=pointer]:
+            - /url: /dashboard/connect
+        - generic [ref=f1e239]:
+          - generic [ref=f1e240]: INTELLIGENCE
+          - link "Project Brain" [ref=f1e241] [cursor=pointer]:
+            - /url: /dashboard/knowledge
+          - link "Code Graph" [ref=f1e247] [cursor=pointer]:
+            - /url: /dashboard/code-graph
+          - link "Skills" [ref=f1e252] [cursor=pointer]:
+            - /url: /dashboard/skills
+          - link "Mức sử dụng" [ref=f1e257] [cursor=pointer]:
+            - /url: /dashboard/usage
+        - generic [ref=f1e261]:
+          - generic [ref=f1e262]: QUẢN LÝ
+          - link "Cài đặt" [ref=f1e263] [cursor=pointer]:
+            - /url: /dashboard/settings
+          - link "Bảo mật" [ref=f1e268] [cursor=pointer]:
+            - /url: /dashboard/security
+      - link "SẮP RA MẮT CodeLocal Desktop Ngôi nhà mới cho AI chat." [ref=f1e273] [cursor=pointer]:
+        - /url: /#desktop
+        - generic [ref=f1e274]: SẮP RA MẮT
+        - strong [ref=f1e279]:
+          - text: CodeLocal Desktop
+          - generic [aria-hidden] [ref=f1e280]: ↗
+        - paragraph [ref=f1e281]: Ngôi nhà mới cho AI chat.
+      - group [ref=f1e282]:
+        - generic "preview@example.test Tài khoản cá nhân" [ref=f1e283] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e284]: P
+          - generic [ref=f1e285]:
+            - strong [ref=f1e286]: preview@example.test
+            - generic [ref=f1e287]: Tài khoản cá nhân
+    - generic [ref=f1e8]:
+      - generic [ref=f1e9]:
+        - generic [ref=f1e10]:
+          - text: Workspace
+          - generic [aria-hidden] [ref=f1e11]: /
+          - strong [ref=f1e12]: Tổng quan
+        - link "Kết nối AI" [ref=f1e13] [cursor=pointer]:
+          - /url: /dashboard/connect
+      - generic [ref=f1e16]:
+        - generic [ref=f1e17]:
+          - generic [ref=f1e18]:
+            - text: YOUR WORKSPACE, CONNECTED.
+            - heading "Mọi thứ trong tầm tay." [level=1] [ref=f1e19]
+            - paragraph [ref=f1e20]: Dự án, thiết bị và tri thức. Một không gian để quản lý tất cả.
+          - link "Xem dự án" [ref=f1e21] [cursor=pointer]:
+            - /url: /dashboard/workspaces
+        - region [ref=f1e24]:
+          - generic [ref=f1e25]:
+            - generic [ref=f1e26]: PROJECT INTELLIGENCE
+            - heading "Ý tưởng nối tiếp. Tri thức ở lại." [level=2] [ref=f1e31]: Ý tưởng nối tiếp.Tri thức ở lại.
+            - paragraph [ref=f1e32]: Khám phá những gì CodeLocal ghi nhớ về dự án. Kết nối context để mỗi phiên làm việc có một khởi đầu tốt hơn.
+            - link "Khám phá Project Brain" [ref=f1e33] [cursor=pointer]:
+              - /url: /dashboard/knowledge
+              - text: Khám phá Project Brain
+              - generic [aria-hidden] [ref=f1e34]: ↗
+          - generic [ref=f1e35]:
+            - generic [ref=f1e40]:
+              - generic [ref=f1e43]: CL
+              - generic [ref=f1e45]: ⌘
+              - generic [ref=f1e47]: ↗
+              - generic [ref=f1e49]: ✧
+            - generic [ref=f1e51]: MINH HỌA / INTELLIGENCE CORE
+        - generic [ref=f1e52]:
+          - region "Số liệu tài khoản" [ref=f1e53]:
+            - link "Dự án 3 1 đang hoạt động" [ref=f1e54] [cursor=pointer]:
+              - /url: /dashboard/workspaces
+              - generic [ref=f1e55]: Dự án
+              - strong [ref=f1e59]: "3"
+              - generic [ref=f1e60]:
+                - text: 1 đang hoạt động
+                - generic [aria-hidden] [ref=f1e61]: ↗
+            - link "Thiết bị online 1 2 thiết bị đã ghép nối" [ref=f1e62] [cursor=pointer]:
+              - /url: /dashboard/devices
+              - generic [ref=f1e63]: Thiết bị online
+              - strong [ref=f1e68]: "1"
+              - generic [ref=f1e69]:
+                - text: 2 thiết bị đã ghép nối
+                - generic [aria-hidden] [ref=f1e70]: ↗
+            - link "MCP calls / 24 giờ 128 Lượt gọi được ghi nhận" [ref=f1e71] [cursor=pointer]:
+              - /url: /dashboard/usage
+              - generic [ref=f1e72]: MCP calls / 24 giờ
+              - strong [ref=f1e78]: "128"
+              - generic [ref=f1e79]:
+                - text: Lượt gọi được ghi nhận
+                - generic [aria-hidden] [ref=f1e80]: ↗
+            - link "Tokens / 24 giờ 24 N Ước tính từ hoạt động MCP" [ref=f1e81] [cursor=pointer]:
+              - /url: /dashboard/usage
+              - generic [ref=f1e82]: Tokens / 24 giờ
+              - strong [ref=f1e86]: 24 N
+              - generic [ref=f1e87]:
+                - text: Ước tính từ hoạt động MCP
+                - generic [aria-hidden] [ref=f1e88]: ↗
+          - generic [ref=f1e89]:
+            - generic [ref=f1e90]:
+              - generic [ref=f1e91]:
+                - generic [ref=f1e92]:
+                  - heading "Dự án gần đây" [level=2] [ref=f1e93]
+                  - text: Workspace được kết nối với tài khoản
+                - link "Xem tất cả" [ref=f1e94] [cursor=pointer]:
+                  - /url: /dashboard/workspaces
+                  - text: Xem tất cả ↗
+              - generic [ref=f1e95]:
+                - link "CodeLocal · UI preview Preview device Online" [ref=f1e96] [cursor=pointer]:
+                  - /url: /dashboard/code-graph?deviceId=fixture-device&workspaceId=fixture-0
+                  - generic [ref=f1e100]:
+                    - strong [ref=f1e101]: CodeLocal · UI preview
+                    - generic [ref=f1e102]: Preview device
+                  - generic [ref=f1e103]: Online
+                - link "Design system · UI preview Preview device Đang nghỉ" [ref=f1e105] [cursor=pointer]:
+                  - /url: /dashboard/code-graph?deviceId=fixture-device&workspaceId=fixture-1
+                  - generic [ref=f1e109]:
+                    - strong [ref=f1e110]: Design system · UI preview
+                    - generic [ref=f1e111]: Preview device
+                  - generic [ref=f1e112]: Đang nghỉ
+                - link "Very long workspace name to verify truncation and responsive layout · UI preview Preview device Offline" [ref=f1e114] [cursor=pointer]:
+                  - /url: /dashboard/code-graph?deviceId=fixture-device&workspaceId=fixture-2
+                  - generic [ref=f1e118]:
+                    - strong [ref=f1e119]: Very long workspace name to verify truncation and responsive layout · UI preview
+                    - generic [ref=f1e120]: Preview device
+                  - generic [ref=f1e121]: Offline
+              - generic [ref=f1e123]: Chỉ hiển thị workspace bạn được phép truy cập.
+            - generic [ref=f1e127]:
+              - generic [ref=f1e129]:
+                - heading "Bước tiếp theo" [level=2] [ref=f1e130]
+                - text: Thiết lập không gian làm việc
+              - generic [ref=f1e135]:
+                - link "Kết nối AI Thiết lập MCP cho client của bạn" [ref=f1e136] [cursor=pointer]:
+                  - /url: /dashboard/connect
+                  - generic [ref=f1e142]:
+                    - strong [ref=f1e143]: Kết nối AI
+                    - generic [ref=f1e144]: Thiết lập MCP cho client của bạn
+                - link "Khám phá Skills Khả năng mở rộng cho AI" [ref=f1e147] [cursor=pointer]:
+                  - /url: /dashboard/skills
+                  - generic [ref=f1e152]:
+                    - strong [ref=f1e153]: Khám phá Skills
+                    - generic [ref=f1e154]: Khả năng mở rộng cho AI
+                - link "Kiểm tra bảo mật Quản lý phiên và quyền truy cập" [ref=f1e157] [cursor=pointer]:
+                  - /url: /dashboard/security
+                  - generic [ref=f1e162]:
+                    - strong [ref=f1e163]: Kiểm tra bảo mật
+                    - generic [ref=f1e164]: Quản lý phiên và quyền truy cập
+          - generic [ref=f1e167]:
+            - generic [ref=f1e168]: Dữ liệu từ lần tải gần nhất · MCP tokens là số ước tính
+            - button "Làm mới" [ref=f1e169] [cursor=pointer]
+        - generic [ref=f1e173]:
+          - generic [ref=f1e178]:
+            - strong [ref=f1e179]: Cuộc trò chuyện tiếp theo, trên desktop.
+            - paragraph [ref=f1e180]: Chat web đang tạm ẩn. Bạn sẽ làm việc cùng AI trong ứng dụng CodeLocal Desktop.
+          - link "Desktop · Sắp ra mắt" [ref=f1e181] [cursor=pointer]:
+            - /url: /#desktop
+            - text: Desktop · Sắp ra mắt
+            - generic [aria-hidden] [ref=f1e182]: ↗
+        - generic [ref=f1e183]:
+          - generic [ref=f1e184]: Thực thi cục bộ. Quyền truy cập theo workspace.
+          - link "Cần hỗ trợ?" [ref=f1e188] [cursor=pointer]:
+            - /url: /support
+            - text: Cần hỗ trợ? ↗
+  - button "Open Next.js Dev Tools" [ref=f1e194] [cursor=pointer]
+  - alert [ref=f1e198]

@@ -1,0 +1,66 @@
+[    1229ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[    1283ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   46598ms] [WARNING] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   46674ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:3100/api/v1/account:0
+[   46680ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[   46860ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   46918ms] [LOG] [Fast Refresh] done in 159ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   89721ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   89731ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  144292ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  144407ms] [WARNING] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  144434ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:3100/api/v1/knowledge/graph:0
+[  144466ms] [LOG] [Fast Refresh] done in 277ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  216273ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  216284ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  216350ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  216487ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  216496ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  216552ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  257642ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  257682ms] [LOG] [Fast Refresh] done in 2ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  258479ms] [LOG] [Fast Refresh] done in 2ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  258575ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  258588ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  258647ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  258836ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  258846ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  258906ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  328041ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  328081ms] [LOG] [Fast Refresh] done in 4ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  329339ms] [LOG] [Fast Refresh] done in 4ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  329421ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  329430ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  329487ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  329598ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  329606ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  329667ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  380871ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  380912ms] [LOG] [Fast Refresh] done in 1ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  381713ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  381723ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  381780ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  381898ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  381907ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  381963ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  407107ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  407121ms] [LOG] [Fast Refresh] done in 31ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  407125ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  407277ms] [LOG] [Fast Refresh] done in 126ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  407324ms] [LOG] [Fast Refresh] done in 126ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  427623ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  427650ms] [LOG] [Fast Refresh] done in 1ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  441137ms] [LOG] [Fast Refresh] done in 1ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  441236ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  441246ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  441305ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  441480ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  441489ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  441541ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0
+[  498675ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  498703ms] [LOG] [Fast Refresh] done in 2ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  525846ms] [LOG] [Fast Refresh] done in 2ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  525946ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  525958ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  575656ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[  575707ms] [LOG] [Fast Refresh] done in 3ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776

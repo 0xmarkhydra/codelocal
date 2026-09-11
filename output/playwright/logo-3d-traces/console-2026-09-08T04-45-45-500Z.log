@@ -1,0 +1,11 @@
+[     348ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[     573ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   81901ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   82028ms] [LOG] [Fast Refresh] done in 88ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   82723ms] [LOG] [Fast Refresh] done in 88ms @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   82773ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   82799ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   83630ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   83646ms] [LOG] [HMR] connected @ http://127.0.0.1:3100/_next/static/chunks/node_modules_next_dist_1e8vcs8._.js:776
+[   83729ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:3100/api/v1/account:0
+[   83734ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:3100/api/v1/dashboard/overview:0

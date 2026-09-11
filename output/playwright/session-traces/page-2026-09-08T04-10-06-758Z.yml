@@ -1,0 +1,137 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - link "Skip to content" [ref=e3] [cursor=pointer]:
+      - /url: "#main-content"
+    - generic [ref=e4]:
+      - link "CodeLocal home" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e6]: CodeLocal.
+      - navigation "Primary navigation" [ref=e7]:
+        - link "Product" [ref=e8] [cursor=pointer]:
+          - /url: "#system"
+        - link "How it works" [ref=e9] [cursor=pointer]:
+          - /url: "#how-it-works"
+        - link "Security" [ref=e10] [cursor=pointer]:
+          - /url: /security
+        - link "Blog" [ref=e11] [cursor=pointer]:
+          - /url: /blogs
+      - generic [ref=e12]:
+        - link "Sign in" [ref=e13] [cursor=pointer]:
+          - /url: /login
+        - link "Dashboard" [ref=e14] [cursor=pointer]:
+          - /url: /dashboard
+          - text: Dashboard
+          - generic [aria-hidden] [ref=e15]: ↗
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - generic [ref=e18]: LOCAL-FIRST. LIMITLESS POSSIBILITIES.
+        - heading "Your code. Your machine. Supercharged." [level=1] [ref=e20]: Your code.Your machine.Supercharged.
+        - paragraph [ref=e21]: A shared brain for your projects. Connect your AI to the knowledge, skills and local tools that make great work happen.
+        - generic [ref=e22]:
+          - link "Enter your workspace" [ref=e23] [cursor=pointer]:
+            - /url: /dashboard
+            - text: Enter your workspace
+            - generic [aria-hidden] [ref=e24]: ↗
+          - link "Explore the system" [ref=e25] [cursor=pointer]:
+            - /url: "#system"
+            - text: Explore the system
+            - generic [aria-hidden] [ref=e26]: ↓
+        - generic [ref=e27]: Workspace scoped. Local execution. Your control.
+      - generic [ref=e31]:
+        - generic [aria-hidden] [ref=e32]:
+          - generic [ref=e36]:
+            - generic [ref=e39]: CL
+            - generic [ref=e41]: ⌘
+            - generic [ref=e43]: ↗
+            - generic [ref=e45]: ✧
+          - generic [ref=e47]: 01 / PROJECT BRAIN
+          - generic [ref=e48]: 02 / LOCAL RUNTIME
+          - generic [ref=e49]: 03 / VERIFIED SKILLS
+        - generic [ref=e50]:
+          - generic [ref=e51]: CODELOCAL / INTELLIGENCE CORE
+          - generic [ref=e52]: PRODUCT CONCEPT · 01
+    - region "Compatible MCP clients" [ref=e53]:
+      - generic [ref=e54]: YOUR AI. ONE CONNECTED WORKSPACE.
+      - generic [ref=e55]:
+        - strong [ref=e56]: ChatGPT / Codex
+        - strong [ref=e57]: Claude
+        - strong [ref=e58]: Kimi
+        - strong [ref=e59]: DeepSeek
+        - generic [ref=e60]: Any MCP client ↗
+    - generic [ref=e61]:
+      - generic [ref=e62]:
+        - generic [ref=e63]:
+          - generic [ref=e64]: BUILT AROUND YOUR PROJECT
+          - heading "Less starting over. More moving forward." [level=2] [ref=e65]: Less starting over.More moving forward.
+        - paragraph [ref=e66]: Your tools shouldn’t forget what you’ve built.Give every session a stronger foundation.
+      - generic [ref=e67]:
+        - article [ref=e68]:
+          - generic [ref=e69]: "01"
+          - text: PROJECT BRAIN
+          - heading "Context that stays." [level=3] [ref=e76]
+          - paragraph [ref=e77]: Project structure, decisions and knowledge. Connected across sessions, ready for your next idea.
+        - article [ref=e78]:
+          - generic [ref=e79]: "02"
+          - text: LOCAL EXECUTION
+          - heading "Your machine. Your rules." [level=3] [ref=e85]
+          - paragraph [ref=e86]: Files, terminal and tools run locally, inside the workspace you authorize. You stay in control.
+        - article [ref=e87]:
+          - generic [ref=e88]: "03"
+          - text: VERIFIED EXPERIENCE
+          - heading "Good work compounds." [level=3] [ref=e94]
+          - paragraph [ref=e95]: Turn verified results into reusable experience. Give your next AI session a better starting point.
+      - generic [ref=e96]:
+        - generic [ref=e97]: Powerful by design. Scoped by default.
+        - paragraph [ref=e101]: Raw source and execution stay local. Cloud connects identity, routing and sanitized project knowledge.
+        - link "Explore security" [ref=e102] [cursor=pointer]:
+          - /url: /security
+          - text: Explore security ↗
+    - generic [ref=e103]:
+      - generic [ref=e104]:
+        - generic [ref=e105]:
+          - generic [ref=e106]: FROM ZERO TO CONNECTED
+          - heading "Your next chapter. Three steps away." [level=2] [ref=e107]: Your next chapter.Three steps away.
+        - link "Connection guide" [ref=e108] [cursor=pointer]:
+          - /url: /dashboard/connect
+          - text: Connection guide
+          - generic [aria-hidden] [ref=e109]: ↗
+      - list [ref=e110]:
+        - listitem [ref=e111]:
+          - generic [ref=e112]: "01"
+          - heading "Install the runtime" [level=3] [ref=e113]
+          - paragraph [ref=e114]: On the machine where your code lives.
+          - code [ref=e115]: npm install -g codelocal@latest
+        - listitem [ref=e116]:
+          - generic [ref=e117]: "02"
+          - heading "Connect your workspace" [level=3] [ref=e118]
+          - paragraph [ref=e119]: Pair your device and choose the project AI can access.
+          - code [ref=e120]: codelocal .
+        - listitem [ref=e121]:
+          - generic [ref=e122]: "03"
+          - heading "Bring your favorite AI" [level=3] [ref=e123]
+          - paragraph [ref=e124]: Connect a compatible client through your MCP endpoint.
+          - code [ref=e125]: One project. Shared context.
+    - generic [ref=e126]:
+      - generic [ref=e131]:
+        - generic [ref=e132]: NEXT UP / CODELOCAL DESKTOP
+        - heading "A new home for your AI." [level=2] [ref=e133]
+        - paragraph [ref=e134]: Chat is moving to the desktop app. Your web dashboard stays focused on projects, devices and knowledge.
+        - generic [ref=e135]:
+          - text: Coming soon
+          - generic [ref=e136]: macOS · Windows · Linux
+      - link "Explore dashboard" [ref=e137] [cursor=pointer]:
+        - /url: /dashboard
+        - text: Explore dashboard
+        - generic [aria-hidden] [ref=e138]: ↗
+    - generic [ref=e139]:
+      - link "CodeLocal." [ref=e140] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e141]: Built for your machine. Ready for your ideas.
+      - navigation "Footer navigation" [ref=e142]:
+        - link "Privacy" [ref=e143] [cursor=pointer]:
+          - /url: /privacy
+        - link "Terms" [ref=e144] [cursor=pointer]:
+          - /url: /terms
+        - link "Support" [ref=e145] [cursor=pointer]:
+          - /url: /support
+  - alert [ref=e146]
