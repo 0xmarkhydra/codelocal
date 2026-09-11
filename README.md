@@ -289,8 +289,7 @@ Performance-sensitive defaults are intentionally bounded:
 - `CODELOCAL_USAGE_STREAM_MAXLEN=1000000` bounds the approximate Redis Stream length.
 
 Usage writes never block an MCP response. They flow through the local queue and
-Redis Stream to a single leased, idempotent PostgreSQL batch consumer. File and
-search reads can fan out; edits, Git mutations and process writes remain ordered.
+Redis Stream to a single leased, idempotent PostgreSQL batch consumer. File and search reads can fan out; edits, Git mutations and process writes remain ordered.
 
 Validate and build the cross-platform npm CLI staging package without publishing:
 
@@ -377,3 +376,7 @@ windows-x64
 ```
 
 The launcher selects the binary matching `process.platform` and `process.arch`. This preserves the existing `npm i -g codelocal` UX while the actual CodeLocal application runs natively in Go.
+
+## License
+
+CodeLocal is licensed under the [Apache License 2.0](./LICENSE). Unless a file or directory states otherwise, source code in this repository may be used, modified, and distributed under the terms of that license. Third-party components retain their respective licenses.
