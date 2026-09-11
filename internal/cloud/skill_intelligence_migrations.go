@@ -122,5 +122,6 @@ func skillIntelligenceSchemaMigrations() []schemaMigration {
 	migrations = append(migrations, screenshotShareSchemaMigrations()...)
 	migrations = append(migrations, schemaMigration{60, dashboardChatUsageMigrationSQL})
 	migrations = append(migrations, pluginSchemaMigrations()...)
+	migrations = append(migrations, subagentRoutingAffinitySchemaMigrations()...)
 	return migrations
 }
