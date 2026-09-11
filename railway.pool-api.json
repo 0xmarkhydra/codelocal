@@ -2,13 +2,13 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "Dockerfile.pool-api",
+    "dockerfilePath": "deploy/docker/pool-api.Dockerfile",
     "watchPatterns": [
       "cmd/codelocal-pool/**",
       "internal/aipool/**",
       "go.mod",
       "go.sum",
-      "Dockerfile.pool-api",
+      "deploy/docker/pool-api.Dockerfile",
       "railway.pool-api.json"
     ]
   },
