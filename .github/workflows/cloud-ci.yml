@@ -35,7 +35,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'Dockerfile'
-      - 'railway.json'
+      - 'deploy/railway/backend.json'
   pull_request:
     paths:
       - 'cmd/codelocal-cloud/**'
@@ -69,7 +69,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'Dockerfile'
-      - 'railway.json'
+      - 'deploy/railway/backend.json'
   workflow_dispatch:
 
 jobs:

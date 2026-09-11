@@ -1204,7 +1204,7 @@ Cloud backend
 
 Web
 → CodeLocal Web CI
-→ web/** + Dockerfile.web + railway.web.json
+→ web/** + deploy/docker/web.Dockerfile + deploy/railway/web.json
 
 Docs/plans
 → no build/deploy by default

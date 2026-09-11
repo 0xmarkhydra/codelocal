@@ -101,13 +101,13 @@ Create a second service in the existing `dev` environment from `0xmarkhydra/code
 
 ```text
 Service: CodeLocal-Web-DEV
-Config as Code: /railway.web.json
-Dockerfile: Dockerfile.web
+Config as Code: /deploy/railway/web.json
+Dockerfile: deploy/docker/web.Dockerfile
 Health: /healthz
 Port: 3000
 ```
 
-Keep the repository root as build root because `Dockerfile.web` copies `web/`.
+Keep the repository root as build root because `deploy/docker/web.Dockerfile` copies `web/`.
 
 Set on the web service:
 
@@ -198,7 +198,7 @@ Every cutover candidate must pass:
 npm run ci
 git diff --check
 docker build -t codelocal-cloud:cutover .
-docker build -f Dockerfile.web \
+docker build -f deploy/docker/web.Dockerfile \
   --build-arg CODELOCAL_BACKEND_URL=http://backend.railway.internal:3333 \
   -t codelocal-web:cutover .
 ```

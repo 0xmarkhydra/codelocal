@@ -99,7 +99,7 @@ replacing the default `X-Frame-Options: SAMEORIGIN` response with a narrow CSP
 `frame-ancestors https://codelocal.cloud`. A new-tab link remains available as
 a browser fallback.
 
-The production frontend must use `railway.penpot-frontend.json`. Penpot 2.17.0
+The production frontend must use `deploy/penpot/railway.json`. Penpot 2.17.0
 contains the upstream fix for the missing `/css/ui.css`; the image also creates
 a compatibility symlink only when the upstream layer lacks that file. Verify
 every deployment with:

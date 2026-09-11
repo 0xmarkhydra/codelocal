@@ -79,8 +79,8 @@ Signup verification and password-reset context APIs return only validity plus a 
 
 Deployment artifacts:
 
-- `Dockerfile.web` — Next standalone production image;
-- `railway.web.json` — Railway web-service config;
+- `deploy/docker/web.Dockerfile` — Next standalone production image;
+- `deploy/railway/web.json` — Railway web-service config;
 - `/healthz` — Next health endpoint;
 - [`../docs/operations/NEXT_WEB_CUTOVER.md`](../docs/operations/NEXT_WEB_CUTOVER.md) — canary/cutover/rollback runbook.
 

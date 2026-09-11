@@ -66,7 +66,6 @@ The long-term repository should converge toward:
 ├── package-lock.json
 ├── Dockerfile
 ├── Dockerfile.reviewer
-├── railway.json
 ├── .github/
 ├── backend/                      # target Go cloud/API/server product surface
 ├── web/                          # Next.js + TypeScript browser product
@@ -75,6 +74,7 @@ The long-term repository should converge toward:
 ├── cli/                          # target Go CLI/local-runtime surface
 ├── native/                       # OS-specific bridges (Swift/macOS first)
 ├── tools/                        # reviewer/release/developer tooling
+├── deploy/                       # Railway configs, Dockerfiles and deployment assets
 ├── docs/
 ├── scripts/
 ├── cmd/                          # transitional Go entrypoints until migrated safely

@@ -6,12 +6,12 @@ on:
     paths:
       - 'web/**'
       - 'deploy/docker/web.Dockerfile'
-      - 'railway.web.json'
+      - 'deploy/railway/web.json'
   pull_request:
     paths:
       - 'web/**'
       - 'deploy/docker/web.Dockerfile'
-      - 'railway.web.json'
+      - 'deploy/railway/web.json'
   workflow_dispatch:
 
 jobs:

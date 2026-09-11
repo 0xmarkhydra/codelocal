@@ -311,7 +311,7 @@ Cloud container:
 docker build -t codelocal-cloud .
 ```
 
-The production container runs `cmd/codelocal-cloud`; Railway is configured through `railway.json`.
+The production container runs `cmd/codelocal-cloud`; Railway is configured through `deploy/railway/backend.json`.
 
 ## Publishing a new npm release
 
