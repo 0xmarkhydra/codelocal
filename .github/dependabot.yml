@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: ghcr.io/decolua/9router
+    open-pull-requests-limit: 1
