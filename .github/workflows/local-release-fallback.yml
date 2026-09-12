@@ -61,17 +61,25 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          package-manager-cache: false
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.x'
-          cache: true
+      - name: Configure local Mac toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          node_bin="$HOME/.nvm/versions/node/v24.20.0/bin"
+          if [[ ! -x "$node_bin/node" || ! -x "$node_bin/npm" ]]; then
+            echo "Node 24.20.0 is not installed under $node_bin." >&2
+            exit 1
+          fi
+          if [[ ! -x /opt/homebrew/bin/go ]]; then
+            echo "Go is not installed at /opt/homebrew/bin/go." >&2
+            exit 1
+          fi
+          echo "$node_bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+          "$node_bin/node" --version
+          "$node_bin/npm" --version
+          /opt/homebrew/bin/go version
+          /usr/bin/swiftc --version
 
       - name: Verify local npm authentication
         shell: bash
