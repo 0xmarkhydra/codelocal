@@ -81,10 +81,18 @@ jobs:
           /opt/homebrew/bin/go version
           /usr/bin/swiftc --version
 
-      - name: Verify local npm authentication
+      - name: Configure and verify npm authentication
         shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          if [[ -n "${NPM_TOKEN:-}" ]]; then
+            npm_config="$RUNNER_TEMP/codelocal-npmrc"
+            umask 077
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$npm_config"
+            echo "NPM_CONFIG_USERCONFIG=$npm_config" >> "$GITHUB_ENV"
+          fi
           npm whoami --registry=https://registry.npmjs.org/
 
       - name: Run repository and Go checks
@@ -280,11 +288,14 @@ jobs:
           done
           echo "::warning::npm accepted the publish but registry metadata is still propagating."
 
-      - name: Remove temporary signing keychain
+      - name: Remove temporary release credentials
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           if [[ -n "${CODELOCAL_SIGNING_KEYCHAIN:-}" && -f "$CODELOCAL_SIGNING_KEYCHAIN" ]]; then
             security delete-keychain "$CODELOCAL_SIGNING_KEYCHAIN" || rm -f "$CODELOCAL_SIGNING_KEYCHAIN"
+          fi
+          if [[ -n "${NPM_CONFIG_USERCONFIG:-}" && "$NPM_CONFIG_USERCONFIG" == "$RUNNER_TEMP/"* ]]; then
+            rm -f "$NPM_CONFIG_USERCONFIG"
           fi
