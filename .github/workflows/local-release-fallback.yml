@@ -1,3 +1,4 @@
+# Smoke test: verify automatic push-to-main release path
 name: CodeLocal Local Release Fallback
 
 on:
