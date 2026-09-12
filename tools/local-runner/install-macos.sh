@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUNNER_DIR="$HOME/.codelocal/github-actions/codelocal-runner"
+SUPERVISOR_DIR="$HOME/.codelocal/github-actions/supervisor"
+SUPERVISOR_PATH="$SUPERVISOR_DIR/jit-runner.py"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/com.codelocal.github-jit-runner.plist"
 LABEL="com.codelocal.github-jit-runner"
@@ -27,7 +29,7 @@ if ! "$GH_BIN" auth status >/dev/null 2>&1; then
   exit 1
 fi
 
-mkdir -p "$RUNNER_DIR" "$LAUNCH_AGENTS_DIR"
+mkdir -p "$RUNNER_DIR" "$SUPERVISOR_DIR" "$LAUNCH_AGENTS_DIR"
 
 if [[ ! -x "$RUNNER_DIR/run.sh" ]]; then
   echo "Installing GitHub Actions runner v$RUNNER_VERSION..."
@@ -37,7 +39,7 @@ if [[ ! -x "$RUNNER_DIR/run.sh" ]]; then
   rm -f "$tmp_archive"
 fi
 
-chmod 700 "$ROOT_DIR/tools/local-runner/jit-runner.py"
+install -m 700 "$ROOT_DIR/tools/local-runner/jit-runner.py" "$SUPERVISOR_PATH"
 
 cat > "$PLIST_PATH" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,7 +51,7 @@ cat > "$PLIST_PATH" <<PLIST
   <key>ProgramArguments</key>
   <array>
     <string>$PYTHON_BIN</string>
-    <string>$ROOT_DIR/tools/local-runner/jit-runner.py</string>
+    <string>$SUPERVISOR_PATH</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -58,7 +60,7 @@ cat > "$PLIST_PATH" <<PLIST
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>WorkingDirectory</key>
-  <string>$ROOT_DIR</string>
+  <string>$HOME/.codelocal/github-actions</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

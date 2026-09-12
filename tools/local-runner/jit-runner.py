@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPOSITORY = "0xmarkhydra/codelocal"
+REPOSITORY = "codelocal-cloud/codelocal"
 RUNNER_LABEL = "codelocal-release"
 RUNNER_ROOT = Path.home() / ".codelocal" / "github-actions" / "codelocal-runner"
 

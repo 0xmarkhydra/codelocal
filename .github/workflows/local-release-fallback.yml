@@ -1,4 +1,3 @@
-# Smoke test: verify automatic push-to-main release path
 name: CodeLocal Local Release Fallback
 
 on:
@@ -36,7 +35,7 @@ concurrency:
 jobs:
   release:
     if: >-
-      github.repository == '0xmarkhydra/codelocal' &&
+      github.repository == 'codelocal-cloud/codelocal' &&
       github.actor == '0xmarkhydra' &&
       (github.event_name == 'workflow_dispatch' || vars.CODELOCAL_LOCAL_RUNNER_FALLBACK == 'true')
     runs-on: [self-hosted, codelocal-release]

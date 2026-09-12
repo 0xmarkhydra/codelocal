@@ -16,7 +16,7 @@ concurrency:
 jobs:
   notify:
     if: >-
-      github.repository == '0xmarkhydra/codelocal' &&
+      github.repository == 'codelocal-cloud/codelocal' &&
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10

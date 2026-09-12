@@ -115,7 +115,7 @@ process.exit(result.status ?? 1);
 		"license":     "UNLICENSED",
 		"repository": map[string]string{
 			"type": "git",
-			"url":  "https://github.com/0xmarkhydra/codelocal.git",
+			"url":  "https://github.com/codelocal-cloud/codelocal.git",
 		},
 		"bin":     map[string]string{"codelocal": "bin/codelocal.js"},
 		"files":   []string{"bin/", "README.md"},
