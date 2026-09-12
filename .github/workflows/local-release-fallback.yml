@@ -1,0 +1,282 @@
+name: CodeLocal Local Release Fallback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/codelocal/**'
+      - 'cmd/computerhelper/**'
+      - 'cmd/computernative/**'
+      - 'cmd/release/**'
+      - 'internal/**'
+      - 'legacy/typescript-runtime/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.nvmrc'
+      - '.github/workflows/local-release-fallback.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to npm after a successful local build. Leave off for a safe end-to-end dry run.'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: codelocal-local-release-fallback
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.repository == '0xmarkhydra/codelocal' &&
+      github.actor == '0xmarkhydra' &&
+      (github.event_name == 'workflow_dispatch' || vars.CODELOCAL_LOCAL_RUNNER_FALLBACK == 'true')
+    runs-on: [self-hosted, codelocal-release]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout trusted main source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Reject untrusted refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Local release fallback only accepts pushes to main." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_ACTOR" != "0xmarkhydra" ]]; then
+            echo "Local release fallback only accepts the repository owner." >&2
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Verify local npm authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm whoami --registry=https://registry.npmjs.org/
+
+      - name: Run repository and Go checks
+        run: npm run check:repo && npm run ci:go
+
+      - name: Resolve next stable version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_version="$(node -p "require('./package.json').version.replace(/-.+$/, '')")"
+          latest="$(npm view 'codelocal@latest' version --prefer-online 2>/dev/null || true)"
+          version="$(node - "$source_version" "$latest" <<'NODE'
+          const [source, latest] = process.argv.slice(2);
+          const parse = (value) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value || '');
+            if (!match) throw new Error(`Invalid stable semver: ${value}`);
+            return match.slice(1).map(Number);
+          };
+          const compare = (a, b) => {
+            for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] - b[i];
+            return 0;
+          };
+          const sourceParts = parse(source);
+          const latestParts = latest ? parse(latest) : [0, 0, 0];
+          const base = compare(sourceParts, latestParts) >= 0 ? sourceParts : latestParts;
+          process.stdout.write(`${base[0]}.${base[1]}.${base[2] + 1}`);
+          NODE
+          )"
+          while git rev-parse -q --verify "refs/tags/codelocal-v$version" >/dev/null 2>&1 || \
+            npm view "codelocal@$version" version --prefer-online >/dev/null 2>&1; do
+            version="$(node - "$version" <<'NODE'
+          const parts = process.argv[2].split('.').map(Number);
+          parts[2] += 1;
+          process.stdout.write(parts.join('.'));
+          NODE
+            )"
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=codelocal-v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize release version
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --no-git-tag-version --ignore-scripts
+          node <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.VERSION;
+          const path = 'internal/version/version.go';
+          const source = fs.readFileSync(path, 'utf8');
+          const pattern = /^const Version = "[^"]*"$/m;
+          if (!pattern.test(source)) throw new Error(`Could not update ${path}`);
+          fs.writeFileSync(path, source.replace(pattern, `const Version = "${version}"`));
+          NODE
+
+      - name: Build native macOS Computer workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native-artifact
+          swiftc -O -target arm64-apple-macos14.0 cmd/computernative/main.swift -o native-artifact/computer-native-darwin-arm64
+          swiftc -O -target x86_64-apple-macos14.0 cmd/computernative/main.swift -o native-artifact/computer-native-darwin-amd64
+          chmod 755 native-artifact/computer-native-darwin-*
+
+      - name: Import Developer ID Application certificate
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APPLE_CERTIFICATE_P12_BASE64" || -z "$APPLE_CERTIFICATE_PASSWORD" ]]; then
+            echo "APPLE_CERTIFICATE_P12_BASE64 and APPLE_CERTIFICATE_PASSWORD are required." >&2
+            exit 1
+          fi
+          KEYCHAIN_PATH="$RUNNER_TEMP/codelocal-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          CERTIFICATE_PATH="$RUNNER_TEMP/codelocal-developer-id.p12"
+          printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 -D > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "CODELOCAL_SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          rm -f "$CERTIFICATE_PATH"
+
+      - name: Sign and notarize native macOS Computer workers
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for goarch in arm64 amd64; do
+            output="native-artifact/computer-native-darwin-$goarch"
+            codesign --force --timestamp --options runtime --keychain "$CODELOCAL_SIGNING_KEYCHAIN" --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$output"
+            codesign --verify --strict --verbose=2 "$output"
+            archive="$RUNNER_TEMP/codelocal-native-$goarch.zip"
+            ditto -c -k --sequesterRsrc --keepParent "$output" "$archive"
+            xcrun notarytool submit "$archive" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --wait
+            rm -f "$archive"
+          done
+
+      - name: Build npm package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .release
+          npm run release:npm:prepare
+          cp native-artifact/computer-native-darwin-arm64 .release/npm/bin/helpers/
+          cp native-artifact/computer-native-darwin-amd64 .release/npm/bin/helpers/
+          chmod 755 .release/npm/bin/helpers/computer-native-darwin-*
+
+      - name: Verify final npm tarball
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          staged_version="$(node -p "require('./.release/npm/package.json').version")"
+          if [[ "$staged_version" != "$VERSION" ]]; then
+            echo "Staged version mismatch: expected=$VERSION actual=$staged_version" >&2
+            exit 1
+          fi
+          pack_json="$(npm pack --dry-run --json ./.release/npm)"
+          PACK_JSON="$pack_json" node <<'NODE'
+          const payload = JSON.parse(process.env.PACK_JSON || '[]');
+          if (!Array.isArray(payload) || payload.length !== 1) throw new Error('Unexpected npm pack output');
+          const files = new Set((payload[0].files || []).map((entry) => entry.path));
+          for (const required of [
+            'bin/helpers/computer-native-darwin-arm64',
+            'bin/helpers/computer-native-darwin-amd64',
+          ]) {
+            if (!files.has(required)) throw new Error(`Missing ${required}`);
+          }
+          NODE
+          node .release/npm/bin/codelocal.js --version
+
+      - name: Publish npm package
+        if: github.event_name == 'push' || inputs.publish == true
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "codelocal@$VERSION" version --prefer-online >/dev/null 2>&1; then
+            echo "codelocal@$VERSION is already published; skipping duplicate publish."
+          else
+            npm publish ./.release/npm --tag latest --access public --registry=https://registry.npmjs.org/
+          fi
+
+      - name: Create immutable release tag
+        if: github.event_name == 'push' || inputs.publish == true
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json internal/version/version.go
+          git commit -m "release: codelocal v$VERSION"
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+
+      - name: Verify npm registry propagation
+        if: github.event_name == 'push' || inputs.publish == true
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            published="$(npm view "codelocal@$VERSION" version --prefer-online 2>/dev/null || true)"
+            latest="$(npm view 'codelocal@latest' version --prefer-online 2>/dev/null || true)"
+            if [[ "$published" == "$VERSION" ]]; then
+              echo "Published codelocal@$VERSION is visible (latest=${latest:-pending})."
+              exit 0
+            fi
+            echo "Registry propagation $attempt/20: version=${published:-pending}, latest=${latest:-pending}"
+            sleep 5
+          done
+          echo "::warning::npm accepted the publish but registry metadata is still propagating."
+
+      - name: Remove temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${CODELOCAL_SIGNING_KEYCHAIN:-}" && -f "$CODELOCAL_SIGNING_KEYCHAIN" ]]; then
+            security delete-keychain "$CODELOCAL_SIGNING_KEYCHAIN" || rm -f "$CODELOCAL_SIGNING_KEYCHAIN"
+          fi
