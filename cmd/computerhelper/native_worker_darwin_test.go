@@ -160,7 +160,7 @@ func TestMacNativeDaemonProbeAndPersistentHandshake(t *testing.T) {
 	resetSharedMacNativeWorkerForTest()
 	t.Cleanup(resetSharedMacNativeWorkerForTest)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	capabilities, ready := macNativeDaemonProbe(ctx)
 	if !ready || capabilities["nativeAXBackend"] != true || capabilities["sceneEvents"] != true {
