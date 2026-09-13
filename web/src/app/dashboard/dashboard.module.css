@@ -659,10 +659,6 @@
   text-align: right;
 }
 
-.usageMetricGrid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .usageList {
   display: grid;
   margin-top: 18px;
