@@ -444,7 +444,7 @@ var dashboardChatTools = append([]map[string]any{
 			},
 		},
 	},
-}, dashboardRuntimeChatTools...)
+}, append(dashboardPluginChatTools, dashboardRuntimeChatTools...)...)
 
 func dashboardChatToolName(tool map[string]any) string {
 	function, _ := tool["function"].(map[string]any)
@@ -454,8 +454,10 @@ func dashboardChatToolName(tool map[string]any) string {
 
 func dashboardChatToolReadOnly(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "list_workspaces", "list_devices", "search_project_brain", "get_workspace_detail":
+	case "list_workspaces", "list_devices", "search_project_brain", "get_workspace_detail", "list_plugin_tools":
 		return true
+	case "call_plugin_tool":
+		return false
 	}
 	_, sideEffect, _, ok := dashboardRuntimeToolSpec(name, nil)
 	return ok && !sideEffect

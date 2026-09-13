@@ -10,8 +10,15 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/cloudmcp"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	plugindomain "github.com/0xmarkhydra/codelocal/internal/plugins"
 )
+
+func dashboardPluginArgString(value any) string {
+	text, _ := value.(string)
+	return text
+}
 
 type dashboardExecutionState struct {
 	workspace       *gateway.WorkspaceView
@@ -376,6 +383,12 @@ func dashboardFollowRunningProcess(ctx context.Context, initial gateway.RoutedRe
 }
 
 func execDashboardRuntimeTool(r *http.Request, s *Server, userID, name string, args map[string]any) (string, bool) {
+	if name == "list_plugin_tools" {
+		return s.execDashboardPluginListTools(r, userID)
+	}
+	if name == "call_plugin_tool" {
+		return s.execDashboardPluginCallTool(r, userID, args)
+	}
 	runtimeTool, sideEffect, forward, ok := dashboardRuntimeToolSpec(name, args)
 	if !ok {
 		return "", false
@@ -458,4 +471,181 @@ func execDashboardRuntimeTool(r *http.Request, s *Server, userID, name string, a
 	}
 	b, _ := json.Marshal(payload)
 	return string(b), true
+}
+
+// dashboardPluginChatTools expose connected Plugin MCP tools to dashboard chat.
+// Discovery and execution route per connection: cloud connections run in
+// process through cloudmcp, device connections forward to the CodeLocal
+// runtime, which keeps its own approval engine.
+var dashboardPluginChatTools = []map[string]any{
+	{
+		"type": "function",
+		"function": map[string]any{
+			"name":        "list_plugin_tools",
+			"description": "List connected CodeLocal Plugins and their available MCP tools, grouped by connection (cloud or device).",
+			"parameters": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+	},
+	{
+		"type": "function",
+		"function": map[string]any{
+			"name":        "call_plugin_tool",
+			"description": "Execute a tool on a connected CodeLocal Plugin. Cloud connections only run read-only tools; device connections follow the device approval flow.",
+			"parameters": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"plugin":    map[string]any{"type": "string", "description": "Plugin id, e.g. github or penpot"},
+					"tool":      map[string]any{"type": "string", "description": "Exact MCP tool name"},
+					"arguments": map[string]any{"type": "object", "description": "Tool arguments"},
+				},
+				"required": []string{"plugin", "tool"},
+			},
+		},
+	},
+}
+
+func (s *Server) execDashboardPluginListTools(r *http.Request, userID string) (string, bool) {
+	if s.Store == nil {
+		return `{"error":"plugin_connections_unavailable"}`, true
+	}
+	connections, err := s.Store.ListPluginConnections(r.Context(), userID)
+	if err != nil {
+		return `{"error":"plugin_connections_unavailable"}`, true
+	}
+	entries := []map[string]any{}
+	for _, connection := range connections {
+		entry := map[string]any{
+			"plugin":     connection.PluginID,
+			"serverName": connection.ServerName,
+			"state":      string(connection.State),
+			"toolCount":  connection.ToolCount,
+		}
+		if connection.DeviceID == cloudConnectionDeviceID {
+			entry["executionTarget"] = string(plugindomain.ExecutionCloud)
+			entry["tools"] = s.dashboardCloudPluginTools(userID, connection)
+		} else {
+			entry["executionTarget"] = string(plugindomain.ExecutionLocal)
+			entry["deviceId"] = connection.DeviceID
+			entry["tools"] = s.dashboardDevicePluginTools(r, userID, connection)
+		}
+		entries = append(entries, entry)
+	}
+	payload, _ := json.Marshal(map[string]any{"connections": entries})
+	return string(payload), true
+}
+
+func (s *Server) dashboardCloudPluginTools(userID string, connection cloud.PluginConnection) []cloudmcp.ToolSummary {
+	if connection.State != cloud.PluginConnectionReady || s.CloudMCP == nil {
+		return []cloudmcp.ToolSummary{}
+	}
+	tools, err := s.CloudMCP.ListTools(userID, connection.PluginID)
+	if err != nil {
+		return []cloudmcp.ToolSummary{}
+	}
+	return tools
+}
+
+func (s *Server) dashboardDevicePluginTools(r *http.Request, userID string, connection cloud.PluginConnection) []map[string]any {
+	if s.Hub == nil || connection.State != cloud.PluginConnectionReady {
+		return []map[string]any{}
+	}
+	result, err := s.Hub.Call(r.Context(), userID, connection.WorkspaceKey, "dashboard-plugins-"+userID, "mcp_search_tools",
+		map[string]any{"server": connection.ServerName, "query": "", "limit": 50}, false, cloud.RandomHex(16))
+	if err != nil || !result.OK {
+		return []map[string]any{}
+	}
+	resultMap, _ := result.Result.(map[string]any)
+	items, _ := resultMap["results"].([]any)
+	tools := []map[string]any{}
+	for _, item := range items {
+		entry, _ := item.(map[string]any)
+		if entry == nil {
+			continue
+		}
+		tools = append(tools, map[string]any{
+			"name":        entry["tool"],
+			"description": entry["description"],
+			"readOnly":    false,
+		})
+	}
+	return tools
+}
+
+func (s *Server) execDashboardPluginCallTool(r *http.Request, userID string, args map[string]any) (string, bool) {
+	pluginID := strings.TrimSpace(dashboardPluginArgString(args["plugin"]))
+	tool := strings.TrimSpace(dashboardPluginArgString(args["tool"]))
+	if pluginID == "" || tool == "" {
+		return `{"error":"invalid_plugin_tool_request","message":"call_plugin_tool requires plugin and tool."}`, true
+	}
+	if s.Store == nil {
+		return `{"error":"plugin_connections_unavailable"}`, true
+	}
+	connections, err := s.Store.ListPluginConnections(r.Context(), userID)
+	if err != nil {
+		return `{"error":"plugin_connections_unavailable"}`, true
+	}
+	connection := cloud.PluginConnection{}
+	found := false
+	for _, item := range connections {
+		if item.PluginID == pluginID && item.State == cloud.PluginConnectionReady {
+			connection = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		payload, _ := json.Marshal(map[string]any{"error": "plugin_connection_not_ready", "message": "Plugin " + pluginID + " has no ready connection."})
+		return string(payload), true
+	}
+
+	if connection.DeviceID == cloudConnectionDeviceID {
+		if s.CloudMCP == nil {
+			return `{"error":"plugin_cloud_runtime_unavailable"}`, true
+		}
+		summary, exists, err := s.CloudMCP.ToolInfo(userID, pluginID, tool)
+		if err != nil {
+			return `{"error":"plugin_cloud_runtime_unavailable"}`, true
+		}
+		if !exists {
+			payload, _ := json.Marshal(map[string]any{"error": "plugin_tool_not_found", "message": "Tool " + tool + " is not available on this Plugin."})
+			return string(payload), true
+		}
+		if !summary.ReadOnly {
+			s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "plugin.cloud_tool", Detail: map[string]any{"pluginId": pluginID, "tool": tool, "status": "blocked"}})
+			payload, _ := json.Marshal(map[string]any{
+				"error":   "cloud_tool_read_only",
+				"message": "Cloud connections only run read-only tools. Connect this Plugin on a device to use tools that can change external data.",
+			})
+			return string(payload), true
+		}
+		arguments, _ := args["arguments"].(map[string]any)
+		result, callErr := s.CloudMCP.Call(r.Context(), userID, pluginID, tool, arguments)
+		status := "ok"
+		if callErr != nil {
+			status = "failed"
+		}
+		s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "plugin.cloud_tool", Detail: map[string]any{"pluginId": pluginID, "tool": tool, "status": status}})
+		if callErr != nil {
+			payload, _ := json.Marshal(map[string]any{"error": "plugin_tool_call_failed", "message": callErr.Error()})
+			return string(payload), true
+		}
+		payload, _ := json.Marshal(map[string]any{"ok": true, "executionTarget": string(plugindomain.ExecutionCloud), "result": result})
+		return string(payload), true
+	}
+
+	if s.Hub == nil {
+		return `{"error":"runtime_gateway_unavailable"}`, true
+	}
+	arguments, _ := args["arguments"].(map[string]any)
+	result, err := s.Hub.Call(r.Context(), userID, connection.WorkspaceKey, "dashboard-plugins-"+userID, "mcp_call",
+		map[string]any{"server": connection.ServerName, "tool": tool, "arguments": arguments}, true, cloud.RandomHex(16))
+	if err != nil {
+		payload, _ := json.Marshal(map[string]any{"error": "plugin_tool_call_failed", "message": err.Error()})
+		return string(payload), true
+	}
+	payload, _ := json.Marshal(map[string]any{"ok": result.OK, "executionTarget": string(plugindomain.ExecutionLocal), "result": result.Result})
+	return string(payload), true
 }
