@@ -3,6 +3,7 @@
 import { isUsageResource, type ReportedUsageWindow, type UsageWindow } from "@/lib/contracts/usage";
 import { DashboardResourceFeedback } from "../dashboard-resource-feedback";
 import styles from "../dashboard.module.css";
+import usageStyles from "./usage-live.module.css";
 import { useDashboardResource } from "../use-dashboard-resource";
 import { useTranslations } from "@/lib/i18n/provider";
 
@@ -50,19 +51,27 @@ export function LiveUsage() {
   }
 
   const { webChat, mcp } = state.value;
+  const combinedTokens = (key: typeof windows[number]["key"]) => webChat[key].totalTokens + mcp[key].totalTokensEstimated;
   return <section className={styles.livePanel} aria-live="polite">
     <div className={styles.liveHead}>
       <div><span className={styles.eyebrow}>Web Chat + MCP</span></div>
       <span className={styles.liveBadge}>{t("Latest snapshot")}</span>
     </div>
 
-    <div className={`${styles.metricGrid} ${styles.usageMetricGrid}`}>
-      {windows.map(({ key, label }) => <article className={styles.metricCard} key={key}>
-        <span>{t(label)}</span><strong>{compactNumber.format(webChat[key].totalTokens + mcp[key].totalTokensEstimated)}</strong>
-      </article>)}
+    <div className={usageStyles.usageSummary}>
+      <article className={usageStyles.primaryMetric}>
+        <span>{t("All time")}</span>
+        <strong>{compactNumber.format(combinedTokens("allTime"))}</strong>
+      </article>
+      <div className={usageStyles.recentMetrics}>
+        {windows.slice(0, -1).map(({ key, label }) => <article className={usageStyles.recentMetric} key={key}>
+          <span>{t(label)}</span>
+          <strong>{compactNumber.format(combinedTokens(key))}</strong>
+        </article>)}
+      </div>
     </div>
 
-    <div className={styles.liveHead}><div><span className={styles.eyebrow}>Web Chat</span><p>{t("Provider-reported tokens")}</p></div></div>
+    <div className={`${styles.liveHead} ${usageStyles.sectionHead}`}><div><span className={styles.eyebrow}>Web Chat</span><p>{t("Provider-reported tokens")}</p></div></div>
     <div className={styles.usageList}>
       {windows.map(({ key, label }) => <ReportedBreakdown key={key} label={t(label)} value={webChat[key]} />)}
     </div>
