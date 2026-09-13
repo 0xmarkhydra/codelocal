@@ -120,7 +120,8 @@
 }
 
 .tabs button,
-.actions button,
+.primaryButton,
+.secondaryButton,
 .emptyState button {
   appearance: none;
   border: 0;
@@ -154,7 +155,8 @@
 }
 
 .tabs button:focus-visible,
-.actions button:focus-visible,
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
 .emptyState button:focus-visible {
   outline: 2px solid rgba(143, 177, 235, 0.72);
   outline-offset: 2px;
@@ -225,7 +227,6 @@
 
 .pluginCard {
   min-width: 0;
-  min-height: 310px;
   display: flex;
   flex-direction: column;
   padding: 17px;
@@ -249,18 +250,12 @@
 .cardTop,
 .pluginIdentity,
 .nameRow,
-.permissionTitle,
-.cardFooter,
-.actions,
-.installState > span,
-.verified,
-.installedBadge {
+.verified {
   display: flex;
   align-items: center;
 }
 
-.cardTop,
-.cardFooter {
+.cardTop {
   justify-content: space-between;
   gap: 14px;
 }
@@ -310,31 +305,17 @@
   font-size: 14px;
 }
 
-.verified,
-.featuredBadge,
-.installedBadge {
+.verified {
   flex: 0 0 auto;
-  min-height: 22px;
+  min-height: 19px;
+  gap: 3px;
   padding: 0 7px;
   border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.024);
-  color: rgba(213, 225, 242, 0.85);
+  color: rgba(168, 195, 235, 0.85);
   font-size: 12px;
   font-weight: 590;
-}
-
-.verified {
-  gap: 3px;
-  min-height: 19px;
-  color: rgba(168, 195, 235, 0.85);
-}
-
-.installedBadge {
-  gap: 4px;
-  border-color: rgba(105, 216, 149, 0.13);
-  color: rgba(147, 220, 176, 0.85);
-  background: rgba(27, 62, 42, 0.16);
 }
 
 .description {
@@ -344,74 +325,68 @@
   line-height: 1.6;
 }
 
-.categories,
 .permissionList {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.categories {
-  margin-top: 12px;
-}
-
-.categories span,
 .permissionList span {
   min-height: 22px;
   display: inline-flex;
   align-items: center;
   padding: 0 7px;
   border: 1px solid rgba(255, 255, 255, 0.045);
-  border-radius: 999px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.022);
   color: rgba(205, 216, 233, 0.85);
   font-size: 14px;
 }
 
-.permissions {
-  margin-top: 14px;
-  padding-top: 12px;
+.permissionsSummary {
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(206, 219, 237, 0.85);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.permissionsSummary:hover {
+  color: rgba(226, 235, 248, 0.92);
+}
+
+.statusRow {
+  flex: 1 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.045);
 }
 
-.permissionTitle {
-  gap: 6px;
-  color: rgba(206, 219, 237, 0.85);
+.statusCopy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
 }
 
-.permissionTitle strong {
+.statusMain {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(224, 233, 246, 0.9);
   font-size: 14px;
   font-weight: 590;
 }
 
-.permissionTitle svg {
-  color: rgba(153, 176, 218, 0.85);
-}
-
-.permissionList {
-  margin-top: 8px;
-}
-
-.permissionList span {
-  border-radius: 8px;
-}
-
-.cardFooter {
-  flex-wrap: wrap;
-  margin-top: auto;
-  padding-top: 16px;
-}
-
-.installState {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-  color: rgba(211, 222, 238, 0.85);
-  font-size: 14px;
-}
-
-.installState > span {
-  gap: 6px;
+.statusHint {
+  color: rgba(211, 222, 238, 0.68);
+  font-size: 12px;
 }
 
 .statusDot {
@@ -426,16 +401,8 @@
   background: rgba(105, 216, 149, 0.78);
 }
 
-.updateText {
-  color: rgba(193, 210, 238, 0.85);
-}
-
-.actions {
-  flex: 0 0 auto;
-  gap: 6px;
-}
-
-.actions button,
+.primaryButton,
+.secondaryButton,
 .emptyState button {
   min-height: 44px;
   padding: 0 11px;
@@ -462,19 +429,23 @@
   color: rgba(220, 229, 242, 0.85);
 }
 
-.actions button:hover:not(:disabled),
+.primaryButton:hover:not(:disabled),
+.secondaryButton:hover:not(:disabled),
 .emptyState button:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.13) !important;
   background: rgba(255, 255, 255, 0.075);
   color: rgba(255, 255, 255, 0.9);
 }
 
-.actions button:active:not(:disabled),
+.primaryButton:active:not(:disabled),
+.secondaryButton:active:not(:disabled),
 .emptyState button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-.actions button:disabled {
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.textButton:disabled {
   cursor: not-allowed;
   opacity: 0.42;
 }
@@ -530,7 +501,6 @@
 
 .connectionRow,
 .configHeader,
-.configActions,
 .credentialNote {
   display: flex;
   align-items: center;
@@ -601,7 +571,8 @@
 .iconButton:focus-visible,
 .field input:focus-visible,
 .field select:focus-visible,
-.configActions button:focus-visible {
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible {
   outline: 2px solid rgba(143, 177, 235, 0.72);
   outline-offset: 2px;
 }
@@ -714,22 +685,6 @@
   color: rgba(240, 213, 168, 0.85);
 }
 
-.configActions {
-  justify-content: flex-end;
-  gap: 6px;
-  padding-top: 2px;
-}
-
-.configActions button {
-  min-height: 44px;
-  padding: 0 11px;
-  border-radius: 8px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 580;
-}
-
 .configActions button:disabled,
 .textButton:disabled {
   cursor: not-allowed;
@@ -738,6 +693,107 @@
 
 .statusDot[data-error="true"] {
   background: rgba(226, 107, 119, 0.78);
+}
+
+.dialogLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.dialogBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(4, 7, 12, 0.62);
+  cursor: pointer;
+}
+
+.dialog {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: min(86vh, 720px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.4);
+}
+
+.dialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dialogTitle h2 {
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 18px;
+  font-weight: 640;
+  letter-spacing: 0;
+}
+
+.dialogTitle p {
+  margin-top: 3px;
+  color: rgba(211, 222, 238, 0.75);
+  font-size: 13px;
+}
+
+.targetChoice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.targetOption {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.targetOption strong {
+  color: rgba(240, 245, 252, 0.92);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.targetOption span {
+  color: rgba(205, 216, 233, 0.72);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.targetOption[data-selected="true"] {
+  border-color: rgba(120, 160, 255, 0.32);
+  background: rgba(83, 128, 239, 0.08);
+}
+
+.targetOption:hover:not(:disabled) {
+  border-color: rgba(120, 160, 255, 0.24);
+}
+
+.dialogFooter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 @media (max-width: 1080px) {
@@ -762,13 +818,15 @@
   .cardTop { align-items: flex-start; }
   .pluginIdentity { align-items: flex-start; }
   .nameRow { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .cardFooter { align-items: stretch; flex-direction: column; }
-  .actions { width: 100%; }
-  .actions button { flex: 1; }
+  .statusRow { align-items: stretch; flex-direction: column; }
+  .statusRow .primaryButton { width: 100%; }
+  .dialog { padding: 16px; }
+  .targetChoice { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pluginCard,
-  .actions button,
+  .primaryButton,
+  .secondaryButton,
   .emptyState button { transition: none; }
 }
