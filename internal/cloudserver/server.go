@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/cloudmcp"
 	"github.com/0xmarkhydra/codelocal/internal/deviceauth"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	"github.com/0xmarkhydra/codelocal/internal/learnedskills"
@@ -52,6 +53,7 @@ type Server struct {
 	MCP         *mcpgateway.Service
 	Memory      *memory.Store
 	Media       *s3MediaStore
+	CloudMCP    *cloudmcp.Manager
 	Mux         *http.ServeMux
 	HTTP        *http.Server
 	WebFrontend http.Handler
@@ -194,6 +196,7 @@ func New(ctx context.Context) (*Server, error) {
 		MCP:         mcpService,
 		Memory:      memoryStore,
 		Media:       mediaStore,
+		CloudMCP:    cloudmcp.NewManager(),
 		Mux:         http.NewServeMux(),
 		WebFrontend: webFrontend,
 		InstanceID:  instanceID,

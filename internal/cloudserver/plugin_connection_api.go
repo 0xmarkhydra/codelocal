@@ -14,10 +14,19 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
 	"github.com/0xmarkhydra/codelocal/internal/gateway"
 	plugindomain "github.com/0xmarkhydra/codelocal/internal/plugins"
+	"github.com/0xmarkhydra/codelocal/internal/webauth"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
 var pluginCredentialRefRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// Cloud plugin connections do not belong to a device. The store requires a
+// non-empty device/workspace identity, so cloud rows use these sentinels; the
+// DTO derives the execution target from the device sentinel.
+const (
+	cloudConnectionDeviceID     = "cloud"
+	cloudConnectionWorkspaceKey = "cloud"
+)
 
 type pluginConnectionDTO struct {
 	DeviceID        string `json:"deviceId"`
@@ -35,11 +44,12 @@ type pluginConnectionDTO struct {
 }
 
 type pluginConnectInput struct {
-	DeviceID    string `json:"deviceId"`
-	WorkspaceID string `json:"workspaceId"`
-	Endpoint    string `json:"endpoint"`
-	BearerEnv   string `json:"bearerEnv,omitempty"`
-	BearerToken string `json:"bearerToken,omitempty"`
+	DeviceID        string `json:"deviceId"`
+	WorkspaceID     string `json:"workspaceId"`
+	Endpoint        string `json:"endpoint"`
+	BearerEnv       string `json:"bearerEnv,omitempty"`
+	BearerToken     string `json:"bearerToken,omitempty"`
+	ExecutionTarget string `json:"executionTarget,omitempty"`
 }
 
 type pluginConfigureResult struct {
@@ -50,8 +60,30 @@ type pluginConfigureResult struct {
 	Error      string
 }
 
+func manifestSupportsCloud(entry plugindomain.CatalogEntry) bool {
+	for _, component := range entry.Manifest.Components {
+		var targets []plugindomain.ExecutionTarget
+		if component.App != nil {
+			targets = component.App.Execution
+		}
+		if component.AppTemplate != nil {
+			targets = component.AppTemplate.Execution
+		}
+		for _, target := range targets {
+			if target == plugindomain.ExecutionCloud {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func pluginConnectionDTOFrom(connection cloud.PluginConnection) (pluginConnectionDTO, error) {
-	route, err := plugindomain.ResolveExecutionRoute([]plugindomain.ExecutionTarget{plugindomain.ExecutionLocal}, plugindomain.ExecutionLocal, connection.DeviceID)
+	target := plugindomain.ExecutionLocal
+	if connection.DeviceID == cloudConnectionDeviceID {
+		target = plugindomain.ExecutionCloud
+	}
+	route, err := plugindomain.ResolveExecutionRoute([]plugindomain.ExecutionTarget{target}, target, connection.DeviceID)
 	if err != nil {
 		return pluginConnectionDTO{}, err
 	}
@@ -94,6 +126,43 @@ func validatePluginConnectionInput(input pluginConnectInput) (pluginConnectInput
 	}
 	if input.BearerEnv != "" && input.BearerToken != "" {
 		return pluginConnectInput{}, errors.New("provide bearerEnv or bearerToken, not both")
+	}
+	if strings.ContainsAny(input.BearerToken, "\r\n\x00") || len(input.BearerToken) > 8192 {
+		return pluginConnectInput{}, errors.New("bearerToken is invalid")
+	}
+	return input, nil
+}
+
+// validatePluginCloudConnectionInput prepares a cloud-target connection. Env
+// references are a device-local concept by definition, so cloud connections
+// always carry an encrypted bearer token and never a device/workspace.
+func validatePluginCloudConnectionInput(input pluginConnectInput) (pluginConnectInput, error) {
+	input.DeviceID = ""
+	input.WorkspaceID = ""
+	input.BearerEnv = ""
+	input.ExecutionTarget = string(plugindomain.ExecutionCloud)
+	input.Endpoint = strings.TrimSpace(input.Endpoint)
+	input.BearerToken = strings.TrimSpace(input.BearerToken)
+	parsed, err := url.Parse(input.Endpoint)
+	if err != nil || parsed.Hostname() == "" {
+		return pluginConnectInput{}, errors.New("endpoint must be an absolute URL")
+	}
+	if parsed.User != nil || parsed.Fragment != "" {
+		return pluginConnectInput{}, errors.New("endpoint cannot include credentials or a fragment")
+	}
+	host := strings.Trim(strings.ToLower(parsed.Hostname()), "[]")
+	if host == "localhost" {
+		return pluginConnectInput{}, errors.New("cloud connections cannot target localhost")
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
+		return pluginConnectInput{}, errors.New("cloud connections cannot target private addresses")
+	}
+	if parsed.Scheme != "https" {
+		return pluginConnectInput{}, errors.New("cloud connections require an HTTPS endpoint")
+	}
+	input.Endpoint = parsed.String()
+	if input.BearerToken == "" {
+		return pluginConnectInput{}, errors.New("cloud connections require a token stored encrypted by CodeLocal")
 	}
 	if strings.ContainsAny(input.BearerToken, "\r\n\x00") || len(input.BearerToken) > 8192 {
 		return pluginConnectInput{}, errors.New("bearerToken is invalid")
@@ -206,6 +275,19 @@ func (s *Server) pluginConnectAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		input.Endpoint = plugindomain.ManagedPenpotMCPURL
+	}
+	executionTarget := plugindomain.ExecutionLocal
+	switch strings.TrimSpace(strings.ToLower(input.ExecutionTarget)) {
+	case "", string(plugindomain.ExecutionLocal):
+	case string(plugindomain.ExecutionCloud):
+		executionTarget = plugindomain.ExecutionCloud
+	default:
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plugin_connection", "detail": "Unknown Plugin execution target."})
+		return
+	}
+	if executionTarget == plugindomain.ExecutionCloud {
+		s.pluginCloudConnect(w, r, identity, pluginID, entry, input)
+		return
 	}
 	input, err := validatePluginConnectionInput(input)
 	if err != nil {
@@ -367,6 +449,10 @@ func (s *Server) pluginDisconnectAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusNotFound, map[string]string{"error": "plugin_not_found"})
 		return
 	}
+	if deviceID == cloudConnectionDeviceID {
+		s.pluginCloudDisconnect(w, r, identity, pluginID)
+		return
+	}
 	connection, exists, err := s.Store.PluginConnectionByDevice(r.Context(), identity.User.ID, pluginID, deviceID)
 	if err != nil {
 		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connections_unavailable"})
@@ -416,6 +502,124 @@ func (s *Server) pluginDisconnectAPI(w http.ResponseWriter, r *http.Request) {
 			_ = s.Store.DeleteRuntimeSecret(r.Context(), identity.User.ID, cloud.RuntimeScopeWorkspace, workspace.DeviceID, workspace.WorkspaceID, connection.CredentialRef)
 		}
 		s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "plugin.disconnected", DeviceID: deviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"pluginId": pluginID}})
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "removed": removed})
+}
+
+// pluginCloudConnect provisions a cloud-target connection: CodeLocal calls the
+// plugin MCP endpoint itself, without a device runtime. The bearer token is
+// stored encrypted server-side and only decrypted in-process per call.
+func (s *Server) pluginCloudConnect(w http.ResponseWriter, r *http.Request, identity *webauth.Identity, pluginID string, entry plugindomain.CatalogEntry, input pluginConnectInput) {
+	if !manifestSupportsCloud(entry) {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plugin_connection", "detail": "This Plugin does not support cloud execution."})
+		return
+	}
+	if s.CloudMCP == nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_cloud_runtime_unavailable"})
+		return
+	}
+	input, err := validatePluginCloudConnectionInput(input)
+	if err != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_plugin_connection", "detail": err.Error()})
+		return
+	}
+	if pluginID == "penpot" {
+		if s.Penpot == nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "penpot_integration_unavailable"})
+			return
+		}
+		if err := s.Penpot.ValidateOwner(r.Context(), input.BearerToken, identity.User.Email); err != nil {
+			// Adapter errors contain only fixed reasons, never upstream bodies or credentials.
+			slog.Warn("Penpot cloud connection identity rejected", "reason", err.Error())
+			webutil.JSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_penpot_identity"})
+			return
+		}
+	}
+
+	credentialRef := plugindomain.ManagedCredentialReference(pluginID)
+	existingConnection, hasExistingConnection, err := s.Store.PluginConnectionByDevice(r.Context(), identity.User.ID, pluginID, cloudConnectionDeviceID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connections_unavailable"})
+		return
+	}
+	previousManagedRef := ""
+	if hasExistingConnection && plugindomain.IsManagedCredentialReference(pluginID, existingConnection.CredentialRef) {
+		previousManagedRef = existingConnection.CredentialRef
+	}
+	if err := s.Store.PutRuntimeSecret(r.Context(), identity.User.ID, cloud.RuntimeScopeWorkspace, cloudConnectionDeviceID, cloudConnectionWorkspaceKey, credentialRef, input.BearerToken); err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_credential_store_failed"})
+		return
+	}
+
+	connectCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	result, err := s.CloudMCP.Connect(connectCtx, identity.User.ID, pluginID, input.Endpoint, input.BearerToken)
+	if err != nil {
+		detail := "CodeLocal Cloud could not connect this Plugin."
+		if err.Error() != "" {
+			detail = err.Error()
+		}
+		webutil.JSON(w, http.StatusBadGateway, map[string]string{"error": "plugin_connect_failed", "detail": detail})
+		return
+	}
+	state := cloud.PluginConnectionConfigured
+	if result.Connected {
+		state = cloud.PluginConnectionReady
+	} else if strings.TrimSpace(result.Error) != "" {
+		state = cloud.PluginConnectionError
+	}
+	connection, err := s.Store.SetPluginConnection(r.Context(), cloud.PluginConnection{
+		UserID: identity.User.ID, PluginID: pluginID, DeviceID: cloudConnectionDeviceID,
+		WorkspaceKey: cloudConnectionWorkspaceKey, ServerName: result.ServerName, Endpoint: input.Endpoint,
+		CredentialRef: credentialRef, State: state, ToolCount: result.ToolCount, LastError: result.Error,
+	})
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connection_store_failed"})
+		return
+	}
+	if previousManagedRef != "" && previousManagedRef != credentialRef {
+		_ = s.Store.DeleteRuntimeSecret(r.Context(), identity.User.ID, cloud.RuntimeScopeWorkspace, cloudConnectionDeviceID, cloudConnectionWorkspaceKey, previousManagedRef)
+	}
+	s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "plugin.connected", Detail: map[string]any{
+		"pluginId": pluginID, "state": connection.State, "toolCount": connection.ToolCount, "executionTarget": string(plugindomain.ExecutionCloud),
+	}})
+	dto, err := pluginConnectionDTOFrom(connection)
+	if err != nil {
+		webutil.JSON(w, http.StatusInternalServerError, map[string]string{"error": "plugin_connection_invalid"})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "connection": dto})
+}
+
+// pluginCloudDisconnect tears down a cloud-target connection. There is no
+// device round trip: the Cloud-side session is closed directly.
+func (s *Server) pluginCloudDisconnect(w http.ResponseWriter, r *http.Request, identity *webauth.Identity, pluginID string) {
+	connection, exists, err := s.Store.PluginConnectionByDevice(r.Context(), identity.User.ID, pluginID, cloudConnectionDeviceID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connections_unavailable"})
+		return
+	}
+	if !exists {
+		webutil.JSON(w, http.StatusNotFound, map[string]string{"error": "plugin_connection_not_found"})
+		return
+	}
+	if s.CloudMCP == nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_cloud_runtime_unavailable"})
+		return
+	}
+	s.CloudMCP.Remove(identity.User.ID, pluginID)
+	removed, err := s.Store.DeletePluginConnection(r.Context(), identity.User.ID, pluginID, cloudConnectionDeviceID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin_connection_store_failed"})
+		return
+	}
+	if removed {
+		if plugindomain.IsManagedCredentialReference(pluginID, connection.CredentialRef) {
+			_ = s.Store.DeleteRuntimeSecret(r.Context(), identity.User.ID, cloud.RuntimeScopeWorkspace, cloudConnectionDeviceID, cloudConnectionWorkspaceKey, connection.CredentialRef)
+		}
+		s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "plugin.disconnected", Detail: map[string]any{
+			"pluginId": pluginID, "executionTarget": string(plugindomain.ExecutionCloud),
+		}})
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "removed": removed})
 }
