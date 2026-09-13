@@ -1,10 +1,11 @@
 "use client";
 import { useTranslations } from "@/lib/i18n/provider";
-import type { MessageKey, MessageValues } from "@/lib/i18n/messages";
+import type { MessageValues } from "@/lib/i18n/messages";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
 import { AppIcon } from "../app-icon";
+import { PluginConnectDialog } from "./plugin-connect-dialog";
 import styles from "./plugins.module.css";
 
 type PluginView = "explore" | "installed";
@@ -63,25 +64,10 @@ type ConnectionInput = {
   endpoint: string;
   bearerEnv: string;
   bearerToken: string;
+  executionTarget: "local" | "cloud";
 };
 
 type Notice = { kind: "success" | "error"; text: string; values?: MessageValues } | null;
-
-const hostedPenpotMcpEndpoint = "https://design.codelocal.cloud/mcp/stream";
-
-const permissionLabels: Record<string, MessageKey> = {
-  external_read: "Read external data",
-  external_write: "Create or update external data",
-  external_delete: "Delete external data",
-  network: "Connect to external services",
-  project_read: "Read project files",
-  project_write: "Edit project files",
-  local_shell: "Run local commands",
-  local_browser: "Use browser automation",
-  local_credentials: "Use approved local credentials",
-  computer_control: "Control approved desktop apps",
-  background_task: "Run scheduled/background work",
-};
 
 function responseError(response: Response) {
   return response.json()
@@ -109,28 +95,8 @@ function responseError(response: Response) {
     .catch(() => `Request failed (${response.status}).`);
 }
 
-function workspaceValue(workspace: WorkspaceItem) {
-  return `${encodeURIComponent(workspace.deviceId)}|${encodeURIComponent(workspace.workspaceId)}`;
-}
-
-function parseWorkspaceValue(value: string) {
-  const separator = value.indexOf("|");
-  if (separator < 0) return null;
-  try {
-    return {
-      deviceId: decodeURIComponent(value.slice(0, separator)),
-      workspaceId: decodeURIComponent(value.slice(separator + 1)),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function workspaceLabel(workspace: WorkspaceItem) {
-  return `${workspace.deviceName} · ${workspace.workspaceName}`;
-}
-
-function connectionDeviceLabel(connection: PluginConnection, workspaces: WorkspaceItem[]) {
+function connectionDeviceLabel(connection: PluginConnection, workspaces: WorkspaceItem[], cloudLabel: string) {
+  if (connection.executionTarget === "cloud") return cloudLabel;
   const workspace = workspaces.find((item) => item.deviceId === connection.deviceId);
   return workspace?.deviceName || connection.deviceId;
 }
@@ -147,157 +113,96 @@ function PluginCard({
   plugin: PluginItem;
   busy: boolean;
   workspaces: WorkspaceItem[];
-  install: (plugin: PluginItem) => Promise<void>;
+  install: (plugin: PluginItem) => Promise<boolean>;
   uninstall: (plugin: PluginItem) => Promise<void>;
   connect: (plugin: PluginItem, input: ConnectionInput) => Promise<boolean>;
   disconnect: (plugin: PluginItem, connection: PluginConnection) => Promise<void>;
 }) {
-  const { t, message } = useTranslations();
+  const { t } = useTranslations();
   const capabilities = plugin.capabilities ?? [];
-  const categories = (plugin.categories ?? []).slice(0, 3);
   const connections = plugin.connections ?? [];
-  const onlineWorkspaces = workspaces.filter((workspace) => workspace.runtimeOnline);
-  const isPenpot = plugin.id === "penpot";
   const monogram = plugin.name.slice(0, 2).toUpperCase();
-  const readyConnections = plugin.connectedCount ?? connections.filter((connection) => connection.state === "ready").length;
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const cloudReady = connections.find((connection) => connection.executionTarget === "cloud" && connection.state === "ready");
+  const deviceReady = connections.find((connection) => connection.executionTarget !== "cloud" && connection.state === "ready");
   const hasConnectionError = connections.some((connection) => connection.state === "error");
-  const [showConfig, setShowConfig] = useState(false);
-  const [selectedWorkspace, setSelectedWorkspace] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const [bearerEnv, setBearerEnv] = useState("");
-  const [bearerToken, setBearerToken] = useState("");
+  const connected = Boolean(cloudReady || deviceReady);
 
-  function openConfigure() {
-    const existing = connections[0];
-    const preferred = existing
-      ? onlineWorkspaces.find((workspace) => workspace.deviceId === existing.deviceId)
-      : onlineWorkspaces[0];
-    setSelectedWorkspace(preferred ? workspaceValue(preferred) : "");
-    setEndpoint(existing?.endpoint ?? (isPenpot ? hostedPenpotMcpEndpoint : ""));
-    setBearerEnv(existing?.credentialRef?.startsWith("CODELOCAL_PLUGIN_") ? "" : existing?.credentialRef ?? "");
-    setBearerToken("");
-    setShowConfig(true);
-  }
+  const status = cloudReady
+    ? t("Cloud · {count} tools", { count: cloudReady.toolCount })
+    : deviceReady
+      ? `${connectionDeviceLabel(deviceReady, workspaces, t("CodeLocal Cloud"))} · ${t("{count} tools ready", { count: deviceReady.toolCount })}`
+      : hasConnectionError
+        ? t("Connection needs attention")
+        : t("Not connected");
 
-  async function submitConnection() {
-    const selected = parseWorkspaceValue(selectedWorkspace);
-    if (!selected || !endpoint.trim() || (isPenpot && connections.length === 0 && !bearerToken.trim())) return;
-    const connected = await connect(plugin, {
-      ...selected,
-      endpoint: endpoint.trim(),
-      bearerEnv: bearerEnv.trim(),
-      bearerToken: bearerToken.trim(),
-    });
-    setBearerToken("");
-    if (connected) setShowConfig(false);
+  async function openDialog() {
+    if (plugin.installed) {
+      setDialogOpen(true);
+      return;
+    }
+    setPreparing(true);
+    const installed = await install(plugin);
+    setPreparing(false);
+    if (installed) setDialogOpen(true);
   }
 
   return (
-    <article className={styles.pluginCard} data-installed={plugin.installed || undefined}>
-      <div className={styles.cardTop}>
-        <div className={styles.pluginIdentity}>
-          <div className={styles.pluginIcon} aria-hidden="true">{monogram}</div>
-          <div>
-            <div className={styles.nameRow}>
-              <h2>{plugin.name}</h2>
-              {plugin.publisherVerified && <span className={styles.verified} title={t("Verified publisher")}><AppIcon name="check" size={11} /> {t("Verified")}</span>}
-            </div>
-            <p>{plugin.publisher} · v{plugin.version}</p>
-          </div>
-        </div>
-        {plugin.featured && !plugin.installed && <span className={styles.featuredBadge}>{t("Featured")}</span>}
-        {plugin.installed && <span className={styles.installedBadge}><AppIcon name="check" size={12} /> {t(plugin.system ? "System" : "Installed")}</span>}
-      </div>
-
-      <p className={styles.description}>{plugin.description || t("Extend CodeLocal with reusable tools and external data.")}</p>
-
-      {categories.length > 0 && (
-        <div className={styles.categories} aria-label={t("{name} categories", { name: plugin.name })}>
-          {categories.map((category) => <span key={category}>{category}</span>)}
-          {(plugin.executionTargets ?? []).map((target) => <span key={`runtime-${target}`}>{t(target === "local" ? "Local runtime" : "Cloud runtime")}</span>)}
-        </div>
-      )}
-
-      <div className={styles.permissions}>
-        <div className={styles.permissionTitle}><AppIcon name="shield" size={15} /><strong>{t("Permissions")}</strong></div>
-        <div className={styles.permissionList}>
-          {capabilities.length === 0
-            ? <span>{t("No runtime permissions declared")}</span>
-            : capabilities.map((capability) => <span key={capability}>{permissionLabels[capability] ? t(permissionLabels[capability]) : capability}</span>)}
-        </div>
-      </div>
-
-      {plugin.installed && connections.length > 0 && (
-        <div className={styles.connectionList}>
-          {connections.map((connection) => (
-            <div className={styles.connectionRow} key={`${connection.connection}-${connection.serverName}`}>
-              <div className={styles.connectionCopy}>
-                <strong>{connectionDeviceLabel(connection, workspaces)}</strong>
-                <span>
-                  {connection.state === "ready" ? t("{count} tools ready", { count: connection.toolCount }) : t(connection.state === "error" ? "Connection needs attention" : "Configured")}
-                </span>
-                {connection.lastError && <small title={connection.lastError}>{message(connection.lastError)}</small>}
-              </div>
-              <button className={styles.textButton} disabled={busy} onClick={() => void disconnect(plugin, connection)} type="button">{t("Disconnect")}</button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {plugin.installed && showConfig && (
-        <div className={styles.configPanel}>
-          <div className={styles.configHeader}>
+    <>
+      <article className={styles.pluginCard} data-installed={plugin.installed || undefined}>
+        <div className={styles.cardTop}>
+          <div className={styles.pluginIdentity}>
+            <div className={styles.pluginIcon} aria-hidden="true">{monogram}</div>
             <div>
-              <strong>{t("Configure connection")}</strong>
-              <span>{t(isPenpot ? "Connect this device to CodeLocal's hosted Penpot MCP." : "The MCP server is installed on your selected CodeLocal device.")}</span>
+              <div className={styles.nameRow}>
+                <h2>{plugin.name}</h2>
+                {plugin.publisherVerified && <span className={styles.verified} title={t("Verified publisher")}><AppIcon name="check" size={11} /> {t("Verified")}</span>}
+              </div>
+              <p>{plugin.publisher} · v{plugin.version}</p>
             </div>
-            <button aria-label={t("Close Plugin configuration")} title={t("Close Plugin configuration")} disabled={busy} className={styles.iconButton} onClick={() => setShowConfig(false)} type="button"><AppIcon name="close" size={16} /></button>
-          </div>
-          <label className={styles.field}>
-            <span>{t("Device / workspace")}</span>
-            <select onChange={(event) => setSelectedWorkspace(event.target.value)} value={selectedWorkspace}>
-              <option value="">{t("Select a running workspace")}</option>
-              {onlineWorkspaces.map((workspace) => <option key={`${workspace.deviceId}-${workspace.workspaceId}`} value={workspaceValue(workspace)}>{workspaceLabel(workspace)}</option>)}
-            </select>
-          </label>
-          <label className={styles.field}>
-            <span>{t("MCP endpoint")}</span>
-            <input autoComplete="off" inputMode="url" onChange={(event) => setEndpoint(event.target.value)} placeholder="https://example.com/mcp" readOnly={isPenpot} type="url" value={endpoint} />
-          </label>
-          <label className={styles.field}>
-            <span>{isPenpot ? t("Penpot MCP key or copied server URL") : <>{t("Bearer token")} <em>{t("Optional")}</em></>}</span>
-            <input autoCapitalize="none" autoComplete="new-password" disabled={Boolean(bearerEnv)} onChange={(event) => setBearerToken(event.target.value)} placeholder={t("Stored encrypted by CodeLocal")} spellCheck={false} type="password" value={bearerToken} />
-          </label>
-          {!isPenpot && <label className={styles.field}>
-            <span>{t("Or local token environment variable")} <em>{t("Optional")}</em></span>
-            <input autoCapitalize="none" autoComplete="off" disabled={Boolean(bearerToken)} onChange={(event) => setBearerEnv(event.target.value)} placeholder="GITHUB_TOKEN" spellCheck={false} value={bearerEnv} />
-          </label>}
-          <p className={styles.credentialNote}><AppIcon name="shield" size={13} />{t(isPenpot ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal stores it encrypted and never writes it into your repository." : "Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device.")}</p>
-          {onlineWorkspaces.length === 0 && <p className={styles.configWarning}>{t("No running CodeLocal workspace found. Start {command} on a paired device first.", { command: "codelocal" })}</p>}
-          <div className={styles.configActions}>
-            <button className={styles.secondaryButton} disabled={busy} onClick={() => setShowConfig(false)} type="button">{t("Cancel")}</button>
-            <button className={styles.primaryButton} disabled={busy || !selectedWorkspace || !endpoint.trim() || (isPenpot && connections.length === 0 && !bearerToken.trim())} onClick={() => void submitConnection()} type="button">{t(busy ? "Connecting…" : "Connect & test")}</button>
           </div>
         </div>
-      )}
 
-      <div className={styles.cardFooter}>
-        <div className={styles.installState}>
-          {plugin.installed && plugin.setupRequired && readyConnections > 0 && <span><span className={styles.statusDot} data-ready="true" />{t("{count} devices ready", { count: readyConnections })}</span>}
-          {plugin.installed && plugin.setupRequired && readyConnections === 0 && hasConnectionError && <span><span className={styles.statusDot} data-error="true" />{t("Connection needs attention")}</span>}
-          {plugin.installed && plugin.setupRequired && readyConnections === 0 && !hasConnectionError && <span><span className={styles.statusDot} />{t("Connection not configured")}</span>}
-          {plugin.installed && !plugin.setupRequired && <span><span className={styles.statusDot} data-ready="true" />{t("Ready")}</span>}
-          {!plugin.installed && <span>{t("Install to make this Plugin available to CodeLocal.")}</span>}
-          {plugin.updateAvailable && <span className={styles.updateText}>{t("A newer manifest is available.")}</span>}
+        <p className={styles.description}>{plugin.description || t("Extend CodeLocal with reusable tools and external data.")}</p>
+
+        <button
+          aria-expanded={dialogOpen}
+          className={styles.permissionsSummary}
+          onClick={() => setDialogOpen(true)}
+          type="button"
+        >
+          {capabilities.length === 0
+            ? t("No runtime permissions declared")
+            : t("Requires {count} permissions", { count: capabilities.length })}
+        </button>
+
+        <div className={styles.statusRow}>
+          <div className={styles.statusCopy}>
+            <span className={styles.statusMain}><span aria-hidden="true" className={styles.statusDot} data-error={hasConnectionError && !connected ? "true" : undefined} data-ready={connected ? "true" : undefined} />{status}</span>
+            {cloudReady && <span className={styles.statusHint}>{t("Works without your device")}</span>}
+            {!plugin.installed && <span className={styles.statusHint}>{t("Install to make this Plugin available to CodeLocal.")}</span>}
+            {plugin.updateAvailable && <span className={styles.statusHint}>{t("New version available")}</span>}
+          </div>
+          <button className={styles.primaryButton} disabled={busy || preparing} onClick={() => void openDialog()} type="button">
+            {t(preparing ? "Installing…" : connected || plugin.installed ? "Manage" : "Connect")}
+          </button>
         </div>
-        <div className={styles.actions}>
-          {!plugin.installed && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{t(busy ? "Installing…" : "Install")}</button>}
-          {plugin.installed && plugin.updateAvailable && <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">{t(busy ? "Updating…" : "Update")}</button>}
-          {plugin.installed && plugin.setupRequired && <button className={styles.primaryButton} disabled={busy} onClick={openConfigure} type="button">{t(connections.length > 0 ? "Configure" : "Connect")}</button>}
-          {plugin.installed && !plugin.system && <button className={styles.secondaryButton} disabled={busy || connections.length > 0} onClick={() => void uninstall(plugin)} title={connections.length > 0 ? t("Disconnect all devices before removing this Plugin") : undefined} type="button">{t("Remove")}</button>}
-        </div>
-      </div>
-    </article>
+      </article>
+      {dialogOpen && (
+        <PluginConnectDialog
+          busy={busy || preparing}
+          key={plugin.id}
+          connect={connect}
+          disconnect={disconnect}
+          install={install}
+          onClose={() => setDialogOpen(false)}
+          plugin={plugin}
+          uninstall={uninstall}
+          workspaces={workspaces}
+        />
+      )}
+    </>
   );
 }
 
@@ -390,8 +295,10 @@ export function PluginsHub() {
       await refresh();
       setNotice({ kind: "success", text: "{name} installed.", values: { name: plugin.name } });
       setView("installed");
+      return true;
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Plugin install failed." });
+      return false;
     } finally {
       setBusyPlugin("");
     }
