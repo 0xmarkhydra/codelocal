@@ -318,9 +318,17 @@ func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) 
 		return Snapshot{}, m.failStart(record, err)
 	}
 	record.cmd, record.stdin, record.PID = cmd, stdin, cmd.Process.Pid
-	go m.copyStream(record, "stdout", stdout)
-	go m.copyStream(record, "stderr", stderr)
-	go m.wait(record, ctx, cmd)
+	stdoutDone := make(chan struct{})
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stdoutDone)
+		m.copyStream(record, "stdout", stdout)
+	}()
+	go func() {
+		defer close(stderrDone)
+		m.copyStream(record, "stderr", stderr)
+	}()
+	go m.wait(record, ctx, cmd, stdoutDone, stderrDone)
 	return m.Snapshot(record.ProcessID, nil, nil)
 }
 
@@ -361,7 +369,7 @@ func (m *Manager) copyPTY(record *Record, handle ptyHandle) {
 	}
 }
 
-func (m *Manager) wait(record *Record, ctx context.Context, cmd *exec.Cmd) {
+func (m *Manager) wait(record *Record, ctx context.Context, cmd *exec.Cmd, outputDone ...<-chan struct{}) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	var err error
@@ -375,6 +383,15 @@ func (m *Manager) wait(record *Record, ctx context.Context, cmd *exec.Cmd) {
 		m.mu.Unlock()
 		_ = terminateProcess(cmd)
 		err = <-done
+	}
+	// StdoutPipe and StderrPipe are drained by our own goroutines. cmd.Wait may
+	// return before those goroutines have appended their final bytes, especially
+	// on slower CI runners. Do not expose a settled snapshot until captured
+	// output is complete; callers treat Running=false as the completion barrier.
+	for _, drained := range outputDone {
+		if drained != nil {
+			<-drained
+		}
 	}
 	m.mu.Lock()
 	if record.Status == StatusRunning {
