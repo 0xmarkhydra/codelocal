@@ -147,7 +147,7 @@ func TestManagedPenpotCommandFindsPackagedEntry(t *testing.T) {
 	if !ok {
 		t.Skip("node is not available on this test host")
 	}
-	if filepath.Base(command) != "node" || len(args) != 1 || args[0] != entry {
+	if strings.TrimSuffix(strings.ToLower(filepath.Base(command)), ".exe") != "node" || len(args) != 1 || args[0] != entry {
 		t.Fatalf("unexpected packaged command: %q %#v", command, args)
 	}
 }

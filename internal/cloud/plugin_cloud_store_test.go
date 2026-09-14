@@ -108,6 +108,12 @@ CREATE TABLE codelocal_runtime_secrets(user_id text,scope text,device_id text,wo
 	if wins.Load() != 1 {
 		t.Fatalf("approval dispatched %d times", wins.Load())
 	}
+	if err := s.CompletePluginApproval(ctx, "A", approval.ID, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TakePluginApproval(ctx, "A", "session-A", approval.ID, false); err == nil {
+		t.Fatal("completed approval was reusable")
+	}
 	if removed, err := s.DeletePluginCloudConnection(ctx, "A", "penpot"); err != nil || !removed {
 		t.Fatal("disconnect", err)
 	}
