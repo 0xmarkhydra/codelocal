@@ -192,3 +192,78 @@ func TestGeminiEmbedderErrorDoesNotExposeAPIKey(t *testing.T) {
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestEmbedderFromEnvPrefersLocalBaseURL(t *testing.T) {
+	t.Setenv("CODELOCAL_EMBEDDING_PROVIDER", "")
+	t.Setenv("CODELOCAL_EMBEDDING_BASE_URL", "http://127.0.0.1:20129")
+	t.Setenv("OPENROUTER_API_KEY", "router-key")
+	t.Setenv("GEMINI_API_KEY", "gemini-key")
+	t.Setenv("CODELOCAL_EMBEDDING_MODEL", "")
+	embedder := EmbedderFromEnv()
+	if embedder == nil || embedder.Name() != "local" {
+		t.Fatalf("local base url should win over hosted providers: %#v", embedder)
+	}
+	if embedder.Model() != "multilingual-e5-small" {
+		t.Fatalf("model=%q want multilingual-e5-small", embedder.Model())
+	}
+}
+
+func TestLocalEmbedderSendsTaskPrefixesAndParsesOutOfOrderData(t *testing.T) {
+	var gotDocumentType, gotQueryType string
+	var gotModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Fatalf("path=%q want /v1/embeddings", r.URL.Path)
+		}
+		var body struct {
+			Model     string   `json:"model"`
+			Input     []string `json:"input"`
+			InputType string   `json:"input_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		gotModel = body.Model
+		if len(body.Input) == 2 {
+			gotDocumentType = body.InputType
+			// Deliberately return the higher index first: the embedder must
+			// reorder by `index` instead of trusting response order.
+			_, _ = w.Write([]byte(`{"data":[{"index":1,"embedding":[0,0.2]},{"index":0,"embedding":[0.1,0]}]}`))
+			return
+		}
+		gotQueryType = body.InputType
+		_, _ = w.Write([]byte(`{"data":[{"index":0,"embedding":[0.3,0.4]}]}`))
+	}))
+	defer server.Close()
+
+	embedder, err := NewLocalEmbedder(server.URL, "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vectors, err := embedder.Embed(context.Background(), []string{"a", "b"})
+	if err != nil || len(vectors) != 2 {
+		t.Fatalf("vectors=%#v err=%v", vectors, err)
+	}
+	if vectors[0][0] != 0.1 || vectors[1][1] != 0.2 {
+		t.Fatalf("vector index reordering failed: %#v", vectors)
+	}
+	query, err := embedder.EmbedQuery(context.Background(), "q")
+	if err != nil || len(query) != 2 || query[0] != 0.3 {
+		t.Fatalf("query=%#v err=%v", query, err)
+	}
+	if gotDocumentType != "search_document" || gotQueryType != "search_query" {
+		t.Fatalf("input types document=%q query=%q", gotDocumentType, gotQueryType)
+	}
+	if gotModel != "multilingual-e5-small" {
+		t.Fatalf("model=%q want default multilingual-e5-small", gotModel)
+	}
+}
+
+func TestLocalEmbedderRejectsBadBaseURL(t *testing.T) {
+	if _, err := NewLocalEmbedder("ftp://example.com", "", time.Second); err == nil {
+		t.Fatal("expected non-http scheme to be rejected")
+	}
+	if _, err := NewLocalEmbedder("", "", time.Second); err == nil {
+		t.Fatal("expected empty base url to be rejected")
+	}
+}

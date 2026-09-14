@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -480,6 +481,9 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 		key = s.route(userID, session)
 	}
 	if key == "" {
+		key = s.defaultWorkspaceKey(ctx, userID)
+	}
+	if key == "" {
 		catalog, catalogErr := s.Workspaces.Catalog(ctx, userID)
 		if catalogErr != nil {
 			return gatewayFailureResult(catalogErr, "", "", "", 0, false), nil
@@ -570,6 +574,82 @@ func (s *Service) callOperation(ctx context.Context, userID, publicTool string, 
 	}
 	notice := s.claimUpdate(userID, session, workspace.Key, workspace.ClientVersion)
 	return attachWorkspaceHandle(toolResultWithNotice(result.Result, false, notice), workspace), nil
+}
+
+// defaultWorkspaceKey resolves the workspace a sessionless MCP client should
+// act on when it did not pass workspaceKey.
+//
+// A stateful client picks a workspace once and the gateway remembers it per
+// MCP session. ChatGPT web (and any client on the sessionless 2026 protocol)
+// cannot carry that session route, so without a deterministic fallback every
+// workspace-scoped call fails with "multiple workspaces are active" and the
+// model has to guess a key before it can do any work at all.
+//
+// Resolution order:
+//  1. CODELOCAL_DEFAULT_WORKSPACE_ID — an explicit operator choice, matched
+//     against either the workspace ID or the full workspace key.
+//  2. Otherwise the most recently activated active workspace, which is the
+//     project the operator (or another paired client) touched last.
+//
+// The result is always one of the authorized workspaces on this machine; an
+// unknown or unauthorized ID never widens access, it just stays unresolved so
+// the caller still has to ask.
+func (s *Service) defaultWorkspaceKey(ctx context.Context, userID string) string {
+	if s == nil || s.Workspaces == nil {
+		return ""
+	}
+	catalog, err := s.Workspaces.Catalog(ctx, userID)
+	if err != nil {
+		return ""
+	}
+	return selectDefaultWorkspaceKey(catalog, strings.TrimSpace(os.Getenv("CODELOCAL_DEFAULT_WORKSPACE_ID")))
+}
+
+// selectDefaultWorkspaceKey is the pure resolution rule behind
+// defaultWorkspaceKey, kept separate so it can be tested without a store.
+func selectDefaultWorkspaceKey(catalog []gateway.WorkspaceView, configured string) string {
+	// CodeLocal's own managed system projects (for example the hidden Video
+	// Studio workspace) are infrastructure, not the operator's project. They
+	// stay reachable by explicit workspaceKey but never become the implicit
+	// default, which otherwise depends only on internal bookkeeping order.
+	authorized := func(workspace gateway.WorkspaceView) bool {
+		return workspace.Status == "active" || workspace.Status == "sleeping"
+	}
+	implicitRoutable := func(workspace gateway.WorkspaceView) bool {
+		if strings.HasPrefix(strings.TrimSpace(workspace.WorkspaceID), "system-") {
+			return false
+		}
+		return authorized(workspace)
+	}
+	if configured != "" {
+		for _, workspace := range catalog {
+			if workspace.WorkspaceID != configured && workspace.Key != configured {
+				continue
+			}
+			if authorized(workspace) {
+				return workspace.Key
+			}
+		}
+		return ""
+	}
+	best, bestSeen := "", int64(0)
+	bestRank := -1
+	for _, workspace := range catalog {
+		if !implicitRoutable(workspace) {
+			continue
+		}
+		// An active workspace always outranks a sleeping one, even if the
+		// sleeping entry was seen more recently: "active" means its runtime is
+		// already claimed and the call lands without a wake-up round trip.
+		rank := 1
+		if workspace.Status == "active" {
+			rank = 2
+		}
+		if best == "" || rank > bestRank || (rank == bestRank && workspace.LastSeenAt > bestSeen) {
+			best, bestSeen, bestRank = workspace.Key, workspace.LastSeenAt, rank
+		}
+	}
+	return best
 }
 
 func workspaceRoutingError(multiple bool) error {

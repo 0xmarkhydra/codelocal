@@ -256,6 +256,26 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-CodeLocal-Gateway", s.InstanceID)
+
+		// Local-owner mode removes the account/login layer, which is only safe
+		// while the gateway answers on loopback. Enforce the remote-access
+		// boundary before any handler runs: a request that did not originate on
+		// this machine either carries the operator token (accepted as a path
+		// prefix or a bearer token) or is refused outright.
+		if webauth.LocalOwnerMode() || webauth.RemoteAccessGated() {
+			path, ok := webauth.AuthorizeRemoteRequest(w, r)
+			if !ok {
+				return
+			}
+			if path != r.URL.Path {
+				rewritten := r.Clone(r.Context())
+				rewritten.URL.Path = path
+				r = rewritten
+			}
+			// Proxied requests keep the transport's DNS-rebinding guard active by
+			// presenting the loopback authority the gateway really serves.
+			webauth.NormalizeProxiedHost(r)
+		}
 		next.ServeHTTP(w, r)
 		if r.URL.Path != "/health" {
 			fields := []any{"method", r.Method, "path", r.URL.Path, "durationMs", time.Since(started).Milliseconds(), "gateway", s.InstanceID}
@@ -304,6 +324,10 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/invite", s.inviteResourceAPI)
 	mux.HandleFunc("GET /api/v1/leaderboard", s.leaderboardResourceAPI)
 	mux.HandleFunc("GET /api/v1/admin", s.adminResourceAPI)
+	// Single-operator self-host: authorize and pairing endpoints are resolved by
+	// the Go gateway directly instead of round-tripping through the web UI.
+	mux.HandleFunc("GET /authorize", s.localOwnerAuthorizeGet)
+	mux.HandleFunc("GET /pair/approve", s.localOwnerPairApproveGet)
 	mux.HandleFunc("GET /api/v1/pair/approve", s.pairApproveResourceAPI)
 	mux.HandleFunc("POST /api/v1/devices/{deviceID}/revoke", s.revokeDeviceResourceAPI)
 	mux.HandleFunc("POST /api/v1/workspaces/{deviceID}/{workspaceID}/remove", s.removeWorkspaceResourceAPI)
@@ -541,6 +565,18 @@ func (s *Server) pairStart(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		webutil.JSON(w, http.StatusInternalServerError, map[string]any{"error": "pairing_failed"})
 		return
+	}
+	// Single-operator self-host: the machine operator is the only account, so the
+	// device is approved immediately instead of waiting for a browser approval.
+	// Workspace grants and per-action approvals are unaffected.
+	if webauth.LocalOwnerMode() {
+		if owner, ownerErr := s.WebAuth.LocalOwnerIdentity(r.Context()); ownerErr == nil && owner != nil {
+			if _, approveErr := s.Store.ApprovePairing(r.Context(), pairing.PairingID, pairing.Code, owner.User.ID); approveErr != nil {
+				slog.Warn("local owner auto-approval failed", "error", approveErr)
+			} else {
+				s.Store.Audit(cloud.AuditEvent{UserID: owner.User.ID, Event: "device.pairing_auto_approved", DeviceID: pairing.DeviceID, Detail: map[string]any{"mode": "local-owner"}})
+			}
+		}
 	}
 	base := strings.TrimRight(s.WebAuth.PublicBaseURL, "/")
 	webutil.JSON(w, http.StatusOK, map[string]any{

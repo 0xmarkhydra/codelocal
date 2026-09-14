@@ -53,6 +53,8 @@ type Record struct {
 	TimeoutAt      int64
 	PTY            bool
 	ExecutionMode  string
+	Sandboxed      bool
+	SandboxUnavailable string
 	cmd            *exec.Cmd
 	stdin          io.WriteCloser
 	pty            ptyHandle
@@ -76,6 +78,11 @@ type Snapshot struct {
 	TimeoutAt      int64          `json:"timeoutAt,omitempty"`
 	PTY            bool           `json:"pty"`
 	ExecutionMode  string         `json:"executionMode"`
+	// Sandboxed reports whether the command ran behind a kernel sandbox.
+	// SandboxUnavailable is set instead when sandboxing could not be applied,
+	// so a caller never has to infer the boundary from the mode string alone.
+	Sandboxed          bool   `json:"sandboxed"`
+	SandboxUnavailable string `json:"sandboxUnavailable,omitempty"`
 	Stdout         map[string]any `json:"stdout"`
 	Stderr         map[string]any `json:"stderr"`
 }
@@ -91,6 +98,17 @@ type StartOptions struct {
 	Rows           int
 	Env            map[string]string
 	RedactValues   []string
+	// SandboxProfile is an SBPL (seatbelt) profile applied to the shell that
+	// runs the command. Command text rules cannot stop an interpreter from
+	// building a credential path at runtime, so the boundary is enforced in
+	// the kernel where the path is finally resolved.
+	SandboxProfile string
+	// SandboxHelper is the sandbox-exec binary path. Empty means the command
+	// runs unsandboxed and SandboxUnavailable says why.
+	SandboxHelper string
+	// SandboxUnavailable records the reason kernel sandboxing is off, so the
+	// process snapshot can surface it instead of silently losing the boundary.
+	SandboxUnavailable string
 }
 
 type Manager struct {
@@ -188,6 +206,14 @@ func (m *Manager) pruneLocked() error {
 }
 
 func hostShell(command, cwd string) *exec.Cmd {
+	return hostShellSandboxed(command, cwd, "", "")
+}
+
+// hostShellSandboxed builds the shell invocation, wrapping it in seatbelt when
+// a profile is supplied. The profile is passed to sandbox-exec, which applies
+// it to the shell and every descendant, so interpreters that construct a
+// credential path at runtime are constrained identically to `cat`.
+func hostShellSandboxed(command, cwd, profile, helper string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
 		shell := os.Getenv("COMSPEC")
 		if shell == "" {
@@ -201,7 +227,12 @@ func hostShell(command, cwd string) *exec.Cmd {
 	if shell == "" {
 		shell = "/bin/zsh"
 	}
-	cmd := exec.Command(shell, "-c", command)
+	if profile == "" || helper == "" {
+		cmd := exec.Command(shell, "-c", command)
+		cmd.Dir = cwd
+		return cmd
+	}
+	cmd := exec.Command(helper, "-p", profile, shell, "-c", command)
 	cmd.Dir = cwd
 	return cmd
 }
@@ -276,7 +307,11 @@ func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) 
 		return Snapshot{}, err
 	}
 	now := time.Now().UnixMilli()
-	record := &Record{ProcessID: id(), WorkspaceKey: m.workspaceKey, OwnerSessionID: options.OwnerSessionID, RequestID: options.RequestID, Command: command, CWD: options.CWD, DisplayCWD: options.DisplayCWD, StartedAt: now, LastActivityAt: now, Status: StatusRunning, ExecutionMode: "host-policy", redactValues: append([]string(nil), options.RedactValues...)}
+	executionMode := "host-policy"
+	if options.SandboxProfile != "" && options.SandboxHelper != "" {
+		executionMode = "host-policy+seatbelt"
+	}
+	record := &Record{ProcessID: id(), WorkspaceKey: m.workspaceKey, OwnerSessionID: options.OwnerSessionID, RequestID: options.RequestID, Command: command, CWD: options.CWD, DisplayCWD: options.DisplayCWD, StartedAt: now, LastActivityAt: now, Status: StatusRunning, ExecutionMode: executionMode, Sandboxed: options.SandboxProfile != "" && options.SandboxHelper != "", SandboxUnavailable: options.SandboxUnavailable, redactValues: append([]string(nil), options.RedactValues...)}
 	m.records[record.ProcessID] = record
 	if record.RequestID != "" {
 		m.requestToProcess[record.RequestID] = record.ProcessID
@@ -290,7 +325,7 @@ func (m *Manager) Start(command string, options StartOptions) (Snapshot, error) 
 		record.cancel = cancel
 		record.TimeoutAt = time.Now().Add(options.Timeout).UnixMilli()
 	}
-	cmd := hostShell(command, options.CWD)
+	cmd := hostShellSandboxed(command, options.CWD, options.SandboxProfile, options.SandboxHelper)
 	withEnv(cmd, options.Env)
 	if options.UsePTY {
 		if handle, err := startPTY(cmd, options.Cols, options.Rows); err == nil && handle != nil {
@@ -528,7 +563,7 @@ func (m *Manager) Snapshot(processID string, stdoutCursor, stderrCursor *int64) 
 	if record == nil {
 		return Snapshot{}, errors.New("unknown processId")
 	}
-	return Snapshot{ProcessID: record.ProcessID, WorkspaceKey: record.WorkspaceKey, OwnerSessionID: record.OwnerSessionID, PID: record.PID, Command: security.RedactCommand(record.Command), CWD: m.displayCWD(record), StartedAt: record.StartedAt, LastActivityAt: record.LastActivityAt, Status: record.Status, Running: record.Status == StatusRunning, ExitCode: record.ExitCode, Signal: record.Signal, TimeoutAt: record.TimeoutAt, PTY: record.PTY, ExecutionMode: record.ExecutionMode, Stdout: sanitizeProcessOutput(record, readBuffer(record.Stdout, stdoutCursor)), Stderr: sanitizeProcessOutput(record, readBuffer(record.Stderr, stderrCursor))}, nil
+	return Snapshot{ProcessID: record.ProcessID, WorkspaceKey: record.WorkspaceKey, OwnerSessionID: record.OwnerSessionID, PID: record.PID, Command: security.RedactCommand(record.Command), CWD: m.displayCWD(record), StartedAt: record.StartedAt, LastActivityAt: record.LastActivityAt, Status: record.Status, Running: record.Status == StatusRunning, ExitCode: record.ExitCode, Signal: record.Signal, TimeoutAt: record.TimeoutAt, PTY: record.PTY, ExecutionMode: record.ExecutionMode, Sandboxed: record.Sandboxed, SandboxUnavailable: record.SandboxUnavailable, Stdout: sanitizeProcessOutput(record, readBuffer(record.Stdout, stdoutCursor)), Stderr: sanitizeProcessOutput(record, readBuffer(record.Stderr, stderrCursor))}, nil
 }
 
 func (m *Manager) List() []map[string]any {
@@ -536,7 +571,7 @@ func (m *Manager) List() []map[string]any {
 	defer m.mu.Unlock()
 	out := make([]map[string]any, 0, len(m.records))
 	for _, record := range m.records {
-		out = append(out, map[string]any{"processId": record.ProcessID, "pid": record.PID, "command": security.RedactCommand(record.Command), "cwd": m.displayCWD(record), "status": record.Status, "exitCode": record.ExitCode, "signal": record.Signal, "startedAt": record.StartedAt, "lastActivityAt": record.LastActivityAt, "pty": record.PTY, "executionMode": record.ExecutionMode})
+		out = append(out, map[string]any{"processId": record.ProcessID, "pid": record.PID, "command": security.RedactCommand(record.Command), "cwd": m.displayCWD(record), "status": record.Status, "exitCode": record.ExitCode, "signal": record.Signal, "startedAt": record.StartedAt, "lastActivityAt": record.LastActivityAt, "pty": record.PTY, "executionMode": record.ExecutionMode, "sandboxed": record.Sandboxed, "sandboxUnavailable": record.SandboxUnavailable})
 	}
 	return out
 }

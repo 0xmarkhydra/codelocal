@@ -37,7 +37,7 @@ func (i *Identity) RequiresReauthentication() bool {
 }
 
 func (m *Manager) RequireFreshSecurityContext(w http.ResponseWriter, r *http.Request, identity *Identity, nextPaths ...string) bool {
-	if identity == nil || !identity.RequiresReauthentication() {
+	if LocalOwnerMode() || identity == nil || !identity.RequiresReauthentication() {
 		return true
 	}
 	_ = m.Store.DeleteSession(r.Context(), identity.SessionID)
@@ -157,6 +157,13 @@ func sessionInvalidForUser(state cloud.SessionState, user cloud.User) bool {
 func (m *Manager) Identity(r *http.Request) (*Identity, error) {
 	if cached, ok := r.Context().Value(identityKey).(*Identity); ok {
 		return cached, nil
+	}
+	if LocalOwnerMode() {
+		owner, err := m.LocalOwnerIdentity(r.Context())
+		if err != nil || owner == nil {
+			return nil, err
+		}
+		return owner, nil
 	}
 	cookie, err := r.Cookie(SessionCookie)
 	if err != nil {

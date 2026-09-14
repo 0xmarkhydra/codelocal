@@ -310,6 +310,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /authorize", func(w http.ResponseWriter, r *http.Request) {
 		retryURL := authorizeRetryURL(r, "")
 		identity, _ := s.WebAuth.Identity(r)
+		if webauth.LocalOwnerMode() && identity != nil {
+			// Auto-approve the registered MCP client for the single local owner.
+			s.completeLocalOwnerAuthorize(w, r, identity, retryURL)
+			return
+		}
 		if identity == nil {
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(retryURL), http.StatusSeeOther)
 			return
@@ -408,6 +413,26 @@ func truncate(v string, n int) string {
 
 func (s *Server) RequireMCP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Single-operator self-host gateways resolve the local owner directly.
+		// Workspace authorization, path policy and action approvals are still
+		// enforced per call by the local runtime.
+		if webauth.LocalOwnerMode() {
+			// The account layer is removed, so the local-owner identity must not
+			// be handed to anonymous internet callers when the gateway is
+			// exposed through a tunnel. Loopback callers are unaffected.
+			if !webauth.IsLoopbackRequest(r) && !webauth.RemoteAccessGated() {
+				webutil.JSON(w, http.StatusForbidden, map[string]any{"error": "remote_access_disabled"})
+				return
+			}
+			owner, err := s.WebAuth.LocalOwnerIdentity(r.Context())
+			if err != nil || owner == nil {
+				webutil.JSON(w, http.StatusServiceUnavailable, map[string]any{"error": "local_owner_unavailable"})
+				return
+			}
+			claims := Claims{Subject: owner.User.ID, ClientID: "local-owner", Resource: s.Resource, Scope: "mcp:tools offline_access"}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
+			return
+		}
 		header := r.Header.Get("Authorization")
 		if !strings.HasPrefix(header, "Bearer ") {
 			s.unauthorized(w)
