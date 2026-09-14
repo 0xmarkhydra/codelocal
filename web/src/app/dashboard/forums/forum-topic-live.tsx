@@ -54,14 +54,19 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const fetchTopic = useCallback(async () => {
+    const response = await fetch(`/api/v1/forums/topics/${encodeURIComponent(topicID)}`, { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) throw new Error(response.status === 404 ? "Topic not found" : "Unable to load topic");
+    const payload: unknown = await response.json();
+    if (!validTopicResponse(payload)) throw new Error("Invalid forum response");
+    return payload;
+  }, [topicID]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/v1/forums/topics/${encodeURIComponent(topicID)}`, { cache: "no-store", credentials: "same-origin" });
-      if (!response.ok) throw new Error(response.status === 404 ? "Topic not found" : "Unable to load topic");
-      const payload: unknown = await response.json();
-      if (!validTopicResponse(payload)) throw new Error("Invalid forum response");
+      const payload = await fetchTopic();
       setTopic(payload.topic);
       setComments(payload.comments);
       setIsAdmin(payload.isAdmin);
@@ -71,9 +76,27 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
     } finally {
       setLoading(false);
     }
-  }, [topicID]);
+  }, [fetchTopic]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchTopic()
+      .then((payload) => {
+        if (cancelled) return;
+        setTopic(payload.topic);
+        setComments(payload.comments);
+        setIsAdmin(payload.isAdmin);
+        setReview(reviewFromTopic(payload.topic));
+        setError("");
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load topic");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [fetchTopic]);
 
   async function postReply(event: FormEvent) {
     event.preventDefault();
