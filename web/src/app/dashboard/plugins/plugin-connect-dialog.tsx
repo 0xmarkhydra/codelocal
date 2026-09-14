@@ -137,7 +137,7 @@ export function PluginConnectDialog({
   });
   const [authKind, setAuthKind] = useState<"none" | "bearer" | "oauth">("bearer");
   const [feedback, setFeedback] = useState("");
-  const [showPermissions, setShowPermissions] = useState(false);
+  const [connectionAcknowledged, setConnectionAcknowledged] = useState(false);
   const [selectedWorkspace, setSelectedWorkspace] = useState("");
   const [endpoint, setEndpoint] = useState(() => existing?.endpoint ?? (isPenpot ? hostedPenpotMcpEndpoint : ""));
   const [bearerToken, setBearerToken] = useState("");
@@ -179,9 +179,63 @@ export function PluginConnectDialog({
     setFeedback(t(connected ? "Connection saved." : "Connection failed. Check authorization and endpoint."));
   }
 
-  const canSubmit = target === "cloud"
+  const connectionInputReady = target === "cloud"
     ? Boolean(endpoint.trim()) && (authKind !== "bearer" || Boolean(bearerToken.trim()) || connections.some((c) => c.executionTarget === "cloud" && c.endpoint === endpoint.trim()))
     : Boolean(selectedWorkspace) && Boolean(endpoint.trim()) && !(isPenpot && connections.length === 0 && !bearerToken.trim());
+  const canSubmit = connectionInputReady && connectionAcknowledged;
+
+  if (!plugin.installed) {
+    return (
+      <dialog ref={dialogRef} className={styles.dialog} aria-labelledby={`plugin-dialog-${plugin.id}`} onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+        <section>
+          <header className={styles.dialogHeader}>
+            <div className={styles.dialogTitle}>
+              <h2 id={`plugin-dialog-${plugin.id}`}>{t("Review before installing")}</h2>
+              <p>{plugin.name} · {plugin.publisher} · v{plugin.version}</p>
+            </div>
+            <button
+              aria-label={t("Close Plugin configuration")}
+              className={styles.iconButton}
+              disabled={busy}
+              onClick={onClose}
+              title={t("Close Plugin configuration")}
+              type="button"
+            >
+              <AppIcon name="close" size={16} />
+            </button>
+          </header>
+
+          <div className={styles.reviewPanel}>
+            <div className={styles.reviewHeading}>
+              <AppIcon name="shield" size={18} />
+              <div>
+                <strong>{t("Permissions requested")}</strong>
+                <span>{t("Installing this Plugin makes it available to CodeLocal. It does not connect an account or approve tool calls.")}</span>
+              </div>
+            </div>
+            {capabilities.length > 0 ? (
+              <div className={styles.permissionList}>
+                {capabilities.map((capability) => (
+                  <span key={capability}>{message(permissionLabels[capability] ?? capability)}</span>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.reviewEmpty}>{t("No permissions requested by this manifest.")}</p>
+            )}
+          </div>
+
+          <p className={styles.configWarning}>{t("You can review connection details separately after installation. External tool calls still require approval when they run.")}</p>
+
+          <footer className={styles.dialogFooter}>
+            <button className={styles.secondaryButton} disabled={busy} onClick={onClose} type="button">{t("Cancel")}</button>
+            <button className={styles.primaryButton} disabled={busy} onClick={() => void install(plugin)} type="button">
+              {t(busy ? "Installing…" : "Install Plugin")}
+            </button>
+          </footer>
+        </section>
+      </dialog>
+    );
+  }
 
   return (
     <dialog ref={dialogRef} className={styles.dialog} aria-labelledby={`plugin-dialog-${plugin.id}`} onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
@@ -350,23 +404,32 @@ export function PluginConnectDialog({
           </div>
         )}
 
-        <button
-          aria-expanded={showPermissions}
-          className={styles.permissionsSummary}
-          onClick={() => setShowPermissions((value) => !value)}
-          type="button"
-        >
-          {capabilities.length === 0
-            ? t("No runtime permissions declared")
-            : t("Requires {count} permissions", { count: capabilities.length })} · {t(showPermissions ? "Hide permissions" : "Show permissions")}
-        </button>
-        {showPermissions && (
-          <div className={styles.permissionList}>
-            {capabilities.map((capability) => (
-              <span key={capability}>{message(permissionLabels[capability] ?? capability)}</span>
-            ))}
+        <div className={styles.reviewPanel}>
+          <div className={styles.reviewHeading}>
+            <AppIcon name="shield" size={18} />
+            <div>
+              <strong>{t("Before connecting")}</strong>
+              <span>{t("Review the endpoint and permissions before CodeLocal connects this Plugin.")}</span>
+            </div>
           </div>
-        )}
+          {capabilities.length > 0 ? (
+            <div className={styles.permissionList}>
+              {capabilities.map((capability) => (
+                <span key={capability}>{message(permissionLabels[capability] ?? capability)}</span>
+              ))}
+            </div>
+          ) : (
+            <p className={styles.reviewEmpty}>{t("No permissions requested by this manifest.")}</p>
+          )}
+          <label className={styles.acknowledgement}>
+            <input
+              checked={connectionAcknowledged}
+              onChange={(event) => setConnectionAcknowledged(event.target.checked)}
+              type="checkbox"
+            />
+            <span>{t("I understand this Plugin may access the services and data listed above.")}</span>
+          </label>
+        </div>
 
         {connections.length > 0 && (
           <div className={styles.connectionList}>

@@ -124,7 +124,6 @@ function PluginCard({
   const connections = plugin.connections ?? [];
   const monogram = plugin.name.slice(0, 2).toUpperCase();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [preparing, setPreparing] = useState(false);
   const cloudReady = connections.find((connection) => connection.executionTarget === "cloud" && connection.state === "ready");
   const deviceReady = connections.find((connection) => connection.executionTarget !== "cloud" && connection.state === "ready");
   const hasConnectionError = connections.some((connection) => connection.state === "error");
@@ -139,15 +138,8 @@ function PluginCard({
         ? t("Connection needs attention")
         : t("Not connected");
 
-  async function openDialog() {
-    if (plugin.installed) {
-      setDialogOpen(true);
-      return;
-    }
-    setPreparing(true);
-    const installed = await install(plugin);
-    setPreparing(false);
-    if (installed) setDialogOpen(true);
+  function openDialog() {
+    setDialogOpen(true);
   }
 
   return (
@@ -186,14 +178,14 @@ function PluginCard({
             {!plugin.installed && <span className={styles.statusHint}>{t("Install to make this Plugin available to CodeLocal.")}</span>}
             {plugin.updateAvailable && <span className={styles.statusHint}>{t("New version available")}</span>}
           </div>
-          <button className={styles.primaryButton} disabled={busy || preparing} onClick={() => void openDialog()} type="button">
-            {t(preparing ? "Installing…" : connections.length > 0 ? "Manage" : "Connect")}
+          <button className={styles.primaryButton} disabled={busy} onClick={openDialog} type="button">
+            {t(!plugin.installed ? "Review & install" : connections.length > 0 ? "Manage" : "Configure")}
           </button>
         </div>
       </article>
       {dialogOpen && (
         <PluginConnectDialog
-          busy={busy || preparing}
+          busy={busy}
           key={plugin.id}
           connect={connect}
           disconnect={disconnect}
@@ -296,7 +288,6 @@ export function PluginsHub() {
       await mutateInstall(plugin, "POST");
       await refresh();
       setNotice({ kind: "success", text: "{name} installed.", values: { name: plugin.name } });
-      setView("installed");
       return true;
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Plugin install failed." });

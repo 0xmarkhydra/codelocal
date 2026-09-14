@@ -771,6 +771,69 @@
   border-color: rgba(120, 160, 255, 0.24);
 }
 
+.reviewPanel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(229, 182, 105, 0.16);
+  border-radius: 10px;
+  background: rgba(70, 50, 22, 0.12);
+}
+
+.reviewHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.reviewHeading > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: rgba(229, 193, 126, 0.9);
+}
+
+.reviewHeading > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.reviewHeading strong {
+  color: rgba(248, 244, 233, 0.94);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.reviewHeading span,
+.reviewEmpty,
+.acknowledgement span {
+  color: rgba(225, 217, 198, 0.82);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.reviewEmpty {
+  margin: 0;
+}
+
+.acknowledgement {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.acknowledgement input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: currentColor;
+}
+
 .dialogFooter {
   display: flex;
   flex-wrap: wrap;
