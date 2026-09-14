@@ -48,11 +48,7 @@ assert.ok(!read("./dashboard/code-graph/page.tsx").includes("styles.brainContent
 assert.ok(read("./dashboard/code-graph/code-graph-live.tsx").includes("styles.codeGraphStage"));
 const connect = read("./dashboard/connect/page.tsx");
 assert.ok(!connect.includes("<LiveOverview"));
-assert.ok(connect.includes("IntegrationsHub"));
-const integrations = read("./dashboard/connect/integrations-hub.tsx");
-assert.ok(integrations.includes("Run Online"));
-assert.ok(integrations.includes("Run on my device"));
-assert.ok(integrations.includes("Test & add MCP"));
+assert.match(connect, /<details[^>]*\bopen\b/);
 for (const stylesheet of ["./dashboard/blogs/blog-editor.module.css", "./dashboard/blogs/series-editor.module.css"]) {
   assert.ok(read(stylesheet).includes(":focus-within"));
 }
