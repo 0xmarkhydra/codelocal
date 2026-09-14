@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestProductMigrationTrainFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 24 {
+	if len(migrations) != 25 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -201,6 +201,12 @@ func TestProductMigrationTrainFollowsProjectBrainTrain(t *testing.T) {
 			t.Fatalf("subagent routing migration 63 missing token %q", token)
 		}
 	}
+	forum := strings.ToLower(migrations[24].sql)
+	for _, token := range []string{"codelocal_forum_topics", "codelocal_forum_comments", "codelocal_forum_votes", "github_issue_url", "under_review"} {
+		if !strings.Contains(forum, token) {
+			t.Fatalf("forum migration 65 missing token %q", token)
+		}
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
@@ -213,11 +219,11 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 64 {
-		t.Fatalf("latest schema version=%d want 64", got)
+	if got := LatestSchemaMigrationVersion(); got != 65 {
+		t.Fatalf("latest schema version=%d want 65", got)
 	}
-	ready := schemaMigrationStatus(64, 64)
-	if !ready.UpToDate || ready.TargetVersion != 64 || ready.AppliedCount != 64 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(65, 65)
+	if !ready.UpToDate || ready.TargetVersion != 65 || ready.AppliedCount != 65 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {

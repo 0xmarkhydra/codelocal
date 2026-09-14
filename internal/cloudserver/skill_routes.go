@@ -51,4 +51,5 @@ func (s *Server) registerSkillRoutes(mux *http.ServeMux) {
 	// changing handler contracts.
 	s.registerBlogRoutes(mux)
 	s.registerMediaAssetRoutes(mux)
+	s.registerForumRoutes(mux)
 }
