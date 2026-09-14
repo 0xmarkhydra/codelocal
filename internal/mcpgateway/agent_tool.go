@@ -90,6 +90,9 @@ func resolveAgentWorkspaceKey(ctx context.Context, service *Service, userID, ses
 	if key == "" {
 		key = strings.TrimSpace(service.route(userID, session))
 	}
+	if key == "" {
+		key = service.defaultWorkspaceKey(ctx, userID)
+	}
 	if key != "" {
 		return key, nil
 	}

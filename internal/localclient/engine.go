@@ -439,7 +439,21 @@ func (e *Engine) startProcess(command string, args map[string]any, opts HandleOp
 	if secretErr != nil {
 		return nil, secretErr
 	}
-	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, DisplayCWD: logicalCWD, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36), Env: runtimeEnv, RedactValues: redactValues})
+	// Command text rules cannot stop an interpreter from assembling a
+	// credential path at runtime, so the same boundary is re-applied by the
+	// kernel for the shell and every process it spawns.
+	sandboxHelper := security.SeatbeltPath()
+	sandboxProfile := ""
+	sandboxUnavailable := security.SandboxUnavailableReason()
+	if sandboxHelper != "" {
+		sandboxProfile = security.SeatbeltProfile(securityRoot)
+		if sandboxProfile == "" {
+			sandboxUnavailable = "seatbelt profile could not be rendered"
+		} else {
+			sandboxUnavailable = ""
+		}
+	}
+	start, err := e.Processes.Start(command, processmgr.StartOptions{CWD: cwd, DisplayCWD: logicalCWD, Timeout: time.Duration(timeoutMs) * time.Millisecond, OwnerSessionID: opts.SessionID, RequestID: opts.RequestID, UsePTY: usePTY, Cols: asInt(args["cols"], 120), Rows: asInt(args["rows"], 36), Env: runtimeEnv, RedactValues: redactValues, SandboxProfile: sandboxProfile, SandboxHelper: sandboxHelper, SandboxUnavailable: sandboxUnavailable})
 	if err != nil {
 		return nil, err
 	}

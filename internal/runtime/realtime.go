@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
@@ -314,6 +315,16 @@ func (r *Runtime) serveRuntimeControl(parent context.Context, conn *websocket.Co
 	}
 }
 
+
+func isGatewayNotReady(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connect: connection refused")
+}
+
 func (r *Runtime) runRealtime(ctx context.Context) error {
 	items, err := r.SyncRegistry(ctx, true)
 	if err != nil {
@@ -380,7 +391,7 @@ func (r *Runtime) runRealtime(ctx context.Context) error {
 			return nil
 		case <-timer.C:
 		}
-		if reconnectDelay < 30*time.Second {
+		if !isGatewayNotReady(dialErr) && reconnectDelay < 30*time.Second {
 			reconnectDelay *= 2
 			if reconnectDelay > 30*time.Second {
 				reconnectDelay = 30 * time.Second

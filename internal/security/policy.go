@@ -106,7 +106,51 @@ func IsSensitivePath(relativePath string) bool {
 			return true
 		}
 	}
+	// A resolved browser profile stores live session cookies, saved logins and
+	// autofill data in plain SQLite files. A workspace that contains one is
+	// transitively equivalent to "read the user's logged-in accounts", so the
+	// entire profile tree is treated as credential material. Blocking the whole
+	// tree also covers shell readers, whose path arguments may be split on
+	// spaces before this check ever sees them.
+	for _, marker := range []string{"/chrome-profile/", "/.ironize_browser/"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	// Interpreters and shell readers embed the same paths inside quotes,
+	// parentheses, commas and semicolons:
+	//   python3 -c "shutil.copy('.ironize_browser/profile/Default/Cookies','/tmp/x')"
+	// Splitting on "/" alone leaves the marker glued to "'" and misses it, so
+	// the normalized form is scanned as well.
+	scan := "/" + credentialScanForm(p) + "/"
+	for _, marker := range []string{"/chrome-profile/", "/.ironize_browser/"} {
+		if strings.Contains(scan, marker) {
+			return true
+		}
+	}
+	if codexCredentialScan.MatchString(scan) {
+		return true
+	}
+	if isBrowserCredentialName(base) && hasBrowserProfileSegment(parts) {
+		return true
+	}
+	// ~/.codex holds the AI client's own account material next to ordinary
+	// agent configuration, so only the credential files are treated as
+	// sensitive rather than the whole directory.
+	if codexCredentialNames.MatchString(base) && hasCodexDirSegment(parts) {
+		return true
+	}
 	if base == ".env" || strings.HasPrefix(base, ".env.") {
+		// A project's own dotenv file is part of the workspace, not account
+		// credential material: every dev server reads it on startup
+		// (`node server.js`, `npm run dev`). Keeping the rule here would mean
+		// the agent can neither inspect nor run the project it was authorized
+		// for. Operators opt in with CODELOCAL_ALLOW_WORKSPACE_DOTENV=1; the
+		// allowance never covers an absolute path or a parent traversal, so a
+		// dotenv file outside the workspace stays refused.
+		if WorkspaceDotenvAllowed() && workspaceLocalDotenv(p) {
+			return false
+		}
 		return true
 	}
 	for _, suffix := range []string{".pem", ".p12", ".pfx", ".key", ".kdbx"} {
@@ -116,6 +160,67 @@ func IsSensitivePath(relativePath string) bool {
 	}
 	credentialNames := regexp.MustCompile(`(?i)^(credentials?|service[-_]?account|private[-_]?key|secrets?)\.(json|ya?ml|toml|ini)$`)
 	return credentialNames.MatchString(base)
+}
+
+// browserCredentialNames are the Chromium/Firefox profile files that hold live
+// credentials rather than project data.
+var browserCredentialNames = regexp.MustCompile(`(?i)^(cookies|login ?data|web ?data|logins\.json|key[34]\.db|signons\.sqlite|cert9\.db|history|visited links|network action predictor|shortcuts|top sites|affiliation database|autofillstates)$`)
+
+func isBrowserCredentialName(base string) bool {
+	return browserCredentialNames.MatchString(base)
+}
+
+// hasBrowserProfileSegment reports whether a path contains a plausible browser
+// profile directory, so that a project file that merely happens to be named
+// "History" is not blocked.
+func hasBrowserProfileSegment(parts []string) bool {
+	for _, part := range parts[:max(0, len(parts)-1)] {
+		lowered := strings.ToLower(part)
+		if lowered == "profile 1" || lowered == "profile 2" || lowered == "profile 3" ||
+			lowered == "chrome-profile" || lowered == ".ironize_browser" ||
+			strings.HasPrefix(lowered, "profile ") {
+			return true
+		}
+	}
+	return false
+}
+
+// codexCredentialNames are the files under ~/.codex that hold account tokens
+// or API credentials rather than agent configuration.
+var codexCredentialNames = regexp.MustCompile(`(?i)^(auth\.json|credentials\.json|device-credential\.json)$`)
+
+// codexCredentialScan matches the same ~/.codex credential files once shell
+// and interpreter punctuation has been normalized to separators, so that
+//
+//	python3 -c "print(open('/Users/mac/.codex/auth.json').read())"
+//
+// is caught even though the argument never looks like a clean path.
+var codexCredentialScan = regexp.MustCompile(`/\.codex/(auth|credentials|device-credential)\.json/`)
+
+func hasCodexDirSegment(parts []string) bool {
+	for _, part := range parts[:max(0, len(parts)-1)] {
+		if strings.ToLower(part) == ".codex" {
+			return true
+		}
+	}
+	return false
+}
+
+// credentialScanForm rewrites shell/interpreter punctuation into path
+// separators so that a credential path embedded in inline code still reads as
+// a path. It never invents segments: only separator characters are replaced.
+func credentialScanForm(value string) string {
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		switch r {
+		case '\'', '"', '(', ')', ',', ';', '|', '&', '=', '<', '>', '`', '[', ']', '{', '}', ':', '*', '?':
+			b.WriteRune('/')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return strings.ToLower(b.String())
 }
 
 func HasComplexShellComposition(command string) bool {
@@ -488,6 +593,38 @@ func contains(values []string, value string) bool {
 	return false
 }
 
+// chainedWorkingDirectory reports the working directory that a `cd` sub-command
+// establishes for the rest of a chain. Only a plain `cd <dir>` is understood;
+// anything exotic (a glob, a substitution, a cd inside a pipeline) leaves the
+// context untouched, because guessing would be worse than not tracking.
+func chainedWorkingDirectory(sub string, ctx Context) (string, bool) {
+	parsed, ok := parseCommand(sub)
+	if !ok || parsed == nil || parsed.Executable != "cd" {
+		return "", false
+	}
+	if len(parsed.Args) != 1 {
+		return "", false
+	}
+	target := strings.Trim(parsed.Args[0], `"'`)
+	if target == "" || strings.ContainsAny(target, "*?$~") || strings.Contains(target, "$"+string(rune(0x60))) {
+		return "", false
+	}
+	cwd := ctx.CWD
+	if cwd == "" {
+		cwd = ctx.WorkspaceRoot
+	}
+	if !filepath.IsAbs(target) {
+		cwd = filepath.Join(cwd, target)
+	} else {
+		cwd = target
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", false
+	}
+	return abs, true
+}
+
 func classifyAndChain(command string, subcmds []string, network NetworkPolicy, ctx Context) Decision {
 	if network == "" {
 		network = NetworkApproval
@@ -501,8 +638,17 @@ func classifyAndChain(command string, subcmds []string, network NetworkPolicy, c
 	var allRules []string
 	allRememberable := true
 
+	// A chained command can change directory before it runs a script
+	// ("cd tools && python3 read.py"). Classifying each sub-command against the
+	// original CWD would resolve that relative path to the wrong file — or to
+	// no file at all — so the working directory is carried forward exactly as
+	// the shell would.
+	stepCtx := ctx
 	for _, sub := range subcmds {
-		d := Classify(sub, network, ctx)
+		d := Classify(sub, network, stepCtx)
+		if next, ok := chainedWorkingDirectory(sub, stepCtx); ok {
+			stepCtx.CWD = next
+		}
 		if rank[d.RiskLevel] > rank[highestRisk] {
 			highestRisk = d.RiskLevel
 		}
@@ -611,6 +757,32 @@ func Classify(command string, network NetworkPolicy, ctx Context) Decision {
 		}
 	}
 
+	// Sensitive files inside the authorized workspace are reachable through
+	// ordinary shell readers (cat/head/cp/sqlite3/...), not only through the
+	// dedicated read/edit tools. Without this the workspace path check below
+	// passes happily and a browser profile's cookie jar can be dumped.
+	if hitSensitive := sensitivePathInCommand(command, exec, ctx); hitSensitive != "" {
+		hit(true, "sensitive path access: "+RedactCommand(hitSensitive), RiskBlocked, true, false)
+	}
+
+	// A script body is the one place credential material can hide from a
+	// command-line-only check:
+	//   python3 read.py     # the credential path lives inside read.py
+	// classifyAndChain recurses through Classify, so chained commands
+	// ("cd x && python3 read.py") are inspected as well.
+	if scriptHit := sensitiveScriptInCommand(command, ctx); scriptHit != "" {
+		hit(true, "sensitive script content: "+RedactCommand(scriptHit), RiskBlocked, true, false)
+	}
+	// `sh -c "..."` is already flagged for approval, but approval is not a
+	// security boundary: this workspace runs with full access, so an approved
+	// wrapper would still execute the inner command. Classify the inner text
+	// with the same rules so the credential decision is made on content.
+	if inline := inlineInterpreterCommand(command, exec, args); inline != "" {
+		if inner := sensitiveScriptInCommand(inline, ctx); inner != "" {
+			hit(true, "sensitive script content: "+RedactCommand(inner), RiskBlocked, true, false)
+		}
+	}
+
 	if escaped := explicitPathEscape(command, ctx); escaped != "" {
 		hit(true, "explicit path escapes authorized workspace: "+RedactCommand(escaped), RiskBlocked, true, false)
 	} else if ctx.WorkspaceRoot == "" && (strings.HasPrefix(normalized, "../") || strings.Contains(normalized, " ../")) {
@@ -714,3 +886,106 @@ func SortRules(rules []string) []string {
 }
 
 func Platform() string { return runtime.GOOS }
+
+// fileReaderCommands are the executables that turn a path argument into file
+// bytes. They matter because the dedicated read/edit tools already enforce the
+// sensitive-path policy, but a shell reader bypasses it completely.
+var fileReaderCommands = map[string]struct{}{
+	"cat": {}, "head": {}, "tail": {}, "less": {}, "more": {}, "bat": {},
+	"strings": {}, "xxd": {}, "od": {}, "hexdump": {}, "base64": {}, "base32": {},
+	"cp": {}, "mv": {}, "rsync": {}, "scp": {}, "tar": {}, "zip": {}, "dd": {},
+	"sqlite3": {}, "sqlite": {}, "awk": {}, "sed": {}, "grep": {}, "rg": {},
+	"sort": {}, "uniq": {}, "tr": {}, "cut": {}, "python": {}, "python3": {},
+	"node": {}, "ruby": {}, "perl": {}, "php": {}, "openssl": {}, "jq": {},
+}
+
+// sensitivePathInCommand reports the first path argument that names credential
+// material. It runs for every command because the shell readers above bypass
+// the path-level policy that guards the dedicated file tools.
+func sensitivePathInCommand(command, exec string, ctx Context) string {
+	_, readerCommand := fileReaderCommands[strings.ToLower(filepath.Base(exec))]
+	for _, token := range commandPathTokens(command) {
+		if IsSensitivePath(token) {
+			return token
+		}
+		// A bare basename ("cat Cookies") only counts when the command actually
+		// reads file bytes, so that `grep -r cookies docs/` stays allowed.
+		if readerCommand && !strings.Contains(token, "/") && looksLikeSensitiveBasename(token) {
+			return token
+		}
+	}
+	return ""
+}
+
+// commandPathTokens extracts path-like, non-flag tokens from a shell command.
+func commandPathTokens(command string) []string {
+	out := []string{}
+	for _, field := range strings.Fields(command) {
+		token := strings.Trim(field, `"'`+",;|&()<>")
+		if token == "" || strings.HasPrefix(token, "-") {
+			continue
+		}
+		token = strings.TrimPrefix(token, "file://")
+		if _, value, ok := strings.Cut(token, "="); ok {
+			token = strings.Trim(value, `"'`)
+		}
+		if token == "" || strings.HasPrefix(token, "-") {
+			continue
+		}
+		out = append(out, filepath.ToSlash(token))
+	}
+	return out
+}
+
+func looksLikeSensitiveBasename(token string) bool {
+	base := strings.ToLower(filepath.Base(strings.Trim(token, "/")))
+	// A committed dotenv template is documentation, not a credential. It has to
+	// be checked before the ".env." prefix rule, otherwise `cat .env.example`
+	// is refused while IsSensitivePath already allows the same file.
+	if base == ".env.example" || base == ".env.sample" || base == ".env.template" {
+		return false
+	}
+	if (base == ".env" || strings.HasPrefix(base, ".env.")) && WorkspaceDotenvAllowed() {
+		// `cat .env` / `python3 -c "open('.env')"`: the token carries no
+		// directory, so it can only resolve inside the authorized workspace.
+		return false
+	}
+	switch base {
+	case ".env", "cookies", "login data", "web data", "logins.json", "signons.sqlite", "cert9.db", "key4.db":
+		return true
+	}
+	return strings.HasPrefix(base, ".env.") || strings.HasSuffix(base, ".pem") ||
+		strings.HasSuffix(base, ".key") || strings.HasSuffix(base, ".kdbx")
+}
+
+// workspaceDotenvEnvVar turns the workspace-local dotenv allowance on. It is
+// opt-in because a dotenv file holds real secrets: allowing it makes the agent
+// able to read the project's configuration as well as run it.
+const workspaceDotenvEnvVar = "CODELOCAL_ALLOW_WORKSPACE_DOTENV"
+
+// WorkspaceDotenvAllowed reports whether the operator opted in.
+func WorkspaceDotenvAllowed() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(workspaceDotenvEnvVar))) {
+	case "1", "true", "on", "yes", "enabled":
+		return true
+	}
+	return false
+}
+
+// workspaceLocalDotenv reports whether a dotenv path is confined to the
+// workspace: relative, with no parent traversal and no root escape.
+func workspaceLocalDotenv(cleaned string) bool {
+	if cleaned == "" || strings.HasPrefix(cleaned, "/") || strings.HasPrefix(cleaned, "~") {
+		return false
+	}
+	if strings.Contains(cleaned, ":") {
+		// Windows drive or a URL scheme: not a workspace-relative path.
+		return false
+	}
+	for _, part := range strings.Split(cleaned, "/") {
+		if part == ".." {
+			return false
+		}
+	}
+	return true
+}

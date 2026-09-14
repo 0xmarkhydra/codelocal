@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/webauth"
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
@@ -193,6 +194,12 @@ func (s *Server) webFrontendMiddleware(next http.Handler) http.Handler {
 		}
 		if isLegacyBlogPath(r.URL.Path) {
 			http.Redirect(w, r, legacyBlogRedirectTarget(r), http.StatusPermanentRedirect)
+			return
+		}
+		// Single-operator self-host handles auth/pairing inside the Go gateway, so
+		// these paths must not be proxied to a web frontend that may not be running.
+		if webauth.LocalOwnerMode() && (canonicalNextPresentationPath(r.URL.Path) == "/authorize" || canonicalNextPresentationPath(r.URL.Path) == "/pair/approve") {
+			next.ServeHTTP(w, r)
 			return
 		}
 		switch {

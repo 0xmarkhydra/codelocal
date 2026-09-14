@@ -148,3 +148,27 @@ func TestToolResultsCarrySurfaceFingerprintWithoutTextInflation(t *testing.T) {
 		t.Fatal("tool surface fingerprint should stay in structured metadata unless a compatibility notice is needed")
 	}
 }
+
+func TestPublicInstructionsExplainSessionlessWorkspaceRouting(t *testing.T) {
+	instructions := publicMCPInstructions()
+	for _, required := range []string{
+		"workspace(action=list)",
+		"workspaceKey explicitly",
+		"never falls back to CodeLocal's own managed system projects",
+	} {
+		if !strings.Contains(instructions, required) {
+			t.Fatalf("public instructions must explain workspace routing; missing %q", required)
+		}
+	}
+	// The pinned legacy instruction text must not drift: older clients verify a
+	// published contract hash over this exact string.
+	if strings.Contains(legacyPublicMCPInstructions(), "never falls back to CodeLocal's own managed system projects") {
+		t.Fatal("legacy instructions must stay byte-identical to the published generation")
+	}
+	if got := legacyPublicToolContractHash(); got != PinnedLegacyPublicToolContractHash {
+		t.Fatalf("legacy contract hash drifted: %s", got)
+	}
+	if got := legacyPublicToolSurfaceHash(); got != PinnedLegacyPublicToolSurfaceHash {
+		t.Fatalf("legacy surface hash drifted: %s", got)
+	}
+}
