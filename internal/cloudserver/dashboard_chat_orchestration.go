@@ -128,7 +128,16 @@ func dashboardToolResultStatus(result string) string {
 	if json.Unmarshal([]byte(result), &payload) != nil {
 		return "done"
 	}
+	if payload["status"] == "approval_required" {
+		return "approval_required"
+	}
+	if payload["isError"] == true {
+		return "error"
+	}
 	if nested, ok := payload["result"].(map[string]any); ok {
+		if nested["isError"] == true {
+			return "error"
+		}
 		status, _ := nested["status"].(string)
 		if running, _ := nested["running"].(bool); running {
 			return "running"

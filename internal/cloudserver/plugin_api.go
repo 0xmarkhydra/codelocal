@@ -80,11 +80,12 @@ func pluginCatalogResponse(installations []cloud.PluginInstallation, connections
 			ConnectedCount: readyConnections,
 			System:         entry.DefaultInstalled,
 		}
+		item.ExecutionTargets = []string{"local"}
+		if manifestSupportsCloud(entry) {
+			item.ExecutionTargets = append(item.ExecutionTargets, "cloud")
+		}
 		if entry.Runtime != nil {
 			item.ServerName = entry.Runtime.ServerName
-			for _, target := range entry.Runtime.Targets {
-				item.ExecutionTargets = append(item.ExecutionTargets, string(target))
-			}
 		}
 		if installation, ok := installedByID[manifest.ID]; ok {
 			item.InstallationState = string(installation.State)

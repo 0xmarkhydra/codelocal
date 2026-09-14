@@ -1,6 +1,7 @@
 "use client";
 
 import { AppIcon } from "./app-icon";
+import { PluginApproval } from "./plugin-approval";
 import styles from "./chat-action-summary.module.css";
 
 export type ChatToolCall = {
@@ -97,12 +98,18 @@ export function ChatActionSummary({ actions, busy, onApprove }: { actions: ChatT
           ))}
         </ol>
       </details>
-      {approvals.map((action) => (
-        <div className={styles.approvalRow} key={`${action.id}-approval`}>
+      {approvals.map((action) => {
+        if (action.name === "call_plugin_tool") {
+          let request: { approvalId?: unknown; plugin?: unknown; connection?: unknown; tool?: unknown; arguments?: unknown } = {};
+          try { request = JSON.parse(action.result || "{}"); } catch { /* Missing approval data must not enable execution. */ }
+          if (typeof request.approvalId !== "string" || !/^[a-f0-9]{48}$/.test(request.approvalId)) return null;
+          return <PluginApproval key={`${action.id}-approval`} id={request.approvalId} busy={busy} />;
+        }
+        return <div className={styles.approvalRow} key={`${action.id}-approval`}>
           <span><AppIcon name="shield" size={15} /><strong>{actionLabel(action.name, action.status)}</strong><small>Cần quyền để tiếp tục</small></span>
           <button type="button" onClick={onApprove} disabled={busy}>Toàn quyền truy cập</button>
-        </div>
-      ))}
+        </div>;
+      })}
     </div>
   );
 }

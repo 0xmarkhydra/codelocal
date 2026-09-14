@@ -65,6 +65,7 @@ type ConnectionInput = {
   bearerEnv: string;
   bearerToken: string;
   executionTarget: "local" | "cloud";
+  authKind?: "none" | "bearer" | "oauth";
 };
 
 type Notice = { kind: "success" | "error"; text: string; values?: MessageValues } | null;
@@ -128,11 +129,12 @@ function PluginCard({
   const deviceReady = connections.find((connection) => connection.executionTarget !== "cloud" && connection.state === "ready");
   const hasConnectionError = connections.some((connection) => connection.state === "error");
   const connected = Boolean(cloudReady || deviceReady);
+  const closeDialog = useCallback(() => setDialogOpen(false), []);
 
   const status = cloudReady
-    ? t("Cloud · {count} tools", { count: cloudReady.toolCount })
+    ? t("Cloud configured · {count} tools last discovered", { count: cloudReady.toolCount })
     : deviceReady
-      ? `${connectionDeviceLabel(deviceReady, workspaces, t("CodeLocal Cloud"))} · ${t("{count} tools ready", { count: deviceReady.toolCount })}`
+      ? `${connectionDeviceLabel(deviceReady, workspaces, t("CodeLocal Cloud"))} · ${t("{count} tools last discovered", { count: deviceReady.toolCount })}`
       : hasConnectionError
         ? t("Connection needs attention")
         : t("Not connected");
@@ -169,7 +171,7 @@ function PluginCard({
         <button
           aria-expanded={dialogOpen}
           className={styles.permissionsSummary}
-          onClick={() => setDialogOpen(true)}
+          onClick={() => void openDialog()}
           type="button"
         >
           {capabilities.length === 0
@@ -179,13 +181,13 @@ function PluginCard({
 
         <div className={styles.statusRow}>
           <div className={styles.statusCopy}>
-            <span className={styles.statusMain}><span aria-hidden="true" className={styles.statusDot} data-error={hasConnectionError && !connected ? "true" : undefined} data-ready={connected ? "true" : undefined} />{status}</span>
-            {cloudReady && <span className={styles.statusHint}>{t("Works without your device")}</span>}
+            <span className={styles.statusMain}><span aria-hidden="true" className={styles.statusDot} data-error={hasConnectionError && !connected ? "true" : undefined} data-ready={undefined} />{status}</span>
+            {cloudReady && <span className={styles.statusHint}>{t("Connection is checked when used.")}</span>}
             {!plugin.installed && <span className={styles.statusHint}>{t("Install to make this Plugin available to CodeLocal.")}</span>}
             {plugin.updateAvailable && <span className={styles.statusHint}>{t("New version available")}</span>}
           </div>
           <button className={styles.primaryButton} disabled={busy || preparing} onClick={() => void openDialog()} type="button">
-            {t(preparing ? "Installing…" : connected || plugin.installed ? "Manage" : "Connect")}
+            {t(preparing ? "Installing…" : connections.length > 0 ? "Manage" : "Connect")}
           </button>
         </div>
       </article>
@@ -196,7 +198,7 @@ function PluginCard({
           connect={connect}
           disconnect={disconnect}
           install={install}
-          onClose={() => setDialogOpen(false)}
+          onClose={closeDialog}
           plugin={plugin}
           uninstall={uninstall}
           workspaces={workspaces}
@@ -323,6 +325,14 @@ export function PluginsHub() {
     setBusyPlugin(plugin.id);
     setNotice(null);
     try {
+      if (input.authKind === "oauth" && input.executionTarget === "cloud") {
+        const response = await fetch(`/api/v1/plugins/${encodeURIComponent(plugin.id)}/oauth`, { method: "POST", credentials: "same-origin", headers: mutationHeaders(true), body: JSON.stringify({ endpoint: input.endpoint }) });
+        if (!response.ok) throw new Error(await responseError(response));
+        const payload = await response.json() as { authorizationUrl?: unknown };
+        if (typeof payload.authorizationUrl !== "string" || new URL(payload.authorizationUrl).protocol !== "https:") throw new Error("Invalid OAuth authorization URL");
+        window.location.assign(payload.authorizationUrl);
+        return true;
+      }
       const response = await fetch(`/api/v1/plugins/${encodeURIComponent(plugin.id)}/connections`, {
         method: "POST",
         credentials: "include",
@@ -333,7 +343,7 @@ export function PluginsHub() {
       const payload = await response.json() as { connection?: PluginConnection };
       await refresh();
       if (payload.connection?.state === "ready") {
-        setNotice({ kind: "success", text: "{name} connected. {count} tools discovered on the selected device.", values: { name: plugin.name, count: payload.connection.toolCount } });
+        setNotice({ kind: "success", text: "{name} connected. {count} tools discovered.", values: { name: plugin.name, count: payload.connection.toolCount } });
         return true;
       } else {
         setNotice({ kind: "error", text: payload.connection?.lastError || "{name} was configured, but its MCP server is not ready yet.", values: { name: plugin.name } });
@@ -348,7 +358,7 @@ export function PluginsHub() {
   }, [mutationHeaders, refresh]);
 
   const disconnect = useCallback(async (plugin: PluginItem, connection: PluginConnection) => {
-    if (!window.confirm(t("Disconnect {name} from this CodeLocal device?", { name: plugin.name }))) return;
+    if (!window.confirm(t("Disconnect {name} from this connection?", { name: plugin.name }))) return;
     setBusyPlugin(plugin.id);
     setNotice(null);
     try {
@@ -359,7 +369,7 @@ export function PluginsHub() {
       });
       if (!response.ok) throw new Error(await responseError(response));
       await refresh();
-      setNotice({ kind: "success", text: "{name} disconnected from the device.", values: { name: plugin.name } });
+      setNotice({ kind: "success", text: "{name} disconnected.", values: { name: plugin.name } });
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Plugin disconnect failed." });
     } finally {

@@ -583,7 +583,8 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 		if err != nil {
 			return nil, err
 		}
-		httpTransport := &headerTransport{base: http.DefaultTransport, headers: headers, query: requestQuery}
+		endpointURL, _ := url.Parse(config.URL)
+		httpTransport := &headerTransport{base: http.DefaultTransport, headers: headers, query: requestQuery, origin: endpointURL.Scheme + "://" + endpointURL.Host}
 		if len(requestQuery) > 0 {
 			// Native userToken is supplied by the private adapter, never in a
 			// public URL. Runtime settings carry a short-lived signed grant.
@@ -617,6 +618,7 @@ func (h *Hub) connect(ctx context.Context, config ServerConfig, authorize bool) 
 }
 
 type headerTransport struct {
+	origin        string
 	base          http.RoundTripper
 	headers       http.Header
 	query         url.Values
@@ -625,6 +627,9 @@ type headerTransport struct {
 }
 
 func (t *headerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if t.origin != "" && r.URL.Scheme+"://"+r.URL.Host != t.origin {
+		return nil, errors.New("MCP cross-origin requests are forbidden")
+	}
 	if t.check != nil {
 		if err := t.check(); err != nil {
 			return nil, err
@@ -788,7 +793,7 @@ func (h *Hub) Search(ctx context.Context, query, server string, limit int, refre
 	}
 	results := []map[string]any{}
 	for _, t := range items {
-		results = append(results, map[string]any{"server": t.Server, "tool": t.Name, "title": t.Title, "description": t.Description, "score": t.Score})
+		results = append(results, map[string]any{"server": t.Server, "tool": t.Name, "title": t.Title, "description": t.Description, "inputSchema": t.InputSchema, "outputSchema": t.OutputSchema, "score": t.Score})
 	}
 	return map[string]any{"query": query, "results": results, "catalogToolCount": len(cat.Tools), "installedServerCount": len(visible)}, nil
 }

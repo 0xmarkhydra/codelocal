@@ -3,6 +3,7 @@
 package penpot
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -119,6 +120,18 @@ func (a *Adapter) authenticate(ctx context.Context, token string) (oauth.PenpotG
 	if err != nil || user == nil {
 		return oauth.PenpotGrant{}, errors.New("Penpot account unavailable")
 	}
+	if grant.Cloud {
+		if !grant.ProbeOnly {
+			credential, err := a.Auth.Store.PluginCloudCredential(ctx, grant.Subject, "penpot")
+			if err != nil || subtle.ConstantTimeCompare([]byte(credential.Token), []byte(grant.UserToken)) != 1 {
+				return oauth.PenpotGrant{}, errors.New("Penpot cloud connection revoked")
+			}
+		}
+		if err := a.ValidateOwner(ctx, grant.UserToken, user.Email); err != nil {
+			return oauth.PenpotGrant{}, err
+		}
+		return grant, nil
+	}
 	workspaces, err := a.Auth.Store.ListWorkspaceRecords(ctx, grant.Subject)
 	if err != nil {
 		return oauth.PenpotGrant{}, errors.New("Penpot workspace unavailable")
@@ -173,6 +186,29 @@ func (a *Adapter) ServeMCP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Adapter) serveAuthenticatedMCP(w http.ResponseWriter, r *http.Request, grant oauth.PenpotGrant) {
+	if grant.ProbeOnly {
+		if r.Method == http.MethodGet {
+			reject(w, http.StatusMethodNotAllowed)
+			return
+		}
+		if r.Method == http.MethodPost {
+			data, err := io.ReadAll(io.LimitReader(r.Body, (64<<10)+1))
+			var message struct {
+				Method string `json:"method"`
+			}
+			if err != nil || len(data) > 64<<10 || json.Unmarshal(data, &message) != nil {
+				reject(w, http.StatusBadRequest)
+				return
+			}
+			switch message.Method {
+			case "initialize", "server/discover", "notifications/initialized", "tools/list", "ping":
+			default:
+				reject(w, http.StatusForbidden)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(data))
+		}
+	}
 	sessionID := ""
 	publicSessionID := ""
 	if values := r.Header.Values("Mcp-Session-Id"); len(values) > 0 {

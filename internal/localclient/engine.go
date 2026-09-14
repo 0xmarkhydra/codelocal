@@ -1583,9 +1583,14 @@ func (e *Engine) callMCP(ctx context.Context, args map[string]any, sessionID str
 	// MCP server can itself execute code, so one fresh ChatGPT approval covers
 	// both connection (if needed) and this exact tool invocation.
 	command := "mcp " + server + "." + tool
+	argumentJSON, err := json.Marshal(object(args["arguments"]))
+	if err != nil || len(argumentJSON) > 64<<10 {
+		return nil, errors.New("MCP arguments are invalid or oversized")
+	}
+	argumentHash := sha256.Sum256(argumentJSON)
 	decision := security.Decision{
 		RiskLevel:        security.RiskReview,
-		MatchedRules:     []string{"mcp:" + server + ":" + tool},
+		MatchedRules:     []string{"mcp:" + server + ":" + tool, fmt.Sprintf("arguments:%x", argumentHash)},
 		RequiresApproval: true,
 		Blocked:          false,
 		RedactedCommand:  command,

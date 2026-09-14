@@ -695,27 +695,12 @@
   background: rgba(226, 107, 119, 0.78);
 }
 
-.dialogLayer {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.dialogBackdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: rgba(4, 7, 12, 0.62);
-  cursor: pointer;
-}
+.dialog::backdrop { background: rgba(4, 7, 12, 0.72); }
 
 .dialog {
-  position: relative;
-  width: min(560px, 100%);
+  margin: auto;
+  color: var(--text-primary, #e8eef9);
+  width: min(560px, calc(100% - 32px));
   max-height: min(86vh, 720px);
   overflow: auto;
   padding: 20px;

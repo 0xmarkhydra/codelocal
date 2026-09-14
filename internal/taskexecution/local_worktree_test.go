@@ -123,14 +123,14 @@ func TestLocalWorktreeProviderSnapshotsDirtyAuthoritativeRepository(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(taskData) != "dirty working\n" {
+	if strings.ReplaceAll(string(taskData), "\r\n", "\n") != "dirty working\n" {
 		t.Fatalf("tracked dirty state was not snapshotted: %q", taskData)
 	}
 	untrackedData, err := os.ReadFile(filepath.Join(binding.LocalPath, "notes.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(untrackedData) != "untracked\n" {
+	if strings.ReplaceAll(string(untrackedData), "\r\n", "\n") != "untracked\n" {
 		t.Fatalf("untracked state was not snapshotted: %q", untrackedData)
 	}
 

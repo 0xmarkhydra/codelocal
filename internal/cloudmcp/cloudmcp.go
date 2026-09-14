@@ -1,417 +1,209 @@
-// Package cloudmcp hosts the Cloud-side MCP client used by Plugin connections
-// with the "cloud" execution target. Unlike internal/mcphub, which is bound to
-// the local runtime's filesystem registry, sessions live in process and are
-// keyed by user so one account can never reach another account's connection.
-// Every outbound dial passes an SSRF guard: HTTPS only, and private, loopback,
-// link-local and carrier-NAT addresses are refused both at URL validation time
-// and again at dial time so DNS rebinding cannot bypass the URL check.
+// Package cloudmcp provides bounded, request-scoped MCP transport. Durable
+// configuration, credentials and user approval belong to the Cloud store.
 package cloudmcp
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const (
-	maxConnectionsPerUser = 8
-	maxTotalConnections   = 512
-	connectTimeout        = 30 * time.Second
-	callTimeout           = 45 * time.Second
-)
+const maxTools = 500
+const maxSchemaBytes = 128 << 10
+const maxArgumentsBytes = 64 << 10
 
-// ToolSummary is the bounded tool metadata the Cloud keeps per connection. It
-// is also the approval surface: only tools marked read-only by the MCP server
-// may execute through a cloud connection (device connections keep the runtime
-// approval engine).
 type ToolSummary struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	ReadOnly    bool   `json:"readOnly"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	ReadOnly     bool            `json:"readOnlyHint"`
 }
 
-type ConnectResult struct {
-	Configured bool
-	Connected  bool
-	ServerName string
-	ToolCount  int
-	Tools      []ToolSummary
-	Error      string
-}
+type Config struct{ Endpoint, Bearer string }
 
-type session struct {
-	serverName string
-	endpoint   string
-	client     *mcp.ClientSession
-	tools      []ToolSummary
-}
-
-// Manager owns one cloud MCP session per (user, plugin). One cloud connection
-// per plugin mirrors the store's ON CONFLICT (user_id, plugin_id, device_id)
-// with the reserved "cloud" device sentinel.
 type Manager struct {
-	mu    sync.Mutex
-	users map[string]map[string]*session
-	total int
+	mu     sync.Mutex
+	active map[string]int
+	total  int
+	client func(string, string) (*http.Client, func())
 }
 
-func NewManager() *Manager {
-	return &Manager{users: map[string]map[string]*session{}}
-}
+func NewManager() *Manager { return &Manager{active: map[string]int{}, client: newHTTPClient} }
 
-// ServerName mirrors the local runtime's canonical plugin server naming so the
-// same plugin resolves to the same stable identifier on either target.
-func ServerName(pluginID string) (string, error) {
-	pluginID = strings.TrimSpace(pluginID)
-	if pluginID == "" {
-		return "", errors.New("plugin id is required")
+func (m *Manager) acquire(user string) (func(), error) {
+	if strings.TrimSpace(user) == "" {
+		return nil, errors.New("MCP account is required")
 	}
-	for _, r := range pluginID {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
-			return "", errors.New("plugin id is not canonical")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.total >= 64 || m.active[user] >= 4 {
+		return nil, errors.New("MCP concurrent operation limit reached")
+	}
+	m.active[user]++
+	m.total++
+	return func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.active[user]--
+		m.total--
+		if m.active[user] == 0 {
+			delete(m.active, user)
 		}
-	}
-	name := "plugin-" + pluginID
-	if len(name) <= 64 {
-		return name, nil
-	}
-	digest := sha256.Sum256([]byte(pluginID))
-	suffix := hex.EncodeToString(digest[:])[:10]
-	prefix := pluginID
-	maxPrefix := 64 - len("plugin--") - len(suffix)
-	if len(prefix) > maxPrefix {
-		prefix = prefix[:maxPrefix]
-	}
-	return "plugin-" + prefix + "-" + suffix, nil
+	}, nil
 }
 
-// endpointAllowed validates the cloud endpoint URL. HTTPS only, no embedded
-// credentials, no fragment, and IP literals must already pass the deny list.
-func endpointAllowed(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Hostname() == "" {
-		return "", errors.New("cloud MCP endpoint must be an absolute URL")
-	}
-	if parsed.User != nil || parsed.Fragment != "" {
-		return "", errors.New("cloud MCP endpoint cannot include credentials or a fragment")
-	}
-	if parsed.Scheme != "https" {
-		return "", errors.New("cloud MCP endpoint must use HTTPS")
-	}
-	host := strings.Trim(strings.ToLower(parsed.Hostname()), "[]")
-	if host == "localhost" {
-		return "", errors.New("cloud MCP endpoint cannot target localhost")
-	}
-	if ip := net.ParseIP(host); ip != nil && !ipAllowed(ip) {
-		return "", errors.New("cloud MCP endpoint cannot target private or link-local addresses")
-	}
-	return parsed.String(), nil
-}
-
-func ipAllowed(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return false
-	}
-	if ip.Equal(net.IPv4bcast) {
-		return false
-	}
-	// Carrier-grade NAT (100.64.0.0/10) is unreachable from the public
-	// internet but reachable inside hosting networks; deny it too.
-	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] < 128 {
-		return false
-	}
-	return true
-}
-
-// dialControl re-checks the resolved IP at dial time. This is the rebinding
-// defense: a hostname may pass URL validation and still resolve privately.
-// It is a variable only so the TLS loopback test server can dial itself; the
-// URL-level guard above is never bypassed.
-var dialControl = func(_ string, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
+func (m *Manager) open(ctx context.Context, user string, cfg Config) (*mcp.ClientSession, func(), error) {
+	endpoint, err := ValidateEndpoint(cfg.Endpoint)
 	if err != nil {
-		return fmt.Errorf("cloud MCP dial rejected invalid address: %w", err)
+		return nil, nil, err
 	}
-	ip := net.ParseIP(host)
-	if !ipAllowed(ip) {
-		return errors.New("cloud MCP dial rejected private or link-local address")
+	if len(cfg.Bearer) > 16384 || strings.ContainsAny(cfg.Bearer, "\r\n\x00") {
+		return nil, nil, errors.New("invalid MCP credential")
+	}
+	release, err := m.acquire(user)
+	if err != nil {
+		return nil, nil, err
+	}
+	httpClient, closeHTTP := m.client(endpoint, cfg.Bearer)
+	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-cloud", Version: "2.0.0"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint: endpoint, HTTPClient: httpClient, MaxRetries: -1, DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		closeHTTP()
+		release()
+		return nil, nil, errors.New("MCP connection failed; verify endpoint and authorization")
+	}
+	return session, func() { _ = session.Close(); closeHTTP(); release() }, nil
+}
+
+func schemaBytes(value any) (json.RawMessage, error) {
+	data, err := json.Marshal(value)
+	if err != nil || len(data) > maxSchemaBytes || len(data) == 0 || data[0] != '{' {
+		return nil, errors.New("MCP tool has an invalid or oversized schema")
+	}
+	return data, nil
+}
+
+func discover(ctx context.Context, session *mcp.ClientSession) ([]ToolSummary, error) {
+	tools := []ToolSummary{}
+	seen := map[string]bool{}
+	for tool, err := range session.Tools(ctx, nil) {
+		if err != nil {
+			return nil, errors.New("MCP tool discovery failed")
+		}
+		if len(tools) >= maxTools {
+			return nil, errors.New("MCP tool catalog exceeds limit")
+		}
+		if tool.Name == "" || len(tool.Name) > 128 || seen[tool.Name] {
+			return nil, errors.New("MCP tool name is invalid or duplicated")
+		}
+		seen[tool.Name] = true
+		input, err := schemaBytes(tool.InputSchema)
+		if err != nil {
+			return nil, err
+		}
+		var output json.RawMessage
+		if tool.OutputSchema != nil {
+			output, err = schemaBytes(tool.OutputSchema)
+			if err != nil {
+				return nil, err
+			}
+		}
+		description := tool.Description
+		if len(description) > 4096 {
+			description = description[:4096]
+		}
+		item := ToolSummary{Name: tool.Name, Description: description, InputSchema: input, OutputSchema: output}
+		if tool.Annotations != nil {
+			item.ReadOnly = tool.Annotations.ReadOnlyHint
+		}
+		tools = append(tools, item)
+	}
+	return tools, nil
+}
+
+func (m *Manager) Discover(ctx context.Context, user string, cfg Config) ([]ToolSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	session, closeSession, err := m.open(ctx, user, cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer closeSession()
+	return discover(ctx, session)
+}
+
+func validateArguments(schema json.RawMessage, arguments map[string]any) error {
+	raw, err := json.Marshal(arguments)
+	if err != nil || len(raw) > maxArgumentsBytes {
+		return errors.New("MCP arguments exceed limit")
+	}
+	var definition jsonschema.Schema
+	if json.Unmarshal(schema, &definition) != nil {
+		return errors.New("invalid MCP input schema")
+	}
+	resolved, err := definition.Resolve(nil)
+	if err != nil {
+		return errors.New("MCP input schema cannot be resolved locally")
+	}
+	var instance any
+	if json.Unmarshal(raw, &instance) != nil || resolved.Validate(instance) != nil {
+		return errors.New("MCP arguments do not match input schema")
 	}
 	return nil
 }
 
-// baseTLSConfig is nil in production, meaning system roots. Tests point it at
-// the loopback test server's certificate.
-var baseTLSConfig *tls.Config
-
-func newGuardedTransport() *http.Transport {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: dialControl}
-	return &http.Transport{
-		DialContext:           dialer.DialContext,
-		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   10 * time.Second,
-		MaxIdleConns:          4,
-		IdleConnTimeout:       90 * time.Second,
-		ExpectContinueTimeout: time.Second,
-		Proxy:                 nil,
-		TLSClientConfig:       baseTLSConfig,
-	}
-}
-
-// authTransport injects the connection bearer on requests to the connection
-// host only, and never on redirects to a different host.
-type authTransport struct {
-	base   http.RoundTripper
-	scheme string
-	host   string
-	bearer string
-}
-
-func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	out := req
-	if req.URL.Scheme == t.scheme && strings.EqualFold(req.URL.Host, t.host) {
-		clone := req.Clone(req.Context())
-		clone.Header.Set("Authorization", "Bearer "+t.bearer)
-		out = clone
-	}
-	return t.base.RoundTrip(out)
-}
-
-func newSessionClient(endpoint string, bearer string) *http.Client {
-	parsed, _ := url.Parse(endpoint)
-	return &http.Client{
-		Timeout: 0, // streamable transport holds long-lived reads; calls use ctx deadlines
-		Transport: &authTransport{
-			base:   newGuardedTransport(),
-			scheme: parsed.Scheme,
-			host:   parsed.Host,
-			bearer: bearer,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 2 {
-				return errors.New("cloud MCP endpoint redirected too many times")
-			}
-			if _, err := endpointURLGuard(req.URL.String()); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-}
-
-// endpointURLGuard is the URL-level SSRF check applied on Connect and on every
-// redirect. It is a variable only so the TLS loopback test server can pass;
-// production behavior is the strict endpointAllowed.
-var endpointURLGuard = endpointAllowed
-
-func (m *Manager) get(userID, pluginID string) (*session, bool) {
-	sessions, ok := m.users[userID]
-	if !ok {
-		return nil, false
-	}
-	s, ok := sessions[pluginID]
-	return s, ok
-}
-
-// Connect establishes (or replaces) the user's cloud session for a plugin and
-// probes its tool list. On probe failure the result carries an Error so the
-// caller can persist a failed connection row, mirroring the local runtime.
-func (m *Manager) Connect(ctx context.Context, userID, pluginID, endpoint, bearer string) (ConnectResult, error) {
-	result := ConnectResult{}
-	normalized, err := endpointURLGuard(endpoint)
-	if err != nil {
-		return result, err
-	}
-	if strings.TrimSpace(bearer) == "" {
-		return result, errors.New("cloud MCP connections require a bearer token")
-	}
-	serverName, err := ServerName(pluginID)
-	if err != nil {
-		return result, err
-	}
-
-	m.mu.Lock()
-	sessions, ok := m.users[userID]
-	if ok && len(sessions) >= maxConnectionsPerUser {
-		if _, exists := sessions[pluginID]; !exists {
-			m.mu.Unlock()
-			return result, errors.New("cloud MCP connection limit reached for this account")
-		}
-	}
-	if m.total >= maxTotalConnections {
-		m.mu.Unlock()
-		return result, errors.New("cloud MCP connection limit reached")
-	}
-	if existing, exists := m.get(userID, pluginID); exists {
-		_ = existing.client.Close()
-		delete(sessions, pluginID)
-		m.total--
-	}
-	m.mu.Unlock()
-
-	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+// CallApproved is invoked only after consuming a backend-owned one-shot
+// approval. MCP annotations never authorize execution, including readOnlyHint.
+func (m *Manager) CallApproved(ctx context.Context, user string, cfg Config, name string, arguments map[string]any) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	client := mcp.NewClient(&mcp.Implementation{Name: "codelocal-cloud", Version: "2.0.0"}, nil)
-	clientSession, err := client.Connect(connectCtx, &mcp.StreamableClientTransport{
-		Endpoint:   normalized,
-		HTTPClient: newSessionClient(normalized, bearer),
-	}, nil)
+	session, closeSession, err := m.open(ctx, user, cfg)
 	if err != nil {
-		return result, fmt.Errorf("cloud MCP connect failed: %w", err)
+		return nil, err
 	}
-	tools := []ToolSummary{}
-	listed, listErr := clientSession.ListTools(connectCtx, nil)
-	if listErr != nil {
-		_ = clientSession.Close()
-		result.Configured = true
-		result.ServerName = serverName
-		result.Error = listErr.Error()
-		return result, nil
+	defer closeSession()
+	tools, err := discover(ctx, session)
+	if err != nil {
+		return nil, err
 	}
-	for _, tool := range listed.Tools {
-		readOnly := false
-		if tool.Annotations != nil {
-			readOnly = tool.Annotations.ReadOnlyHint
-		}
-		tools = append(tools, ToolSummary{Name: tool.Name, Description: tool.Description, ReadOnly: readOnly})
-	}
-	result = ConnectResult{
-		Configured: true,
-		Connected:  true,
-		ServerName: serverName,
-		ToolCount:  len(tools),
-		Tools:      tools,
-	}
-	m.mu.Lock()
-	if m.users[userID] == nil {
-		m.users[userID] = map[string]*session{}
-	}
-	m.users[userID][pluginID] = &session{serverName: serverName, endpoint: normalized, client: clientSession, tools: tools}
-	m.total++
-	m.mu.Unlock()
-	return result, nil
-}
-
-// ListTools returns the probed tool metadata for the user's cloud connection.
-func (m *Manager) ListTools(userID, pluginID string) ([]ToolSummary, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.get(userID, pluginID)
-	if !ok {
-		return nil, errors.New("cloud MCP connection not found")
-	}
-	return append([]ToolSummary(nil), s.tools...), nil
-}
-
-// ToolInfo reports whether the named tool exists on the connection.
-func (m *Manager) ToolInfo(userID, pluginID, tool string) (ToolSummary, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.get(userID, pluginID)
-	if !ok {
-		return ToolSummary{}, false, errors.New("cloud MCP connection not found")
-	}
-	for _, summary := range s.tools {
-		if summary.Name == tool {
-			return summary, true, nil
+	var selected *ToolSummary
+	for i := range tools {
+		if tools[i].Name == name {
+			selected = &tools[i]
+			break
 		}
 	}
-	return ToolSummary{}, false, nil
-}
-
-// Call executes a tool on the user's cloud session. Only read-only tools are
-// permitted: cloud connections have no runtime approval engine, so mutating
-// tools fail closed here and must run through a device connection instead.
-func (m *Manager) Call(ctx context.Context, userID, pluginID, tool string, args map[string]any) (map[string]any, error) {
-	m.mu.Lock()
-	s, ok := m.get(userID, pluginID)
-	m.mu.Unlock()
-	if !ok {
-		return nil, errors.New("cloud MCP connection not found")
+	if selected == nil {
+		return nil, errors.New("MCP tool is no longer available")
 	}
-	summary, exists, err := m.ToolInfo(userID, pluginID, tool)
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	if err := validateArguments(selected.InputSchema, arguments); err != nil {
+		return nil, err
+	}
+	// A failure after dispatch has an unknown outcome. Never replay this call.
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
-		return nil, err
+		return nil, errors.New("MCP call interrupted; outcome unknown, do not retry automatically")
 	}
-	if !exists {
-		return nil, fmt.Errorf("tool %q is not available on cloud connection %s", tool, pluginID)
+	raw, err := json.Marshal(result)
+	if err != nil || len(raw) > maxResponseBytes {
+		return nil, errors.New("MCP result exceeds limit")
 	}
-	if !summary.ReadOnly {
-		return map[string]any{
-			"blocked": true,
-			"error":   "cloud tools that can change external data require a device connection",
-		}, nil
-	}
-	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-	result, err := s.client.CallTool(callCtx, &mcp.CallToolParams{Name: tool, Arguments: args})
-	if err != nil {
-		return nil, err
-	}
-	payload, err := json.Marshal(result)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]any{}
-	if err := json.Unmarshal(payload, &out); err != nil {
-		return nil, err
+	var out map[string]any
+	if json.Unmarshal(raw, &out) != nil {
+		return nil, errors.New("MCP result is invalid")
 	}
 	return out, nil
-}
-
-// Remove closes and forgets the user's cloud session for a plugin. It reports
-// whether a session existed so callers can log no-op disconnects.
-func (m *Manager) Remove(userID, pluginID string) bool {
-	m.mu.Lock()
-	sessions, ok := m.users[userID]
-	if !ok {
-		m.mu.Unlock()
-		return false
-	}
-	s, ok := sessions[pluginID]
-	if ok {
-		delete(sessions, pluginID)
-		m.total--
-		if len(sessions) == 0 {
-			delete(m.users, userID)
-		}
-	}
-	m.mu.Unlock()
-	if ok && s != nil && s.client != nil {
-		_ = s.client.Close()
-	}
-	return ok
-}
-
-// Close tears down every session; used on server shutdown.
-func (m *Manager) Close() {
-	m.mu.Lock()
-	users := m.users
-	m.users = map[string]map[string]*session{}
-	m.total = 0
-	m.mu.Unlock()
-	for _, sessions := range users {
-		for _, s := range sessions {
-			if s != nil && s.client != nil {
-				_ = s.client.Close()
-			}
-		}
-	}
 }

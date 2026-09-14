@@ -81,7 +81,9 @@ message("test-account-token-A");
 cleanups.forEach((cleanup) => cleanup?.());
 cleanups = render();
 await flush();
-assert.equal(calls.length, 29, "workspaces beyond index 10 receive credentials");
+assert.equal(calls.length, 30, "Cloud and workspaces beyond index 10 receive credentials");
+assert.equal(JSON.parse(calls[0].body).executionTarget, "cloud");
+assert.equal(JSON.parse(calls[0].body).deviceId, "");
 assert.equal(peak, 1, "connections are sequential");
 assert.ok(calls.every((call) => call.headers["X-CSRF-Token"] === "test-csrf"));
 
@@ -100,7 +102,7 @@ assert.equal(refs[2].current.size, 0, "old-token success cannot mark new-token c
 cleanups.forEach((cleanup) => cleanup?.());
 cleanups = render();
 await flush();
-assert.equal(calls.length, 30);
+assert.equal(calls.length, 31);
 assert.ok(calls.slice(1).every((call) => JSON.parse(call.body).bearerToken === "test-account-token-C"));
 message("test-account-token-D");
 cleanups.forEach((cleanup) => cleanup?.());
@@ -119,7 +121,7 @@ responseStatus = 200;
 cleanups.forEach((cleanup) => cleanup?.());
 cleanups = render();
 await flush();
-assert.equal(calls.length, 30, "queue resumes after cooldown");
+assert.equal(calls.length, 31, "queue resumes after cooldown");
 cleanups.forEach((cleanup) => cleanup?.());
 assert.equal(timer, undefined, "unmount cancels retry");
 console.log("PASS: 29 workspaces, bounded concurrency, CSRF, origin/source checks, rotation, rate-limit resume");

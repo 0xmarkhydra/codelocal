@@ -57,6 +57,7 @@ type ConnectionInput = {
   bearerEnv: string;
   bearerToken: string;
   executionTarget: "local" | "cloud";
+  authKind?: "none" | "bearer" | "oauth";
 };
 
 const hostedPenpotMcpEndpoint = "https://design.codelocal.cloud/mcp/stream";
@@ -122,7 +123,7 @@ export function PluginConnectDialog({
   onClose: () => void;
 }) {
   const { t, message } = useTranslations();
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const capabilities = plugin.capabilities ?? [];
   const connections = plugin.connections ?? [];
   const onlineWorkspaces = workspaces.filter((workspace) => workspace.runtimeOnline);
@@ -132,8 +133,10 @@ export function PluginConnectDialog({
   const existing = connections[0];
   const [target, setTarget] = useState<"cloud" | "device">(() => {
     if (existing?.executionTarget === "cloud") return "cloud";
-    return isPenpot && supportsCloud ? "cloud" : "device";
+    return supportsCloud ? "cloud" : "device";
   });
+  const [authKind, setAuthKind] = useState<"none" | "bearer" | "oauth">("bearer");
+  const [feedback, setFeedback] = useState("");
   const [showPermissions, setShowPermissions] = useState(false);
   const [selectedWorkspace, setSelectedWorkspace] = useState("");
   const [endpoint, setEndpoint] = useState(() => existing?.endpoint ?? (isPenpot ? hostedPenpotMcpEndpoint : ""));
@@ -141,37 +144,31 @@ export function PluginConnectDialog({
   const [bearerEnv, setBearerEnv] = useState(() => existing?.credentialRef?.startsWith("CODELOCAL_PLUGIN_") ? "" : existing?.credentialRef ?? "");
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      onClose();
-    };
-    document.body.style.overflow = "hidden";
-    document.addEventListener("keydown", closeOnEscape);
-    window.requestAnimationFrame(() => closeRef.current?.focus());
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [onClose]);
+    const element = dialogRef.current;
+    const previous = document.activeElement as HTMLElement | null;
+    element?.showModal();
+    return () => { element?.close(); previous?.focus(); };
+  }, []);
 
   async function submitConnection() {
     if (target === "cloud") {
-      if (!endpoint.trim() || !bearerToken.trim()) return;
-      await connect(plugin, {
+      if (!endpoint.trim()) return;
+      const connected = await connect(plugin, {
         deviceId: "",
         workspaceId: "",
         endpoint: endpoint.trim(),
         bearerEnv: "",
         bearerToken: bearerToken.trim(),
         executionTarget: "cloud",
+        authKind,
       });
       setBearerToken("");
+      setFeedback(t(connected ? "Connection saved." : "Connection failed. Check authorization and endpoint."));
       return;
     }
     const selected = parseWorkspaceValue(selectedWorkspace);
     if (!selected || !endpoint.trim()) return;
-    await connect(plugin, {
+    const connected = await connect(plugin, {
       ...selected,
       endpoint: endpoint.trim(),
       bearerEnv: bearerEnv.trim(),
@@ -179,16 +176,16 @@ export function PluginConnectDialog({
       executionTarget: "local",
     });
     setBearerToken("");
+    setFeedback(t(connected ? "Connection saved." : "Connection failed. Check authorization and endpoint."));
   }
 
   const canSubmit = target === "cloud"
-    ? Boolean(endpoint.trim()) && Boolean(bearerToken.trim())
+    ? Boolean(endpoint.trim()) && (authKind !== "bearer" || Boolean(bearerToken.trim()) || connections.some((c) => c.executionTarget === "cloud" && c.endpoint === endpoint.trim()))
     : Boolean(selectedWorkspace) && Boolean(endpoint.trim()) && !(isPenpot && connections.length === 0 && !bearerToken.trim());
 
   return (
-    <div className={styles.dialogLayer}>
-      <button aria-label={t("Close Plugin configuration")} className={styles.dialogBackdrop} onClick={onClose} type="button" />
-      <section aria-modal="true" className={styles.dialog} role="dialog" aria-labelledby={`plugin-dialog-${plugin.id}`}>
+    <dialog ref={dialogRef} className={styles.dialog} aria-labelledby={`plugin-dialog-${plugin.id}`} onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+      <section>
         <header className={styles.dialogHeader}>
           <div className={styles.dialogTitle}>
             <h2 id={`plugin-dialog-${plugin.id}`}>{plugin.name}</h2>
@@ -199,7 +196,6 @@ export function PluginConnectDialog({
             className={styles.iconButton}
             disabled={busy}
             onClick={onClose}
-            ref={closeRef}
             title={t("Close Plugin configuration")}
             type="button"
           >
@@ -214,7 +210,7 @@ export function PluginConnectDialog({
               className={styles.targetOption}
               data-selected={target === "cloud" || undefined}
               disabled={busy}
-              onClick={() => setTarget("cloud")}
+              onClick={() => { setTarget("cloud"); setBearerToken(""); setBearerEnv(""); }}
               type="button"
             >
               <strong>{t("Cloud")}</strong>
@@ -225,7 +221,7 @@ export function PluginConnectDialog({
               className={styles.targetOption}
               data-selected={target === "device" || undefined}
               disabled={busy}
-              onClick={() => setTarget("device")}
+              onClick={() => { setTarget("device"); setBearerToken(""); }}
               type="button"
             >
               <strong>{t("Your device")}</strong>
@@ -254,7 +250,15 @@ export function PluginConnectDialog({
                 value={endpoint}
               />
             </label>
-            <label className={styles.field}>
+            {!isPenpot && <label className={styles.field}>
+              <span>{t("Authentication")}</span>
+              <select value={authKind} onChange={(event) => { setAuthKind(event.target.value as typeof authKind); setBearerToken(""); }}>
+                <option value="bearer">{t("Bearer token")}</option>
+                <option value="oauth">{t("Sign in with OAuth")}</option>
+                <option value="none">{t("No authentication")}</option>
+              </select>
+            </label>}
+            {authKind === "bearer" && <label className={styles.field}>
               <span>{isPenpot ? t("Penpot MCP key or copied server URL") : t("Bearer token")}</span>
               <input
                 autoCapitalize="none"
@@ -265,13 +269,14 @@ export function PluginConnectDialog({
                 type="password"
                 value={bearerToken}
               />
-            </label>
+            </label>}
             <p className={styles.credentialNote}>
               <AppIcon name="shield" size={13} />
               {t(isPenpot
                 ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal stores it encrypted and never writes it into your repository."
-                : "Cloud connections run read-only tools only. Tools that change data need a device connection.")}
+                : "Tool calls require your approval in chat. Cloud credentials stay on CodeLocal.")}
             </p>
+            {isPenpot && <p className={styles.configWarning}>{t("Penpot editing requires an active editor bridge. A hosted MCP endpoint alone does not prove background editing works.")}</p>}
           </div>
         ) : (
           <div className={styles.configPanel}>
@@ -280,7 +285,7 @@ export function PluginConnectDialog({
                 <strong>{t("Configure connection")}</strong>
                 <span>{t(isPenpot
                   ? "Connect this device to CodeLocal's hosted Penpot MCP."
-                  : "The MCP server is installed on your selected CodeLocal device.")}</span>
+                  : "Your device connects to this endpoint and must stay online.")}</span>
               </div>
             </div>
             <label className={styles.field}>
@@ -358,7 +363,7 @@ export function PluginConnectDialog({
         {showPermissions && (
           <div className={styles.permissionList}>
             {capabilities.map((capability) => (
-              <span key={capability}>{permissionLabels[capability] ?? capability}</span>
+              <span key={capability}>{message(permissionLabels[capability] ?? capability)}</span>
             ))}
           </div>
         )}
@@ -371,7 +376,7 @@ export function PluginConnectDialog({
                   <strong>{connectionDeviceLabel(connection, workspaces, t("CodeLocal Cloud"))}</strong>
                   <span>
                     {connection.state === "ready"
-                      ? t("{count} tools ready", { count: connection.toolCount })
+                      ? t("{count} tools last discovered", { count: connection.toolCount })
                       : t(connection.state === "error" ? "Connection needs attention" : "Configured")}
                   </span>
                   {connection.lastError && <small title={connection.lastError}>{message(connection.lastError)}</small>}
@@ -384,6 +389,7 @@ export function PluginConnectDialog({
           </div>
         )}
 
+        {feedback && <p role="status">{feedback}</p>}
         <footer className={styles.dialogFooter}>
           {plugin.installed && !plugin.system && (
             <button
@@ -402,11 +408,11 @@ export function PluginConnectDialog({
             </button>
           )}
           <button className={styles.secondaryButton} disabled={busy} onClick={onClose} type="button">{t("Cancel")}</button>
-          <button className={styles.primaryButton} disabled={busy || !canSubmit} onClick={() => void submitConnection()} type="button">
-            {t(busy ? "Connecting…" : "Connect & test")}
+          <button className={styles.primaryButton} disabled={busy || !canSubmit || !plugin.installed} onClick={() => void submitConnection()} type="button">
+            {t(busy ? "Connecting…" : target === "cloud" && authKind === "oauth" ? "Sign in with OAuth" : "Connect & test")}
           </button>
         </footer>
       </section>
-    </div>
+    </dialog>
   );
 }

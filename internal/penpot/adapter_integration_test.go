@@ -66,6 +66,10 @@ CREATE TABLE codelocal_workspaces (
 CREATE TABLE codelocal_workspace_projects (
  user_id text, device_id text, workspace_id text, project_id text, source text, confidence double precision);
 CREATE TABLE codelocal_projects (user_id text, project_id text, name text);
+CREATE TABLE codelocal_plugin_cloud_secrets(user_id text,plugin_id text,nonce bytea,ciphertext bytea,PRIMARY KEY(user_id,plugin_id));
+CREATE TABLE codelocal_plugin_installations(user_id text,plugin_id text,version text,manifest_hash text,state text,installed_at bigint,updated_at bigint,PRIMARY KEY(user_id,plugin_id));
+CREATE TABLE codelocal_plugin_connections(user_id text,plugin_id text,device_id text,workspace_key text,server_name text,endpoint text,credential_ref text,state text,tool_count integer,last_error text,connected_at bigint,updated_at bigint,PRIMARY KEY(user_id,plugin_id,device_id));
+CREATE TABLE codelocal_plugin_approvals(user_id text,plugin_id text,device_id text,status text);
 CREATE TABLE codelocal_runtime_secrets (
  user_id text, scope text, device_id text, workspace_id text, name text, nonce bytea, ciphertext bytea, updated_at bigint,
  PRIMARY KEY(user_id,scope,device_id,workspace_id,name));
