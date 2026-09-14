@@ -185,7 +185,11 @@ func (e *Engine) runtimeEnvironment(requestedSecrets []string) (map[string]strin
 func (e *Engine) SemanticProviders() []string {
 	providers := []string{"go-native-structure"}
 	seen := map[string]struct{}{"go-native-structure": {}}
-	info := e.Project.SemanticInfo()
+	// Registration must stay cheap. SemanticInfo() also builds the structural
+	// code graph, which can walk a large multi-repository workspace and make a
+	// sleeping workspace miss the Cloud activation timeout before /client is
+	// even registered. Provider discovery alone is sufficient for capabilities.
+	info := e.Project.SemanticProviderInfo()
 	appendProvider := func(item map[string]any) {
 		installed, _ := item["installed"].(bool)
 		id := asString(item["id"])
