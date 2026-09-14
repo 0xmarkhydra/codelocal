@@ -66,7 +66,7 @@ npm i -g codelocal
 Or install the beta channel:
 
 ```bash
-npm i -g codelocal@beta
+npm i -g codelocal
 ```
 
 Verify the installed version:
