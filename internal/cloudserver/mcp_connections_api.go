@@ -1,0 +1,256 @@
+package cloudserver
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/cloudmcp"
+	"github.com/0xmarkhydra/codelocal/internal/gateway"
+	"github.com/0xmarkhydra/codelocal/internal/mcpconfig"
+	"github.com/0xmarkhydra/codelocal/internal/webutil"
+)
+
+type mcpConnectionsInput struct {
+	Target   string            `json:"target"`
+	DeviceID string            `json:"deviceId,omitempty"`
+	Config   string            `json:"config"`
+	Secrets  map[string]string `json:"secrets,omitempty"`
+}
+
+func (s *Server) mcpConnectionsListAPI(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.authenticatedAPIIdentity(w, r)
+	if !ok {
+		return
+	}
+	connections, err := s.Store.ListMCPConnections(r.Context(), identity.User.ID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mcp_connections_unavailable"})
+		return
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"items": connections})
+}
+
+func validateMCPSecrets(servers []mcpconfig.Server, secrets map[string]string) error {
+	needed := map[string]bool{}
+	for _, server := range servers {
+		for _, ref := range server.Env {
+			needed[ref.Source] = true
+		}
+		for _, ref := range server.Headers {
+			needed[ref.Source] = true
+		}
+	}
+	for name, value := range secrets {
+		if !needed[name] {
+			return errors.New("secret value does not match an MCP config reference")
+		}
+		if len(value) > 16384 || strings.ContainsAny(value, "\r\n\x00") {
+			return errors.New("invalid MCP secret value")
+		}
+	}
+	return nil
+}
+
+func onlineMCPConfig(server mcpconfig.Server, secrets map[string]string) (cloudmcp.Config, error) {
+	endpoint, err := cloudmcp.ValidateEndpoint(server.URL)
+	if err != nil {
+		return cloudmcp.Config{}, err
+	}
+	cfg := cloudmcp.Config{Endpoint: endpoint}
+	for header, ref := range server.Headers {
+		if !strings.EqualFold(header, "Authorization") || ref.Prefix != "Bearer " {
+			return cfg, errors.New("online MCP currently supports only Bearer Authorization headers")
+		}
+		secret := secrets[ref.Source]
+		if strings.TrimSpace(secret) == "" {
+			return cfg, errors.New("online MCP authorization secret is required")
+		}
+		cfg.Bearer = secret
+	}
+	return cfg, nil
+}
+
+func (s *Server) accountOwnsDevice(ctx context.Context, userID, deviceID string) bool {
+	devices, err := s.Store.ListDevices(ctx, userID)
+	if err != nil {
+		return false
+	}
+	for _, device := range devices {
+		if device.DeviceID == deviceID && device.RevokedAt == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) activeWorkspaceForDevice(ctx context.Context, userID, deviceID string) (*gateway.WorkspaceView, error) {
+	if s.Workspaces == nil {
+		return nil, errors.New("workspace service unavailable")
+	}
+	catalog, err := s.Workspaces.Catalog(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range catalog {
+		if catalog[index].DeviceID != deviceID {
+			continue
+		}
+		workspace, err := s.pluginWorkspaceByKey(ctx, userID, catalog[index].Key)
+		if err == nil {
+			return workspace, nil
+		}
+	}
+	return nil, errors.New("device is offline")
+}
+
+func (s *Server) tryApplyLocalMCP(ctx context.Context, userID, deviceID string, server mcpconfig.Server, secrets map[string]string) (cloud.MCPConnection, bool) {
+	workspace, err := s.activeWorkspaceForDevice(ctx, userID, deviceID)
+	if err != nil || s.Hub == nil {
+		return cloud.MCPConnection{}, false
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	result, err := s.Hub.Call(callCtx, userID, workspace.Key, "mcp-config", "mcp_configure", map[string]any{
+		"server":  server,
+		"secrets": secrets,
+	}, true, cloud.RandomHex(16))
+	if err != nil || !result.OK {
+		return cloud.MCPConnection{}, false
+	}
+	configured := pluginConfigureResultFrom(result.Result)
+	state := "configured"
+	if configured.Connected {
+		state = "ready"
+	} else if configured.Error != "" {
+		state = "error"
+	}
+	connection := cloud.MCPConnection{
+		UserID: userID, Target: "local", DeviceID: deviceID, Server: server,
+		State: state, ToolCount: configured.ToolCount, LastError: configured.Error,
+	}
+	return connection, true
+}
+
+func (s *Server) mcpConnectionsCreateAPI(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.pluginMutationIdentity(w, r, true)
+	if !ok {
+		return
+	}
+	var input mcpConnectionsInput
+	if webutil.DecodeJSON(r, 256<<10, &input) != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_mcp_connection"})
+		return
+	}
+	input.Target = strings.ToLower(strings.TrimSpace(input.Target))
+	mode := mcpconfig.ModeLocal
+	if input.Target == "online" {
+		mode = mcpconfig.ModeOnline
+	} else if input.Target != "local" {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_mcp_target"})
+		return
+	}
+	servers, err := mcpconfig.Parse(input.Config, mode)
+	if err != nil || len(servers) > 32 {
+		detail := "Invalid MCP configuration."
+		if err != nil {
+			detail = err.Error()
+		}
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_mcp_config", "detail": detail})
+		return
+	}
+	if input.Secrets == nil {
+		input.Secrets = map[string]string{}
+	}
+	if err := validateMCPSecrets(servers, input.Secrets); err != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_mcp_secrets", "detail": err.Error()})
+		return
+	}
+	if input.Target == "local" {
+		input.DeviceID = strings.TrimSpace(input.DeviceID)
+		if input.DeviceID == "" || !s.accountOwnsDevice(r.Context(), identity.User.ID, input.DeviceID) {
+			webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_mcp_device"})
+			return
+		}
+	}
+
+	created := make([]cloud.MCPConnection, 0, len(servers))
+	for _, server := range servers {
+		connection := cloud.MCPConnection{UserID: identity.User.ID, Target: input.Target, DeviceID: input.DeviceID, Server: server, State: "pending"}
+		if input.Target == "local" {
+			stored, storeErr := s.Store.SaveMCPConnection(r.Context(), connection, input.Secrets)
+			if storeErr != nil {
+				webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mcp_connection_store_failed"})
+				return
+			}
+			connection = stored
+			if applied, appliedOK := s.tryApplyLocalMCP(r.Context(), identity.User.ID, input.DeviceID, server, input.Secrets); appliedOK {
+				connection.State, connection.ToolCount, connection.LastError = applied.State, applied.ToolCount, applied.LastError
+				connection, storeErr = s.Store.SaveMCPConnection(r.Context(), connection, input.Secrets)
+				if storeErr != nil {
+					webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mcp_connection_store_failed"})
+					return
+				}
+			}
+			created = append(created, connection)
+			continue
+		}
+
+		cfg, cfgErr := onlineMCPConfig(server, input.Secrets)
+		if cfgErr != nil {
+			connection.State, connection.LastError = "error", cfgErr.Error()
+		} else if s.CloudMCP == nil {
+			connection.State, connection.LastError = "error", "Cloud MCP runtime is unavailable."
+		} else {
+			tools, discoverErr := s.CloudMCP.Discover(r.Context(), identity.User.ID, cfg)
+			if discoverErr != nil {
+				connection.State, connection.LastError = "error", discoverErr.Error()
+			} else {
+				connection.State, connection.ToolCount = "ready", len(tools)
+			}
+		}
+		stored, storeErr := s.Store.SaveMCPConnection(r.Context(), connection, input.Secrets)
+		if storeErr != nil {
+			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mcp_connection_store_failed"})
+			return
+		}
+		created = append(created, stored)
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "items": created})
+}
+
+func (s *Server) mcpConnectionDeleteAPI(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.pluginMutationIdentity(w, r, true)
+	if !ok {
+		return
+	}
+	target := strings.ToLower(strings.TrimSpace(r.PathValue("target")))
+	name := strings.TrimSpace(r.PathValue("name"))
+	deviceID := ""
+	if target == "local" {
+		deviceID = strings.TrimSpace(r.URL.Query().Get("deviceId"))
+		if !s.accountOwnsDevice(r.Context(), identity.User.ID, deviceID) {
+			webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_mcp_device"})
+			return
+		}
+	} else if target != "online" {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_mcp_target"})
+		return
+	}
+	removed, err := s.Store.DeleteMCPConnection(r.Context(), identity.User.ID, target, deviceID, "", name)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mcp_connection_delete_failed"})
+		return
+	}
+	if target == "local" && removed {
+		if workspace, workspaceErr := s.activeWorkspaceForDevice(r.Context(), identity.User.ID, deviceID); workspaceErr == nil && s.Hub != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+			_, _ = s.Hub.Call(ctx, identity.User.ID, workspace.Key, "mcp-config", "mcp_remove", map[string]any{"name": name}, true, cloud.RandomHex(16))
+			cancel()
+		}
+	}
+	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "removed": removed})
+}

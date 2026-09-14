@@ -335,6 +335,14 @@ func public(s ServerConfig) map[string]any {
 	return result
 }
 func (h *Hub) Add(config ServerConfig) (map[string]any, error) {
+	return h.add(config, false)
+}
+
+func (h *Hub) AddManaged(config ServerConfig) (map[string]any, error) {
+	return h.add(config, true)
+}
+
+func (h *Hub) add(config ServerConfig, managed bool) (map[string]any, error) {
 	reg, err := readRegistry()
 	if err != nil {
 		return nil, err
@@ -347,10 +355,14 @@ func (h *Hub) Add(config ServerConfig) (map[string]any, error) {
 			break
 		}
 	}
+	if managed && old != nil && !old.Managed {
+		return nil, fmt.Errorf("MCP server %q already exists and is managed by the user", config.Name)
+	}
 	normalized, err := normalize(h.Root, config, old)
 	if err != nil {
 		return nil, err
 	}
+	normalized.Managed = managed
 	next := []ServerConfig{}
 	for _, s := range reg.Servers {
 		if s.Name == normalized.Name && s.Scope == normalized.Scope && (s.Scope == "global" || s.WorkspaceRoot == normalized.WorkspaceRoot) {

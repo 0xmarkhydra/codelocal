@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xmarkhydra/codelocal/internal/cloud"
+	"github.com/0xmarkhydra/codelocal/internal/mcpconfig"
 )
 
 type runtimeConfigCache struct {
@@ -238,6 +239,7 @@ func (r *Runtime) applyRuntimeSettings(settings map[string]cloud.RuntimeMaterial
 		settings = map[string]cloud.RuntimeMaterializedConfig{}
 	}
 	cache := runtimeConfigCache{DeviceID: r.Options.Credential.DeviceID, Workspaces: map[string]cloud.RuntimeConfigSnapshot{}}
+	active := map[string]*WorkspaceWorker{}
 	r.mu.Lock()
 	for workspaceID, materialized := range settings {
 		materialized.Snapshot = resolveRuntimeSnapshot(materialized.Snapshot)
@@ -245,16 +247,34 @@ func (r *Runtime) applyRuntimeSettings(settings map[string]cloud.RuntimeMaterial
 		cache.Workspaces[workspaceID] = materialized.Snapshot
 		if worker := r.workers[workspaceID]; worker != nil && worker.Engine != nil {
 			worker.Engine.SetRuntimeEnvironment(runtimeConfigEnvironment(materialized.Snapshot), materialized.Secrets)
+			active[workspaceID] = worker
 		}
 	}
 	r.runtimeSettings = settings
 	r.mu.Unlock()
+	for workspaceID, worker := range active {
+		materialized := settings[workspaceID]
+		go r.reconcileWorkerMCP(worker, materialized.MCPServers)
+	}
 	r.materializeRuntimeSystemProjects(settings)
 	if err := saveRuntimeConfigCache(cache); err != nil {
-		// Runtime config is an optimization layer; losing the metadata cache must
-		// never take an otherwise healthy local workspace offline.
 		return
 	}
+}
+
+func (r *Runtime) reconcileWorkerMCP(worker *WorkspaceWorker, desired []mcpconfig.MaterializedServer) {
+	if worker == nil || worker.Engine == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	actual := worker.Engine.ReconcileMCPServers(ctx, desired)
+	if len(actual) == 0 && len(desired) == 0 {
+		return
+	}
+	reportCtx, reportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer reportCancel()
+	_ = r.post(reportCtx, "/api/client/mcp/status", map[string]any{"actual": actual}, nil)
 }
 
 func (r *Runtime) runtimeSetting(workspaceID string) cloud.RuntimeMaterializedConfig {

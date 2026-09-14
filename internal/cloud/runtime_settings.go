@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xmarkhydra/codelocal/internal/mcpconfig"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -58,8 +59,9 @@ type RuntimeConfigSnapshot struct {
 }
 
 type RuntimeMaterializedConfig struct {
-	Snapshot RuntimeConfigSnapshot `json:"snapshot"`
-	Secrets  map[string]string     `json:"secrets,omitempty"`
+	Snapshot   RuntimeConfigSnapshot          `json:"snapshot"`
+	Secrets    map[string]string              `json:"secrets,omitempty"`
+	MCPServers []mcpconfig.MaterializedServer `json:"mcpServers,omitempty"`
 }
 
 const runtimeConfigMigrationSQL = `

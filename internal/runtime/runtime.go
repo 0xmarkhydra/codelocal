@@ -479,6 +479,8 @@ func (r *Runtime) Activate(ctx context.Context, workspaceID string) (*WorkspaceW
 	// Project Brain is intentionally outside the activation critical path. The
 	// workspace is already usable once the worker has registered; knowledge
 	// discovery/sync may retry independently if Cloud or the local cache fails.
+	setting := r.runtimeSetting(worker.Workspace.WorkspaceID)
+	go r.reconcileWorkerMCP(worker, setting.MCPServers)
 	go func(active workspace.Workspace) {
 		syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

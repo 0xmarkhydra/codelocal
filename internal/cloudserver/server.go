@@ -343,6 +343,7 @@ func (s *Server) routes() {
 	mux.Handle("POST /api/client/artifacts/presign", videoArtifactPresignHandler(s))
 	mux.HandleFunc("GET /api/public/artifacts/{owner}/{file}", s.publicVideoArtifact)
 	mux.HandleFunc("POST /api/client/workspaces/sync", s.workspaceSync)
+	mux.HandleFunc("POST /api/client/mcp/status", s.mcpStatusSync)
 	mux.HandleFunc("POST /api/client/knowledge/sync", s.knowledgeSync)
 	mux.HandleFunc("POST /api/client/runtime/poll", s.runtimePoll)
 	mux.HandleFunc("POST /api/client/runtime/revocation-ack", s.revocationAck)
@@ -779,6 +780,11 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 	knowledgeResults := map[string]cloud.KnowledgeManifestSyncResult{}
 	portableSkillResults := map[string][]learnedskills.PortableRecipe{}
 	runtimeSettings := map[string]cloud.RuntimeMaterializedConfig{}
+	deviceMCPServers, mcpSettingsErr := s.Store.MaterializeLocalMCPConnections(r.Context(), device.UserID, device.DeviceID)
+	if mcpSettingsErr != nil {
+		slog.Warn("local MCP desired state lookup failed; workspace sync remains usable", "deviceId", device.DeviceID, "error", mcpSettingsErr)
+		deviceMCPServers = nil
+	}
 	validID := regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`)
 	for _, item := range input.Workspaces {
 		if !validID.MatchString(item.WorkspaceID) {
@@ -852,7 +858,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 				secrets = map[string]string{}
 			}
 			s.materializePenpotGrant(r.Context(), device.UserID, device.DeviceID, item.WorkspaceID, secrets)
-			runtimeSettings[item.WorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets}
+			runtimeSettings[item.WorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets, MCPServers: deviceMCPServers}
 		}
 		synced++
 	}
@@ -873,7 +879,7 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 				secrets = map[string]string{}
 			}
 			s.materializePenpotGrant(r.Context(), device.UserID, device.DeviceID, openMontageSystemWorkspaceID, secrets)
-			runtimeSettings[openMontageSystemWorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets}
+			runtimeSettings[openMontageSystemWorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets, MCPServers: deviceMCPServers}
 		}
 	}
 
