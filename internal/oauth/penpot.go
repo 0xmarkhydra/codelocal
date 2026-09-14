@@ -23,6 +23,24 @@ type PenpotGrant struct {
 	DeviceID     string `json:"device_id"`
 	WorkspaceID  string `json:"workspace_id"`
 	CredentialID string `json:"credential_id"`
+	Cloud        bool   `json:"cloud,omitempty"`
+	ProbeOnly    bool   `json:"probe_only,omitempty"`
+}
+
+func (s *Server) IssuePenpotCloudGrant(ctx context.Context, user, nativeToken string, probe bool) (string, error) {
+	if user == "" || !validPenpotKey(nativeToken) {
+		return "", errors.New("invalid Penpot identity")
+	}
+	state, err := s.userSecurityState(ctx, user)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now()
+	return s.OIDC.signToken(PenpotGrant{oidcTokenClaims: oidcTokenClaims{
+		Issuer: s.OIDC.Issuer, Subject: user, Audience: penpotAudience, ClientID: s.OIDC.ClientID,
+		TokenUse: "penpot_mcp_cloud", JWTID: randomURL(18), IssuedAt: now.Unix(), NotBefore: now.Unix(),
+		ExpiresAt: now.Add(2 * time.Minute).Unix(), SecurityVersion: state.Version,
+	}, UserToken: nativeToken, Cloud: true, ProbeOnly: probe})
 }
 
 func (s *Server) IssuePenpotGrant(ctx context.Context, userID, deviceID, workspaceID, nativeToken string) (string, error) {
@@ -71,6 +89,9 @@ func (s *Server) VerifyPenpotGrant(ctx context.Context, token string) (PenpotGra
 	if err := s.validateTokenSecurity(ctx, tokenPayload{Subject: grant.Subject, IssuedAt: grant.IssuedAt, SecurityVersion: grant.SecurityVersion}); err != nil {
 		return PenpotGrant{}, err
 	}
+	if grant.Cloud {
+		return grant, nil
+	}
 	active, err := s.Store.ActiveCredentialIDs(ctx, []string{grant.CredentialID})
 	if err != nil || !active[grant.CredentialID] {
 		return PenpotGrant{}, errors.New("Penpot device is revoked")
@@ -85,9 +106,13 @@ func (s *Server) verifyPenpotGrant(token string) (PenpotGrant, error) {
 		return PenpotGrant{}, errors.New("invalid Penpot grant")
 	}
 	now := time.Now().Unix()
+	identityValid := grant.TokenUse == "penpot_mcp" && grant.DeviceID != "" && grant.WorkspaceID != "" && grant.CredentialID != "" && !grant.Cloud && !grant.ProbeOnly
+	if grant.Cloud {
+		identityValid = grant.TokenUse == "penpot_mcp_cloud" && grant.DeviceID == "" && grant.WorkspaceID == "" && grant.CredentialID == ""
+	}
 	if grant.Issuer != s.OIDC.Issuer || grant.Audience != penpotAudience ||
-		grant.ClientID != s.OIDC.ClientID || grant.TokenUse != "penpot_mcp" ||
-		grant.Subject == "" || grant.DeviceID == "" || grant.WorkspaceID == "" || grant.CredentialID == "" ||
+		grant.ClientID != s.OIDC.ClientID || !identityValid ||
+		grant.Subject == "" ||
 		grant.JWTID == "" || grant.NotBefore > now || grant.IssuedAt > now ||
 		grant.ExpiresAt <= now || grant.ExpiresAt <= grant.IssuedAt ||
 		grant.ExpiresAt-grant.IssuedAt > int64(penpotGrantTTL.Seconds()) || !validPenpotKey(grant.UserToken) {
@@ -97,7 +122,14 @@ func (s *Server) verifyPenpotGrant(token string) (PenpotGrant, error) {
 }
 
 func penpotSessionBinding(grant PenpotGrant) string {
-	digest := sha256.Sum256([]byte(grant.Subject + "\x00" + grant.DeviceID + "\x00" + grant.CredentialID + "\x00" + grant.WorkspaceID + "\x00" + grant.UserToken))
+	binding := grant.Subject + "\x00" + grant.DeviceID + "\x00" + grant.CredentialID + "\x00" + grant.WorkspaceID + "\x00" + grant.UserToken
+	if grant.Cloud {
+		binding += "\x00cloud"
+		if grant.ProbeOnly {
+			binding += "\x00probe"
+		}
+	}
+	digest := sha256.Sum256([]byte(binding))
 	return base64.RawURLEncoding.EncodeToString(digest[:])
 }
 

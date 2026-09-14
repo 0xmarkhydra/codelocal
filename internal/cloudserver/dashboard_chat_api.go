@@ -1057,6 +1057,9 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: dashboardToolResultStatus(resStr)}
 			results = append(results, result)
 			allResults = append(allResults, result)
+			if result.Name == "call_plugin_tool" && result.Status == "approval_required" {
+				stopReason = "waiting for explicit user approval in chat"
+			}
 			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
 			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
 			seenProgress[fingerprint]++
@@ -1525,6 +1528,9 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: status}
 			results = append(results, result)
 			allResults = append(allResults, result)
+			if result.Name == "call_plugin_tool" && result.Status == "approval_required" {
+				stopReason = "waiting for explicit user approval in chat"
+			}
 			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
 
 			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
@@ -1541,6 +1547,9 @@ func proxyResponsesStream(w http.ResponseWriter, flusher http.Flusher, baseURL, 
 			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
 		}
 		s.saveDashboardChatToolCheckpoint(r, userID, allResults)
+		if stopReason != "" {
+			break
+		}
 		if noProgress {
 			stopReason = "repeated tool calls produced no new result"
 			break
@@ -1707,6 +1716,9 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 			result := dashboardToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Result: resStr, DurationMs: time.Since(t0).Milliseconds(), Status: status}
 			results = append(results, result)
 			allResults = append(allResults, result)
+			if result.Name == "call_plugin_tool" && result.Status == "approval_required" {
+				stopReason = "waiting for explicit user approval in chat"
+			}
 			toolCallsAny = append(toolCallsAny, map[string]any{"id": tc.ID, "type": "function", "function": map[string]any{"name": tc.Name, "arguments": tc.Arguments}})
 
 			fingerprint := dashboardToolProgressFingerprint(tc, resStr)
@@ -1723,6 +1735,9 @@ func proxyLLMStream(w http.ResponseWriter, flusher http.Flusher, baseURL, apiKey
 			follow = append(follow, map[string]any{"role": "tool", "content": result.Result, "tool_call_id": result.ID, "name": result.Name})
 		}
 		s.saveDashboardChatToolCheckpoint(r, userID, allResults)
+		if stopReason != "" {
+			break
+		}
 		if noProgress {
 			stopReason = "repeated tool calls produced no new result"
 			break

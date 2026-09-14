@@ -9,6 +9,13 @@ import (
 
 func (s *Server) registerPluginRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/plugins", s.pluginsResourceAPI)
+	mux.HandleFunc("GET /api/v1/plugin-approvals/{approvalID}", s.pluginApprovalDetailsAPI)
+	mux.HandleFunc("GET /api/v1/plugins/oauth/client", s.pluginOAuthMetadata)
+	mux.HandleFunc("GET /api/v1/plugins/oauth/callback", s.pluginOAuthCallback)
+	mux.Handle("POST /api/v1/plugins/{pluginID}/oauth", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "plugin-oauth-ip", Limit: 10, Window: time.Minute}, dashboardJSONCSRF(http.HandlerFunc(s.pluginOAuthStart))))
+	mux.Handle("POST /api/v1/plugin-approvals/{approvalID}", webutil.RateLimit(s.Store, webutil.RateLimitOptions{
+		Scope: "plugin-approve-ip", Limit: 30, Window: time.Minute,
+	}, dashboardJSONCSRF(http.HandlerFunc(s.pluginApprovalAPI))))
 	install := dashboardJSONCSRF(http.HandlerFunc(s.pluginInstallAPI))
 	uninstall := dashboardJSONCSRF(http.HandlerFunc(s.pluginUninstallAPI))
 	connect := dashboardJSONCSRF(http.HandlerFunc(s.pluginConnectAPI))

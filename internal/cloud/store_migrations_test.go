@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestProductMigrationTrainFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 23 {
+	if len(migrations) != 24 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -213,11 +213,11 @@ func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 63 {
-		t.Fatalf("latest schema version=%d want 63", got)
+	if got := LatestSchemaMigrationVersion(); got != 64 {
+		t.Fatalf("latest schema version=%d want 64", got)
 	}
-	ready := schemaMigrationStatus(63, 63)
-	if !ready.UpToDate || ready.TargetVersion != 63 || ready.AppliedCount != 63 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(64, 64)
+	if !ready.UpToDate || ready.TargetVersion != 64 || ready.AppliedCount != 64 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {

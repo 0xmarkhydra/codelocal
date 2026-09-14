@@ -22,22 +22,22 @@ func TestValidatePluginCloudConnectionInputRequiresHTTPSAndToken(t *testing.T) {
 		{
 			name:    "localhost endpoint",
 			input:   pluginConnectInput{Endpoint: "https://localhost/mcp", BearerToken: "token"},
-			wantErr: "localhost",
+			wantErr: "local addresses",
 		},
 		{
 			name:    "private endpoint",
 			input:   pluginConnectInput{Endpoint: "https://192.168.1.5/mcp", BearerToken: "token"},
-			wantErr: "private addresses",
+			wantErr: "non-public addresses",
 		},
 		{
-			name:    "missing token",
+			name:    "missing token deferred to stored credential lookup",
 			input:   pluginConnectInput{Endpoint: "https://example.com/mcp"},
-			wantErr: "token stored encrypted",
+			wantErr: "",
 		},
 		{
 			name:    "env reference alone cannot drive a cloud connection",
 			input:   pluginConnectInput{Endpoint: "https://example.com/mcp", BearerEnv: "GITHUB_TOKEN"},
-			wantErr: "token stored encrypted",
+			wantErr: "device fields",
 		},
 		{
 			name:    "device identity is ignored for cloud",

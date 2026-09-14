@@ -67,8 +67,8 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
     if (!token || account.state.kind !== "ready" || workspaces.state.kind !== "ready") return;
 
     const csrf = account.state.value.csrf;
-    const targets = workspaces.state.value.items
-      .filter((workspace) => workspace.runtimeOnline && workspace.status !== "offline");
+    const targets = [{ deviceId: "cloud", workspaceId: "cloud", runtimeOnline: true, status: "active" }, ...workspaces.state.value.items
+      .filter((workspace) => workspace.runtimeOnline && workspace.status !== "offline")];
     if (!targets.length) return;
 
     const controller = new AbortController();
@@ -98,8 +98,9 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
               "X-CSRF-Token": csrf,
             },
             body: JSON.stringify({
-              deviceId: workspace.deviceId,
-              workspaceId: workspace.workspaceId,
+              deviceId: workspace.deviceId === "cloud" ? "" : workspace.deviceId,
+              workspaceId: workspace.deviceId === "cloud" ? "" : workspace.workspaceId,
+              executionTarget: workspace.deviceId === "cloud" ? "cloud" : "local",
               endpoint: `${designOrigin}/mcp/stream`,
               bearerToken: token,
             }),
