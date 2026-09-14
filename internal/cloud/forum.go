@@ -27,6 +27,7 @@ type ForumTopic struct {
 	ExpectedBehavior  string   `json:"expectedBehavior,omitempty"`
 	ActualBehavior    string   `json:"actualBehavior,omitempty"`
 	Tags              []string `json:"tags"`
+	AssetIDs          []string `json:"assetIds"`
 	GitHubIssueURL    string   `json:"githubIssueUrl,omitempty"`
 	GitHubIssueNumber int64    `json:"githubIssueNumber,omitempty"`
 	GitHubPRURL       string   `json:"githubPrUrl,omitempty"`
@@ -51,16 +52,18 @@ type ForumTopicDraft struct {
 	ExpectedBehavior  string
 	ActualBehavior    string
 	Tags              []string
+	AssetIDs          []string
 }
 
 type ForumComment struct {
-	ID           string `json:"id"`
-	TopicID      string `json:"topicId"`
-	AuthorUserID string `json:"authorUserId"`
-	AuthorEmail  string `json:"authorEmail"`
-	Body         string `json:"body"`
-	CreatedAt    int64  `json:"createdAt"`
-	UpdatedAt    int64  `json:"updatedAt"`
+	ID           string   `json:"id"`
+	TopicID      string   `json:"topicId"`
+	AuthorUserID string   `json:"authorUserId"`
+	AuthorEmail  string   `json:"authorEmail"`
+	Body         string   `json:"body"`
+	AssetIDs     []string `json:"assetIds"`
+	CreatedAt    int64    `json:"createdAt"`
+	UpdatedAt    int64    `json:"updatedAt"`
 }
 
 type ForumAdminUpdate struct {
@@ -120,6 +123,26 @@ func normalizeForumTags(values []string) []string {
 	return out
 }
 
+func normalizeForumAssetIDs(values []string, limit int) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = NormalizeMediaAssetID(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
 func normalizeForumDraft(input ForumTopicDraft) (ForumTopicDraft, error) {
 	input.AuthorUserID = strings.TrimSpace(input.AuthorUserID)
 	input.Kind = normalizeForumKind(input.Kind)
@@ -132,6 +155,7 @@ func normalizeForumDraft(input ForumTopicDraft) (ForumTopicDraft, error) {
 	input.ExpectedBehavior = strings.TrimSpace(input.ExpectedBehavior)
 	input.ActualBehavior = strings.TrimSpace(input.ActualBehavior)
 	input.Tags = normalizeForumTags(input.Tags)
+	input.AssetIDs = normalizeForumAssetIDs(input.AssetIDs, 6)
 	if input.AuthorUserID == "" || input.Kind == "" || input.Title == "" || input.Body == "" {
 		return ForumTopicDraft{}, ErrForumInvalid
 	}

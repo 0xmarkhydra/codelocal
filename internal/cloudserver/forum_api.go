@@ -22,10 +22,12 @@ type forumTopicCreateRequest struct {
 	ExpectedBehavior  string   `json:"expectedBehavior"`
 	ActualBehavior    string   `json:"actualBehavior"`
 	Tags              []string `json:"tags"`
+	AssetIDs          []string `json:"assetIds"`
 }
 
 type forumCommentCreateRequest struct {
-	Body string `json:"body"`
+	Body     string   `json:"body"`
+	AssetIDs []string `json:"assetIds"`
 }
 
 type forumAdminUpdateRequest struct {
@@ -90,7 +92,7 @@ func (s *Server) forumTopicsAPI(w http.ResponseWriter, r *http.Request) {
 		AuthorUserID: identity.User.ID,
 		Kind:         input.Kind, Title: input.Title, Body: input.Body, Severity: input.Severity, Version: input.Version,
 		Environment: input.Environment, ReproductionSteps: input.ReproductionSteps, ExpectedBehavior: input.ExpectedBehavior,
-		ActualBehavior: input.ActualBehavior, Tags: input.Tags,
+		ActualBehavior: input.ActualBehavior, Tags: input.Tags, AssetIDs: input.AssetIDs,
 	})
 	if err != nil {
 		writeForumAPIError(w, err)
@@ -137,7 +139,7 @@ func (s *Server) forumCommentAPI(w http.ResponseWriter, r *http.Request) {
 		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
-	comment, err := s.Store.CreateForumComment(r.Context(), r.PathValue("topicID"), identity.User.ID, input.Body)
+	comment, err := s.Store.CreateForumComment(r.Context(), r.PathValue("topicID"), identity.User.ID, input.Body, input.AssetIDs)
 	if err != nil {
 		writeForumAPIError(w, err)
 		return

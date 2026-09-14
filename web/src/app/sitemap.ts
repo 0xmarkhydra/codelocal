@@ -1,11 +1,16 @@
 import type { MetadataRoute } from "next";
 import { taxonomySlug } from "@/lib/blog";
 import { getBlogPostsForRender, getBlogSeriesForRender } from "@/lib/blog-server";
+import { getPublicForumTopics } from "@/lib/forum-server";
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://codelocal.cloud").replace(/\/$/, "");
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [posts, series] = await Promise.all([getBlogPostsForRender(), getBlogSeriesForRender()]);
+  const [posts, series, forumTopics] = await Promise.all([
+    getBlogPostsForRender(),
+    getBlogSeriesForRender(),
+    getPublicForumTopics({ limit: 200 }),
+  ]);
   const categories = [...new Set(posts.map((post) => post.category))].sort();
   const tags = [...new Set(posts.flatMap((post) => post.tags))].sort();
   const authors = [...new Set(posts.map((post) => post.author.slug))];
@@ -14,6 +19,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: SITE_URL, priority: 1 },
     { url: `${SITE_URL}/blogs`, priority: 0.9 },
     { url: `${SITE_URL}/blogs/series`, priority: 0.75 },
+    { url: `${SITE_URL}/forums`, priority: 0.8 },
     { url: `${SITE_URL}/security`, priority: 0.7 },
     { url: `${SITE_URL}/support`, priority: 0.6 },
   ];
@@ -44,5 +50,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.45,
   }));
 
-  return [...staticRoutes, ...postRoutes, ...seriesRoutes, ...categoryRoutes, ...tagRoutes, ...authorRoutes];
+  const forumRoutes: MetadataRoute.Sitemap = forumTopics.map((topic) => ({
+    url: `${SITE_URL}/forums/${encodeURIComponent(topic.id)}`,
+    lastModified: new Date(topic.updatedAt),
+    priority: topic.status === "resolved" ? 0.65 : 0.7,
+  }));
+
+  return [...staticRoutes, ...postRoutes, ...seriesRoutes, ...categoryRoutes, ...tagRoutes, ...authorRoutes, ...forumRoutes];
 }

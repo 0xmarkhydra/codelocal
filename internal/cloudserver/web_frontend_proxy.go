@@ -120,7 +120,7 @@ func isNextDashboardPath(path string) bool {
 
 func isNextPublicPagePath(path string) bool {
 	path = canonicalNextPresentationPath(path)
-	if isPathFamily(path, "/blogs") || isPathFamily(path, "/users") || isPathFamily(path, "/s") {
+	if isPathFamily(path, "/blogs") || isPathFamily(path, "/forums") || isPathFamily(path, "/users") || isPathFamily(path, "/s") {
 		return true
 	}
 	_, ok := nextPublicPagePaths[path]

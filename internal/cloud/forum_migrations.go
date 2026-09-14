@@ -56,3 +56,14 @@ CREATE INDEX IF NOT EXISTS idx_codelocal_forum_votes_user
 func forumSchemaMigrations() []schemaMigration {
 	return []schemaMigration{{65, forumMigrationSQL}}
 }
+
+const forumMediaMigrationSQL = `
+ALTER TABLE codelocal_forum_topics
+ ADD COLUMN IF NOT EXISTS asset_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE codelocal_forum_comments
+ ADD COLUMN IF NOT EXISTS asset_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+`
+
+func forumMediaSchemaMigrations() []schemaMigration {
+	return []schemaMigration{{67, forumMediaMigrationSQL}}
+}

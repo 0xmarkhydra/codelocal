@@ -17,7 +17,7 @@ type forumRowScanner interface {
 
 const forumTopicSelect = `
 SELECT t.topic_id,t.author_user_id,COALESCE(u.email,''),t.kind,t.title,t.body,t.status,t.severity,t.version,t.environment,
-       t.reproduction_steps,t.expected_behavior,t.actual_behavior,t.tags,t.github_issue_url,t.github_issue_number,t.github_pr_url,
+       t.reproduction_steps,t.expected_behavior,t.actual_behavior,t.tags,t.asset_ids,t.github_issue_url,t.github_issue_number,t.github_pr_url,
        t.resolution_note,t.created_at,t.updated_at,t.resolved_at,
        (SELECT COUNT(*) FROM codelocal_forum_comments c WHERE c.topic_id=t.topic_id AND c.deleted_at=0),
        (SELECT COUNT(*) FROM codelocal_forum_votes v WHERE v.topic_id=t.topic_id)
@@ -27,10 +27,11 @@ LEFT JOIN codelocal_users u ON u.id=t.author_user_id`
 func scanForumTopic(row forumRowScanner) (ForumTopic, error) {
 	var topic ForumTopic
 	var tagsJSON []byte
+	var assetIDsJSON []byte
 	if err := row.Scan(
 		&topic.ID, &topic.AuthorUserID, &topic.AuthorEmail, &topic.Kind, &topic.Title, &topic.Body, &topic.Status,
 		&topic.Severity, &topic.Version, &topic.Environment, &topic.ReproductionSteps, &topic.ExpectedBehavior, &topic.ActualBehavior,
-		&tagsJSON, &topic.GitHubIssueURL, &topic.GitHubIssueNumber, &topic.GitHubPRURL, &topic.ResolutionNote,
+		&tagsJSON, &assetIDsJSON, &topic.GitHubIssueURL, &topic.GitHubIssueNumber, &topic.GitHubPRURL, &topic.ResolutionNote,
 		&topic.CreatedAt, &topic.UpdatedAt, &topic.ResolvedAt, &topic.CommentCount, &topic.VoteCount,
 	); err != nil {
 		return ForumTopic{}, err
@@ -43,7 +44,40 @@ func scanForumTopic(row forumRowScanner) (ForumTopic, error) {
 	if topic.Tags == nil {
 		topic.Tags = []string{}
 	}
+	if len(assetIDsJSON) > 0 {
+		if err := json.Unmarshal(assetIDsJSON, &topic.AssetIDs); err != nil {
+			return ForumTopic{}, err
+		}
+	}
+	if topic.AssetIDs == nil {
+		topic.AssetIDs = []string{}
+	}
 	return topic, nil
+}
+
+func forumMediaSlots(assetIDs []string) map[string]string {
+	slots := make(map[string]string, len(assetIDs))
+	for index, assetID := range assetIDs {
+		slots[fmt.Sprintf("image:%02d", index)] = assetID
+	}
+	return slots
+}
+
+func scanForumComment(row forumRowScanner) (ForumComment, error) {
+	var comment ForumComment
+	var assetIDsJSON []byte
+	if err := row.Scan(&comment.ID, &comment.TopicID, &comment.AuthorUserID, &comment.AuthorEmail, &comment.Body, &assetIDsJSON, &comment.CreatedAt, &comment.UpdatedAt); err != nil {
+		return ForumComment{}, err
+	}
+	if len(assetIDsJSON) > 0 {
+		if err := json.Unmarshal(assetIDsJSON, &comment.AssetIDs); err != nil {
+			return ForumComment{}, err
+		}
+	}
+	if comment.AssetIDs == nil {
+		comment.AssetIDs = []string{}
+	}
+	return comment, nil
 }
 
 func (s *Store) CreateForumTopic(ctx context.Context, input ForumTopicDraft) (ForumTopic, error) {
@@ -55,17 +89,32 @@ func (s *Store) CreateForumTopic(ctx context.Context, input ForumTopicDraft) (Fo
 	if err != nil {
 		return ForumTopic{}, err
 	}
+	assetIDs, err := json.Marshal(input.AssetIDs)
+	if err != nil {
+		return ForumTopic{}, err
+	}
 	now := time.Now().UnixMilli()
 	id := "forum_" + RandomHex(12)
-	_, err = s.DB.Exec(ctx, `
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return ForumTopic{}, err
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `
 INSERT INTO codelocal_forum_topics(
- topic_id,author_user_id,kind,title,body,status,severity,version,environment,reproduction_steps,expected_behavior,actual_behavior,tags,
+ topic_id,author_user_id,kind,title,body,status,severity,version,environment,reproduction_steps,expected_behavior,actual_behavior,tags,asset_ids,
  created_at,updated_at
-) VALUES($1,$2,$3,$4,$5,'open',$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$13)`,
+) VALUES($1,$2,$3,$4,$5,'open',$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$14)`,
 		id, input.AuthorUserID, input.Kind, input.Title, input.Body, input.Severity, input.Version, input.Environment,
-		input.ReproductionSteps, input.ExpectedBehavior, input.ActualBehavior, string(tags), now,
+		input.ReproductionSteps, input.ExpectedBehavior, input.ActualBehavior, string(tags), string(assetIDs), now,
 	)
 	if err != nil {
+		return ForumTopic{}, err
+	}
+	if err := syncMediaAssetRefsTx(ctx, tx, input.AuthorUserID, "forum_topic", id, forumMediaSlots(input.AssetIDs)); err != nil {
+		return ForumTopic{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return ForumTopic{}, err
 	}
 	return s.ForumTopicByID(ctx, id)
@@ -125,34 +174,49 @@ func (s *Store) ListForumTopics(ctx context.Context, kind, status, query string,
 	return out, rows.Err()
 }
 
-func (s *Store) CreateForumComment(ctx context.Context, topicID, authorUserID, body string) (ForumComment, error) {
+func (s *Store) CreateForumComment(ctx context.Context, topicID, authorUserID, body string, assetIDs []string) (ForumComment, error) {
 	topicID = strings.TrimSpace(topicID)
 	authorUserID = strings.TrimSpace(authorUserID)
 	body = strings.TrimSpace(body)
+	assetIDs = normalizeForumAssetIDs(assetIDs, 4)
 	if topicID == "" || authorUserID == "" || body == "" || len(body) > 12000 {
 		return ForumComment{}, ErrForumInvalid
 	}
 	if _, err := s.ForumTopicByID(ctx, topicID); err != nil {
 		return ForumComment{}, err
 	}
-	id := "forumc_" + RandomHex(12)
-	now := time.Now().UnixMilli()
-	_, err := s.DB.Exec(ctx, `INSERT INTO codelocal_forum_comments(comment_id,topic_id,author_user_id,body,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$5)`, id, topicID, authorUserID, body, now)
+	encodedAssets, err := json.Marshal(assetIDs)
 	if err != nil {
 		return ForumComment{}, err
 	}
-	_, _ = s.DB.Exec(ctx, `UPDATE codelocal_forum_topics SET updated_at=$1 WHERE topic_id=$2`, now, topicID)
+	id := "forumc_" + RandomHex(12)
+	now := time.Now().UnixMilli()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return ForumComment{}, err
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `INSERT INTO codelocal_forum_comments(comment_id,topic_id,author_user_id,body,asset_ids,created_at,updated_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,$6)`, id, topicID, authorUserID, body, string(encodedAssets), now)
+	if err != nil {
+		return ForumComment{}, err
+	}
+	if err := syncMediaAssetRefsTx(ctx, tx, authorUserID, "forum_comment", id, forumMediaSlots(assetIDs)); err != nil {
+		return ForumComment{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE codelocal_forum_topics SET updated_at=$1 WHERE topic_id=$2`, now, topicID); err != nil {
+		return ForumComment{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ForumComment{}, err
+	}
 	return s.ForumCommentByID(ctx, id)
 }
 
 func (s *Store) ForumCommentByID(ctx context.Context, commentID string) (ForumComment, error) {
-	var comment ForumComment
-	err := s.DB.QueryRow(ctx, `
-SELECT c.comment_id,c.topic_id,c.author_user_id,COALESCE(u.email,''),c.body,c.created_at,c.updated_at
+	comment, err := scanForumComment(s.DB.QueryRow(ctx, `
+SELECT c.comment_id,c.topic_id,c.author_user_id,COALESCE(u.email,''),c.body,c.asset_ids,c.created_at,c.updated_at
 FROM codelocal_forum_comments c LEFT JOIN codelocal_users u ON u.id=c.author_user_id
-WHERE c.comment_id=$1 AND c.deleted_at=0`, strings.TrimSpace(commentID)).Scan(
-		&comment.ID, &comment.TopicID, &comment.AuthorUserID, &comment.AuthorEmail, &comment.Body, &comment.CreatedAt, &comment.UpdatedAt,
-	)
+WHERE c.comment_id=$1 AND c.deleted_at=0`, strings.TrimSpace(commentID)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ForumComment{}, ErrForumNotFound
 	}
@@ -161,7 +225,7 @@ WHERE c.comment_id=$1 AND c.deleted_at=0`, strings.TrimSpace(commentID)).Scan(
 
 func (s *Store) ListForumComments(ctx context.Context, topicID string) ([]ForumComment, error) {
 	rows, err := s.DB.Query(ctx, `
-SELECT c.comment_id,c.topic_id,c.author_user_id,COALESCE(u.email,''),c.body,c.created_at,c.updated_at
+SELECT c.comment_id,c.topic_id,c.author_user_id,COALESCE(u.email,''),c.body,c.asset_ids,c.created_at,c.updated_at
 FROM codelocal_forum_comments c LEFT JOIN codelocal_users u ON u.id=c.author_user_id
 WHERE c.topic_id=$1 AND c.deleted_at=0 ORDER BY c.created_at ASC,c.comment_id ASC`, strings.TrimSpace(topicID))
 	if err != nil {
@@ -170,8 +234,8 @@ WHERE c.topic_id=$1 AND c.deleted_at=0 ORDER BY c.created_at ASC,c.comment_id AS
 	defer rows.Close()
 	out := []ForumComment{}
 	for rows.Next() {
-		var comment ForumComment
-		if err := rows.Scan(&comment.ID, &comment.TopicID, &comment.AuthorUserID, &comment.AuthorEmail, &comment.Body, &comment.CreatedAt, &comment.UpdatedAt); err != nil {
+		comment, err := scanForumComment(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, comment)

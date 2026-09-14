@@ -17,6 +17,7 @@ export type ForumTopic = {
   expectedBehavior?: string;
   actualBehavior?: string;
   tags: string[];
+  assetIds: string[];
   githubIssueUrl?: string;
   githubIssueNumber?: number;
   githubPrUrl?: string;
@@ -35,6 +36,7 @@ export type ForumComment = {
   authorUserId: string;
   authorEmail: string;
   body: string;
+  assetIds: string[];
   createdAt: number;
   updatedAt: number;
 };
@@ -59,7 +61,7 @@ export function isForumTopic(value: unknown): value is ForumTopic {
   const item = value as Record<string, unknown>;
   return typeof item.id === "string" && typeof item.title === "string" && typeof item.body === "string" &&
     (item.kind === "question" || item.kind === "bug" || item.kind === "idea") && typeof item.status === "string" &&
-    typeof item.authorEmail === "string" && Array.isArray(item.tags) && typeof item.commentCount === "number" && typeof item.voteCount === "number";
+    typeof item.authorEmail === "string" && Array.isArray(item.tags) && Array.isArray(item.assetIds) && item.assetIds.every((assetID) => typeof assetID === "string") && typeof item.commentCount === "number" && typeof item.voteCount === "number";
 }
 
 export function formatForumTime(value: number) {

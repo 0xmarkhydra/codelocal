@@ -55,6 +55,24 @@ WHERE v.asset_id=$1 AND v.variant=$2
             AND p.moderation_status='clean'
         )
     )
+    OR EXISTS (
+      SELECT 1
+      FROM codelocal_media_asset_refs r
+      JOIN codelocal_forum_topics t ON t.topic_id=r.ref_id
+      WHERE r.asset_id=a.asset_id
+        AND r.ref_kind='forum_topic'
+        AND t.deleted_at=0
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM codelocal_media_asset_refs r
+      JOIN codelocal_forum_comments c ON c.comment_id=r.ref_id
+      JOIN codelocal_forum_topics t ON t.topic_id=c.topic_id
+      WHERE r.asset_id=a.asset_id
+        AND r.ref_kind='forum_comment'
+        AND c.deleted_at=0
+        AND t.deleted_at=0
+    )
   )
 LIMIT 1`, assetID, variantName).Scan(
 		&variant.AssetID, &variant.Variant, &variant.ObjectKey, &variant.ContentType, &variant.Size,

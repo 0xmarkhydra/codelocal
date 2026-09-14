@@ -40,3 +40,11 @@ func TestAdminAuthorizationUsesCanonicalPresentationPath(t *testing.T) {
 		t.Fatalf("double-slash path must not be normalized into an authorized admin route, got %q", got)
 	}
 }
+
+func TestNextPublicRoutingIncludesForumsFamily(t *testing.T) {
+	for _, path := range []string{"/forums", "/forums/", "/forums/forum_123", "/forums/forum_123/"} {
+		if !isNextPublicPagePath(path) {
+			t.Fatalf("expected %q to use Next public presentation", path)
+		}
+	}
+}

@@ -126,5 +126,6 @@ func skillIntelligenceSchemaMigrations() []schemaMigration {
 	migrations = append(migrations, schemaMigration{64, pluginCloudMigrationSQL})
 	migrations = append(migrations, forumSchemaMigrations()...)
 	migrations = append(migrations, schemaMigration{66, mcpConnectionMigrationSQL})
+	migrations = append(migrations, forumMediaSchemaMigrations()...)
 	return migrations
 }

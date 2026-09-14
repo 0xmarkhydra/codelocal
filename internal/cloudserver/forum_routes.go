@@ -8,6 +8,8 @@ import (
 )
 
 func (s *Server) registerForumRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/public/forums/topics", s.publicForumTopicsAPI)
+	mux.HandleFunc("GET /api/v1/public/forums/topics/{topicID}", s.publicForumTopicAPI)
 	mux.HandleFunc("GET /api/v1/forums/topics", s.forumTopicsAPI)
 	createTopic := dashboardJSONCSRF(http.HandlerFunc(s.forumTopicsAPI))
 	mux.Handle("POST /api/v1/forums/topics", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "forum-topic-create-ip", Limit: 20, Window: 10 * time.Minute}, createTopic))

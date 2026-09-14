@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { isAccountResource } from "@/lib/contracts/account";
+import { privateMediaVariantURL, uploadMediaAsset } from "@/lib/media-upload";
 import { AppIcon } from "../app-icon";
 import { useDashboardResource } from "../use-dashboard-resource";
 import { ForumKind, ForumStatus, ForumTopic, formatForumTime, isForumTopic, kindLabels, statusLabels } from "./forum-types";
@@ -54,6 +56,8 @@ export function ForumsHub() {
   const [status, setStatus] = useState<"all" | ForumStatus>("all");
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [assetIDs, setAssetIDs] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
@@ -88,6 +92,28 @@ export function ForumsHub() {
     idea: topics.filter((topic) => topic.kind === "idea").length,
   }), [topics]);
 
+  async function addImages(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (!readyAccount?.csrf || files.length === 0 || uploading) return;
+    const remaining = Math.max(0, 6 - assetIDs.length);
+    if (remaining === 0) return;
+    setUploading(true);
+    setError("");
+    try {
+      const next = [...assetIDs];
+      for (const file of files.slice(0, remaining)) {
+        const asset = await uploadMediaAsset(file, readyAccount.csrf);
+        if (!next.includes(asset.id)) next.push(asset.id);
+      }
+      setAssetIDs(next);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not upload image");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function createTopic(event: FormEvent) {
     event.preventDefault();
     if (!readyAccount?.csrf || submitting) return;
@@ -101,12 +127,14 @@ export function ForumsHub() {
         body: JSON.stringify({
           ...draft,
           tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+          assetIds: assetIDs,
         }),
       });
       if (!response.ok) throw new Error("Could not create topic");
       const payload = await response.json() as { topic?: ForumTopic };
       if (!payload.topic || !isForumTopic(payload.topic)) throw new Error("Invalid created topic");
       setDraft(emptyDraft);
+      setAssetIDs([]);
       setComposerOpen(false);
       await load();
     } catch (reason) {
@@ -148,6 +176,16 @@ export function ForumsHub() {
           </div>
           <label><span>Title</span><input required maxLength={180} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Short, specific title" /></label>
           <label><span>Description</span><textarea required rows={6} value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="What happened? What are you trying to do?" /></label>
+          <div className={styles.attachments}>
+            <div className={styles.attachmentHead}>
+              <div><strong>Screenshots / images</strong><span>JPEG, PNG or WebP · up to 6 images · 25 MB each</span></div>
+              <label className={styles.fileButton}>
+                {uploading ? "Uploading…" : "Add images"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || !readyAccount || assetIDs.length >= 6} onChange={(event) => void addImages(event)} />
+              </label>
+            </div>
+            {assetIDs.length > 0 && <div className={styles.attachmentGrid}>{assetIDs.map((assetID) => <div className={styles.attachment} key={assetID}><Image src={privateMediaVariantURL(assetID, "thumb")} alt="Forum attachment preview" width={180} height={120} unoptimized /><button type="button" aria-label="Remove image" onClick={() => setAssetIDs((current) => current.filter((id) => id !== assetID))}>×</button></div>)}</div>}
+          </div>
           {draft.kind === "bug" && <div className={styles.bugFields}>
             <label><span>Severity</span><select value={draft.severity} onChange={(event) => setDraft((current) => ({ ...current, severity: event.target.value as Draft["severity"] }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label>
             <label><span>CodeLocal version</span><input value={draft.version} onChange={(event) => setDraft((current) => ({ ...current, version: event.target.value }))} placeholder="e.g. 1.5.65" /></label>
@@ -157,7 +195,7 @@ export function ForumsHub() {
             <label><span>Actual</span><textarea rows={3} value={draft.actualBehavior} onChange={(event) => setDraft((current) => ({ ...current, actualBehavior: event.target.value }))} /></label>
           </div>}
           <label><span>Tags</span><input value={draft.tags} onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="mcp, macos, plugins (comma separated)" /></label>
-          <div className={styles.composerActions}><button type="button" className={styles.secondaryButton} onClick={() => setComposerOpen(false)}>Cancel</button><button className={styles.primaryButton} disabled={!readyAccount || submitting} type="submit">{submitting ? "Publishing…" : "Publish topic"}</button></div>
+          <div className={styles.composerActions}><button type="button" className={styles.secondaryButton} onClick={() => setComposerOpen(false)}>Cancel</button><button className={styles.primaryButton} disabled={!readyAccount || submitting || uploading} type="submit">{submitting ? "Publishing…" : uploading ? "Uploading…" : "Publish topic"}</button></div>
         </form>
       )}
 

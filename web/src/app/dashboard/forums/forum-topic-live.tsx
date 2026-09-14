@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
 import { isAccountResource } from "@/lib/contracts/account";
+import { privateMediaVariantURL, uploadMediaAsset } from "@/lib/media-upload";
 import { AppIcon } from "../app-icon";
 import { useDashboardResource } from "../use-dashboard-resource";
 import { ForumComment, ForumSeverity, ForumStatus, ForumTopic, formatForumTime, isForumTopic, kindLabels, statusLabels } from "./forum-types";
@@ -22,7 +24,7 @@ type ReviewDraft = {
 function isComment(value: unknown): value is ForumComment {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
-  return typeof item.id === "string" && typeof item.topicId === "string" && typeof item.authorEmail === "string" && typeof item.body === "string" && typeof item.createdAt === "number";
+  return typeof item.id === "string" && typeof item.topicId === "string" && typeof item.authorEmail === "string" && typeof item.body === "string" && Array.isArray(item.assetIds) && item.assetIds.every((assetID) => typeof assetID === "string") && typeof item.createdAt === "number";
 }
 
 function validTopicResponse(value: unknown): value is TopicResponse {
@@ -50,6 +52,8 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [review, setReview] = useState<ReviewDraft | null>(null);
   const [reply, setReply] = useState("");
+  const [replyAssetIDs, setReplyAssetIDs] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -98,6 +102,28 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
     return () => { cancelled = true; };
   }, [fetchTopic]);
 
+  async function addReplyImages(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (!readyAccount?.csrf || files.length === 0 || uploading) return;
+    const remaining = Math.max(0, 4 - replyAssetIDs.length);
+    if (remaining === 0) return;
+    setUploading(true);
+    setError("");
+    try {
+      const next = [...replyAssetIDs];
+      for (const file of files.slice(0, remaining)) {
+        const asset = await uploadMediaAsset(file, readyAccount.csrf);
+        if (!next.includes(asset.id)) next.push(asset.id);
+      }
+      setReplyAssetIDs(next);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not upload image");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function postReply(event: FormEvent) {
     event.preventDefault();
     if (!readyAccount?.csrf || !reply.trim() || busy) return;
@@ -108,10 +134,11 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": readyAccount.csrf },
-        body: JSON.stringify({ body: reply }),
+        body: JSON.stringify({ body: reply, assetIds: replyAssetIDs }),
       });
       if (!response.ok) throw new Error("Could not publish reply");
       setReply("");
+      setReplyAssetIDs([]);
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not publish reply");
@@ -187,6 +214,7 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
           </div>
           <h1>{topic.title}</h1>
           <p>{topic.body}</p>
+          {topic.assetIds.length > 0 && <div className={styles.detailGallery}>{topic.assetIds.map((assetID, index) => <a href={privateMediaVariantURL(assetID, "large")} target="_blank" rel="noreferrer" key={assetID}><Image src={privateMediaVariantURL(assetID, "medium")} alt={`Attachment ${index + 1}`} width={900} height={600} unoptimized /></a>)}</div>}
           <div className={styles.detailMeta}><span>Opened by {topic.authorEmail}</span><span>{formatForumTime(topic.createdAt)}</span><span>{topic.commentCount} replies</span></div>
           <div className={styles.tags}>{topic.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>
 
@@ -219,11 +247,15 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
             <h2 className={styles.sectionTitle}>Replies · {comments.length}</h2>
             <div className={styles.replyList}>
               {comments.length === 0 && <div className={styles.empty}>No replies yet. Add context or a workaround.</div>}
-              {comments.map((comment) => <article className={styles.replyCard} key={comment.id}><header><strong>{comment.authorEmail}</strong><span>{formatForumTime(comment.createdAt)}</span></header><p>{comment.body}</p></article>)}
+              {comments.map((comment) => <article className={styles.replyCard} key={comment.id}><header><strong>{comment.authorEmail}</strong><span>{formatForumTime(comment.createdAt)}</span></header><p>{comment.body}</p>{comment.assetIds.length > 0 && <div className={styles.replyGallery}>{comment.assetIds.map((assetID, index) => <a href={privateMediaVariantURL(assetID, "large")} target="_blank" rel="noreferrer" key={assetID}><Image src={privateMediaVariantURL(assetID, "thumb")} alt={`Reply attachment ${index + 1}`} width={180} height={120} unoptimized /></a>)}</div>}</article>)}
             </div>
             <form className={styles.replyComposer} onSubmit={postReply}>
               <label><span>Reply</span><textarea required rows={4} value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Share a fix, workaround, reproduction detail, or answer…" /></label>
-              <footer><button className={styles.primaryButton} disabled={busy || !readyAccount || !reply.trim()} type="submit">{busy ? "Posting…" : "Post reply"}</button></footer>
+              <div className={styles.attachments}>
+                <div className={styles.attachmentHead}><div><strong>Images</strong><span>Up to 4 screenshots</span></div><label className={styles.fileButton}>{uploading ? "Uploading…" : "Add images"}<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || !readyAccount || replyAssetIDs.length >= 4} onChange={(event) => void addReplyImages(event)} /></label></div>
+                {replyAssetIDs.length > 0 && <div className={styles.attachmentGrid}>{replyAssetIDs.map((assetID) => <div className={styles.attachment} key={assetID}><Image src={privateMediaVariantURL(assetID, "thumb")} alt="Reply image preview" width={180} height={120} unoptimized /><button type="button" aria-label="Remove image" onClick={() => setReplyAssetIDs((current) => current.filter((id) => id !== assetID))}>×</button></div>)}</div>}
+              </div>
+              <footer><button className={styles.primaryButton} disabled={busy || uploading || !readyAccount || !reply.trim()} type="submit">{busy ? "Posting…" : uploading ? "Uploading…" : "Post reply"}</button></footer>
             </form>
           </section>
 
