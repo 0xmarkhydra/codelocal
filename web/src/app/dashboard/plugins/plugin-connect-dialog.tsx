@@ -94,7 +94,7 @@ function parseWorkspaceValue(value: string) {
 }
 
 function workspaceLabel(workspace: WorkspaceItem) {
-  return `${workspace.deviceName} · ${workspace.workspaceName}`;
+  return workspace.deviceName || workspace.workspaceName;
 }
 
 function connectionDeviceLabel(connection: PluginConnection, workspaces: WorkspaceItem[], cloudLabel: string) {
@@ -126,7 +126,9 @@ export function PluginConnectDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const capabilities = plugin.capabilities ?? [];
   const connections = plugin.connections ?? [];
-  const onlineWorkspaces = workspaces.filter((workspace) => workspace.runtimeOnline);
+  const onlineWorkspaces = workspaces
+    .filter((workspace) => workspace.runtimeOnline)
+    .filter((workspace, index, items) => items.findIndex((item) => item.deviceId === workspace.deviceId) === index);
   const isPenpot = plugin.id === "penpot";
   const supportsCloud = (plugin.executionTargets ?? []).includes("cloud");
   const supportsDevice = (plugin.executionTargets ?? []).some((target) => target === "local") || (plugin.executionTargets ?? []).length === 0;
@@ -163,7 +165,11 @@ export function PluginConnectDialog({
         authKind,
       });
       setBearerToken("");
-      setFeedback(t(connected ? "Connection saved." : "Connection failed. Check authorization and endpoint."));
+      if (connected) {
+        onClose();
+        return;
+      }
+      setFeedback(t("Connection failed. Check authorization and endpoint."));
       return;
     }
     const selected = parseWorkspaceValue(selectedWorkspace);
@@ -176,7 +182,11 @@ export function PluginConnectDialog({
       executionTarget: "local",
     });
     setBearerToken("");
-    setFeedback(t(connected ? "Connection saved." : "Connection failed. Check authorization and endpoint."));
+    if (connected) {
+      onClose();
+      return;
+    }
+    setFeedback(t("Connection failed. Check authorization and endpoint."));
   }
 
   const connectionInputReady = target === "cloud"
@@ -343,9 +353,9 @@ export function PluginConnectDialog({
               </div>
             </div>
             <label className={styles.field}>
-              <span>{t("Device / workspace")}</span>
+              <span>{t("Device")}</span>
               <select onChange={(event) => setSelectedWorkspace(event.target.value)} value={selectedWorkspace}>
-                <option value="">{t("Select a running workspace")}</option>
+                <option value="">{t("Select a running device")}</option>
                 {onlineWorkspaces.map((workspace) => (
                   <option key={`${workspace.deviceId}-${workspace.workspaceId}`} value={workspaceValue(workspace)}>
                     {workspaceLabel(workspace)}
@@ -399,7 +409,7 @@ export function PluginConnectDialog({
                 : "Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device.")}
             </p>
             {onlineWorkspaces.length === 0 && (
-              <p className={styles.configWarning}>{t("No running CodeLocal workspace found. Start {command} on a paired device first.", { command: "codelocal" })}</p>
+              <p className={styles.configWarning}>{t("No running CodeLocal device found. Start {command} on a paired device first.", { command: "codelocal" })}</p>
             )}
           </div>
         )}

@@ -126,17 +126,21 @@ function PluginCard({
   const [dialogOpen, setDialogOpen] = useState(false);
   const cloudReady = connections.find((connection) => connection.executionTarget === "cloud" && connection.state === "ready");
   const deviceReady = connections.find((connection) => connection.executionTarget !== "cloud" && connection.state === "ready");
+  const configuredConnection = connections.find((connection) => connection.state === "configured");
   const hasConnectionError = connections.some((connection) => connection.state === "error");
   const connected = Boolean(cloudReady || deviceReady);
   const closeDialog = useCallback(() => setDialogOpen(false), []);
 
+  const readyConnection = cloudReady ?? deviceReady;
   const status = cloudReady
-    ? t("Cloud configured · {count} tools last discovered", { count: cloudReady.toolCount })
+    ? t("CodeLocal Cloud")
     : deviceReady
-      ? `${connectionDeviceLabel(deviceReady, workspaces, t("CodeLocal Cloud"))} · ${t("{count} tools last discovered", { count: deviceReady.toolCount })}`
+      ? connectionDeviceLabel(deviceReady, workspaces, t("CodeLocal Cloud"))
       : hasConnectionError
         ? t("Connection needs attention")
-        : t("Not connected");
+        : configuredConnection
+          ? t("Configured")
+          : t("Not connected");
 
   function openDialog() {
     setDialogOpen(true);
@@ -160,26 +164,35 @@ function PluginCard({
 
         <p className={styles.description}>{plugin.description || t("Extend CodeLocal with reusable tools and external data.")}</p>
 
-        <button
-          aria-expanded={dialogOpen}
-          className={styles.permissionsSummary}
-          onClick={() => void openDialog()}
-          type="button"
-        >
-          {capabilities.length === 0
-            ? t("No runtime permissions declared")
-            : t("Requires {count} permissions", { count: capabilities.length })}
-        </button>
+        {!plugin.installed && (
+          <div className={styles.permissionsSummary}>
+            <AppIcon name="shield" size={13} />
+            <span>{capabilities.length === 0
+              ? t("No runtime permissions declared")
+              : t("Requires {count} permissions", { count: capabilities.length })}</span>
+          </div>
+        )}
 
         <div className={styles.statusRow}>
-          <div className={styles.statusCopy}>
-            <span className={styles.statusMain}><span aria-hidden="true" className={styles.statusDot} data-error={hasConnectionError && !connected ? "true" : undefined} data-ready={undefined} />{status}</span>
-            {cloudReady && <span className={styles.statusHint}>{t("Connection is checked when used.")}</span>}
-            {!plugin.installed && <span className={styles.statusHint}>{t("Install to make this Plugin available to CodeLocal.")}</span>}
-            {plugin.updateAvailable && <span className={styles.statusHint}>{t("New version available")}</span>}
-          </div>
+          {plugin.installed ? (
+            <div className={styles.statusCopy}>
+              <span className={styles.statusMain}>
+                <span
+                  aria-hidden="true"
+                  className={styles.statusDot}
+                  data-error={hasConnectionError && !connected ? "true" : undefined}
+                  data-ready={connected ? "true" : undefined}
+                />
+                {status}
+              </span>
+              {readyConnection && <span className={styles.statusHint}>{t("{count} tools last discovered", { count: readyConnection.toolCount })}</span>}
+              {plugin.updateAvailable && <span className={styles.statusHint}>{t("New version available")}</span>}
+            </div>
+          ) : (
+            <span className={styles.statusHint}>{t("Install to make this Plugin available to CodeLocal.")}</span>
+          )}
           <button className={styles.primaryButton} disabled={busy} onClick={openDialog} type="button">
-            {t(!plugin.installed ? "Review & install" : connections.length > 0 ? "Manage" : "Configure")}
+            {t(!plugin.installed ? "Install" : connections.length > 0 ? "Manage" : "Configure")}
           </button>
         </div>
       </article>
@@ -214,7 +227,7 @@ function EmptyState({ installed }: { installed: boolean }) {
 export function PluginsHub() {
   const { locale, t, message } = useTranslations();
   const number = new Intl.NumberFormat(locale);
-  const [view, setView] = useState<PluginView>("explore");
+  const [view, setView] = useState<PluginView>("installed");
   const [resource, setResource] = useState<PluginsResource>({ items: [], installedCount: 0 });
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [account, setAccount] = useState<AccountResource | null>(null);
@@ -387,27 +400,30 @@ export function PluginsHub() {
 
   return (
     <section className={styles.page}>
-      <h1 className="sr-only">{t("Plugins")}</h1>
+      <header className={styles.header}>
+        <h1>{t("Plugins")}</h1>
+      </header>
+
       <div className={styles.toolbar}>
-        <div className={styles.installCount}><AppIcon name="plugin" size={14} />{t("{count} installed", { count: resource.installedCount })}</div>
+        <nav className={styles.tabs} aria-label={t("Plugin views")}>
+          <button aria-pressed={view === "installed"} className={view === "installed" ? styles.activeTab : undefined} onClick={() => setView("installed")} type="button">
+            {t("Installed")} <span>{number.format(resource.installedCount)}</span>
+          </button>
+          <button aria-pressed={view === "explore"} className={view === "explore" ? styles.activeTab : undefined} onClick={() => setView("explore")} type="button">
+            {t("Explore")}
+          </button>
+        </nav>
         <div className={styles.searchBox}>
           <AppIcon name="search" size={16} />
           <input aria-label={t("Search Plugins")} onChange={(event) => setSearch(event.target.value)} placeholder={t("Search Plugins")} type="search" value={search} />
         </div>
-        <nav className={styles.tabs} aria-label={t("Plugin views")}>
-          <button aria-pressed={view === "explore"} className={view === "explore" ? styles.activeTab : undefined} onClick={() => setView("explore")} type="button">{t("Explore")}</button>
-          <button aria-pressed={view === "installed"} className={view === "installed" ? styles.activeTab : undefined} onClick={() => setView("installed")} type="button">{t("Installed")} <span>{number.format(resource.installedCount)}</span></button>
-        </nav>
       </div>
 
       {account?.requiresReauthentication && <div className={styles.notice}>{t("Your session is old. Installing or connecting a new Plugin will ask you to sign in again.")}</div>}
       {notice && <div role="status" className={notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}>{message(notice.text, notice.values)}</div>}
 
       <div className={styles.sectionIntro}>
-        <div>
-          <h2>{t(view === "explore" ? "Plugin Directory" : "Installed Plugins")}</h2>
-          <p>{t(view === "explore" ? "Curated integrations with explicit permissions and immutable manifest versions." : "These Plugins are enabled for your CodeLocal account.")}</p>
-        </div>
+        <h2>{t(view === "explore" ? "Plugin Directory" : "Installed Plugins")}</h2>
         <span>{t("{count} plugins", { count: visible.length })}</span>
       </div>
 
