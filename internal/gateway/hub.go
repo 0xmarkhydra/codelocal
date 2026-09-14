@@ -27,6 +27,10 @@ type Client struct {
 	DeviceName        string
 	WorkspaceID       string
 	WorkspaceName     string
+	System            bool
+	SystemApp         bool
+	Managed           bool
+	Hidden            bool
 	ProjectID         string
 	ProjectName       string
 	ProjectSource     string
@@ -186,6 +190,10 @@ func clientCapabilityMap(client *Client) map[string]any {
 		"terminalChatApproval": client.Capabilities.TerminalChatApproval,
 		"terminalHistory":      client.Capabilities.TerminalHistory,
 		"learnedSkills":        client.Capabilities.LearnedSkills,
+		"system":               client.System,
+		"systemApp":            client.SystemApp,
+		"managed":              client.Managed,
+		"hidden":               client.Hidden,
 		"automation":           automationCapabilityMap(client.Capabilities.Automation),
 	}
 	if client.ClientVersion != "" {
@@ -268,6 +276,15 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "workspaceId required")
 		return
 	}
+	// Legacy runtimes did not advertise System App metadata. Adopt only the
+	// exact historical OpenMontage workspace ID; never infer from system-*.
+	if msg.WorkspaceID == cloud.OpenMontageWorkspaceID {
+		msg.WorkspaceName = cloud.OpenMontageName
+		msg.System = true
+		msg.SystemApp = true
+		msg.Managed = true
+		msg.Hidden = false
+	}
 
 	key := ClientKey(device.UserID, msg.DeviceID, msg.WorkspaceID)
 	now := time.Now().UnixMilli()
@@ -278,6 +295,10 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		DeviceName:      firstNonEmpty(msg.DeviceName, device.DeviceName, msg.DeviceID),
 		WorkspaceID:     msg.WorkspaceID,
 		WorkspaceName:   firstNonEmpty(msg.WorkspaceName, msg.WorkspaceID),
+		System:          msg.System,
+		SystemApp:       msg.SystemApp,
+		Managed:         msg.Managed,
+		Hidden:          msg.Hidden,
 		ProjectRoot:     msg.ProjectRoot,
 		CredentialID:    device.CredentialID,
 		ProtocolVersion: msg.ProtocolVersion,

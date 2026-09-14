@@ -28,6 +28,8 @@ export type WorkspacesResource = {
     deviceName: string;
     workspaceId: string;
     workspaceName: string;
+    systemApp: boolean;
+    managed: boolean;
     status: WorkspaceStatus;
     runtimeOnline: boolean;
     lastSeenAt: number;
@@ -88,6 +90,8 @@ export function isWorkspacesResource(value: unknown): value is WorkspacesResourc
       typeof item.deviceName === "string" &&
       typeof item.workspaceId === "string" &&
       typeof item.workspaceName === "string" &&
+      typeof item.systemApp === "boolean" &&
+      typeof item.managed === "boolean" &&
       isWorkspaceStatus(item.status) &&
       typeof item.runtimeOnline === "boolean" &&
       isFiniteNumber(item.lastSeenAt)

@@ -265,7 +265,30 @@ func (r *Runtime) serveRuntimeControl(parent context.Context, conn *websocket.Co
 				}
 				if envelope.Activation != nil {
 					activation := envelope.Activation
-					_, activationErr := r.Activate(ctx, activation.WorkspaceID)
+					var activationErr error
+					if activation.Action == "install-system-app" {
+						if activation.WorkspaceID != cloud.OpenMontageWorkspaceID {
+							activationErr = fmt.Errorf("unsupported system app workspace: %s", activation.WorkspaceID)
+						} else {
+							installCtx, installCancel := context.WithTimeout(ctx, 2*time.Minute)
+							_, activationErr = r.InstallSystemApp(installCtx, cloud.OpenMontageSystemProjectID)
+							installCancel()
+							if activationErr == nil {
+								items, syncErr := r.SyncRegistry(ctx, true)
+								if syncErr != nil {
+									activationErr = syncErr
+								} else {
+									lastItems = items
+									lastSignature = registrySignature(items)
+									if err := sendSync(items); err != nil {
+										return err
+									}
+								}
+							}
+						}
+					} else {
+						_, activationErr = r.Activate(ctx, activation.WorkspaceID)
+					}
 					result := &cloud.WorkspaceActivationResult{
 						WorkspaceID:    activation.WorkspaceID,
 						RequestID:      activation.RequestID,
@@ -276,7 +299,7 @@ func (r *Runtime) serveRuntimeControl(parent context.Context, conn *websocket.Co
 					if activationErr != nil {
 						result.Phase = WorkspaceActivationPhase(activationErr)
 						result.Reason = workspaceActivationReason(activationErr)
-						slog.Warn("workspace activation failed", "workspaceId", activation.WorkspaceID, "requestId", activation.RequestID, "phase", result.Phase, "reason", result.Reason, "error", activationErr)
+						slog.Warn("workspace activation failed", "workspaceId", activation.WorkspaceID, "requestId", activation.RequestID, "action", activation.Action, "phase", result.Phase, "reason", result.Reason, "error", activationErr)
 					}
 					if err := writeRuntimeControl(ctx, conn, runtimeControlEnvelope{Type: "runtime_activation_result", ActivationResult: result, Now: time.Now().UnixMilli()}); err != nil {
 						return runtimeControlError(err)

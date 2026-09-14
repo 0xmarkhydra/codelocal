@@ -31,15 +31,23 @@ type RuntimeSecretRef struct {
 	Configured bool `json:"configured"`
 }
 
+const (
+	OpenMontageSystemProjectID = "openmontage"
+	OpenMontageWorkspaceID     = "system-openmontage"
+	OpenMontageName            = "Video Studio"
+	OpenMontageSource          = "https://github.com/calesthio/OpenMontage.git"
+)
+
 type RuntimeSystemProject struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Path    string `json:"path,omitempty"`
-	Source  string `json:"source,omitempty"`
-	Version string `json:"version,omitempty"`
-	Managed bool   `json:"managed"`
-	Hidden  bool   `json:"hidden"`
-	Enabled bool   `json:"enabled"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Path      string `json:"path,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Version   string `json:"version,omitempty"`
+	SystemApp bool   `json:"systemApp,omitempty"`
+	Managed   bool   `json:"managed"`
+	Hidden    bool   `json:"hidden"`
+	Enabled   bool   `json:"enabled"`
 }
 
 type RuntimeConfigLayer struct {
@@ -152,9 +160,10 @@ func ValidRuntimeEnvKey(key string) bool {
 }
 
 func defaultRuntimeConfigLayer() RuntimeConfigLayer {
+	// System apps are catalogued by Cloud but never installed implicitly.
 	return RuntimeConfigLayer{Scope: RuntimeScopeGlobal, SystemProjects: []RuntimeSystemProject{{
-		ID: "openmontage", Name: "OpenMontage", Source: "https://github.com/calesthio/OpenMontage.git",
-		Managed: true, Hidden: true, Enabled: true,
+		ID: OpenMontageSystemProjectID, Name: OpenMontageName, Source: OpenMontageSource,
+		SystemApp: true, Managed: true, Hidden: false, Enabled: false,
 	}}}
 }
 

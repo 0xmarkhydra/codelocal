@@ -307,6 +307,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/pair/approve", s.pairApproveResourceAPI)
 	mux.HandleFunc("POST /api/v1/devices/{deviceID}/revoke", s.revokeDeviceResourceAPI)
 	mux.HandleFunc("POST /api/v1/workspaces/{deviceID}/{workspaceID}/remove", s.removeWorkspaceResourceAPI)
+	mux.HandleFunc("POST /api/v1/system-apps/{appID}/{deviceID}/install", s.installSystemAppResourceAPI)
 	mux.Handle("GET /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesGet)))
 	mux.Handle("POST /api/collective/preferences", s.WebAuth.Require(http.HandlerFunc(s.collectivePreferencesPost)))
 	mux.HandleFunc("GET /health", s.health)
@@ -762,6 +763,10 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 		Workspaces    []struct {
 			WorkspaceID       string                       `json:"workspaceId"`
 			WorkspaceName     string                       `json:"workspaceName"`
+			System            bool                         `json:"system,omitempty"`
+			SystemApp         bool                         `json:"systemApp,omitempty"`
+			Managed           bool                         `json:"managed,omitempty"`
+			Hidden            bool                         `json:"hidden,omitempty"`
 			ProjectIdentity   projectidentity.Snapshot     `json:"projectIdentity"`
 			LearnedSkills     []cloud.LearnedSkillMetadata `json:"learnedSkills"`
 			KnowledgeManifest *projectbrain.Manifest       `json:"knowledgeManifest,omitempty"`
@@ -797,11 +802,17 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 		if len(name) > 120 {
 			name = name[:120]
 		}
+		// Legacy runtimes did not send lifecycle metadata for Video Studio.
+		// Normalize only its exact historical ID, never a generic system-* prefix.
+		if item.WorkspaceID == cloud.OpenMontageWorkspaceID {
+			name = cloud.OpenMontageName
+			item.System, item.SystemApp, item.Managed, item.Hidden = true, true, true, false
+		}
 		ids = append(ids, item.WorkspaceID)
 		key := gateway.ClientKey(device.UserID, device.DeviceID, item.WorkspaceID)
 		owner, _ := s.Coordinator.Owner(r.Context(), key)
 		if owner == "" {
-			caps := map[string]any{"authorized": true, "sleeping": true}
+			caps := map[string]any{"authorized": true, "sleeping": true, "system": item.System, "systemApp": item.SystemApp, "managed": item.Managed, "hidden": item.Hidden}
 			if input.ClientVersion != "" {
 				caps["clientVersion"] = truncate(input.ClientVersion, 80)
 			}
@@ -861,26 +872,6 @@ func (s *Server) workspaceSync(w http.ResponseWriter, r *http.Request) {
 			runtimeSettings[item.WorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets, MCPServers: deviceMCPServers}
 		}
 		synced++
-	}
-
-	// Runtime-level managed system projects must bootstrap even when the user has
-	// not granted a normal project workspace yet. Resolve the reserved Video
-	// Studio workspace config on every sync so the client can materialize and
-	// register OpenMontage automatically, then include it in the next registry sync.
-	const openMontageSystemWorkspaceID = "system-openmontage"
-	if _, exists := runtimeSettings[openMontageSystemWorkspaceID]; !exists {
-		snapshot, settingsErr := s.Store.ResolveRuntimeConfig(r.Context(), device.UserID, device.DeviceID, openMontageSystemWorkspaceID)
-		if settingsErr != nil {
-			slog.Warn("system workspace runtime config lookup failed", "workspaceId", openMontageSystemWorkspaceID, "error", settingsErr)
-		} else {
-			secrets, secretErr := s.Store.MaterializeRuntimeSecrets(r.Context(), device.UserID, device.DeviceID, openMontageSystemWorkspaceID)
-			if secretErr != nil {
-				slog.Warn("system workspace runtime secret materialization failed", "workspaceId", openMontageSystemWorkspaceID, "error", secretErr)
-				secrets = map[string]string{}
-			}
-			s.materializePenpotGrant(r.Context(), device.UserID, device.DeviceID, openMontageSystemWorkspaceID, secrets)
-			runtimeSettings[openMontageSystemWorkspaceID] = cloud.RuntimeMaterializedConfig{Snapshot: snapshot, Secrets: secrets, MCPServers: deviceMCPServers}
-		}
 	}
 
 	removed, err := s.Store.ReconcileWorkspaces(r.Context(), device.UserID, device.DeviceID, ids)

@@ -80,7 +80,7 @@ func TestRegistryRefusesHome(t *testing.T) {
 	}
 }
 
-func TestRegistryEnsureSystemIsHiddenManagedAndIdempotent(t *testing.T) {
+func TestRegistryEnsureSystemAppIsVisibleManagedAndIdempotent(t *testing.T) {
 	old := os.Getenv("CODELOCAL_STATE_DIR")
 	if err := os.Setenv("CODELOCAL_STATE_DIR", t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -103,8 +103,11 @@ func TestRegistryEnsureSystemIsHiddenManagedAndIdempotent(t *testing.T) {
 	if first.WorkspaceID != "system-openmontage" || second.WorkspaceID != first.WorkspaceID {
 		t.Fatalf("unexpected system workspace ids: %#v %#v", first, second)
 	}
-	if !second.System || !second.Managed || !second.Hidden || second.WorkspaceName != "Video Studio" {
+	if !second.System || !second.SystemApp || !second.Managed || second.Hidden || second.WorkspaceName != "Video Studio" {
 		t.Fatalf("unexpected system workspace metadata: %#v", second)
+	}
+	if removed, err := reg.Revoke(second.WorkspaceID); err == nil || removed {
+		t.Fatalf("managed system app must not be revocable as a normal workspace: removed=%v err=%v", removed, err)
 	}
 	items, err := reg.List()
 	if err != nil {

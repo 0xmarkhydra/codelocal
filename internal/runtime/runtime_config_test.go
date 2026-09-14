@@ -1,8 +1,6 @@
 package runtime
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,18 +21,13 @@ func TestRuntimeConfigEnvironmentExportsOnlyNonSecretEnvKeys(t *testing.T) {
 	}
 }
 
-func TestResolveRuntimeSnapshotUsesSharedOpenMontagePath(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestResolveRuntimeSnapshotNormalizesOpenMontageWithoutInstalling(t *testing.T) {
 	snapshot := resolveRuntimeSnapshot(cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{ID: "openmontage", Enabled: true}}})
 	if len(snapshot.SystemProjects) != 1 {
 		t.Fatalf("projects=%#v", snapshot.SystemProjects)
 	}
 	project := snapshot.SystemProjects[0]
-	want := filepath.Join(home, ".codelocal", "system-projects", "openmontage")
-	if project.Path != want || !project.Managed || !project.Hidden || !strings.Contains(project.Source, "OpenMontage") {
+	if project.Path != "" || project.Name != cloud.OpenMontageName || !project.SystemApp || !project.Managed || project.Hidden || !strings.Contains(project.Source, "OpenMontage") {
 		t.Fatalf("project=%#v", project)
 	}
 }
@@ -50,13 +43,9 @@ func TestManagedRuntimeSystemProjectsFiltersDisabledProjects(t *testing.T) {
 	}
 }
 
-func TestManagedRuntimeSystemProjectsBootstrapsOpenMontageWithoutCloudSettings(t *testing.T) {
-	projects := managedRuntimeSystemProjects(nil)
-	if len(projects) != 1 || projects[0].ID != "openmontage" || !projects[0].Enabled || !projects[0].Managed || !projects[0].Hidden {
-		t.Fatalf("projects=%#v", projects)
-	}
-	if !strings.Contains(projects[0].Source, "OpenMontage") {
-		t.Fatalf("project=%#v", projects[0])
+func TestManagedRuntimeSystemProjectsDoesNotBootstrapWithoutCloudSettings(t *testing.T) {
+	if projects := managedRuntimeSystemProjects(nil); len(projects) != 0 {
+		t.Fatalf("fresh runtime must not auto-install system apps: %#v", projects)
 	}
 }
 

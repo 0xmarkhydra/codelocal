@@ -165,14 +165,21 @@ func (s *Server) runtimeRealtime(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if activation != nil {
-				authorized, authzErr := s.Activation.IsAuthorized(ctx, device.UserID, device.DeviceID, activation.WorkspaceID)
-				if authzErr != nil {
-					events <- nextRuntimeEvent{err: authzErr}
-					return
-				}
-				if !authorized {
-					s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "workspace.activation_rejected", DeviceID: device.DeviceID, WorkspaceID: activation.WorkspaceID, Detail: map[string]any{"requestId": activation.RequestID, "reason": "not-authorized"}})
+				installSystemApp := activation.Action == "install-system-app"
+				if installSystemApp && activation.WorkspaceID != cloud.OpenMontageWorkspaceID {
+					s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "workspace.activation_rejected", DeviceID: device.DeviceID, WorkspaceID: activation.WorkspaceID, Detail: map[string]any{"requestId": activation.RequestID, "reason": "unsupported-system-app"}})
 					continue
+				}
+				if !installSystemApp {
+					authorized, authzErr := s.Activation.IsAuthorized(ctx, device.UserID, device.DeviceID, activation.WorkspaceID)
+					if authzErr != nil {
+						events <- nextRuntimeEvent{err: authzErr}
+						return
+					}
+					if !authorized {
+						s.Store.Audit(cloud.AuditEvent{UserID: device.UserID, Event: "workspace.activation_rejected", DeviceID: device.DeviceID, WorkspaceID: activation.WorkspaceID, Detail: map[string]any{"requestId": activation.RequestID, "reason": "not-authorized"}})
+						continue
+					}
 				}
 			}
 			select {

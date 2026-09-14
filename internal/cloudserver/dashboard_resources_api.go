@@ -32,6 +32,8 @@ type workspaceResourceDTO struct {
 	DeviceName    string `json:"deviceName"`
 	WorkspaceID   string `json:"workspaceId"`
 	WorkspaceName string `json:"workspaceName"`
+	SystemApp     bool   `json:"systemApp"`
+	Managed       bool   `json:"managed"`
 	Status        string `json:"status"`
 	RuntimeOnline bool   `json:"runtimeOnline"`
 	LastSeenAt    int64  `json:"lastSeenAt"`
@@ -94,6 +96,8 @@ func buildWorkspacesResourceDTO(workspaces []gateway.WorkspaceView) workspacesRe
 			DeviceName:    workspace.DeviceName,
 			WorkspaceID:   workspace.WorkspaceID,
 			WorkspaceName: workspace.WorkspaceName,
+			SystemApp:     workspace.SystemApp,
+			Managed:       workspace.Managed,
 			Status:        status,
 			RuntimeOnline: workspace.RuntimeOnline,
 			LastSeenAt:    workspace.LastSeenAt,

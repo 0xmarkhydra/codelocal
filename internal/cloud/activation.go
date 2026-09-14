@@ -14,6 +14,7 @@ import (
 
 type WorkspaceActivation struct {
 	WorkspaceID string `json:"workspaceId"`
+	Action      string `json:"action,omitempty"`
 	RequestedAt int64  `json:"requestedAt"`
 	RequestID   string `json:"requestId"`
 }

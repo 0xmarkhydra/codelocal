@@ -16,6 +16,10 @@ type WorkspaceView struct {
 	DeviceName        string         `json:"deviceName"`
 	WorkspaceID       string         `json:"workspaceId"`
 	WorkspaceName     string         `json:"workspaceName"`
+	System            bool           `json:"system,omitempty"`
+	SystemApp         bool           `json:"systemApp,omitempty"`
+	Managed           bool           `json:"managed,omitempty"`
+	Hidden            bool           `json:"hidden,omitempty"`
 	ProjectID         string         `json:"projectId,omitempty"`
 	ProjectName       string         `json:"projectName,omitempty"`
 	ProjectSource     string         `json:"projectSource,omitempty"`
@@ -93,6 +97,10 @@ func activeWorkspaceView(client *Client) *WorkspaceView {
 		DeviceName:        client.DeviceName,
 		WorkspaceID:       client.WorkspaceID,
 		WorkspaceName:     client.WorkspaceName,
+		System:            client.System,
+		SystemApp:         client.SystemApp,
+		Managed:           client.Managed,
+		Hidden:            client.Hidden,
 		ProjectID:         client.ProjectID,
 		ProjectName:       client.ProjectName,
 		ProjectSource:     client.ProjectSource,
@@ -106,6 +114,11 @@ func activeWorkspaceView(client *Client) *WorkspaceView {
 		Capabilities:      clientCapabilityMap(client),
 		LastSeenAt:        client.LastSeenAt(),
 	}
+}
+
+func capabilityBool(capabilities map[string]any, key string) bool {
+	value, _ := capabilities[key].(bool)
+	return value
 }
 
 func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]WorkspaceView, error) {
@@ -179,6 +192,15 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 			clientVersion = local.ClientVersion
 		}
 		caps := w.Capabilities
+		workspaceName := w.WorkspaceName
+		system := capabilityBool(caps, "system")
+		systemApp := capabilityBool(caps, "systemApp")
+		managed := capabilityBool(caps, "managed")
+		hidden := capabilityBool(caps, "hidden")
+		if w.WorkspaceID == cloud.OpenMontageWorkspaceID {
+			workspaceName = cloud.OpenMontageName
+			system, systemApp, managed, hidden = true, true, true, false
+		}
 		var projectRoot any
 		deviceName := deviceNames[w.DeviceID]
 		if deviceName == "" {
@@ -188,8 +210,13 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 			caps = clientCapabilityMap(local)
 			projectRoot = local.ProjectRoot
 			deviceName = local.DeviceName
+			workspaceName = local.WorkspaceName
+			system, systemApp, managed, hidden = local.System, local.SystemApp, local.Managed, local.Hidden
 		}
-		out = append(out, WorkspaceView{Key: key, DeviceID: w.DeviceID, DeviceName: deviceName, WorkspaceID: w.WorkspaceID, WorkspaceName: w.WorkspaceName, ProjectID: w.ProjectID, ProjectName: w.ProjectName, ProjectSource: w.ProjectSource, ProjectConfidence: w.ProjectConfidence, Status: status, RuntimeOnline: state.online, Authorized: authorized, ClientVersion: clientVersion, ProtocolVersion: w.ProtocolVersion, ProjectRoot: projectRoot, Capabilities: caps, LastSeenAt: w.LastSeenAt})
+		if hidden {
+			continue
+		}
+		out = append(out, WorkspaceView{Key: key, DeviceID: w.DeviceID, DeviceName: deviceName, WorkspaceID: w.WorkspaceID, WorkspaceName: workspaceName, System: system, SystemApp: systemApp, Managed: managed, Hidden: hidden, ProjectID: w.ProjectID, ProjectName: w.ProjectName, ProjectSource: w.ProjectSource, ProjectConfidence: w.ProjectConfidence, Status: status, RuntimeOnline: state.online, Authorized: authorized, ClientVersion: clientVersion, ProtocolVersion: w.ProtocolVersion, ProjectRoot: projectRoot, Capabilities: caps, LastSeenAt: w.LastSeenAt})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeenAt > out[j].LastSeenAt })
 	return out, nil
@@ -338,6 +365,15 @@ func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*W
 }
 
 func (s *WorkspaceService) Revoke(ctx context.Context, userID, deviceID, workspaceID string) error {
+	catalog, err := s.Catalog(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, item := range catalog {
+		if item.DeviceID == deviceID && item.WorkspaceID == workspaceID && item.Managed {
+			return errors.New("managed CodeLocal app cannot be removed as a normal workspace")
+		}
+	}
 	online, err := s.Activation.IsOnline(ctx, userID, deviceID)
 	if err != nil {
 		return err

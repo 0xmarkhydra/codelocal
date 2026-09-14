@@ -6,6 +6,7 @@ export type RuntimeSystemProject = {
   path?: string;
   source?: string;
   version?: string;
+  systemApp?: boolean;
   managed: boolean;
   hidden: boolean;
   enabled: boolean;
@@ -46,7 +47,7 @@ function secretMap(value: unknown) {
 }
 
 function projects(value: unknown) {
-  return value === undefined || (Array.isArray(value) && value.every((item) => record(item) && typeof item.id === "string" && typeof item.name === "string" && typeof item.managed === "boolean" && typeof item.hidden === "boolean" && typeof item.enabled === "boolean"));
+  return value === undefined || (Array.isArray(value) && value.every((item) => record(item) && typeof item.id === "string" && typeof item.name === "string" && (item.systemApp === undefined || typeof item.systemApp === "boolean") && typeof item.managed === "boolean" && typeof item.hidden === "boolean" && typeof item.enabled === "boolean"));
 }
 
 export function isRuntimeSettingsResource(value: unknown): value is RuntimeSettingsResource {

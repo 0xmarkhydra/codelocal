@@ -93,6 +93,10 @@ type RegisterMessage struct {
 	WorkspaceID      string       `json:"workspaceId"`
 	WorkspaceName    string       `json:"workspaceName"`
 	ProjectRoot      string       `json:"projectRoot,omitempty"`
+	System           bool         `json:"system,omitempty"`
+	SystemApp        bool         `json:"systemApp,omitempty"`
+	Managed          bool         `json:"managed,omitempty"`
+	Hidden           bool         `json:"hidden,omitempty"`
 	Capabilities     Capabilities `json:"capabilities"`
 }
 

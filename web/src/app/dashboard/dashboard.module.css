@@ -2284,6 +2284,21 @@
 /* Workspaces */
 .workspaceSection { width: min(100%, var(--dashboard-content)); margin: 0 auto; }
 .workspaceToolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.workspaceGroup { display: grid; gap: 12px; margin-top: 22px; }
+.workspaceGroup:first-of-type { margin-top: 0; }
+.workspaceGroupHead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 0 2px 9px; border-bottom: 1px solid var(--line); }
+.workspaceGroupHead h2 { margin: 0; color: var(--text); font-size: 15px; font-weight: 620; }
+.workspaceGroupHead p { margin: 4px 0 0; color: var(--text-tertiary); font-size: 12px; }
+.workspaceGroupHead > span { color: var(--text-tertiary); font-family: var(--font-geist-mono), monospace; font-size: 12px; }
+.systemAppCard { border-color: rgba(139,168,255,.14); background: linear-gradient(180deg, rgba(94,121,255,.035), transparent 55%), var(--surface); }
+.systemAppTitleLine { min-width: 0; display: flex !important; align-items: center; gap: 8px; }
+.systemAppTitleLine h2 { flex: 0 1 auto; }
+.systemAppTitleLine b { flex: 0 0 auto; padding: 3px 6px; border: 1px solid rgba(139,168,255,.16); border-radius: 999px; color: #9fb5e6; background: rgba(94,121,255,.055); font-size: 11px; font-weight: 600; }
+.systemAppInstallAction { margin-top: auto; display: grid; gap: 5px; }
+.systemAppInstallAction button { width: 100%; min-height: 36px; padding: 0 11px; border: 1px solid rgba(139,168,255,.24); border-radius: var(--radius-control); color: var(--text); background: var(--accent-soft); font: inherit; font-size: 14px; font-weight: 570; cursor: pointer; }
+.systemAppInstallAction button:hover:not(:disabled) { border-color: rgba(139,168,255,.4); background: rgba(139,168,255,.11); }
+.systemAppInstallAction button:disabled { opacity: .45; cursor: default; }
+.systemAppInstallAction small { color: var(--danger); font-size: 12px; line-height: 1.35; }
 .summaryPills { display: flex; flex-wrap: wrap; gap: 7px; }
 .summaryPills > span { min-height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid rgba(255,255,255,.065); border-radius: 999px; background: rgba(255,255,255,.025); color: rgba(218, 228, 242, 0.85); font-size: 14px; }
 .summaryPills strong { color: rgba(255,255,255,.82); font-weight: 620; }

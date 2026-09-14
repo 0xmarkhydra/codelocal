@@ -25,6 +25,7 @@ type Workspace struct {
 	GrantedAt       int64  `json:"grantedAt"`
 	LastActivatedAt int64  `json:"lastActivatedAt,omitempty"`
 	System          bool   `json:"system,omitempty"`
+	SystemApp       bool   `json:"systemApp,omitempty"`
 	Managed         bool   `json:"managed,omitempty"`
 	Hidden          bool   `json:"hidden,omitempty"`
 }
@@ -155,6 +156,19 @@ func credentialDirectory(path string) bool {
 	return false
 }
 
+func normalizeWorkspace(ws Workspace) Workspace {
+	// Adopt the exact pre-System-App OpenMontage workspace in place. Preserve
+	// its path and timestamps; only upgrade product/lifecycle metadata.
+	if ws.WorkspaceID == "system-openmontage" {
+		ws.WorkspaceName = "Video Studio"
+		ws.System = true
+		ws.SystemApp = true
+		ws.Managed = true
+		ws.Hidden = false
+	}
+	return ws
+}
+
 func (r *Registry) List() ([]Workspace, error) {
 	data, err := r.read()
 	if err != nil {
@@ -162,6 +176,7 @@ func (r *Registry) List() ([]Workspace, error) {
 	}
 	out := make([]Workspace, 0, len(data.Workspaces))
 	for _, ws := range data.Workspaces {
+		ws = normalizeWorkspace(ws)
 		info, err := os.Stat(ws.LocalPath)
 		if err == nil && info.IsDir() {
 			out = append(out, ws)
@@ -271,8 +286,9 @@ func (r *Registry) EnsureSystem(projectID, name, path string) (Workspace, error)
 		out = Workspace{
 			WorkspaceID: id, WorkspaceName: name, LocalPath: real,
 			GrantedAt: grantedAt, LastActivatedAt: activated,
-			System: true, Managed: true, Hidden: true,
+			System: true, SystemApp: projectID == "openmontage", Managed: true, Hidden: projectID != "openmontage",
 		}
+		out = normalizeWorkspace(out)
 		next := make([]Workspace, 0, len(data.Workspaces)+1)
 		for _, ws := range data.Workspaces {
 			if ws.WorkspaceID != id {
@@ -301,7 +317,11 @@ func (r *Registry) Revoke(identifier string) (bool, error) {
 		}
 		next := make([]Workspace, 0, len(data.Workspaces))
 		for _, ws := range data.Workspaces {
+			ws = normalizeWorkspace(ws)
 			if ws.WorkspaceID == identifier || (resolved != "" && ws.LocalPath == resolved) {
+				if ws.Managed {
+					return errors.New("managed CodeLocal app cannot be removed as a normal workspace")
+				}
 				removed = true
 				continue
 			}

@@ -187,7 +187,7 @@ func (r *Runtime) post(ctx context.Context, path string, input any, output any) 
 func registrySignature(items []workspace.Workspace) string {
 	parts := make([]string, 0, len(items))
 	for _, w := range items {
-		parts = append(parts, w.WorkspaceID+"\x00"+w.WorkspaceName+"\x00"+w.LocalPath)
+		parts = append(parts, fmt.Sprintf("%s\x00%s\x00%s\x00%t\x00%t\x00%t\x00%t", w.WorkspaceID, w.WorkspaceName, w.LocalPath, w.System, w.SystemApp, w.Managed, w.Hidden))
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "\n")
@@ -355,6 +355,7 @@ func (r *Runtime) SyncRegistry(ctx context.Context, force bool) ([]workspace.Wor
 		skillMetadata, _ := learnedSkillMetadataSnapshot(skillStore, r.Options.Credential.DeviceID, w.WorkspaceID)
 		workspaces = append(workspaces, map[string]any{
 			"workspaceId": w.WorkspaceID, "workspaceName": w.WorkspaceName,
+			"system": w.System, "systemApp": w.SystemApp, "managed": w.Managed, "hidden": w.Hidden,
 			"projectIdentity": nextIdentities[w.WorkspaceID], "learnedSkills": skillMetadata,
 		})
 	}
@@ -522,7 +523,7 @@ func (w *WorkspaceWorker) Start(parent context.Context) error {
 	}
 	conn.SetReadLimit(32 << 20)
 	w.conn = conn
-	register := protocol.RegisterMessage{Type: "register", ProtocolVersion: protocol.Version, ClientVersion: version.Version, CredentialID: w.Runtime.Options.Credential.CredentialID, CredentialSecret: w.Runtime.Options.Credential.CredentialSecret, DeviceID: w.Runtime.Options.Credential.DeviceID, DeviceName: w.Runtime.Options.Credential.DeviceName, WorkspaceID: w.Workspace.WorkspaceID, WorkspaceName: w.Workspace.WorkspaceName, ProjectRoot: w.Workspace.LocalPath, Capabilities: protocol.Capabilities{Filesystem: true, Git: true, Shell: w.Engine.ShellEnabled, PTY: w.Engine.ShellEnabled, Sandbox: "policy-only", SemanticProviders: w.Engine.SemanticProviders(), Idempotency: true, Cancellation: true, Approvals: true, ApprovalMemory: true, HostPolicyExecution: true, MCPHub: true, PluginConfig: true, TerminalChatApproval: true, TerminalHistory: true, LearnedSkills: true, Automation: workspaceAutomationCapabilities(w)}}
+	register := protocol.RegisterMessage{Type: "register", ProtocolVersion: protocol.Version, ClientVersion: version.Version, CredentialID: w.Runtime.Options.Credential.CredentialID, CredentialSecret: w.Runtime.Options.Credential.CredentialSecret, DeviceID: w.Runtime.Options.Credential.DeviceID, DeviceName: w.Runtime.Options.Credential.DeviceName, WorkspaceID: w.Workspace.WorkspaceID, WorkspaceName: w.Workspace.WorkspaceName, ProjectRoot: w.Workspace.LocalPath, System: w.Workspace.System, SystemApp: w.Workspace.SystemApp, Managed: w.Workspace.Managed, Hidden: w.Workspace.Hidden, Capabilities: protocol.Capabilities{Filesystem: true, Git: true, Shell: w.Engine.ShellEnabled, PTY: w.Engine.ShellEnabled, Sandbox: "policy-only", SemanticProviders: w.Engine.SemanticProviders(), Idempotency: true, Cancellation: true, Approvals: true, ApprovalMemory: true, HostPolicyExecution: true, MCPHub: true, PluginConfig: true, TerminalChatApproval: true, TerminalHistory: true, LearnedSkills: true, Automation: workspaceAutomationCapabilities(w)}}
 	if err := w.send(ctx, register); err != nil {
 		conn.Close(websocket.StatusInternalError, "register failed")
 		return err

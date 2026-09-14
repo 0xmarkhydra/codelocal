@@ -46,7 +46,7 @@ func TestRuntimeConfigMergeAndOpenMontageDefault(t *testing.T) {
 	if !got.Secrets["VBEE_API_KEY"].Configured {
 		t.Fatalf("secret metadata missing: %#v", got.Secrets)
 	}
-	if len(got.SystemProjects) != 1 || got.SystemProjects[0].ID != "openmontage" || !got.SystemProjects[0].Enabled || !got.SystemProjects[0].Managed || !got.SystemProjects[0].Hidden {
+	if len(got.SystemProjects) != 1 || got.SystemProjects[0].ID != OpenMontageSystemProjectID || got.SystemProjects[0].Name != OpenMontageName || !got.SystemProjects[0].SystemApp || !got.SystemProjects[0].Managed || got.SystemProjects[0].Hidden || got.SystemProjects[0].Enabled {
 		t.Fatalf("unexpected OpenMontage defaults: %#v", got.SystemProjects)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,17 +69,15 @@ func loadRuntimeConfigCache(deviceID string) map[string]cloud.RuntimeConfigSnaps
 }
 
 func resolveRuntimeSnapshot(snapshot cloud.RuntimeConfigSnapshot) cloud.RuntimeConfigSnapshot {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return snapshot
-	}
 	for index, project := range snapshot.SystemProjects {
-		if project.ID != "openmontage" {
+		if project.ID != cloud.OpenMontageSystemProjectID {
 			continue
 		}
-		project.Path = filepath.Join(home, ".codelocal", "system-projects", "openmontage")
-		project.Source = "https://github.com/calesthio/OpenMontage.git"
-		project.Managed, project.Hidden = true, true
+		project.Name = cloud.OpenMontageName
+		project.Source = cloud.OpenMontageSource
+		project.SystemApp = true
+		project.Managed = true
+		project.Hidden = false
 		snapshot.SystemProjects[index] = project
 	}
 	return snapshot
@@ -88,30 +85,14 @@ func resolveRuntimeSnapshot(snapshot cloud.RuntimeConfigSnapshot) cloud.RuntimeC
 
 func managedRuntimeSystemProjects(settings map[string]cloud.RuntimeMaterializedConfig) []cloud.RuntimeSystemProject {
 	projects := map[string]cloud.RuntimeSystemProject{}
-	seen := map[string]bool{}
 	for _, materialized := range settings {
 		for _, project := range materialized.Snapshot.SystemProjects {
 			id := strings.TrimSpace(project.ID)
-			if id == "" {
-				continue
-			}
-			seen[id] = true
-			if !project.Enabled || !project.Managed {
+			if id == "" || !project.Enabled || !project.Managed {
 				continue
 			}
 			project.ID = id
 			projects[id] = project
-		}
-	}
-	// OpenMontage is a CodeLocal-owned system project, so a transient control-plane
-	// response that omits runtime settings must not make Video Studio disappear.
-	// An explicit OpenMontage entry still wins, including Enabled=false.
-	if !seen["openmontage"] {
-		fallback := resolveRuntimeSnapshot(cloud.RuntimeConfigSnapshot{SystemProjects: []cloud.RuntimeSystemProject{{
-			ID: "openmontage", Name: "OpenMontage", Enabled: true,
-		}}})
-		if len(fallback.SystemProjects) == 1 {
-			projects["openmontage"] = fallback.SystemProjects[0]
 		}
 	}
 	out := make([]cloud.RuntimeSystemProject, 0, len(projects))
@@ -175,43 +156,32 @@ func materializeManagedSystemProject(ctx context.Context, project cloud.RuntimeS
 	return os.Rename(tmp, project.Path)
 }
 
-func (r *Runtime) materializeRuntimeSystemProjects(settings map[string]cloud.RuntimeMaterializedConfig) {
-	projects := managedRuntimeSystemProjects(settings)
-	if len(projects) == 0 {
-		return
+func (r *Runtime) InstallSystemApp(ctx context.Context, appID string) (*WorkspaceWorker, error) {
+	if appID != cloud.OpenMontageSystemProjectID {
+		return nil, fmt.Errorf("unsupported system app: %s", appID)
 	}
-	r.mu.Lock()
-	parent := r.systemProjectCtx
-	if parent == nil {
-		r.mu.Unlock()
-		return
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
 	}
-	r.systemProjectSyncWG.Add(1)
-	r.mu.Unlock()
-	go func() {
-		defer r.systemProjectSyncWG.Done()
-		r.systemProjectSyncMu.Lock()
-		defer r.systemProjectSyncMu.Unlock()
-		ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
-		defer cancel()
-		for _, project := range projects {
-			if err := materializeManagedSystemProject(ctx, project); err != nil {
-				slog.Warn("managed system project materialization failed", "projectId", project.ID, "error", err)
-				continue
-			}
-			if r.Registry != nil {
-				workspaceName := strings.TrimSpace(project.Name)
-				if project.ID == "openmontage" {
-					workspaceName = "Video Studio"
-				}
-				if _, err := r.Registry.EnsureSystem(project.ID, workspaceName, project.Path); err != nil {
-					slog.Warn("managed system workspace registration failed", "projectId", project.ID, "error", err)
-					continue
-				}
-			}
-			slog.Debug("managed system project ready", "projectId", project.ID, "path", project.Path)
-		}
-	}()
+	project := cloud.RuntimeSystemProject{
+		ID: cloud.OpenMontageSystemProjectID, Name: cloud.OpenMontageName,
+		Path: filepath.Join(home, ".codelocal", "system-projects", "openmontage"), Source: cloud.OpenMontageSource,
+		SystemApp: true, Managed: true, Hidden: false, Enabled: true,
+	}
+	r.systemProjectSyncMu.Lock()
+	defer r.systemProjectSyncMu.Unlock()
+	if err := materializeManagedSystemProject(ctx, project); err != nil {
+		return nil, err
+	}
+	entry, err := r.Registry.EnsureSystem(project.ID, project.Name, project.Path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := r.SyncRegistry(ctx, true); err != nil {
+		return nil, err
+	}
+	return r.Activate(ctx, entry.WorkspaceID)
 }
 
 func runtimeConfigEnvironment(snapshot cloud.RuntimeConfigSnapshot) map[string]string {
@@ -256,7 +226,8 @@ func (r *Runtime) applyRuntimeSettings(settings map[string]cloud.RuntimeMaterial
 		materialized := settings[workspaceID]
 		go r.reconcileWorkerMCP(worker, materialized.MCPServers)
 	}
-	r.materializeRuntimeSystemProjects(settings)
+	// Applying runtime settings must never create System App files. Installation
+	// is an explicit user action handled by the realtime runtime control lane.
 	if err := saveRuntimeConfigCache(cache); err != nil {
 		return
 	}

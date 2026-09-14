@@ -161,3 +161,61 @@ func (s *Server) removeWorkspaceResourceAPI(w http.ResponseWriter, r *http.Reque
 		"message": workspace.WorkspaceName + " access removed. The project files were not changed.",
 	})
 }
+
+func (s *Server) installSystemAppResourceAPI(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.authenticatedAPIIdentity(w, r)
+	if !ok {
+		return
+	}
+	if !s.WebAuth.RequireFreshSecurityContext(w, r, identity, "/dashboard/workspaces") {
+		return
+	}
+	if !s.WebAuth.VerifyCSRF(r) {
+		webutil.JSON(w, http.StatusForbidden, map[string]string{"error": "invalid_csrf"})
+		return
+	}
+	appID := mutationPublicID(r.PathValue("appID"), 80)
+	deviceID := mutationPublicID(r.PathValue("deviceID"), 160)
+	if appID != cloud.OpenMontageSystemProjectID || deviceID == "" {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_system_app"})
+		return
+	}
+	devices, err := s.Store.ListDevices(r.Context(), identity.User.ID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "devices_unavailable"})
+		return
+	}
+	if deviceByPublicID(devices, deviceID) == nil {
+		webutil.JSON(w, http.StatusNotFound, map[string]string{"error": "device_not_found"})
+		return
+	}
+	online, err := s.Activation.IsOnline(r.Context(), identity.User.ID, deviceID)
+	if err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runtime_status_unavailable"})
+		return
+	}
+	if !online {
+		webutil.JSON(w, http.StatusConflict, map[string]string{"error": "system_app_runtime_offline"})
+		return
+	}
+	key := gateway.ClientKey(identity.User.ID, deviceID, cloud.OpenMontageWorkspaceID)
+	if owner, _ := s.Coordinator.Owner(r.Context(), key); owner != "" {
+		webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "deviceId": deviceID, "workspaceId": cloud.OpenMontageWorkspaceID, "message": cloud.OpenMontageName + " is ready."})
+		return
+	}
+	requestID := cloud.RandomHex(16)
+	activation := cloud.WorkspaceActivation{WorkspaceID: cloud.OpenMontageWorkspaceID, Action: "install-system-app", RequestedAt: time.Now().UnixMilli(), RequestID: requestID}
+	if err := s.Activation.Request(r.Context(), identity.User.ID, deviceID, activation, 2*time.Minute); err != nil {
+		webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": "system_app_install_failed"})
+		return
+	}
+	s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "system_app.install_requested", DeviceID: deviceID, WorkspaceID: cloud.OpenMontageWorkspaceID, Detail: map[string]any{"appId": appID, "requestId": requestID}})
+	waitCtx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	if _, err := s.Coordinator.WaitOwner(waitCtx, key); err != nil {
+		webutil.JSON(w, http.StatusGatewayTimeout, map[string]string{"error": "system_app_install_timeout"})
+		return
+	}
+	s.Store.Audit(cloud.AuditEvent{UserID: identity.User.ID, Event: "system_app.installed", DeviceID: deviceID, WorkspaceID: cloud.OpenMontageWorkspaceID, Detail: map[string]any{"appId": appID, "requestId": requestID}})
+	webutil.JSON(w, http.StatusOK, map[string]any{"ok": true, "deviceId": deviceID, "workspaceId": cloud.OpenMontageWorkspaceID, "message": cloud.OpenMontageName + " installed and ready."})
+}
