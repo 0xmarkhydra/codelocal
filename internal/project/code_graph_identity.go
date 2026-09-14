@@ -38,11 +38,19 @@ func sourceRevision(commit, sourceHash string) string {
 	return commit + ":" + shortHash(sourceHash, 20)
 }
 
-func (e *Engine) SemanticInfo() map[string]any {
+// SemanticProviderInfo returns only provider availability. It is safe to call
+// on the workspace activation critical path because it never builds the
+// structural code index or inspects Git state across repositories.
+func (e *Engine) SemanticProviderInfo() map[string]any {
 	info := map[string]any{"providers": []map[string]any{}, "fallback": "go-native-structure/ripgrep", "routing": "file-extension/polyglot"}
 	if e.LSP != nil {
 		info = e.LSP.Info()
 	}
+	return info
+}
+
+func (e *Engine) SemanticInfo() map[string]any {
+	info := e.SemanticProviderInfo()
 	if snapshots, err := e.CodeGraphSnapshots(); err == nil {
 		info["codeGraph"] = map[string]any{"status": "current", "repositories": snapshots}
 	} else {

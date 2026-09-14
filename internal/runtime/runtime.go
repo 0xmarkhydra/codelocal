@@ -89,6 +89,39 @@ type pollResponse struct {
 
 var ErrDeviceAuthorizationRevoked = errors.New("CodeLocal runtime device authorization was revoked; run `codelocal login` to sign in again")
 
+type WorkspaceActivationError struct {
+	Phase string
+	Err   error
+}
+
+func (e *WorkspaceActivationError) Error() string {
+	if e == nil || e.Err == nil {
+		return "workspace activation failed"
+	}
+	return e.Err.Error()
+}
+func (e *WorkspaceActivationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func workspaceActivationError(phase string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &WorkspaceActivationError{Phase: phase, Err: err}
+}
+
+func WorkspaceActivationPhase(err error) string {
+	var activationErr *WorkspaceActivationError
+	if errors.As(err, &activationErr) && activationErr.Phase != "" {
+		return activationErr.Phase
+	}
+	return "activate"
+}
+
 func New(options Options) *Runtime {
 	if options.LongPoll <= 0 {
 		options.LongPoll = 25 * time.Second
@@ -414,14 +447,14 @@ func (r *Runtime) Activate(ctx context.Context, workspaceID string) (*WorkspaceW
 	r.mu.Unlock()
 	entry, err := r.Registry.Get(workspaceID)
 	if err != nil {
-		return nil, err
+		return nil, workspaceActivationError("registry_lookup", err)
 	}
 	if entry == nil {
-		return nil, fmt.Errorf("workspace is not authorized on this machine: %s", workspaceID)
+		return nil, workspaceActivationError("registry_authorization", fmt.Errorf("workspace is not authorized on this machine: %s", workspaceID))
 	}
 	worker, err := newWorkspaceWorker(r, *entry)
 	if err != nil {
-		return nil, err
+		return nil, workspaceActivationError("engine_init", err)
 	}
 	r.mu.Lock()
 	if existing := r.workers[workspaceID]; existing != nil {
@@ -441,7 +474,7 @@ func (r *Runtime) Activate(ctx context.Context, workspaceID string) (*WorkspaceW
 		}
 		r.mu.Unlock()
 		worker.Stop("activation failed")
-		return nil, err
+		return nil, workspaceActivationError("worker_register", err)
 	}
 	// Project Brain is intentionally outside the activation critical path. The
 	// workspace is already usable once the worker has registered; knowledge

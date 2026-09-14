@@ -19,6 +19,27 @@ func commitProjectFixture(t *testing.T, root string) {
 	}
 }
 
+func TestSemanticProviderInfoDoesNotBuildCodeGraph(t *testing.T) {
+	root := t.TempDir()
+	initNestedProjectRepo(t, root, ".")
+	writeKnowledgeFixture(t, root, "main.go", "package sample\nfunc Target() {}\n")
+
+	fs, err := localfs.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(fs)
+	defer engine.Close()
+
+	info := engine.SemanticProviderInfo()
+	if info["codeGraph"] != nil {
+		t.Fatalf("provider-only semantic info unexpectedly contains Code Graph data: %#v", info)
+	}
+	if engine.indexBuiltAt != 0 || len(engine.index) != 0 {
+		t.Fatalf("provider-only semantic info built the structural index: builtAt=%d files=%d", engine.indexBuiltAt, len(engine.index))
+	}
+}
+
 func TestCodeGraphSnapshotTracksRepositorySourceRevision(t *testing.T) {
 	root := t.TempDir()
 	initNestedProjectRepo(t, root, ".")

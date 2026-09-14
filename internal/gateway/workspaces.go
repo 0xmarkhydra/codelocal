@@ -37,6 +37,55 @@ type WorkspaceService struct {
 	Coordinator *Coordinator
 }
 
+type WorkspaceActivationFailure struct {
+	WorkspaceKey    string
+	WorkspaceID     string
+	DeviceID        string
+	RequestID       string
+	Phase           string
+	Reason          string
+	WakeStatus      string
+	RoutingTarget   string
+	RuntimeOnline   bool
+	LastHeartbeatAt int64
+	WorkerReceived  bool
+}
+
+func (e *WorkspaceActivationFailure) Error() string {
+	if e == nil {
+		return "workspace activation failed"
+	}
+	if e.Phase != "" || e.Reason != "" {
+		return fmt.Sprintf("workspace activation failed at %s: %s", activationFallback(e.Phase, "unknown"), activationFallback(e.Reason, "unknown reason"))
+	}
+	return "workspace activation timed out; keep `codelocal` running and try again"
+}
+
+func (e *WorkspaceActivationFailure) Details() map[string]any {
+	if e == nil {
+		return nil
+	}
+	return map[string]any{
+		"workspaceId":         e.WorkspaceID,
+		"deviceId":            e.DeviceID,
+		"activationRequestId": e.RequestID,
+		"activationPhase":     e.Phase,
+		"wakeStatus":          e.WakeStatus,
+		"routingTarget":       e.RoutingTarget,
+		"runtimeOnline":       e.RuntimeOnline,
+		"lastHeartbeatAt":     e.LastHeartbeatAt,
+		"workerReceivedWake":  e.WorkerReceived,
+		"reason":              e.Reason,
+	}
+}
+
+func activationFallback(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
 func activeWorkspaceView(client *Client) *WorkspaceView {
 	return &WorkspaceView{
 		Key:               client.Key,
@@ -146,6 +195,83 @@ func (s *WorkspaceService) Catalog(ctx context.Context, userID string) ([]Worksp
 	return out, nil
 }
 
+func (s *WorkspaceService) activationFailure(ctx context.Context, userID, key string, workspace *WorkspaceView, requestID, wakeStatus, phase, reason string, workerReceived bool) *WorkspaceActivationFailure {
+	online, _ := s.Activation.IsOnline(ctx, userID, workspace.DeviceID)
+	lastHeartbeatAt, _ := s.Activation.LastHeartbeatAt(ctx, userID, workspace.DeviceID)
+	routingTarget, _ := s.Coordinator.Owner(ctx, key)
+	return &WorkspaceActivationFailure{
+		WorkspaceKey: key, WorkspaceID: workspace.WorkspaceID, DeviceID: workspace.DeviceID, RequestID: requestID,
+		Phase: phase, Reason: reason, WakeStatus: wakeStatus, RoutingTarget: routingTarget,
+		RuntimeOnline: online, LastHeartbeatAt: lastHeartbeatAt, WorkerReceived: workerReceived,
+	}
+}
+
+func (s *WorkspaceService) waitForActivation(ctx context.Context, userID, key string, workspace *WorkspaceView, requestID string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	type ownerResult struct {
+		owner string
+		err   error
+	}
+	type activationResult struct {
+		result *cloud.WorkspaceActivationResult
+		err    error
+	}
+	ownerCh := make(chan ownerResult, 1)
+	activationCh := make(chan activationResult, 1)
+	go func() {
+		owner, err := s.Coordinator.WaitOwner(waitCtx, key)
+		ownerCh <- ownerResult{owner: owner, err: err}
+	}()
+	go func() {
+		result, err := s.Activation.WaitForActivationResult(waitCtx, requestID)
+		activationCh <- activationResult{result: result, err: err}
+	}()
+	wakeStatus := "requested"
+	workerReceived := false
+	for {
+		select {
+		case owner := <-ownerCh:
+			if owner.err == nil && owner.owner != "" {
+				return nil
+			}
+			if waitCtx.Err() == nil {
+				return s.activationFailure(waitCtx, userID, key, workspace, requestID, wakeStatus, "owner_wait", "routing_owner_wait_failed", workerReceived)
+			}
+		case activation := <-activationCh:
+			if activation.err != nil {
+				// Activation ACK/NACK is diagnostic enrichment, not a routing
+				// dependency. If its Redis/PubSub watcher fails, preserve the
+				// legacy success path and keep waiting for Coordinator.Owner.
+				activationCh = nil
+				if waitCtx.Err() == nil {
+					wakeStatus = "activation_result_unavailable"
+				}
+				continue
+			}
+			if activation.result == nil {
+				continue
+			}
+			workerReceived = true
+			wakeStatus = "worker_acknowledged"
+			if !activation.result.OK {
+				return s.activationFailure(waitCtx, userID, key, workspace, requestID, "worker_failed", activation.result.Phase, activation.result.Reason, true)
+			}
+			wakeStatus = "worker_ready"
+		case <-waitCtx.Done():
+			diagnosticCtx, diagnosticCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer diagnosticCancel()
+			if workerReceived && wakeStatus == "worker_ready" {
+				return s.activationFailure(diagnosticCtx, userID, key, workspace, requestID, wakeStatus, "owner_claim", "worker_ready_but_routing_owner_missing", true)
+			}
+			if wakeStatus == "activation_result_unavailable" {
+				return s.activationFailure(diagnosticCtx, userID, key, workspace, requestID, wakeStatus, "owner_claim", "activation_result_unavailable_and_routing_owner_missing", false)
+			}
+			return s.activationFailure(diagnosticCtx, userID, key, workspace, requestID, wakeStatus, "wake_delivery", "runtime_did_not_acknowledge_activation", workerReceived)
+		}
+	}
+}
+
 func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*WorkspaceView, error) {
 	// The connected client is the freshest source of workspace capabilities and
 	// authorization. Avoid rebuilding the durable catalog (DB + several Redis
@@ -192,10 +318,8 @@ func (s *WorkspaceService) Activate(ctx context.Context, userID, key string) (*W
 		return nil, err
 	}
 	s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "workspace.activation_requested", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID}})
-	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	if _, err := s.Coordinator.WaitOwner(waitCtx, key); err != nil {
-		return nil, errors.New("workspace activation timed out; keep `codelocal` running and try again")
+	if err := s.waitForActivation(ctx, userID, key, workspace, requestID); err != nil {
+		return nil, err
 	}
 	s.Store.Audit(cloud.AuditEvent{UserID: userID, Event: "workspace.activated", DeviceID: workspace.DeviceID, WorkspaceID: workspace.WorkspaceID, Detail: map[string]any{"requestId": requestID}})
 	// Refresh after activation so protocol/capability gating sees the capabilities

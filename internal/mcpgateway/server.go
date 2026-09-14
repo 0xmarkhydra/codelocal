@@ -315,6 +315,10 @@ func classifyGatewayFailure(err error, runtimeCode string) (string, bool) {
 	if err == nil {
 		return codeLocalRuntimeFailure, false
 	}
+	var activationFailure *gateway.WorkspaceActivationFailure
+	if errors.As(err, &activationFailure) {
+		return codeLocalTransientRoutingFailure, true
+	}
 	message := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(message, "no active workspace"), strings.Contains(message, "multiple workspaces are active"), strings.Contains(message, "no workspace selected"):
@@ -350,12 +354,16 @@ func transientRouteFailure(result gateway.RoutedResult, err error) bool {
 
 func gatewayFailureResult(err error, runtimeCode, requestID, workspaceKey string, retryCount int, rebound bool) *mcp.CallToolResult {
 	code, retryable := classifyGatewayFailure(err, runtimeCode)
-	return codedErrorResult(code, err, retryable, map[string]any{
-		"requestId":    requestID,
-		"workspaceKey": workspaceKey,
-		"retryCount":   retryCount,
-		"rebound":      rebound,
-	})
+	details := map[string]any{
+		"requestId": requestID, "workspaceKey": workspaceKey, "retryCount": retryCount, "rebound": rebound,
+	}
+	var activationFailure *gateway.WorkspaceActivationFailure
+	if errors.As(err, &activationFailure) {
+		for key, value := range activationFailure.Details() {
+			details[key] = value
+		}
+	}
+	return codedErrorResult(code, err, retryable, details)
 }
 
 func activeWorkspaceKeyForOperation(active []gateway.WorkspaceView, operation operationInvocation) (string, bool) {

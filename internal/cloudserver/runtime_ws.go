@@ -14,17 +14,18 @@ import (
 var runtimeWorkspaceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`)
 
 type runtimeRealtimeEnvelope struct {
-	Type          string                     `json:"type"`
-	ClientVersion string                     `json:"clientVersion,omitempty"`
-	CredentialID  string                     `json:"credentialId,omitempty"`
-	Secret        string                     `json:"credentialSecret,omitempty"`
-	DeviceID      string                     `json:"deviceId,omitempty"`
-	WorkspaceIDs  []string                   `json:"workspaceIds,omitempty"`
-	WorkspaceID   string                     `json:"workspaceId,omitempty"`
-	RequestID     string                     `json:"requestId,omitempty"`
-	Activation    *cloud.WorkspaceActivation `json:"activation,omitempty"`
-	Revocation    *cloud.WorkspaceRevocation `json:"revocation,omitempty"`
-	Now           int64                      `json:"now,omitempty"`
+	Type             string                           `json:"type"`
+	ClientVersion    string                           `json:"clientVersion,omitempty"`
+	CredentialID     string                           `json:"credentialId,omitempty"`
+	Secret           string                           `json:"credentialSecret,omitempty"`
+	DeviceID         string                           `json:"deviceId,omitempty"`
+	WorkspaceIDs     []string                         `json:"workspaceIds,omitempty"`
+	WorkspaceID      string                           `json:"workspaceId,omitempty"`
+	RequestID        string                           `json:"requestId,omitempty"`
+	Activation       *cloud.WorkspaceActivation       `json:"activation,omitempty"`
+	ActivationResult *cloud.WorkspaceActivationResult `json:"activationResult,omitempty"`
+	Revocation       *cloud.WorkspaceRevocation       `json:"revocation,omitempty"`
+	Now              int64                            `json:"now,omitempty"`
 }
 
 func sanitizeRuntimeWorkspaceIDs(values []string) []string {
@@ -123,6 +124,14 @@ func (s *Server) runtimeRealtime(w http.ResponseWriter, r *http.Request) {
 				}
 				if heartbeatErr := s.Activation.Heartbeat(ctx, device.UserID, device.DeviceID, workspaceIDs, 45*time.Second); heartbeatErr != nil {
 					readErr <- heartbeatErr
+					return
+				}
+			case "runtime_activation_result":
+				if envelope.ActivationResult == nil || envelope.ActivationResult.RequestID == "" || envelope.ActivationResult.WorkspaceID == "" {
+					continue
+				}
+				if ackErr := s.Activation.AcknowledgeActivation(ctx, *envelope.ActivationResult); ackErr != nil {
+					readErr <- ackErr
 					return
 				}
 			case "runtime_revocation_ack":

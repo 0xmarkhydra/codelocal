@@ -24,17 +24,18 @@ const (
 )
 
 type runtimeControlEnvelope struct {
-	Type          string                     `json:"type"`
-	ClientVersion string                     `json:"clientVersion,omitempty"`
-	CredentialID  string                     `json:"credentialId,omitempty"`
-	Secret        string                     `json:"credentialSecret,omitempty"`
-	DeviceID      string                     `json:"deviceId,omitempty"`
-	WorkspaceIDs  []string                   `json:"workspaceIds,omitempty"`
-	WorkspaceID   string                     `json:"workspaceId,omitempty"`
-	RequestID     string                     `json:"requestId,omitempty"`
-	Activation    *cloud.WorkspaceActivation `json:"activation,omitempty"`
-	Revocation    *cloud.WorkspaceRevocation `json:"revocation,omitempty"`
-	Now           int64                      `json:"now,omitempty"`
+	Type             string                           `json:"type"`
+	ClientVersion    string                           `json:"clientVersion,omitempty"`
+	CredentialID     string                           `json:"credentialId,omitempty"`
+	Secret           string                           `json:"credentialSecret,omitempty"`
+	DeviceID         string                           `json:"deviceId,omitempty"`
+	WorkspaceIDs     []string                         `json:"workspaceIds,omitempty"`
+	WorkspaceID      string                           `json:"workspaceId,omitempty"`
+	RequestID        string                           `json:"requestId,omitempty"`
+	Activation       *cloud.WorkspaceActivation       `json:"activation,omitempty"`
+	ActivationResult *cloud.WorkspaceActivationResult `json:"activationResult,omitempty"`
+	Revocation       *cloud.WorkspaceRevocation       `json:"revocation,omitempty"`
+	Now              int64                            `json:"now,omitempty"`
 }
 
 func runtimeControlURL(base string) string {
@@ -81,6 +82,21 @@ func runtimeControlError(err error) error {
 		return ErrDeviceAuthorizationRevoked
 	}
 	return err
+}
+
+func workspaceActivationReason(err error) string {
+	switch WorkspaceActivationPhase(err) {
+	case "registry_lookup":
+		return "workspace_registry_unavailable"
+	case "registry_authorization":
+		return "workspace_registry_entry_missing"
+	case "engine_init":
+		return "workspace_engine_initialization_failed"
+	case "worker_register":
+		return "workspace_worker_registration_failed"
+	default:
+		return "workspace_activation_failed"
+	}
 }
 
 func (r *Runtime) dialRuntimeControl(ctx context.Context, items []workspace.Workspace) (*websocket.Conn, error) {
@@ -248,8 +264,22 @@ func (r *Runtime) serveRuntimeControl(parent context.Context, conn *websocket.Co
 					continue
 				}
 				if envelope.Activation != nil {
-					if _, err := r.Activate(ctx, envelope.Activation.WorkspaceID); err != nil {
-						slog.Warn("workspace activation failed", "workspaceId", envelope.Activation.WorkspaceID, "error", err)
+					activation := envelope.Activation
+					_, activationErr := r.Activate(ctx, activation.WorkspaceID)
+					result := &cloud.WorkspaceActivationResult{
+						WorkspaceID:    activation.WorkspaceID,
+						RequestID:      activation.RequestID,
+						OK:             activationErr == nil,
+						Phase:          "ready",
+						AcknowledgedAt: time.Now().UnixMilli(),
+					}
+					if activationErr != nil {
+						result.Phase = WorkspaceActivationPhase(activationErr)
+						result.Reason = workspaceActivationReason(activationErr)
+						slog.Warn("workspace activation failed", "workspaceId", activation.WorkspaceID, "requestId", activation.RequestID, "phase", result.Phase, "reason", result.Reason, "error", activationErr)
+					}
+					if err := writeRuntimeControl(ctx, conn, runtimeControlEnvelope{Type: "runtime_activation_result", ActivationResult: result, Now: time.Now().UnixMilli()}); err != nil {
+						return runtimeControlError(err)
 					}
 				}
 			case "runtime_ping":

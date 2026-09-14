@@ -18,6 +18,15 @@ type WorkspaceActivation struct {
 	RequestID   string `json:"requestId"`
 }
 
+type WorkspaceActivationResult struct {
+	WorkspaceID    string `json:"workspaceId"`
+	RequestID      string `json:"requestId"`
+	OK             bool   `json:"ok"`
+	Phase          string `json:"phase,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	AcknowledgedAt int64  `json:"acknowledgedAt"`
+}
+
 type WorkspaceRevocation = WorkspaceActivation
 
 type ActivationStore struct {
@@ -46,6 +55,12 @@ func (s *ActivationStore) revocationKey(user, device string) string {
 }
 func (s *ActivationStore) pendingRevocationKey(user, device, workspace string) string {
 	return "codelocal:runtime:revocation-pending:" + safePart(user) + ":" + safePart(device) + ":" + safePart(workspace)
+}
+func activationResultKey(requestID string) string {
+	return "codelocal:runtime:activation-result:" + safePart(requestID)
+}
+func activationResultChannel(requestID string) string {
+	return "codelocal:runtime:activation-result:" + requestID
 }
 func revocationAckKey(requestID string) string {
 	return "codelocal:runtime:revoke-ack-state:" + safePart(requestID)
@@ -210,6 +225,67 @@ func (s *ActivationStore) Request(ctx context.Context, user, device string, a Wo
 	}
 	return err
 }
+
+func (s *ActivationStore) AcknowledgeActivation(ctx context.Context, result WorkspaceActivationResult) error {
+	if result.RequestID == "" || result.WorkspaceID == "" {
+		return errors.New("activation result requires requestId and workspaceId")
+	}
+	if result.AcknowledgedAt == 0 {
+		result.AcknowledgedAt = time.Now().UnixMilli()
+	}
+	raw, _ := json.Marshal(result)
+	pipe := s.Redis.Pipeline()
+	pipe.Set(ctx, activationResultKey(result.RequestID), raw, 60*time.Second)
+	pipe.Publish(ctx, activationResultChannel(result.RequestID), raw)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+func (s *ActivationStore) ActivationResult(ctx context.Context, requestID string) (*WorkspaceActivationResult, error) {
+	raw, err := s.Redis.Get(ctx, activationResultKey(requestID)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspaceActivationResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// WaitForActivationResult is race-safe: a durable short-lived result is
+// checked before and after the Pub/Sub subscription is established.
+func (s *ActivationStore) WaitForActivationResult(ctx context.Context, requestID string) (*WorkspaceActivationResult, error) {
+	if result, err := s.ActivationResult(ctx, requestID); err != nil || result != nil {
+		return result, err
+	}
+	pubsub := s.Redis.Subscribe(ctx, activationResultChannel(requestID))
+	defer pubsub.Close()
+	if _, err := pubsub.Receive(ctx); err != nil {
+		return nil, err
+	}
+	if result, err := s.ActivationResult(ctx, requestID); err != nil || result != nil {
+		return result, err
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-pubsub.Channel():
+		return s.ActivationResult(ctx, requestID)
+	}
+}
+
+func (s *ActivationStore) LastHeartbeatAt(ctx context.Context, user, device string) (int64, error) {
+	value, err := s.Redis.Get(ctx, s.presenceKey(user, device)).Int64()
+	if errors.Is(err, redis.Nil) {
+		return 0, nil
+	}
+	return value, err
+}
+
 func (s *ActivationStore) RequestRevocation(ctx context.Context, user, device string, a WorkspaceRevocation, ttl time.Duration) error {
 	raw, _ := json.Marshal(a)
 	pipe := s.Redis.Pipeline()
