@@ -2,10 +2,14 @@ package cloudserver
 
 import "testing"
 
-func TestNextDashboardRoutingIncludesSkillsAndSingleTrailingSlash(t *testing.T) {
+func TestNextDashboardRoutingIncludesSkillsForumsAndSingleTrailingSlash(t *testing.T) {
 	for _, path := range []string{
 		"/dashboard/skills",
 		"/dashboard/skills/",
+		"/dashboard/forums",
+		"/dashboard/forums/",
+		"/dashboard/forums/topic-123",
+		"/dashboard/forums/topic-123/",
 		"/dashboard/admin",
 		"/dashboard/admin/",
 	} {
@@ -20,6 +24,7 @@ func TestNextDashboardRoutingDoesNotWidenToNestedOrDoubleSlashPaths(t *testing.T
 		"/dashboard/admin/users",
 		"/dashboard/admin//",
 		"/dashboard/skills/private",
+		"/dashboard/forums//",
 	} {
 		if isNextDashboardPath(path) {
 			t.Fatalf("expected %q to remain outside the Next dashboard allowlist", path)

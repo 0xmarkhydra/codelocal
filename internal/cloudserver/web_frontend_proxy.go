@@ -111,6 +111,9 @@ func isNextDashboardPath(path string) bool {
 	if isPathFamily(path, "/dashboard/blogs") {
 		return true
 	}
+	if isPathFamily(path, "/dashboard/forums") && !strings.Contains(strings.TrimPrefix(path, "/dashboard/forums"), "//") {
+		return true
+	}
 	_, ok := nextDashboardPaths[path]
 	return ok
 }
