@@ -29,7 +29,7 @@ const emptyDraft: Draft = {
   kind: "question",
   title: "",
   body: "",
-  severity: "medium",
+  severity: "",
   version: "",
   environment: "",
   reproductionSteps: "",
@@ -126,6 +126,10 @@ export function ForumsHub() {
         headers: { "Content-Type": "application/json", "X-CSRF-Token": readyAccount.csrf },
         body: JSON.stringify({
           ...draft,
+          severity: draft.kind === "bug" ? "" : draft.severity,
+          environment: draft.kind === "bug"
+            ? `Browser: ${navigator.userAgent}\nLanguage: ${navigator.language}`
+            : "",
           tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
           assetIds: assetIDs,
         }),
@@ -174,11 +178,17 @@ export function ForumsHub() {
           <div className={styles.kindPicker}>
             {(["question", "bug", "idea"] as ForumKind[]).map((item) => <button type="button" key={item} data-active={draft.kind === item || undefined} onClick={() => setDraft((current) => ({ ...current, kind: item }))}>{kindLabels[item]}</button>)}
           </div>
-          <label><span>Title</span><input required maxLength={180} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Short, specific title" /></label>
-          <label><span>Description</span><textarea required rows={6} value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="What happened? What are you trying to do?" /></label>
+          <label>
+            <span>{draft.kind === "bug" ? "What broke?" : "Title"}</span>
+            <input required maxLength={180} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder={draft.kind === "bug" ? "e.g. Workspace gets stuck on Connecting" : "Short, specific title"} />
+          </label>
+          <label>
+            <span>{draft.kind === "bug" ? "Tell us what happened" : "Description"}</span>
+            <textarea required rows={6} value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder={draft.kind === "bug" ? "What were you doing, and what went wrong? A short description is enough." : "What happened? What are you trying to do?"} />
+          </label>
           <div className={styles.attachments}>
             <div className={styles.attachmentHead}>
-              <div><strong>Screenshots / images</strong><span>JPEG, PNG or WebP · up to 6 images · 25 MB each</span></div>
+              <div><strong>{draft.kind === "bug" ? "Screenshot" : "Images"}</strong><span>{draft.kind === "bug" ? "Optional, but the fastest way to show the problem" : "JPEG, PNG or WebP · up to 6 images"}</span></div>
               <label className={styles.fileButton}>
                 {uploading ? "Uploading…" : "Add images"}
                 <input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || !readyAccount || assetIDs.length >= 6} onChange={(event) => void addImages(event)} />
@@ -186,15 +196,19 @@ export function ForumsHub() {
             </div>
             {assetIDs.length > 0 && <div className={styles.attachmentGrid}>{assetIDs.map((assetID) => <div className={styles.attachment} key={assetID}><Image src={privateMediaVariantURL(assetID, "thumb")} alt="Forum attachment preview" width={180} height={120} unoptimized /><button type="button" aria-label="Remove image" onClick={() => setAssetIDs((current) => current.filter((id) => id !== assetID))}>×</button></div>)}</div>}
           </div>
-          {draft.kind === "bug" && <div className={styles.bugFields}>
-            <label><span>Severity</span><select value={draft.severity} onChange={(event) => setDraft((current) => ({ ...current, severity: event.target.value as Draft["severity"] }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label>
-            <label><span>CodeLocal version</span><input value={draft.version} onChange={(event) => setDraft((current) => ({ ...current, version: event.target.value }))} placeholder="e.g. 1.5.65" /></label>
-            <label className={styles.wide}><span>Environment</span><textarea rows={3} value={draft.environment} onChange={(event) => setDraft((current) => ({ ...current, environment: event.target.value }))} placeholder="OS, device, browser/client, workspace state…" /></label>
-            <label className={styles.wide}><span>Steps to reproduce</span><textarea rows={4} value={draft.reproductionSteps} onChange={(event) => setDraft((current) => ({ ...current, reproductionSteps: event.target.value }))} placeholder="1. Open… 2. Click… 3. See error…" /></label>
-            <label><span>Expected</span><textarea rows={3} value={draft.expectedBehavior} onChange={(event) => setDraft((current) => ({ ...current, expectedBehavior: event.target.value }))} /></label>
-            <label><span>Actual</span><textarea rows={3} value={draft.actualBehavior} onChange={(event) => setDraft((current) => ({ ...current, actualBehavior: event.target.value }))} /></label>
-          </div>}
-          <label><span>Tags</span><input value={draft.tags} onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="mcp, macos, plugins (comma separated)" /></label>
+          {draft.kind === "bug" && <div className={styles.autoContext}><AppIcon name="device" size={15} /><span>Browser and device details are added automatically. You can publish with just the fields above.</span></div>}
+          <details className={styles.advancedDetails}>
+            <summary><span>{draft.kind === "bug" ? "Technical details" : "More options"}</span><small>Optional</small></summary>
+            <div className={styles.advancedBody}>
+              {draft.kind === "bug" && <div className={styles.bugFields}>
+                <label><span>CodeLocal version</span><input value={draft.version} onChange={(event) => setDraft((current) => ({ ...current, version: event.target.value }))} placeholder="If you know it" /></label>
+                <label className={styles.wide}><span>Steps to reproduce</span><textarea rows={3} value={draft.reproductionSteps} onChange={(event) => setDraft((current) => ({ ...current, reproductionSteps: event.target.value }))} placeholder="Only if the bug is easy to reproduce" /></label>
+                <label><span>Expected</span><textarea rows={2} value={draft.expectedBehavior} onChange={(event) => setDraft((current) => ({ ...current, expectedBehavior: event.target.value }))} /></label>
+                <label><span>Actual</span><textarea rows={2} value={draft.actualBehavior} onChange={(event) => setDraft((current) => ({ ...current, actualBehavior: event.target.value }))} /></label>
+              </div>}
+              <label><span>Tags</span><input value={draft.tags} onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} placeholder="mcp, macos, plugins" /></label>
+            </div>
+          </details>
           <div className={styles.composerActions}><button type="button" className={styles.secondaryButton} onClick={() => setComposerOpen(false)}>Cancel</button><button className={styles.primaryButton} disabled={!readyAccount || submitting || uploading} type="submit">{submitting ? "Publishing…" : uploading ? "Uploading…" : "Publish topic"}</button></div>
         </form>
       )}

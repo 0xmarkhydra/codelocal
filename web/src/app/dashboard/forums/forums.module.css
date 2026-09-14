@@ -160,6 +160,15 @@
 .wide { grid-column: 1 / -1; }
 .composerActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
+.autoContext { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 9px; background: rgba(71,132,226,.055); color: rgba(159,184,216,.76); font-size: 11px; line-height: 1.45; }
+.advancedDetails { margin-top: 12px; border: 1px solid rgba(255,255,255,.055); border-radius: 10px; background: rgba(0,0,0,.08); }
+.advancedDetails summary { min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: rgba(191,207,226,.82); cursor: pointer; list-style: none; font-size: 12px; font-weight: 650; }
+.advancedDetails summary::-webkit-details-marker { display: none; }
+.advancedDetails summary::after { content: "+"; margin-left: auto; color: rgba(145,168,197,.65); font-size: 16px; }
+.advancedDetails[open] summary::after { content: "−"; }
+.advancedDetails summary small { color: rgba(130,150,174,.62); font-size: 10px; font-weight: 500; }
+.advancedBody { padding: 0 12px 14px; border-top: 1px solid rgba(255,255,255,.045); }
+
 .toolbar {
   display: grid;
   grid-template-columns: minmax(230px, 1fr) 160px 170px;
