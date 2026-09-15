@@ -79,7 +79,7 @@ func (s *Server) forumTopicsAPI(w http.ResponseWriter, r *http.Request) {
 			writeForumAPIError(w, err)
 			return
 		}
-		webutil.JSON(w, http.StatusOK, map[string]any{"topics": topics, "isAdmin": cloud.IsAdminEmail(identity.User.Email)})
+		webutil.JSON(w, http.StatusOK, map[string]any{"topics": toForumTopicResponses(topics), "isAdmin": cloud.IsAdminEmail(identity.User.Email)})
 		return
 	}
 
@@ -98,7 +98,7 @@ func (s *Server) forumTopicsAPI(w http.ResponseWriter, r *http.Request) {
 		writeForumAPIError(w, err)
 		return
 	}
-	webutil.JSON(w, http.StatusCreated, map[string]any{"topic": topic})
+	webutil.JSON(w, http.StatusCreated, map[string]any{"topic": toForumTopicResponse(topic)})
 }
 
 func (s *Server) forumTopicAPI(w http.ResponseWriter, r *http.Request) {
@@ -123,8 +123,8 @@ func (s *Server) forumTopicAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	topic.VotedByViewer = voted
 	webutil.JSON(w, http.StatusOK, map[string]any{
-		"topic":    topic,
-		"comments": comments,
+		"topic":    toForumTopicResponse(topic),
+		"comments": toForumCommentResponses(comments),
 		"isAdmin":  cloud.IsAdminEmail(identity.User.Email),
 	})
 }
@@ -144,7 +144,7 @@ func (s *Server) forumCommentAPI(w http.ResponseWriter, r *http.Request) {
 		writeForumAPIError(w, err)
 		return
 	}
-	webutil.JSON(w, http.StatusCreated, map[string]any{"comment": comment})
+	webutil.JSON(w, http.StatusCreated, map[string]any{"comment": toForumCommentResponse(comment)})
 }
 
 func (s *Server) forumVoteAPI(w http.ResponseWriter, r *http.Request) {
@@ -182,5 +182,5 @@ func (s *Server) adminForumTopicAPI(w http.ResponseWriter, r *http.Request) {
 		writeForumAPIError(w, err)
 		return
 	}
-	webutil.JSON(w, http.StatusOK, map[string]any{"topic": topic})
+	webutil.JSON(w, http.StatusOK, map[string]any{"topic": toForumTopicResponse(topic)})
 }

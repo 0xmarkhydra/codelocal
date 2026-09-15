@@ -4,7 +4,6 @@ export type ForumSeverity = "" | "low" | "medium" | "high" | "critical";
 
 export type ForumTopic = {
   id: string;
-  authorUserId: string;
   authorEmail: string;
   kind: ForumKind;
   title: string;
@@ -33,7 +32,6 @@ export type ForumTopic = {
 export type ForumComment = {
   id: string;
   topicId: string;
-  authorUserId: string;
   authorEmail: string;
   body: string;
   assetIds: string[];
