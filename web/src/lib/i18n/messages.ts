@@ -775,6 +775,7 @@ export const messages = {
   "This page is excluded from search engines. The owner can revoke access at any time.": ["Trang này không được lập chỉ mục tìm kiếm. Chủ sở hữu có thể thu hồi quyền truy cập bất kỳ lúc nào.", "此页面不被搜索引擎收录。所有者可随时撤销访问权限。", "यह पृष्ठ खोज इंजनों में शामिल नहीं है। मालिक कभी भी पहुँच रद्द कर सकता है।"],
   "Share a screenshot with CodeLocal": ["Chia sẻ ảnh chụp qua CodeLocal", "通过 CodeLocal 分享截图", "CodeLocal से स्क्रीनशॉट साझा करें"],
   "Download": ["Tải xuống", "下载", "डाउनलोड"],
+  "Download icon": ["Tải icon", "下载图标", "आइकन डाउनलोड करें"],
   "Share another": ["Chia sẻ ảnh khác", "分享另一张", "एक और साझा करें"],
   "Image upload failed ({status}).": ["Tải ảnh lên thất bại ({status}).", "图片上传失败（{status}）。", "चित्र अपलोड विफल हुआ ({status})।"],
   "Unable to prepare image upload ({status}).": ["Không chuẩn bị được lượt tải ảnh ({status}).", "无法准备图片上传（{status}）。", "चित्र अपलोड की तैयारी नहीं हो सकी ({status})।"],

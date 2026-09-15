@@ -41,6 +41,9 @@ export default async function Home() {
         </nav>
         <div className={styles.navActions}>
           <LanguageSelect />
+          <a className={styles.navButton} href="/codelocal-icon.png" download="codelocal-icon.png">
+            {t("Download icon")} <AppIcon name="download" size={15} />
+          </a>
           <Link className={styles.navButton} href="/dashboard">
             {t("Open dashboard")} <AppIcon name="external" size={15} />
           </Link>
