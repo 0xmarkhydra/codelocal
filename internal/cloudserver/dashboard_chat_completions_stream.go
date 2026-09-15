@@ -51,7 +51,7 @@ func callChatCompletionsStreamWithTools(ctx context.Context, baseURL, apiKey, mo
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := (&http.Client{Timeout: 0}).Do(req)
+	resp, err := dashboardLLMHTTPClient(0).Do(req)
 	if err != nil {
 		return dashboardChatCompletionsStreamRound{}, err
 	}

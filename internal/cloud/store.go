@@ -229,7 +229,9 @@ func accountSchemaMigrations() []schemaMigration {
 		{46, runtimeConfigMigrationSQL},
 		{47, runtimeSecretsMigrationSQL},
 	}
-	return append(migrations, skillIntelligenceSchemaMigrations()...)
+	migrations = append(migrations, skillIntelligenceSchemaMigrations()...)
+	migrations = append(migrations, schemaMigration{69, aiProviderMigrationSQL})
+	return migrations
 }
 
 func validateSchemaMigrationPlan(migrations []schemaMigration) error {

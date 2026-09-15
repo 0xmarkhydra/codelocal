@@ -42,16 +42,17 @@ type dashboardChatImageMeta struct {
 }
 
 type dashboardChatRequest struct {
-	RequestID string                     `json:"requestId,omitempty"`
-	ThreadID  string                     `json:"threadId,omitempty"`
-	Message   string                     `json:"message"`
-	History   []dashboardChatHistoryItem `json:"history"`
-	Image     string                     `json:"image,omitempty"`
-	ImageMeta *dashboardChatImageMeta    `json:"imageMeta,omitempty"`
-	Model     string                     `json:"model,omitempty"`
-	Mode      string                     `json:"mode,omitempty"`
-	Goal      string                     `json:"goal,omitempty"`
-	Workspace *dashboardChatWorkspace    `json:"workspace,omitempty"`
+	RequestID   string                     `json:"requestId,omitempty"`
+	ThreadID    string                     `json:"threadId,omitempty"`
+	Message     string                     `json:"message"`
+	History     []dashboardChatHistoryItem `json:"history"`
+	Image       string                     `json:"image,omitempty"`
+	ImageMeta   *dashboardChatImageMeta    `json:"imageMeta,omitempty"`
+	Model       string                     `json:"model,omitempty"`
+	Mode        string                     `json:"mode,omitempty"`
+	Goal        string                     `json:"goal,omitempty"`
+	ContextMode string                     `json:"contextMode,omitempty"`
+	Workspace   *dashboardChatWorkspace    `json:"workspace,omitempty"`
 }
 
 type dashboardChatModeContextKey struct{}
@@ -661,15 +662,35 @@ func decodeDashboardChatRequest(w http.ResponseWriter, r *http.Request) (dashboa
 }
 
 func (s *Server) dashboardModelsAPI(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authenticatedAPIIdentity(w, r); !ok {
+	identity, ok := s.authenticatedAPIIdentity(w, r)
+	if !ok {
 		return
 	}
 	models, err := dashboardSelectableModels(r.Context())
 	if err != nil {
 		slog.Warn("dashboard ranked model catalog unavailable; using Auto only", "error", err)
 	}
+	userModels, userOptions := dashboardUserModelOptions(r.Context(), s, identity.User.ID)
+	models = dashboardMergeModelSelections(models, userModels)
+	options := make([]dashboardModelOption, 0, len(models)+len(userOptions))
+	custom := map[string]bool{}
+	for _, option := range userOptions {
+		custom[option.ID] = true
+	}
+	for _, model := range models {
+		if custom[model] {
+			continue
+		}
+		label := model
+		if model == dashboardModelAuto {
+			label = "Auto"
+		}
+		options = append(options, dashboardModelOption{ID: model, Label: label, Provider: "CodeLocal"})
+	}
+	options = append(options, userOptions...)
 	webutil.JSON(w, http.StatusOK, map[string]any{
 		"models":        models,
+		"model_options": options,
 		"default_model": dashboardModelAuto,
 	})
 }
@@ -701,6 +722,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	req.RequestID = dashboardChatRequestID(req.RequestID)
 	req.Mode = dashboardChatMode(req.Mode)
 	req.Goal = dashboardChatGoal(req.Goal)
+	req.ContextMode = dashboardNormalizeContextMode(req.ContextMode)
 	r = dashboardWithChatMode(r, req.Mode)
 	chatTools := dashboardChatToolsForMode(req.Mode)
 	msg := strings.TrimSpace(req.Message)
@@ -763,7 +785,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	r = dashboardWithChatThread(r, effectiveThreadID)
 	r = dashboardWithExecutionState(r, identity.User.ID, req.RequestID, nil)
-	modelHistory := s.dashboardExecutionHistory(r, identity.User.ID, effectiveThreadID, req.History)
+	modelHistory := s.dashboardExecutionHistory(r, identity.User.ID, effectiveThreadID, req.History, req.ContextMode)
 	if dashboardReplayCompletedExecution(w, r) {
 		return
 	}
@@ -817,27 +839,36 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	selection := dashboardNormalizeModelSelection(req.Model)
+	providerCleanup := func() {}
+	r, providerCleanup, err = s.dashboardPrepareUserProviderRoute(r, identity.User.ID, selection)
+	if err != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "Selected AI provider is unavailable or failed its security check."})
+		return
+	}
+	defer providerCleanup()
 	allowCommunity := dashboardCommunityEligible(req) && promptWorkspace == nil
 	if dashboardCommunityWorkspaceAllowed() {
 		allowCommunity = dashboardCommunityOptInEligible(req)
 	}
 	hasImage := strings.TrimSpace(req.Image) != "" || req.ImageMeta != nil
-	route := dashboardLLMRoute(selection, allowCommunity)
+	route := dashboardLLMRouteWithContext(r.Context(), selection, allowCommunity, false)
 	if hasImage {
-		// Task 1: never route image requests to text-only community lanes.
-		// Prefer an explicit vision target; only fall back to the generic lane
-		// when it also accepts images.
-		if visionRoute := dashboardVisionRoute(selection); len(visionRoute) > 0 {
-			route = visionRoute
-		} else {
-			visionCapable := route[:0]
-			for _, target := range route {
-				if target.Vision {
-					visionCapable = append(visionCapable, target)
-				}
+		// A user-owned model is sticky: never leak an image to a different
+		// system provider merely because that provider also supports vision.
+		// Built-in Auto keeps the existing vision fallback behavior.
+		_, _, userOwnedSelection := dashboardParseUserModelSelection(selection)
+		if !userOwnedSelection {
+			if visionRoute := dashboardVisionRoute(selection); len(visionRoute) > 0 {
+				route = visionRoute
 			}
-			route = visionCapable
 		}
+		visionCapable := route[:0]
+		for _, target := range route {
+			if target.Vision {
+				visionCapable = append(visionCapable, target)
+			}
+		}
+		route = visionCapable
 	}
 	isStream := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if isStream {
@@ -868,7 +899,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 				writeSSE("error", map[string]string{"error": dashboardVisionBlockedMessage()})
 				return
 			}
-			if len(dashboardLLMRoute(selection, true)) > 0 {
+			if len(dashboardLLMRouteWithContext(r.Context(), selection, true, false)) > 0 {
 				nowBlocked := time.Now().UnixMilli()
 				if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowBlocked}); err != nil {
 					slog.Warn("dashboard chat stream blocked save user failed", "error", err)
@@ -957,7 +988,7 @@ func (s *Server) dashboardChatAPI(w http.ResponseWriter, r *http.Request) {
 			webutil.JSON(w, http.StatusServiceUnavailable, map[string]string{"error": dashboardVisionBlockedMessage()})
 			return
 		}
-		if len(dashboardLLMRoute(selection, true)) > 0 {
+		if len(dashboardLLMRouteWithContext(r.Context(), selection, true, false)) > 0 {
 			nowBlocked := time.Now().UnixMilli()
 			if err := s.saveDashboardChatMessage(r, cloud.DashboardChatMessage{ID: dashboardChatMessageID(r, identity.User.ID, "user"), UserID: identity.User.ID, Role: "user", Content: msg, ToolCalls: json.RawMessage(`[]`), Image: storedImage, CreatedAt: nowBlocked}); err != nil {
 				slog.Warn("dashboard chat blocked save user failed", "error", err, "user", identity.User.ID)
@@ -1285,6 +1316,16 @@ func responsesTools(tools []map[string]any) []map[string]any {
 	return out
 }
 
+func dashboardLLMHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		// Never forward an Authorization header across an upstream redirect.
+		// Provider endpoints are configured as final API roots, so redirects are
+		// treated as upstream responses rather than silently followed.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 func callResponsesWithTools(baseURL, apiKey, model string, messages []map[string]any, tools []map[string]any) ([]llmToolCall, string, error) {
 	body := map[string]any{"model": model, "input": responsesInput(messages)}
 	if converted := responsesTools(tools); len(converted) > 0 {
@@ -1295,7 +1336,7 @@ func callResponsesWithTools(baseURL, apiKey, model string, messages []map[string
 	req, _ := http.NewRequest(http.MethodPost, baseURL+"/responses", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := (&http.Client{Timeout: 45 * time.Second}).Do(req)
+	resp, err := dashboardLLMHTTPClient(45 * time.Second).Do(req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1351,7 +1392,7 @@ func callChatCompletionsWithTools(baseURL, apiKey, model string, messages []map[
 	req, _ := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	client := &http.Client{Timeout: 25 * time.Second}
+	client := dashboardLLMHTTPClient(25 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err

@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -158,5 +159,65 @@ func TestDashboardCompactEphemeralImageStaysBounded(t *testing.T) {
 	}
 	if !strings.HasPrefix(compacted, prefix) {
 		t.Fatal("compacted image must keep the data-url prefix")
+	}
+}
+
+func TestDashboardContextModeNormalizationAndBudgets(t *testing.T) {
+	cases := map[string]string{
+		"":           dashboardContextModeSmart,
+		" SMART ":    dashboardContextModeSmart,
+		"off":        dashboardContextModeOff,
+		"AGGRESSIVE": dashboardContextModeAggressive,
+		"unknown":    dashboardContextModeSmart,
+	}
+	for input, want := range cases {
+		if got := dashboardNormalizeContextMode(input); got != want {
+			t.Fatalf("normalize context mode %q = %q, want %q", input, got, want)
+		}
+	}
+	if dashboardContextBudgetForMode(dashboardContextModeAggressive).MaxChars >= dashboardContextBudgetForMode(dashboardContextModeSmart).MaxChars {
+		t.Fatal("aggressive mode must use a smaller working-context budget than smart mode")
+	}
+	if dashboardContextBudgetForMode(dashboardContextModeSmart).MaxChars >= dashboardContextBudgetForMode(dashboardContextModeOff).MaxChars {
+		t.Fatal("smart mode must use a smaller working-context budget than off mode")
+	}
+}
+
+func TestDashboardContextModeSelectsWorkingHistoryWithoutDeletingStoredRows(t *testing.T) {
+	stored := make([]cloud.DashboardChatMessage, 0, 80)
+	for index := 0; index < 80; index++ {
+		stored = append(stored, cloud.DashboardChatMessage{
+			ID:      fmt.Sprintf("msg-%02d", index),
+			Role:    "user",
+			Content: strings.Repeat("x", 3000),
+		})
+	}
+
+	aggressive := dashboardSelectStoredHistory(stored, dashboardContextModeAggressive)
+	smart := dashboardSelectStoredHistory(stored, dashboardContextModeSmart)
+	off := dashboardSelectStoredHistory(stored, dashboardContextModeOff)
+	if len(aggressive) >= len(smart) || len(smart) >= len(off) {
+		t.Fatalf("working-history sizes must grow aggressive < smart < off, got %d < %d < %d", len(aggressive), len(smart), len(off))
+	}
+	if len(stored) != 80 || stored[0].ID != "msg-00" {
+		t.Fatal("context selection must not mutate or delete persisted thread history")
+	}
+	if aggressive[len(aggressive)-1].ID != "msg-79" || smart[len(smart)-1].ID != "msg-79" || off[len(off)-1].ID != "msg-79" {
+		t.Fatal("all context modes must preserve the newest turn")
+	}
+}
+
+func TestDashboardContextModeCompactsToolResultReversibly(t *testing.T) {
+	raw := strings.Repeat("A", 16000) + "IMPORTANT_TAIL"
+	results := []dashboardToolCall{{ID: "call-1", Name: "run_project_command", Arguments: `{}`, Result: raw, Status: "done"}}
+
+	aggressive := dashboardToolTranscriptForMode(results, "history", dashboardContextModeAggressive)
+	tool, ok := aggressive[1]["content"].(string)
+	if !ok || len(tool) >= len(raw) || !strings.Contains(tool, "context optimized") || !strings.Contains(tool, "IMPORTANT_TAIL") {
+		t.Fatalf("aggressive tool compaction did not preserve useful head/tail context: %#v", aggressive)
+	}
+	off := dashboardToolTranscriptForMode(results, "history", dashboardContextModeOff)
+	if off[1]["content"] != raw {
+		t.Fatal("off mode must keep the raw tool result unchanged")
 	}
 }

@@ -13,7 +13,89 @@ import (
 	"github.com/0xmarkhydra/codelocal/internal/webutil"
 )
 
-const dashboardChatModelHistoryLimit = 12
+const (
+	dashboardContextModeOff        = "off"
+	dashboardContextModeSmart      = "smart"
+	dashboardContextModeAggressive = "aggressive"
+	dashboardChatHistoryFetchLimit = 120
+)
+
+type dashboardChatContextBudget struct {
+	MaxMessages     int
+	MaxChars        int
+	ToolResultChars int
+}
+
+func dashboardNormalizeContextMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case dashboardContextModeOff:
+		return dashboardContextModeOff
+	case dashboardContextModeAggressive:
+		return dashboardContextModeAggressive
+	default:
+		return dashboardContextModeSmart
+	}
+}
+
+func dashboardContextBudgetForMode(mode string) dashboardChatContextBudget {
+	switch dashboardNormalizeContextMode(mode) {
+	case dashboardContextModeOff:
+		// Off disables CodeLocal compaction, but keeps a generous hard safety cap
+		// so a malformed thread cannot create an unbounded provider request.
+		return dashboardChatContextBudget{MaxMessages: 120, MaxChars: 360000}
+	case dashboardContextModeAggressive:
+		return dashboardChatContextBudget{MaxMessages: 24, MaxChars: 56000, ToolResultChars: 5000}
+	default:
+		return dashboardChatContextBudget{MaxMessages: 48, MaxChars: 120000, ToolResultChars: 12000}
+	}
+}
+
+func dashboardStoredMessageContextWeight(message cloud.DashboardChatMessage) int {
+	weight := len(message.Content) + len(message.ToolCalls)
+	if strings.TrimSpace(message.Image) != "" {
+		// Images are independently limited below. Count only a small metadata
+		// allowance here instead of their potentially huge data URL payload.
+		weight += 4096
+	}
+	if weight < 1 {
+		return 1
+	}
+	return weight
+}
+
+func dashboardSelectStoredHistory(stored []cloud.DashboardChatMessage, mode string) []cloud.DashboardChatMessage {
+	budget := dashboardContextBudgetForMode(mode)
+	if len(stored) == 0 {
+		return stored
+	}
+	start := len(stored)
+	used := 0
+	for index := len(stored) - 1; index >= 0; index-- {
+		if len(stored)-index > budget.MaxMessages {
+			break
+		}
+		weight := dashboardStoredMessageContextWeight(stored[index])
+		if start < len(stored) && used+weight > budget.MaxChars {
+			break
+		}
+		start = index
+		used += weight
+	}
+	return stored[start:]
+}
+
+func dashboardCompactContextText(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	head := limit * 2 / 3
+	tail := limit - head
+	marker := "\n\n[CodeLocal context optimized: middle omitted; full tool result is preserved in thread history.]\n\n"
+	if head+tail+len(marker) >= len(value) {
+		return value
+	}
+	return value[:head] + marker + value[len(value)-tail:]
+}
 
 // dashboardChatStoredImageIsMeta mirrors dashboardChatImageMetaFromStored in
 // dashboard_chat_api.go without creating an import cycle between the history
@@ -85,6 +167,11 @@ func dashboardStoredToolResults(raw json.RawMessage) []dashboardToolCall {
 }
 
 func dashboardToolTranscript(results []dashboardToolCall, idPrefix string) []map[string]any {
+	return dashboardToolTranscriptForMode(results, idPrefix, dashboardContextModeOff)
+}
+
+func dashboardToolTranscriptForMode(results []dashboardToolCall, idPrefix, contextMode string) []map[string]any {
+	budget := dashboardContextBudgetForMode(contextMode)
 	messages := make([]map[string]any, 0, len(results)*2)
 	for index, result := range results {
 		callID := strings.TrimSpace(result.ID)
@@ -95,17 +182,22 @@ func dashboardToolTranscript(results []dashboardToolCall, idPrefix string) []map
 		if arguments == "" {
 			arguments = "{}"
 		}
+		resultText := dashboardCompactContextText(result.Result, budget.ToolResultChars)
 		messages = append(messages,
 			map[string]any{"role": "assistant", "content": "", "tool_calls": []map[string]any{{
 				"id": callID, "type": "function", "function": map[string]any{"name": result.Name, "arguments": arguments},
 			}}},
-			map[string]any{"role": "tool", "content": result.Result, "tool_call_id": callID, "name": result.Name},
+			map[string]any{"role": "tool", "content": resultText, "tool_call_id": callID, "name": result.Name},
 		)
 	}
 	return messages
 }
 
 func dashboardPersistedHistoryMessages(stored []cloud.DashboardChatMessage, currentUserID, currentAssistantID string) ([]map[string]any, dashboardChatExecutionResume) {
+	return dashboardPersistedHistoryMessagesForMode(stored, currentUserID, currentAssistantID, dashboardContextModeSmart)
+}
+
+func dashboardPersistedHistoryMessagesForMode(stored []cloud.DashboardChatMessage, currentUserID, currentAssistantID, contextMode string) ([]map[string]any, dashboardChatExecutionResume) {
 	filtered := make([]cloud.DashboardChatMessage, 0, len(stored))
 	resume := dashboardChatExecutionResume{}
 	for _, message := range stored {
@@ -125,9 +217,7 @@ func dashboardPersistedHistoryMessages(stored []cloud.DashboardChatMessage, curr
 			filtered = append(filtered, message)
 		}
 	}
-	if len(filtered) > dashboardChatModelHistoryLimit {
-		filtered = filtered[len(filtered)-dashboardChatModelHistoryLimit:]
-	}
+	filtered = dashboardSelectStoredHistory(filtered, contextMode)
 
 	latestToolMessage := -1
 	toolResults := make(map[int][]dashboardToolCall)
@@ -176,7 +266,7 @@ func dashboardPersistedHistoryMessages(stored []cloud.DashboardChatMessage, curr
 			continue
 		}
 		if index == latestToolMessage {
-			messages = append(messages, dashboardToolTranscript(toolResults[index], "history_"+message.ID)...)
+			messages = append(messages, dashboardToolTranscriptForMode(toolResults[index], "history_"+message.ID, contextMode)...)
 			if strings.TrimSpace(message.Content) != "" {
 				messages = append(messages, map[string]any{"role": "assistant", "content": message.Content})
 			}
@@ -190,9 +280,9 @@ func dashboardPersistedHistoryMessages(stored []cloud.DashboardChatMessage, curr
 	return messages, resume
 }
 
-func (s *Server) dashboardExecutionHistory(r *http.Request, userID, threadID string, fallback []dashboardChatHistoryItem) []map[string]any {
+func (s *Server) dashboardExecutionHistory(r *http.Request, userID, threadID string, fallback []dashboardChatHistoryItem, contextMode string) []map[string]any {
 	fallbackMessages := dashboardRequestHistoryMessages(fallback)
-	stored, err := s.Store.ListDashboardChatHistoryForThread(r.Context(), userID, threadID, 50)
+	stored, err := s.Store.ListDashboardChatHistoryForThread(r.Context(), userID, threadID, dashboardChatHistoryFetchLimit)
 	if err != nil {
 		slog.Warn("dashboard chat execution history unavailable", "error", err, "user", userID, "thread", threadID)
 		return fallbackMessages
@@ -202,7 +292,7 @@ func (s *Server) dashboardExecutionHistory(r *http.Request, userID, threadID str
 	}
 	currentUserID := dashboardChatMessageID(r, userID, "user")
 	currentAssistantID := dashboardChatMessageID(r, userID, "assistant")
-	messages, resume := dashboardPersistedHistoryMessages(stored, currentUserID, currentAssistantID)
+	messages, resume := dashboardPersistedHistoryMessagesForMode(stored, currentUserID, currentAssistantID, contextMode)
 	dashboardSetExecutionResume(r, resume)
 	return messages
 }

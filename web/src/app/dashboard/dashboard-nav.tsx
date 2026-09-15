@@ -16,6 +16,7 @@ const groups: { label: MessageKey; items: NavigationItem[] }[] = [
     label: "Workspace",
     items: [
       { label: "Overview", href: "/dashboard", icon: "module" },
+      { label: "Chat", href: "/chat", icon: "chat" },
       { label: "Projects", href: "/dashboard/workspaces", icon: "folder" },
       { label: "Design", href: "/dashboard/design", icon: "edit" },
       { label: "Devices", href: "/dashboard/devices", icon: "device" },

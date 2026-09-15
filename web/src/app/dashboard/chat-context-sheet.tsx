@@ -9,6 +9,7 @@ import styles from "./chat-mobile.module.css";
 
 type WorkspaceItem = WorkspacesResource["items"][number];
 type ChatMode = "ask" | "plan" | "agent";
+type ChatContextMode = "smart" | "off" | "aggressive";
 
 type ChatContextSheetProps = {
   open: boolean;
@@ -19,6 +20,7 @@ type ChatContextSheetProps = {
   mode: ChatMode;
   models: string[];
   selectedModel: string;
+  contextMode: ChatContextMode;
   goal: string;
   modelLabel: (model: string) => string;
   workspaceKey: (workspace: WorkspaceItem) => string;
@@ -28,6 +30,8 @@ type ChatContextSheetProps = {
   onWorkspaceChange: (value: string) => void;
   onModeChange: (value: ChatMode) => void;
   onModelChange: (value: string) => void;
+  onContextModeChange: (value: ChatContextMode) => void;
+  onManageProviders: () => void;
   onGoalChange: (value: string) => void;
 };
 
@@ -40,6 +44,7 @@ export function ChatContextSheet({
   mode,
   models,
   selectedModel,
+  contextMode,
   goal,
   modelLabel,
   workspaceKey,
@@ -49,6 +54,8 @@ export function ChatContextSheet({
   onWorkspaceChange,
   onModeChange,
   onModelChange,
+  onContextModeChange,
+  onManageProviders,
   onGoalChange,
 }: ChatContextSheetProps) {
   const { locale, t } = useTranslations();
@@ -130,6 +137,18 @@ export function ChatContextSheet({
             </div>
           </fieldset>
 
+          <fieldset className={styles.modeField}>
+            <legend>{t("Context optimization")}</legend>
+            <div>
+              {(["smart", "off", "aggressive"] as const).map((value) => (
+                <button key={value} type="button" className={contextMode === value ? styles.modeActive : ""} aria-pressed={contextMode === value} onClick={() => onContextModeChange(value)}>
+                  {value === "smart" ? t("Smart") : value === "off" ? t("Off") : t("Aggressive")}
+                </button>
+              ))}
+            </div>
+            <p className={styles.contextModeHelp}>{t("Full thread history is preserved; this only changes the working context sent to the model.")}</p>
+          </fieldset>
+
           <fieldset className={styles.modelField}>
             <legend>{t("Model")}</legend>
             {models.length > 10 ? <label className={styles.modelSearch}><AppIcon name="search" size={17} /><input value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder={t("Search models")} aria-label={t("Search models")} /></label> : null}
@@ -139,6 +158,11 @@ export function ChatContextSheet({
               </button>)}
               {!visibleModels.length ? <p>{t("No models found.")}</p> : null}
             </div>
+            <button className={styles.manageModels} type="button" onClick={onManageProviders}>
+              <AppIcon name="plus" size={15} />
+              <span>{t("Add or manage AI providers")}</span>
+              <AppIcon name="chevron-right" size={14} />
+            </button>
           </fieldset>
 
           <label className={styles.goalField}>

@@ -9,6 +9,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { AppIcon } from "./app-icon";
 import { ChatActionSummary, type ChatToolCall } from "./chat-action-summary";
 import { ChatContextSheet } from "./chat-context-sheet";
+import { ChatProviderManager } from "./chat-provider-manager";
 import { ChatTopBar } from "./chat-top-bar";
 import { ChatRichMessage } from "./chat-rich-message";
 import { ChatSidebarBrand, ChatSidebarFooter } from "./chat-sidebar-footer";
@@ -38,6 +39,14 @@ type ChatMsg = {
 };
 
 type ChatMode = "ask" | "plan" | "agent";
+type ChatContextMode = "smart" | "off" | "aggressive";
+type ChatModelOption = {
+  id: string;
+  label: string;
+  provider: string;
+  providerId?: string;
+  custom?: boolean;
+};
 
 type ChatThread = {
   id: string;
@@ -86,52 +95,7 @@ type MediaPrepareResponse = ChatImageMeta & {
 const suggestions: MessageKey[] = ["Explain this codebase", "Find and fix a bug", "Add tests for recent changes"];
 
 function modelLabel(model: string) {
-  switch (model) {
-    case "auto": return "Auto";
-    case "glm-5.3-flash": return "GLM-5.3-Flash";
-    case "qwen3.8-flash": return "Qwen3.8-Flash";
-    case "muse-spark-1.3-contributor-free": return "Muse Spark 1.3 Contributor Free";
-    case "muse-spark-1.2-contributor-free": return "Muse Spark 1.2";
-    default: return model;
-  }
-}
-
-function modelStrengthScore(model: string) {
-  const id = model.toLowerCase();
-  let score = 500;
-
-  if (id.includes("gpt-5.6")) score = 1100;
-  else if (id.includes("claude-opus")) score = 1080;
-  else if (id.includes("gpt-5.4")) score = 1040;
-  else if (id.includes("gemini") && id.includes("pro")) score = 1010;
-  else if (id.includes("claude-sonnet")) score = 990;
-  else if (id.includes("kimi")) score = 930;
-  else if (id.includes("qwen")) score = 900;
-  else if (id.includes("glm")) score = 880;
-  else if (id.includes("deepseek")) score = 860;
-  else if (id.includes("minimax")) score = 820;
-  else if (id.includes("gemini")) score = 800;
-  else if (id.includes("gpt")) score = 790;
-  else if (id.includes("claude")) score = 780;
-
-  if (id.includes("sol")) score += 35;
-  if (id.includes("opus")) score += 30;
-  if (id.includes("reasoning") || id.includes("thinking")) score += 24;
-  if (id.includes("pro")) score += 18;
-  if (id.includes("high")) score += 12;
-  if (id.includes("agent")) score += 5;
-  if (id.includes("flash")) score -= 28;
-  if (id.includes("low")) score -= 45;
-  if (id.includes("mini")) score -= 70;
-  if (id.includes("lite")) score -= 90;
-  if (id.includes("nano")) score -= 110;
-
-  return score;
-}
-
-function compareModelsByStrength(left: string, right: string) {
-  const scoreDelta = modelStrengthScore(right) - modelStrengthScore(left);
-  return scoreDelta || left.localeCompare(right, "en", { numeric: true, sensitivity: "base" });
+  return model === "auto" ? "Auto" : model;
 }
 
 function workspaceKey(workspace: WorkspaceItem) {
@@ -263,6 +227,7 @@ export function DashboardChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<ChatMode>("agent");
+  const [contextMode, setContextMode] = useState<ChatContextMode>("smart");
   const [goal, setGoal] = useState("");
   const [image, setImage] = useState<PreparedChatImage | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
@@ -278,8 +243,10 @@ export function DashboardChat() {
   const [threadActionLoading, setThreadActionLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [models, setModels] = useState<string[]>(["auto"]);
+  const [modelOptions, setModelOptions] = useState<ChatModelOption[]>([{ id: "auto", label: "Auto", provider: "CodeLocal" }]);
   const [selectedModel, setSelectedModel] = useState("auto");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [providerManagerOpen, setProviderManagerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [threadDrawerOpen, setThreadDrawerOpen] = useState(false);
@@ -304,6 +271,15 @@ export function DashboardChat() {
   const mobileDrawerTriggerRef = useRef<HTMLButtonElement>(null);
   const threadDrawerTriggerRef = useRef<HTMLButtonElement>(null);
   const threadDrawerCloseRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("codelocal.chat.contextMode");
+    if (stored === "smart" || stored === "off" || stored === "aggressive") setContextMode(stored);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("codelocal.chat.contextMode", contextMode);
+  }, [contextMode]);
 
   useEffect(() => {
     const frame = chatFrameRef.current;
@@ -367,14 +343,23 @@ export function DashboardChat() {
     [selectedWorkspaceKey, workspaceItems],
   );
   const activeModels = useMemo(
-    () => models.filter((model) => model !== "auto").sort(compareModelsByStrength),
+    () => models.filter((model) => model !== "auto"),
     [models],
   );
+  const modelOptionMap = useMemo(
+    () => new Map(modelOptions.map((option) => [option.id, option])),
+    [modelOptions],
+  );
+  const labelForModel = (model: string) => modelOptionMap.get(model)?.label || modelLabel(model);
+  const providerForModel = (model: string) => modelOptionMap.get(model)?.provider || "CodeLocal";
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLocaleLowerCase(locale);
     if (!query) return activeModels;
-    return activeModels.filter((model) => `${model} ${modelLabel(model)}`.toLocaleLowerCase(locale).includes(query));
-  }, [locale, modelSearch, activeModels]);
+    return activeModels.filter((model) => {
+      const option = modelOptionMap.get(model);
+      return `${model} ${option?.label || modelLabel(model)} ${option?.provider || "CodeLocal"}`.toLocaleLowerCase(locale).includes(query);
+    });
+  }, [locale, modelSearch, activeModels, modelOptionMap]);
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
   const activeThreadModel = activeThread?.model;
   const activeThreadWorkspaceKey = activeThread?.workspaceKey;
@@ -399,7 +384,8 @@ export function DashboardChat() {
   const mobileProjectSubtitle = headerProject
     ? `${headerProject.workspaceName} · ${headerProject.deviceName} · ${t(workspaceStatusLabel(headerProject))}`
     : t("No project");
-  const mobileContextSummary = `${selectedWorkspace?.workspaceName || t("Auto")} · ${mode === "ask" ? "Ask" : mode === "plan" ? "Plan" : "Agent"} · ${modelLabel(selectedModel)}`;
+  const contextModeLabel = contextMode === "off" ? t("Off") : contextMode === "aggressive" ? t("Aggressive") : t("Smart");
+  const mobileContextSummary = `${selectedWorkspace?.workspaceName || t("Auto")} · ${mode === "ask" ? "Ask" : mode === "plan" ? "Plan" : "Agent"} · ${labelForModel(selectedModel)} · ${t("Context")}: ${contextModeLabel}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -485,22 +471,30 @@ export function DashboardChat() {
     return () => { cancelled = true; };
   }, [activeThreadId, activeThreadModel, activeThreadWorkspaceKey, models, workspaceItems]);
 
+  async function refreshModelCatalog(preserveSelection = true) {
+    try {
+      const response = await fetch("/api/v1/dashboard/models", { credentials: "include" });
+      if (!response.ok) throw new Error(String(response.status));
+      const data = (await response.json()) as { models?: string[]; model_options?: ChatModelOption[]; default_model?: string };
+      const available = Array.isArray(data.models) && data.models.length ? data.models : ["auto"];
+      const options = Array.isArray(data.model_options) && data.model_options.length
+        ? data.model_options.filter((option) => option && typeof option.id === "string" && available.includes(option.id))
+        : available.map((id) => ({ id, label: modelLabel(id), provider: "CodeLocal" } satisfies ChatModelOption));
+      setModels(available);
+      setModelOptions(options);
+      setSelectedModel((current) => preserveSelection && available.includes(current)
+        ? current
+        : data.default_model && available.includes(data.default_model) ? data.default_model : available[0]);
+    } catch {
+      setModels(["auto"]);
+      setModelOptions([{ id: "auto", label: "Auto", provider: "CodeLocal" }]);
+      setSelectedModel("auto");
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/v1/dashboard/models", { credentials: "include" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status));
-        return response.json() as Promise<{ models?: string[]; default_model?: string }>;
-      })
-      .then((data) => {
-        const available = Array.isArray(data.models) && data.models.length ? data.models : ["auto"];
-        setModels(available);
-        setSelectedModel(data.default_model && available.includes(data.default_model) ? data.default_model : available[0]);
-      })
-      .catch(() => {
-        setModels(["auto"]);
-        setSelectedModel("auto");
-      });
-  }, []);
+    void refreshModelCatalog(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!followLatestRef.current) return;
@@ -875,7 +869,7 @@ export function DashboardChat() {
     };
     try {
       const requestId = createChatRequestId();
-      const history = messages.slice(-12).map((message) => ({
+      const history = messages.slice(-50).map((message) => ({
       role: message.role,
       content: message.content,
       image: message.role === "user" ? message.image : undefined,
@@ -887,6 +881,7 @@ export function DashboardChat() {
         history,
         model: selectedModel,
         mode,
+        contextMode,
         goal: goal.trim() || undefined,
         imageMeta: sendImage ? {
           imageRef: sendImage.imageRef,
@@ -1229,6 +1224,14 @@ export function DashboardChat() {
             </div>
           </div>
           <div className={styles.chatActions}>
+            <label className={styles.contextModePicker} title={t("Context optimization")}>
+              <span>{t("Context")}</span>
+              <select value={contextMode} onChange={(event) => setContextMode(event.target.value as ChatContextMode)} aria-label={t("Context optimization")} disabled={loading}>
+                <option value="smart">{t("Smart")}</option>
+                <option value="off">{t("Off")}</option>
+                <option value="aggressive">{t("Aggressive")}</option>
+              </select>
+            </label>
             <div className={styles.modelPickerShell} ref={modelPickerRef}>
               <button
                 className={`${styles.projectPicker} ${styles.modelPicker}`}
@@ -1238,7 +1241,7 @@ export function DashboardChat() {
                 aria-expanded={modelPickerOpen}
                 onClick={() => setModelPickerOpen((open) => !open)}
               >
-                <span className={styles.modelPickerName}>{modelLabel(selectedModel)}</span>
+                <span className={styles.modelPickerName}>{labelForModel(selectedModel)}</span>
                 {activeModels.length > 0 ? <span className={styles.modelPickerCount}>{activeModels.length}</span> : null}
                 <span className={styles.modelPickerChevron} aria-hidden="true">⌄</span>
               </button>
@@ -1254,7 +1257,7 @@ export function DashboardChat() {
                       aria-label={t("Search models")}
                     />
                   </label>
-                  <div className={styles.modelPickerSummary}>{t("{count} active models · strongest → lightest", { count: activeModels.length })}</div>
+                  <div className={styles.modelPickerSummary}>{t("{count} active models", { count: activeModels.length })}</div>
                   <div className={styles.modelOptionList} role="listbox" aria-label={t("Active models")}>
                     {!modelSearch.trim() ? (
                       <button
@@ -1285,12 +1288,25 @@ export function DashboardChat() {
                           setModelSearch("");
                         }}
                       >
-                        <span>{modelLabel(model)}</span>
-                        {modelLabel(model) !== model ? <small>{model}</small> : null}
+                        <span>{labelForModel(model)}</span>
+                        <small>{modelOptionMap.get(model)?.custom ? `${providerForModel(model)} · ${model}` : providerForModel(model)}</small>
                       </button>
                     ))}
                     {visibleModels.length === 0 ? <p className={styles.modelEmpty}>{t("No active models found.")}</p> : null}
                   </div>
+                  <button
+                    className={styles.manageAIButton}
+                    type="button"
+                    onClick={() => {
+                      setModelPickerOpen(false);
+                      setModelSearch("");
+                      setProviderManagerOpen(true);
+                    }}
+                  >
+                    <AppIcon name="plus" size={15} />
+                    <span><strong>{t("Add or manage AI providers")}</strong><small>{t("Use your own API keys and models")}</small></span>
+                    <AppIcon name="chevron-right" size={14} />
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -1382,8 +1398,9 @@ export function DashboardChat() {
         mode={mode}
         models={models}
         selectedModel={selectedModel}
+        contextMode={contextMode}
         goal={goal}
-        modelLabel={modelLabel}
+        modelLabel={labelForModel}
         workspaceKey={workspaceKey}
         workspaceStatusLabel={(workspace) => t(workspaceStatusLabel(workspace))}
         onClose={() => setContextSheetOpen(false)}
@@ -1391,7 +1408,14 @@ export function DashboardChat() {
         onWorkspaceChange={setSelectedWorkspaceKey}
         onModeChange={setMode}
         onModelChange={setSelectedModel}
+        onContextModeChange={setContextMode}
+        onManageProviders={() => { setContextSheetOpen(false); setProviderManagerOpen(true); }}
         onGoalChange={setGoal}
+      />
+      <ChatProviderManager
+        open={providerManagerOpen}
+        onClose={() => setProviderManagerOpen(false)}
+        onChanged={() => void refreshModelCatalog(true)}
       />
     </section>
   );
