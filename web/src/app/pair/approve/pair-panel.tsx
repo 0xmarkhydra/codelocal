@@ -36,7 +36,7 @@ export function PairPanel({ pairingId, approved, error }: { pairingId: string; a
     }).catch(() => setUnavailable(true));
   }, [pairingId, approved, router]);
 
-  if (approved) return <div className={styles.actions}><div className={styles.success}>{t("Device approved. Return to your terminal; CodeLocal will claim its credential automatically.")}</div><Link className={styles.button} href="/dashboard/devices">{t("View devices")}</Link></div>;
+  if (approved) return <div className={styles.actions}><div className={styles.success}>{t("Device approved. Return to your terminal; CodeLocal.Cloud will claim its credential automatically.")}</div><Link className={styles.button} href="/dashboard/devices">{t("View devices")}</Link></div>;
   if (unavailable) return <div className={styles.actions}><div className={styles.alert}>{t("This pairing request is invalid, expired, or temporarily unavailable.")}</div><Link className={styles.secondaryButton} href="/dashboard/devices">{t("Open devices")}</Link></div>;
   if (!account || !pairing) return <div className={styles.hint}>{t("Loading pairing request…")}</div>;
 

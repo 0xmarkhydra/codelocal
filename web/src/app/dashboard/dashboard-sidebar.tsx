@@ -76,12 +76,7 @@ export function DashboardSidebar() {
       <div className={styles.mobileBar}>
         <Link className={styles.brand} href="/">
           <Image src="/codelocal-icon.png" alt="" width={27} height={27} />
-          <span>
-            CodeLocal<span className={styles.brandDot}>.</span>
-          </span>
-          <svg className={styles.brandCloud} width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M6.1 18.25h11.8a4.1 4.1 0 0 0 .45-8.18A6.55 6.55 0 0 0 5.78 8.6 4.85 4.85 0 0 0 6.1 18.25Z" />
-          </svg>
+          <span>CodeLocal<span className={styles.brandDot}>.</span>Cloud</span>
         </Link>
         <button
           ref={trigger}
@@ -110,7 +105,7 @@ export function DashboardSidebar() {
         aria-label={t("Dashboard navigation")}
       >
         <div className={styles.brandRow}>
-          <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
+          <Link className={styles.brand} href="/" aria-label={t("CodeLocal.Cloud home")}>
             <Image
               src="/codelocal-icon.png"
               alt=""
@@ -118,12 +113,7 @@ export function DashboardSidebar() {
               height={32}
               priority
             />
-            <span>
-              CodeLocal<span className={styles.brandDot}>.</span>
-            </span>
-            <svg className={styles.brandCloud} width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M6.1 18.25h11.8a4.1 4.1 0 0 0 .45-8.18A6.55 6.55 0 0 0 5.78 8.6 4.85 4.85 0 0 0 6.1 18.25Z" />
-            </svg>
+            <span>CodeLocal<span className={styles.brandDot}>.</span>Cloud</span>
           </Link>
           <button
             className={styles.closeButton}

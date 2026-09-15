@@ -149,7 +149,7 @@ for (locale of ["en", "vi", "zh-Hans", "hi"]) {
     const route = load(new URL(`../${slug}/page.tsx`, import.meta.url));
     const html = await render(React.createElement(route.default));
     visible(html, t(title));
-    visible(html, t("Publisher: CodeLocal"));
+    visible(html, t("Publisher: CodeLocal.Cloud"));
     const date = new Intl.DateTimeFormat(locale, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date("2026-08-19T00:00:00Z"));
     visible(html, t("Last updated: {date}", { date }));
     assert.match(html, /datetime="2026-08-19"/i);

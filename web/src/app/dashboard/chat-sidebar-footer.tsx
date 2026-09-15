@@ -13,9 +13,9 @@ import chatStyles from "./dashboard-chat.module.css";
 export function ChatSidebarBrand({ closeRef, onClose }: { closeRef: RefObject<HTMLButtonElement | null>; onClose: () => void }) {
   return (
     <div className={chatStyles.unifiedSidebarBrand}>
-      <Link className={chatStyles.unifiedBrandLink} href="/" aria-label="CodeLocal home">
+      <Link className={chatStyles.unifiedBrandLink} href="/" aria-label="CodeLocal.Cloud home">
         <Image src="/codelocal-icon.png" alt="" width={25} height={25} priority />
-        <span>CodeLocal</span>
+        <span>CodeLocal.Cloud</span>
       </Link>
       <button ref={closeRef} className={chatStyles.unifiedSidebarClose} type="button" onClick={onClose} aria-label="Đóng menu">
         <AppIcon name="close" size={17} />

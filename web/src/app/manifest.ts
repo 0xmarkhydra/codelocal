@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "CodeLocal",
-    short_name: "CodeLocal",
+    name: "CodeLocal.Cloud",
+    short_name: "CodeLocal.Cloud",
     description: "AI coding workspace connected to your authorized local runtime.",
     start_url: "/dashboard",
     scope: "/",

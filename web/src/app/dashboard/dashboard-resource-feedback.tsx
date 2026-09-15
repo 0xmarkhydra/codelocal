@@ -16,7 +16,7 @@ export function DashboardResourceFeedback(props: FeedbackProps) {
       <section className={styles.resourceFeedback} aria-live="polite" aria-label={t("Loading")}>
         <span className={styles.resourceFeedbackSpinner} aria-hidden="true"><i /><i /><i /></span>
         <strong>{t("Loading")}</strong>
-        <span>{t("Data will appear when CodeLocal responds.")}</span>
+        <span>{t("Data will appear when CodeLocal.Cloud responds.")}</span>
       </section>
     );
   }
@@ -36,7 +36,7 @@ export function DashboardResourceFeedback(props: FeedbackProps) {
     <section className={styles.resourceFeedback} aria-live="polite">
       <span className={styles.resourceFeedbackIcon} aria-hidden="true"><AppIcon name="refresh" /></span>
       <strong>{t("Unable to connect")}</strong>
-      <span>{t("CodeLocal has not responded. Try again.")}</span>
+      <span>{t("CodeLocal.Cloud has not responded. Try again.")}</span>
       <button className={styles.resourceFeedbackAction} type="button" onClick={props.onRetry}>{t("Retry")}</button>
     </section>
   );

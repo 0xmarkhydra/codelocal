@@ -12,7 +12,7 @@ export default async function PairApprovePage({ searchParams }: Props) {
   return <AuthShell
     eyebrow="Device trust"
     title="Pair a machine without widening the account boundary."
-    description="This approval binds one local runtime to your CodeLocal account. Project folders are still authorized separately, and revoking the device does not delete local files."
+    description="This approval binds one local runtime to your CodeLocal.Cloud account. Project folders are still authorized separately, and revoking the device does not delete local files."
     panelTitle={t(approved ? "Device approved" : "Approve device")}
     panelSubtitle={t(approved ? "The local runtime can finish claiming its credential." : "Review the machine identity before granting account access.")}
   >

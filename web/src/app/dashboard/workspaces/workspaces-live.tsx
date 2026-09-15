@@ -54,7 +54,7 @@ function InstallSystemAppButton({ deviceId, csrf, disabled, onSuccess }: { devic
       <button type="button" disabled={!csrf || disabled || state === "installing"} onClick={install}>
         {state === "installing" ? t("Installing…") : t("Install")}
       </button>
-      {state === "error" ? <small role="status">{t("CodeLocal could not be reached.")}</small> : null}
+      {state === "error" ? <small role="status">{t("CodeLocal.Cloud could not be reached.")}</small> : null}
     </div>
   );
 }
@@ -88,7 +88,7 @@ function ProjectCard({ workspace, csrf, retry }: { workspace: WorkspaceItem; csr
               endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
               csrf={csrf}
               label={t("Remove")}
-              confirmMessage={t("Remove {name} from CodeLocal? Your project and files will be preserved.", { name: workspace.workspaceName })}
+              confirmMessage={t("Remove {name} from CodeLocal.Cloud? Your project and files will be preserved.", { name: workspace.workspaceName })}
               disabled={!workspace.runtimeOnline}
               onSuccess={retry}
             />
@@ -113,9 +113,9 @@ function InstalledSystemAppCard({ workspace }: { workspace: WorkspaceItem }) {
           <i />
         </span>
         <span className={styles.workspaceCardBody}>
-          <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>CodeLocal App</b></span>
+          <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>CodeLocal.Cloud App</b></span>
           <span>{workspace.deviceName} · {t(statusLabel(workspace.status))}</span>
-          <small>{t("Managed by CodeLocal")}</small>
+          <small>{t("Managed by CodeLocal.Cloud")}</small>
         </span>
         <span className={styles.workspaceChatAction}>{t("Open app")} <AppIcon name="chevron-right" size={14} /></span>
       </Link>
@@ -193,7 +193,7 @@ export function LiveWorkspaces() {
 
       <div className={styles.workspaceGroup}>
         <div className={styles.workspaceGroupHead}>
-          <div><h2>{t("CodeLocal Apps")}</h2><p>{t("Apps managed by CodeLocal for AI-assisted work")}</p></div>
+          <div><h2>{t("CodeLocal.Cloud Apps")}</h2><p>{t("Apps managed by CodeLocal.Cloud for AI-assisted work")}</p></div>
           <span>{systemApps.length}</span>
         </div>
         <div className={styles.workspaceGrid}>
@@ -207,7 +207,7 @@ export function LiveWorkspaces() {
                   <i />
                 </span>
                 <span className={styles.workspaceCardBody}>
-                  <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>CodeLocal App</b></span>
+                  <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>CodeLocal.Cloud App</b></span>
                   <span>{device.deviceName} · {device.status === "online" ? t("Ready") : t("Offline")}</span>
                   <small>{t("Create, edit and render videos")}</small>
                 </span>

@@ -68,7 +68,7 @@ export function AdminLive() {
 
       <section className={surface.adminUsersPanel}>
         <div className={surface.adminUsersHead}>
-          <div><span className={dashboard.eyebrow}>{t("Users")}</span><h2>{t("CodeLocal users")}</h2></div>
+          <div><span className={dashboard.eyebrow}>{t("Users")}</span><h2>{t("CodeLocal.Cloud users")}</h2></div>
           <label className={surface.adminSearch}>
             <AppIcon name="search" size={17} />
             <input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder={t("Search email or referral code")} aria-label={t("Search email or referral code")} />

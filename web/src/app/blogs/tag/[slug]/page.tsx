@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: TagPageProps): Promise<Metada
   if (!tag) return { title: t("Tag not found"), robots: { index: false, follow: false } };
   return {
     title: `#${tag}`,
-    description: t("CodeLocal Blog articles tagged {tag}.", { tag }),
+    description: t("CodeLocal.Cloud Blog articles tagged {tag}.", { tag }),
     alternates: { canonical: `/blogs/tag/${slug}` },
   };
 }

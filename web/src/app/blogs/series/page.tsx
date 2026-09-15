@@ -5,7 +5,7 @@ import { getTranslations } from "@/lib/i18n/server";
 
 export async function generateMetadata() {
   const t = await getTranslations();
-  return { title: t("CodeLocal Series"), alternates: { canonical: "/blogs/series" } };
+  return { title: t("CodeLocal.Cloud Series"), alternates: { canonical: "/blogs/series" } };
 }
 
 export default async function SeriesIndexPage() {
@@ -14,7 +14,7 @@ export default async function SeriesIndexPage() {
   return (
     <main className={styles.page}>
       <header className={styles.taxonomyHeader}>
-        <h1>{t("CodeLocal Series")}</h1>
+        <h1>{t("CodeLocal.Cloud Series")}</h1>
       </header>
 
       <section className={styles.section} aria-labelledby="all-series">

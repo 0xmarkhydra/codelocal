@@ -42,7 +42,7 @@ export function useDashboardResource<T>(url: string, validate: (value: unknown) 
         if (controller.signal.aborted) return;
         setState({
           kind: "error",
-          message: error instanceof Error ? error.message : "Unable to reach the CodeLocal backend.",
+          message: error instanceof Error ? error.message : "Unable to reach the CodeLocal.Cloud backend.",
         });
       }
     }

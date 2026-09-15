@@ -21,7 +21,7 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
   if (!category) return { title: t("Category not found"), robots: { index: false, follow: false } };
   return {
     title: t("{category} articles", { category }),
-    description: t("CodeLocal Blog articles filed under {category}.", { category }),
+    description: t("CodeLocal.Cloud Blog articles filed under {category}.", { category }),
     alternates: { canonical: `/blogs/category/${slug}` },
   };
 }

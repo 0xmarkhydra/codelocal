@@ -38,7 +38,7 @@ export default async function DesignPage() {
         </div>
 
         <p className={styles.embedFallback}>
-          {t("Embedded workspace blocked?")} <a href={designUrl} target="_blank" rel="noreferrer">{t("Open Penpot in a new tab")}</a>. {t("Both use the same CodeLocal SSO.")}
+          {t("Embedded workspace blocked?")} <a href={designUrl} target="_blank" rel="noreferrer">{t("Open Penpot in a new tab")}</a>. {t("Both use the same CodeLocal.Cloud SSO.")}
         </p>
       </div>
     </section>

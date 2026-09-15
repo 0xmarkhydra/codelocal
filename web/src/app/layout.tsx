@@ -17,14 +17,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://codelocal.cloud"),
   title: {
-    default: "CodeLocal",
-    template: "%s · CodeLocal",
+    default: "CodeLocal.Cloud",
+    template: "%s · CodeLocal.Cloud",
   },
   description:
     "Connect AI coding clients to an authorized local runtime and durable Project Brain without moving raw source execution into the cloud.",
   manifest: "/manifest.webmanifest",
-  applicationName: "CodeLocal",
-  appleWebApp: { capable: true, title: "CodeLocal", statusBarStyle: "black-translucent" },
+  applicationName: "CodeLocal.Cloud",
+  appleWebApp: { capable: true, title: "CodeLocal.Cloud", statusBarStyle: "black-translucent" },
   icons: { icon: "/codelocal-icon.png", apple: "/codelocal-icon.png" },
 };
 

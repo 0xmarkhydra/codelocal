@@ -44,7 +44,7 @@ export function LeaderboardLive() {
     <section className={surface.card}>
       <span className={dashboard.eyebrow}>{t("Top users · {count} days", { count: data.windowDays })}</span>
       <h2 className={surface.title}>{t("Estimated MCP payload")}</h2>
-      <p className={surface.copy}>{t("Emails are masked. This ranking reflects CodeLocal MCP payload estimates, not model-provider billing.")}</p>
+      <p className={surface.copy}>{t("Emails are masked. This ranking reflects CodeLocal.Cloud MCP payload estimates, not model-provider billing.")}</p>
       {data.entries.length === 0 ? <div className={surface.empty}>{t("No MCP usage recorded in this period.")}</div> : <div className={surface.list}>{data.entries.map((entry) => <div className={surface.rankRow} key={`${entry.rank}-${entry.emailMasked}`}><span className={surface.rank}>#{number.format(entry.rank)}</span><div className={surface.identity}><strong>{entry.isCurrent ? `${t("You")} · ` : ""}{entry.initial} · {entry.emailMasked}</strong><small>{t("{count} estimated tokens", { count: entry.tokens })}</small></div>{entry.isCurrent && <span className={`${surface.badge} ${surface.badgeBlue}`}>{t("You")}</span>}<span className={`${surface.value} ${surface.calls}`}>{t("{count} calls", { count: entry.calls })}</span></div>)}</div>}
     </section>
   </div>;

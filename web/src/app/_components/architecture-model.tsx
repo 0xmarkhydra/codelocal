@@ -21,11 +21,11 @@ const stages: {
     copy: "Connect ChatGPT, Claude, Codex or another compatible AI client through MCP. Your project gets a shared entry point, whichever AI you choose.",
   },
   {
-    title: "Connect through CodeLocal",
+    title: "Connect through CodeLocal.Cloud",
     short: "One control layer",
     icon: "module",
     tone: "purple",
-    copy: "CodeLocal resolves the project, supplies bounded context and routes requests. Workspace authorization and approval policy determine what can run.",
+    copy: "CodeLocal.Cloud resolves the project, supplies bounded context and routes requests. Workspace authorization and approval policy determine what can run.",
   },
   {
     title: "Run on your machine",
@@ -128,7 +128,7 @@ export function ArchitectureModel() {
     <div className={styles.model}>
       <div className={styles.modelBar}>
         <span>
-          <i /> {t("The CodeLocal model")}
+          <i /> {t("The CodeLocal.Cloud model")}
         </span>
         <span>
           {t("Architecture")} <span aria-hidden="true">↗</span>
@@ -139,7 +139,7 @@ export function ArchitectureModel() {
         className={styles.viewport}
         tabIndex={0}
         role="region"
-        aria-label={t("CodeLocal architecture diagram")}
+        aria-label={t("CodeLocal.Cloud architecture diagram")}
       >
         <svg
           className={styles.diagram}
@@ -151,7 +151,7 @@ export function ArchitectureModel() {
             {t("One connected system. Your machine at the center of execution.")}
           </title>
           <desc id={`${id}-description`}>
-            {t("AI clients connect by MCP to CodeLocal. CodeLocal routes approved requests to your local machine. Project Brain provides sanitized durable knowledge. Cloud and local execution have separate privacy boundaries.")}
+            {t("AI clients connect by MCP to CodeLocal.Cloud. CodeLocal.Cloud routes approved requests to your local machine. Project Brain provides sanitized durable knowledge. Cloud and local execution have separate privacy boundaries.")}
           </desc>
           <defs>
             <clipPath id={`${id}-brand-clip`}>
@@ -433,7 +433,7 @@ export function ArchitectureModel() {
               y="161"
               textAnchor="middle"
             >
-              CodeLocal
+              CodeLocal.Cloud
             </text>
           </g>
 

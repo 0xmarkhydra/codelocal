@@ -73,7 +73,7 @@ export default async function ArticlePage({ params }: ArticleProps) {
     datePublished: post.publishedAt,
     dateModified: post.updatedAt ?? post.publishedAt,
     author: { "@type": "Person", name: post.author.name, url: `https://codelocal.cloud/users/${post.author.slug}` },
-    publisher: { "@type": "Organization", name: "CodeLocal" },
+    publisher: { "@type": "Organization", name: "CodeLocal.Cloud" },
     mainEntityOfPage: `https://codelocal.cloud/blogs/${post.slug}`,
     image: post.coverAssetId ? `https://codelocal.cloud${publicCoverURL(post.coverAssetId)}` : undefined,
     keywords: post.tags.join(", "),

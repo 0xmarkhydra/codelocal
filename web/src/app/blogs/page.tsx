@@ -35,12 +35,12 @@ export default async function BlogHome({ searchParams }: BlogHomeProps) {
     <main className={styles.page}>
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
-          <h1>{t("CodeLocal Blog")}</h1>
+          <h1>{t("CodeLocal.Cloud Blog")}</h1>
           <p>{t("Practical notes on local-first AI infrastructure, agents and project intelligence.")}</p>
         </div>
         <aside className={styles.heroAside}>
           <form className={styles.searchForm} action="/blogs" method="get">
-            <label className="sr-only" htmlFor="blog-search">{t("Search the CodeLocal Blog")}</label>
+            <label className="sr-only" htmlFor="blog-search">{t("Search the CodeLocal.Cloud Blog")}</label>
             <input
               id="blog-search"
               name="q"

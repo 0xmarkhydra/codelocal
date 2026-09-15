@@ -28,7 +28,6 @@
 }
 .brand img { border-radius: 7px; }
 .brandDot { color: var(--brand-accent); margin-left: -9px; }
-.brandCloud { margin-left: -3px; color: var(--brand-muted); stroke-width: 1.45; }
 .navLinks {
   display: flex;
   flex-wrap: wrap;

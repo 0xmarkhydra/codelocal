@@ -8,12 +8,12 @@ import styles from "./forums.module.css";
 
 export const metadata: Metadata = {
   title: "Forums — Community Support, Bug Reports & Ideas",
-  description: "Ask CodeLocal questions, report reproducible bugs with screenshots, share workarounds, and follow fixes from community report to GitHub issue and resolution.",
+  description: "Ask CodeLocal.Cloud questions, report reproducible bugs with screenshots, share workarounds, and follow fixes from community report to GitHub issue and resolution.",
   alternates: { canonical: "/forums" },
   openGraph: {
     type: "website",
-    title: "CodeLocal Forums",
-    description: "Community support, bug reports, screenshots, ideas, and engineering resolutions for CodeLocal.",
+    title: "CodeLocal.Cloud Forums",
+    description: "Community support, bug reports, screenshots, ideas, and engineering resolutions for CodeLocal.Cloud.",
     url: "/forums",
   },
 };
@@ -49,8 +49,8 @@ export default async function ForumsPage({ searchParams }: ForumPageProps) {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
-    name: "CodeLocal Forums",
-    description: "Community questions, bug reports and product ideas for CodeLocal.",
+    name: "CodeLocal.Cloud Forums",
+    description: "Community questions, bug reports and product ideas for CodeLocal.Cloud.",
     url: "https://codelocal.cloud/forums",
     mainEntity: {
       "@type": "ItemList",
@@ -70,7 +70,7 @@ export default async function ForumsPage({ searchParams }: ForumPageProps) {
             <div className={styles.heroCopy}>
               <span className={styles.eyebrow}>05 / Community</span>
               <h1>Build together.<br /><span>Fix faster.</span></h1>
-              <p>Questions, bug reports and product ideas from people building with CodeLocal. Public by default, useful to everyone.</p>
+              <p>Questions, bug reports and product ideas from people building with CodeLocal.Cloud. Public by default, useful to everyone.</p>
               <div className={styles.actions}>
                 <Link className={styles.primaryButton} href="/dashboard/forums">Start a discussion <AppIcon name="external" size={17} /></Link>
                 <a className={styles.secondaryButton} href="#discussions">Browse discussions <AppIcon name="chevron-down" size={17} /></a>
@@ -115,7 +115,7 @@ export default async function ForumsPage({ searchParams }: ForumPageProps) {
             <Link href="/forums?kind=idea" data-active={kind === "idea" || undefined}>
               <div><AppIcon name="brain" size={25} /><span>IDEAS</span></div>
               <h3>Help shape the product.</h3>
-              <p>Share product ideas, workflow improvements and the things you wish CodeLocal did next.</p>
+              <p>Share product ideas, workflow improvements and the things you wish CodeLocal.Cloud did next.</p>
               <strong>{counts.idea} ideas <AppIcon name="chevron-right" size={17} /></strong>
             </Link>
           </div>

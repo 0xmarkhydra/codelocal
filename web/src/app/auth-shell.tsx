@@ -20,9 +20,9 @@ export async function AuthShell({ panelTitle, panelSubtitle, children }: AuthShe
   return (
     <main className={styles.page}>
       <header className={styles.nav}>
-        <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
+        <Link className={styles.brand} href="/" aria-label={t("CodeLocal.Cloud home")}>
           <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
-          <span>CodeLocal</span>
+          <span>CodeLocal.Cloud</span>
         </Link>
         <nav className={styles.navLinks} aria-label={t("Public navigation")}>
           <Link href="/security">{t("Security")}</Link>
@@ -35,7 +35,7 @@ export async function AuthShell({ panelTitle, panelSubtitle, children }: AuthShe
       <section className={styles.main}>
         <div className={styles.authStage}>
           <section className={styles.panel} aria-label={panelTitle}>
-            <span className={styles.accountLabel}>{t("CodeLocal account")}</span>
+            <span className={styles.accountLabel}>{t("CodeLocal.Cloud account")}</span>
             <h1>{panelTitle}</h1>
             <p className={styles.subtitle}>{panelSubtitle}</p>
             {children}
@@ -44,7 +44,7 @@ export async function AuthShell({ panelTitle, panelSubtitle, children }: AuthShe
       </section>
 
       <footer className={styles.footer}>
-        <span>CodeLocal</span>
+        <span>CodeLocal.Cloud</span>
         <div className={styles.footerLinks}>
           <Link href="/privacy">{t("Privacy")}</Link>
           <Link href="/terms">{t("Terms")}</Link>

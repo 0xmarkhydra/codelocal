@@ -39,12 +39,6 @@
 .brandDot {
   color: var(--brand-accent);
 }
-.brandCloud {
-  flex: 0 0 auto;
-  margin-left: -2px;
-  color: #63c8ff;
-  filter: drop-shadow(0 0 6px rgba(74, 181, 255, 0.34));
-}
 .nav {
   display: grid;
   gap: 25px;

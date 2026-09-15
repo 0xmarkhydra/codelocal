@@ -104,7 +104,7 @@ export function ChatContextSheet({
             <legend>Dự án</legend>
             <label className={selectedWorkspaceKey === "auto" ? styles.selectedCard : undefined}>
               <input type="radio" name="mobile-project" value="auto" checked={selectedWorkspaceKey === "auto"} onChange={(event) => onWorkspaceChange(event.target.value)} />
-              <span><strong>Auto</strong><small>CodeLocal tự chọn dự án phù hợp</small></span>
+              <span><strong>Auto</strong><small>CodeLocal.Cloud tự chọn dự án phù hợp</small></span>
             </label>
             {workspaceItems.map((workspace) => {
               const key = workspaceKey(workspace);

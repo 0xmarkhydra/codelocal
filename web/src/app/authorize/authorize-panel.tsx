@@ -51,14 +51,14 @@ export function AuthorizePanel({ error }: { error: string }) {
       });
   }, [router]);
 
-  if (failure) return <div className={styles.alert}>{failure === "Invalid OAuth authorization request." || failure === "Invalid authorization response." ? t(failure) : t("CodeLocal could not be reached.")}</div>;
+  if (failure) return <div className={styles.alert}>{failure === "Invalid OAuth authorization request." || failure === "Invalid authorization response." ? t(failure) : t("CodeLocal.Cloud could not be reached.")}</div>;
   if (!context) return <div className={styles.hint}>{t("Validating the OAuth request…")}</div>;
 
   return (
     <>
       {error ? <div className={styles.alert}>{message(error)}</div> : null}
       <div className={styles.codeBlock}>{context.clientName}<br />{context.resource}</div>
-      <p className={styles.hint}>{t("Signed in as {email}. This client can access only devices and workspaces belonging to this CodeLocal account.", { email: context.email })}</p>
+      <p className={styles.hint}>{t("Signed in as {email}. This client can access only devices and workspaces belonging to this CodeLocal.Cloud account.", { email: context.email })}</p>
       <form className={styles.form} method="post" action="/authorize">
         <input type="hidden" name="client_id" value={context.clientId} />
         <input type="hidden" name="redirect_uri" value={context.redirectUri} />

@@ -42,7 +42,7 @@ const groups: SettingsGroup[] = [
       { title: "Connections", description: "Connected services and tools", href: "/dashboard/connect", icon: "connection" },
       { title: "Plugins", description: "Install and connect MCP tools", href: "/dashboard/plugins", icon: "plugin" },
       { title: "Usage", description: "Usage and limits", href: "/dashboard/usage", icon: "usage" },
-      { title: "Invite", description: "Invite members to CodeLocal", href: "/dashboard/invite", icon: "invite" },
+      { title: "Invite", description: "Invite members to CodeLocal.Cloud", href: "/dashboard/invite", icon: "invite" },
     ],
   },
   {

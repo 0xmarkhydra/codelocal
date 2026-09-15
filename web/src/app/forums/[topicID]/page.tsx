@@ -66,7 +66,7 @@ export default async function ForumTopicPage({ params }: TopicPageProps) {
     datePublished: new Date(topic.createdAt).toISOString(),
     dateModified: new Date(topic.updatedAt).toISOString(),
     author: { "@type": "Person", name: topic.author },
-    publisher: { "@type": "Organization", name: "CodeLocal", url: "https://codelocal.cloud" },
+    publisher: { "@type": "Organization", name: "CodeLocal.Cloud", url: "https://codelocal.cloud" },
     image: topic.assetIds.map((assetID) => `https://codelocal.cloud${publicForumImageURL(assetID)}`),
     interactionStatistic: [
       { "@type": "InteractionCounter", interactionType: "https://schema.org/LikeAction", userInteractionCount: topic.voteCount },

@@ -139,7 +139,7 @@ export function PenpotDesignFrame({ designUrl }: { designUrl: string }) {
       className={styles.designFrame}
       referrerPolicy="strict-origin-when-cross-origin"
       src={designUrl}
-      title={t("CodeLocal Penpot Design Workspace")}
+      title={t("CodeLocal.Cloud Penpot Design Workspace")}
     />
   );
 }

@@ -102,7 +102,7 @@ function CollectiveControls({ csrf, value }: { csrf: string; value: KnowledgeCol
       <div className={styles.healthCardHead}>
         <div>
           <span>{t("Collective intelligence")}</span>
-          <p>{t("Private opt-in. You can disable contribution at any time; CodeLocal removes your contribution aggregates when you opt out.")}</p>
+          <p>{t("Private opt-in. You can disable contribution at any time; CodeLocal.Cloud removes your contribution aggregates when you opt out.")}</p>
         </div>
         <b>{t(value.available ? "Available" : "Unavailable")}</b>
       </div>

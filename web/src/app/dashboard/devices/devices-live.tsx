@@ -80,19 +80,19 @@ export function LiveDevices() {
             <div className={styles.deviceActionsPanel}>
               <div>
                 <strong>{t("Manage device")}</strong>
-                <p>{t("Revoking credentials disconnects CodeLocal from this machine without deleting local files.")}</p>
+                <p>{t("Revoking credentials disconnects CodeLocal.Cloud from this machine without deleting local files.")}</p>
               </div>
               <ResourceMutationButton
                 endpoint={`/api/v1/devices/${encodeURIComponent(selected.deviceId)}/revoke`}
                 csrf={csrf}
                 label={t("Revoke")}
-                confirmMessage={t("Revoke {name}? This disconnects its CodeLocal credential but does not delete local files.", { name: selected.deviceName })}
+                confirmMessage={t("Revoke {name}? This disconnects its CodeLocal.Cloud credential but does not delete local files.", { name: selected.deviceName })}
                 disabled={selected.status === "revoked"}
                 onSuccess={retry}
               />
             </div>
           </>
-        ) : <div className={styles.appleEmptyState}><strong>{t("No devices yet")}</strong><p>{t("Pair a machine with CodeLocal to get started.")}</p></div>}
+        ) : <div className={styles.appleEmptyState}><strong>{t("No devices yet")}</strong><p>{t("Pair a machine with CodeLocal.Cloud to get started.")}</p></div>}
       </div>
     </section>
   );

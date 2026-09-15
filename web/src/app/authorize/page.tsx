@@ -12,9 +12,9 @@ export default async function AuthorizePage({ searchParams }: Props) {
     <AuthShell
       eyebrow="OAuth consent"
       title="Approve one MCP client, not your whole machine."
-      description="CodeLocal binds this authorization to the registered redirect URI, PKCE challenge and your authenticated account before issuing an OAuth code."
+      description="CodeLocal.Cloud binds this authorization to the registered redirect URI, PKCE challenge and your authenticated account before issuing an OAuth code."
       panelTitle={t("Authorize MCP client")}
-      panelSubtitle={t("Review the client and CodeLocal resource before continuing.")}
+      panelSubtitle={t("Review the client and CodeLocal.Cloud resource before continuing.")}
       highlights={["PKCE S256 required", "Exact registered redirect URI", "Account-scoped devices and workspaces only"]}
     >
       <AuthorizePanel error={error} />

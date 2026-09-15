@@ -17,7 +17,7 @@ export default async function SignupPage({ searchParams }: Props) {
     <AuthShell
       eyebrow="Invite-only access"
       title="Give your AI client a controlled way into your real projects."
-      description="Create one CodeLocal identity, pair the machines you trust, and authorize project folders independently. Local source stays local."
+      description="Create one CodeLocal.Cloud identity, pair the machines you trust, and authorize project folders independently. Local source stays local."
       panelTitle={t("Create your account")}
       panelSubtitle={t("A valid member invite code is required.")}
       highlights={["Email verification before account creation", "Per-device and per-workspace authorization", "OAuth-ready for compatible MCP clients"]}
@@ -38,7 +38,7 @@ export default async function SignupPage({ searchParams }: Props) {
         <div className={styles.field}>
           <label htmlFor="referralCode">{t("Referral code")}</label>
           <input className={`${styles.input} ${styles.mono}`} id="referralCode" name="referralCode" defaultValue={referral} minLength={4} maxLength={6} pattern="[A-Za-z0-9]+" autoComplete="off" required />
-          <span className={styles.hint}>{t("Enter the invite code shared by an existing CodeLocal member.")}</span>
+          <span className={styles.hint}>{t("Enter the invite code shared by an existing CodeLocal.Cloud member.")}</span>
         </div>
         <button className={styles.button} type="submit">{t("Create account")}</button>
       </form>
