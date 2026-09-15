@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { AppIcon } from "../app-icon";
 import dashboard from "../dashboard.module.css";
 import surface from "../dashboard-surfaces.module.css";
@@ -22,7 +23,10 @@ export default async function ConnectPage() {
         <div className={surface.grid}>
           <section className={`${surface.card} ${surface.span8}`}>
             <div className={surface.cardHeader}>
-              <div><span className={dashboard.eyebrow}>Endpoint</span><h2 className={surface.title}>MCP server</h2></div>
+              <div className={surface.endpointHeading}>
+                <Image className={surface.endpointLogo} src="/codelocal-icon.png" alt="" width={44} height={44} priority />
+                <div><span className={dashboard.eyebrow}>Endpoint</span><h2 className={surface.title}>MCP server</h2></div>
+              </div>
               <span className={surface.statusBadge}><i /> {t("OAuth ready")}</span>
             </div>
             <MCPEndpoint />

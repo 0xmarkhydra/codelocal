@@ -39,29 +39,11 @@
 .brandDot {
   color: var(--brand-accent);
 }
-.workspaceBadge {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid #ffffff12;
-  border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 25px;
-  background: #ffffff03;
-}
-.workspaceGlyph {
-  color: var(--brand-accent);
-}
-.workspaceBadge strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 550;
-}
-.workspaceBadge div > span {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--brand-muted);
+.brandCloud {
+  flex: 0 0 auto;
+  margin-left: -2px;
+  color: #63c8ff;
+  filter: drop-shadow(0 0 6px rgba(74, 181, 255, 0.34));
 }
 .nav {
   display: grid;

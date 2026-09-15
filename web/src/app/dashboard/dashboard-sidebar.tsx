@@ -76,7 +76,12 @@ export function DashboardSidebar() {
       <div className={styles.mobileBar}>
         <Link className={styles.brand} href="/">
           <Image src="/codelocal-icon.png" alt="" width={27} height={27} />
-          CodeLocal.
+          <span>
+            CodeLocal<span className={styles.brandDot}>.</span>
+          </span>
+          <svg className={styles.brandCloud} width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6.1 18.25h11.8a4.1 4.1 0 0 0 .45-8.18A6.55 6.55 0 0 0 5.78 8.6 4.85 4.85 0 0 0 6.1 18.25Z" />
+          </svg>
         </Link>
         <button
           ref={trigger}
@@ -116,6 +121,9 @@ export function DashboardSidebar() {
             <span>
               CodeLocal<span className={styles.brandDot}>.</span>
             </span>
+            <svg className={styles.brandCloud} width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6.1 18.25h11.8a4.1 4.1 0 0 0 .45-8.18A6.55 6.55 0 0 0 5.78 8.6 4.85 4.85 0 0 0 6.1 18.25Z" />
+            </svg>
           </Link>
           <button
             className={styles.closeButton}
@@ -125,15 +133,6 @@ export function DashboardSidebar() {
           >
             <AppIcon name="close" />
           </button>
-        </div>
-        <div className={styles.workspaceBadge}>
-          <span className={styles.workspaceGlyph}>
-            <AppIcon name="module" size={18} />
-          </span>
-          <div>
-            <strong>{t("Workspace")}</strong>
-            <span>CodeLocal Cloud</span>
-          </div>
         </div>
         <DashboardNav onNavigate={() => setOpen(false)} />
       </aside>
