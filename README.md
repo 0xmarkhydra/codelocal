@@ -5,6 +5,10 @@ CodeLocal is a universal MCP connection layer for AI coding. It connects ChatGPT
 > [!IMPORTANT]
 > **Public repository status:** This public repository is currently being separated from CodeLocal's private Enterprise codebase. That extraction is being performed **manually**: components are reviewed, decoupled, cleaned up and moved into the public edition one by one rather than exported automatically from the Enterprise tree.
 >
+> **Why not copy the Enterprise source directly?** The Enterprise edition is designed for organizations that need to use AI inside security-sensitive business environments. Its codebase contains deployment assumptions, internal integrations, organization-wide controls, security hardening paths and implementation details that are specific to Enterprise operation. Publishing that codebase wholesale could expose attack surfaces, defensive assumptions or integration paths that attackers could study and then apply against Enterprise customers.
+>
+> For that reason, the public edition is not produced by simply copying the Enterprise repository and deleting a few private files. Public components are deliberately decoupled and, where necessary, re-implemented so that useful functionality can be opened without carrying over Enterprise-specific security architecture, customer-dependent behavior or internal operational coupling. This does not replace normal secure engineering: the public edition must still be secure and reviewable on its own.
+>
 > Because this is a manual separation process, reviewers may temporarily encounter historical names, compatibility files, source-only modules, Enterprise-era metadata or documentation that has not yet been fully normalized. Their presence does not by itself mean that those paths are part of the runtime shipped in the public npm package.
 >
 > The target date for completing this public-repository separation and cleanup is **October 19, 2026**. Until then, treat the shipping/runtime documentation and release builder as the source of truth when repository history or transitional structure appears inconsistent.
