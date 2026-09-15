@@ -1,4 +1,4 @@
-# CodeLocal / codex-mcp Roadmap
+# CodeLocal Roadmap
 
 > Product technology ownership is defined in [`PRODUCT_STACK.md`](./docs/architecture/PRODUCT_STACK.md): Go backend/CLI, Next.js + TypeScript web, Flutter + Dart mobile/desktop, and bounded OS-native bridges.
 >

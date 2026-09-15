@@ -1,0 +1,36 @@
+{
+  "description": "A verified single-user Project Brain experience can be reused independently of the MCP client or paired machine once the durable project knowledge is available.",
+  "candidate": {
+    "id": "experience:verify-before-release",
+    "kind": "workflow",
+    "statement": "Run the required package verification checks before release.",
+    "trigger": "package verification",
+    "preconditions": ["release candidate prepared"],
+    "evidenceRefs": ["task:release-42", "diff:release-42"],
+    "verificationRefs": ["verify:go-test", "verify:repo-check"],
+    "branchScope": "main",
+    "confidence": 0.95
+  },
+  "outcome": {
+    "taskId": "release-42",
+    "verificationPassed": true,
+    "securityPassed": true,
+    "regressionFree": true,
+    "requiredChecks": 2,
+    "passedRequiredChecks": 2
+  },
+  "reuse": [
+    {
+      "client": "ChatGPT",
+      "device": "macbook-a",
+      "branch": "main",
+      "trigger": "package verification for release"
+    },
+    {
+      "client": "Claude",
+      "device": "linux-b",
+      "branch": "main",
+      "trigger": "package verification"
+    }
+  ]
+}

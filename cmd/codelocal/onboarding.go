@@ -146,6 +146,7 @@ func promptAutomationSetup(settings automation.Settings, environment automation.
 	fmt.Println()
 	fmt.Println("✓ Coding")
 	fmt.Println("  Read/edit authorized workspaces, Git and guarded terminal tools")
+	fmt.Println("  Preview safety: terminal commands run on this host after policy/approval checks; CodeLocal does not provide an OS-level sandbox yet.")
 	fmt.Println()
 
 	reader := bufio.NewReader(os.Stdin)

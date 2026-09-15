@@ -3,9 +3,11 @@
 CodeLocal is a universal MCP connection layer for AI coding. It connects ChatGPT, Codex, Claude and other MCP-compatible AI clients and agents to one durable Project Brain plus controlled access to project folders you explicitly authorize on your own machine.
 
 > [!IMPORTANT]
-> **Public repository status:** This public repository is currently being separated from CodeLocal's private Enterprise codebase. The CodeLocal team is progressively extracting, reviewing, cleaning up and publishing components that can safely live in the open-source edition.
+> **Public repository status:** This public repository is currently being separated from CodeLocal's private Enterprise codebase. That extraction is being performed **manually**: components are reviewed, decoupled, cleaned up and moved into the public edition one by one rather than exported automatically from the Enterprise tree.
 >
-> As a result, the public source code is still a work in progress and does not yet represent the complete Enterprise codebase or the final public repository structure. We will continue updating this repository as additional modules are decoupled from private Enterprise infrastructure and made ready for public release.
+> Because this is a manual separation process, reviewers may temporarily encounter historical names, compatibility files, source-only modules, Enterprise-era metadata or documentation that has not yet been fully normalized. Their presence does not by itself mean that those paths are part of the runtime shipped in the public npm package.
+>
+> The target date for completing this public-repository separation and cleanup is **October 19, 2026**. Until then, treat the shipping/runtime documentation and release builder as the source of truth when repository history or transitional structure appears inconsistent.
 
 ## What we are building
 
@@ -34,6 +36,9 @@ User documentation:
 - [User Guide](./docs/guides/USER_GUIDE.md)
 - [How CodeLocal Works](./docs/guides/HOW_CODELOCAL_WORKS.md)
 - [Security & Privacy](./docs/architecture/SECURITY_AND_PRIVACY.md)
+- [Project Brain Evidence](./docs/architecture/PROJECT_BRAIN_EVIDENCE.md)
+- [Security Policy](./SECURITY.md)
+- [Contributing](./CONTRIBUTING.md)
 - [Product Stack](./docs/architecture/PRODUCT_STACK.md)
 - [Beta Channel](./docs/operations/BETA_CHANNEL.md)
 - [OpenAI Plugin Submission Pack](./docs/integrations/openai/submission/README.md)

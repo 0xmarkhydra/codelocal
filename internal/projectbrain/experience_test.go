@@ -1,6 +1,10 @@
 package projectbrain
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"testing"
+)
 
 func TestExperiencePromotionGate(t *testing.T) {
 	candidate := ExperienceCandidate{Kind: ExperienceWorkflow, Statement: "Run package tests before product verification.", Confidence: .9, EvidenceRefs: []string{"event:1"}, VerificationRefs: []string{"verify:1"}}
@@ -39,5 +43,44 @@ func TestSelectExperiencesScope(t *testing.T) {
 	selected := SelectExperiences(decisions, "main", "login flow", 1)
 	if len(selected) != 1 || selected[0].ID != "a" {
 		t.Fatalf("wrong experience selected: %+v", selected)
+	}
+}
+
+func TestVerifiedExperienceReuseFixture(t *testing.T) {
+	type reuseContext struct {
+		Client  string `json:"client"`
+		Device  string `json:"device"`
+		Branch  string `json:"branch"`
+		Trigger string `json:"trigger"`
+	}
+	type fixture struct {
+		Candidate ExperienceCandidate `json:"candidate"`
+		Outcome   VerifiedOutcome      `json:"outcome"`
+		Reuse     []reuseContext       `json:"reuse"`
+	}
+
+	raw, err := os.ReadFile("testdata/verified_experience_reuse.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data fixture
+	if err := json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	decision, err := EvaluateExperience(data.Candidate, data.Outcome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != ExperiencePromoted || decision.Trust != "verified" {
+		t.Fatalf("fixture experience was not promoted: %+v", decision)
+	}
+	if len(data.Reuse) < 2 || data.Reuse[0].Client == data.Reuse[1].Client || data.Reuse[0].Device == data.Reuse[1].Device {
+		t.Fatalf("fixture must represent two distinct client/device contexts: %+v", data.Reuse)
+	}
+	for _, reuse := range data.Reuse {
+		selected := SelectExperiences([]ExperienceDecision{decision}, reuse.Branch, reuse.Trigger, 1)
+		if len(selected) != 1 || selected[0].ID != data.Candidate.ID {
+			t.Fatalf("verified experience not reusable for %s on %s: %+v", reuse.Client, reuse.Device, selected)
+		}
 	}
 }
