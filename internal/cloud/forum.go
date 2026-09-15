@@ -75,6 +75,14 @@ type ForumAdminUpdate struct {
 	ResolutionNote    string
 }
 
+func normalizeForumDeleteReason(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 500 {
+		return "", ErrForumInvalid
+	}
+	return value, nil
+}
+
 func normalizeForumKind(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "question", "bug", "idea":

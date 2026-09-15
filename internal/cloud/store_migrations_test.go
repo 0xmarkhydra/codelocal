@@ -88,10 +88,10 @@ func TestKnowledgeV2MigrationDependenciesAreExplicit(t *testing.T) {
 
 func TestProductMigrationTrainFollowsProjectBrainTrain(t *testing.T) {
 	migrations := accountSchemaMigrations()
-	if len(migrations) != 27 {
+	if len(migrations) != 28 {
 		t.Fatalf("unexpected account migration train: %#v", migrations)
 	}
-	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67} {
+	for index, version := range []int{41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68} {
 		if migrations[index].version != version {
 			t.Fatalf("migration[%d].version=%d want %d", index, migrations[index].version, version)
 		}
@@ -213,23 +213,29 @@ func TestProductMigrationTrainFollowsProjectBrainTrain(t *testing.T) {
 			t.Fatalf("MCP connection migration 66 missing token %q", token)
 		}
 	}
+	forumModeration := strings.ToLower(migrations[27].sql)
+	for _, token := range []string{"deleted_by_user_id", "deleted_reason", "codelocal_forum_topics", "codelocal_forum_comments"} {
+		if !strings.Contains(forumModeration, token) {
+			t.Fatalf("forum moderation migration 68 missing token %q", token)
+		}
+	}
 }
 
 func TestMigrationAdvisoryLockIdentityIsStableAndNonZero(t *testing.T) {
 	if schemaMigrationAdvisoryLockID == 0 {
 		t.Fatal("schema migration advisory lock id must be non-zero")
 	}
-	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[40] || nonTransactionalMigrationVersions[54] || nonTransactionalMigrationVersions[55] || nonTransactionalMigrationVersions[56] || nonTransactionalMigrationVersions[57] || nonTransactionalMigrationVersions[58] || nonTransactionalMigrationVersions[59] || nonTransactionalMigrationVersions[60] || nonTransactionalMigrationVersions[61] || nonTransactionalMigrationVersions[62] || nonTransactionalMigrationVersions[63] || nonTransactionalMigrationVersions[64] || nonTransactionalMigrationVersions[65] || nonTransactionalMigrationVersions[66] || nonTransactionalMigrationVersions[67] {
+	if nonTransactionalMigrationVersions[26] || nonTransactionalMigrationVersions[40] || nonTransactionalMigrationVersions[54] || nonTransactionalMigrationVersions[55] || nonTransactionalMigrationVersions[56] || nonTransactionalMigrationVersions[57] || nonTransactionalMigrationVersions[58] || nonTransactionalMigrationVersions[59] || nonTransactionalMigrationVersions[60] || nonTransactionalMigrationVersions[61] || nonTransactionalMigrationVersions[62] || nonTransactionalMigrationVersions[63] || nonTransactionalMigrationVersions[64] || nonTransactionalMigrationVersions[65] || nonTransactionalMigrationVersions[66] || nonTransactionalMigrationVersions[67] || nonTransactionalMigrationVersions[68] {
 		t.Fatal("new migration train unexpectedly bypasses transactional runner")
 	}
 }
 
 func TestSchemaMigrationStatusRequiresContiguousAppliedVersions(t *testing.T) {
-	if got := LatestSchemaMigrationVersion(); got != 67 {
-		t.Fatalf("latest schema version=%d want 67", got)
+	if got := LatestSchemaMigrationVersion(); got != 68 {
+		t.Fatalf("latest schema version=%d want 68", got)
 	}
-	ready := schemaMigrationStatus(67, 67)
-	if !ready.UpToDate || ready.TargetVersion != 67 || ready.AppliedCount != 67 || len(ready.ProjectBrainPlanHash) != 64 {
+	ready := schemaMigrationStatus(68, 68)
+	if !ready.UpToDate || ready.TargetVersion != 68 || ready.AppliedCount != 68 || len(ready.ProjectBrainPlanHash) != 64 {
 		t.Fatalf("unexpected ready schema status: %#v", ready)
 	}
 	for _, tc := range []struct {

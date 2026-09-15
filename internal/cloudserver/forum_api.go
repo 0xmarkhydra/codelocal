@@ -30,6 +30,10 @@ type forumCommentCreateRequest struct {
 	AssetIDs []string `json:"assetIds"`
 }
 
+type forumAdminDeleteRequest struct {
+	Reason string `json:"reason"`
+}
+
 type forumAdminUpdateRequest struct {
 	Status            string `json:"status"`
 	Severity          string `json:"severity"`
@@ -183,4 +187,46 @@ func (s *Server) adminForumTopicAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	webutil.JSON(w, http.StatusOK, map[string]any{"topic": toForumTopicResponse(topic)})
+}
+
+func (s *Server) adminForumTopicDeleteAPI(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.forumIdentity(w, r, true)
+	if !ok {
+		return
+	}
+	if !cloud.IsAdminEmail(identity.User.Email) {
+		writeForumAPIError(w, cloud.ErrForumForbidden)
+		return
+	}
+	var input forumAdminDeleteRequest
+	if webutil.DecodeJSON(r, 8<<10, &input) != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	if err := s.Store.AdminDeleteForumTopic(r.Context(), r.PathValue("topicID"), identity.User.ID, input.Reason); err != nil {
+		writeForumAPIError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) adminForumCommentDeleteAPI(w http.ResponseWriter, r *http.Request) {
+	identity, ok := s.forumIdentity(w, r, true)
+	if !ok {
+		return
+	}
+	if !cloud.IsAdminEmail(identity.User.Email) {
+		writeForumAPIError(w, cloud.ErrForumForbidden)
+		return
+	}
+	var input forumAdminDeleteRequest
+	if webutil.DecodeJSON(r, 8<<10, &input) != nil {
+		webutil.JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	if err := s.Store.AdminDeleteForumComment(r.Context(), r.PathValue("topicID"), r.PathValue("commentID"), identity.User.ID, input.Reason); err != nil {
+		writeForumAPIError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

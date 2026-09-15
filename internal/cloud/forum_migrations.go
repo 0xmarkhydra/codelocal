@@ -67,3 +67,18 @@ ALTER TABLE codelocal_forum_comments
 func forumMediaSchemaMigrations() []schemaMigration {
 	return []schemaMigration{{67, forumMediaMigrationSQL}}
 }
+
+const forumModerationMigrationSQL = `
+ALTER TABLE codelocal_forum_topics
+ ADD COLUMN IF NOT EXISTS deleted_by_user_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE codelocal_forum_topics
+ ADD COLUMN IF NOT EXISTS deleted_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE codelocal_forum_comments
+ ADD COLUMN IF NOT EXISTS deleted_by_user_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE codelocal_forum_comments
+ ADD COLUMN IF NOT EXISTS deleted_reason TEXT NOT NULL DEFAULT '';
+`
+
+func forumModerationSchemaMigrations() []schemaMigration {
+	return []schemaMigration{{68, forumModerationMigrationSQL}}
+}

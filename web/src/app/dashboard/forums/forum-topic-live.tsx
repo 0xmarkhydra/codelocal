@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
 import { isAccountResource } from "@/lib/contracts/account";
 import { privateMediaVariantURL, uploadMediaAsset } from "@/lib/media-upload";
@@ -45,6 +46,7 @@ function reviewFromTopic(topic: ForumTopic): ReviewDraft {
 }
 
 export function ForumTopicLive({ topicID }: { topicID: string }) {
+  const router = useRouter();
   const account = useDashboardResource("/api/v1/account", isAccountResource);
   const readyAccount = account.state.kind === "ready" ? account.state.value : undefined;
   const [topic, setTopic] = useState<ForumTopic | null>(null);
@@ -57,6 +59,7 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [moderationReason, setModerationReason] = useState("");
 
   const fetchTopic = useCallback(async () => {
     const response = await fetch(`/api/v1/forums/topics/${encodeURIComponent(topicID)}`, { cache: "no-store", credentials: "same-origin" });
@@ -169,6 +172,47 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
     }
   }
 
+  async function deleteTopic() {
+    if (!readyAccount?.csrf || !topic || !isAdmin || busy || !moderationReason.trim()) return;
+    if (!window.confirm(`Delete "${topic.title}" and all of its replies? This will hide it from the public forum.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/v1/admin/forums/topics/${encodeURIComponent(topicID)}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": readyAccount.csrf },
+        body: JSON.stringify({ reason: moderationReason.trim() }),
+      });
+      if (!response.ok) throw new Error("Could not delete topic");
+      router.push("/dashboard/forums");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not delete topic");
+      setBusy(false);
+    }
+  }
+
+  async function deleteComment(commentID: string) {
+    if (!readyAccount?.csrf || !isAdmin || busy || !moderationReason.trim()) return;
+    if (!window.confirm("Delete this reply? It will disappear from the forum immediately.")) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/v1/admin/forums/topics/${encodeURIComponent(topicID)}/comments/${encodeURIComponent(commentID)}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": readyAccount.csrf },
+        body: JSON.stringify({ reason: moderationReason.trim() }),
+      });
+      if (!response.ok) throw new Error("Could not delete reply");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not delete reply");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveReview(event: FormEvent) {
     event.preventDefault();
     if (!readyAccount?.csrf || !review || busy) return;
@@ -247,7 +291,11 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
             <h2 className={styles.sectionTitle}>Replies · {comments.length}</h2>
             <div className={styles.replyList}>
               {comments.length === 0 && <div className={styles.empty}>No replies yet. Add context or a workaround.</div>}
-              {comments.map((comment) => <article className={styles.replyCard} key={comment.id}><header><strong>{comment.authorEmail}</strong><span>{formatForumTime(comment.createdAt)}</span></header><p>{comment.body}</p>{comment.assetIds.length > 0 && <div className={styles.replyGallery}>{comment.assetIds.map((assetID, index) => <a href={privateMediaVariantURL(assetID, "large")} target="_blank" rel="noreferrer" key={assetID}><Image src={privateMediaVariantURL(assetID, "thumb")} alt={`Reply attachment ${index + 1}`} width={180} height={120} unoptimized /></a>)}</div>}</article>)}
+              {comments.map((comment) => <article className={styles.replyCard} key={comment.id}>
+                <header><strong>{comment.authorEmail}</strong><div className={styles.replyHeaderActions}><span>{formatForumTime(comment.createdAt)}</span>{isAdmin && <button className={styles.deleteInlineButton} type="button" disabled={busy || !moderationReason.trim()} onClick={() => void deleteComment(comment.id)}>Delete reply</button>}</div></header>
+                <p>{comment.body}</p>
+                {comment.assetIds.length > 0 && <div className={styles.replyGallery}>{comment.assetIds.map((assetID, index) => <a href={privateMediaVariantURL(assetID, "large")} target="_blank" rel="noreferrer" key={assetID}><Image src={privateMediaVariantURL(assetID, "thumb")} alt={`Reply attachment ${index + 1}`} width={180} height={120} unoptimized /></a>)}</div>}
+              </article>)}
             </div>
             <form className={styles.replyComposer} onSubmit={postReply}>
               <label><span>Reply</span><textarea required rows={4} value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Share a fix, workaround, reproduction detail, or answer…" /></label>
@@ -271,6 +319,12 @@ export function ForumTopicLive({ topicID }: { topicID: string }) {
               <label><span>PR / fix URL</span><input type="url" value={review.githubPrUrl} onChange={(event) => setReview((current) => current ? { ...current, githubPrUrl: event.target.value } : current)} placeholder="https://github.com/codelocal-cloud/codelocal/pull/123" /></label>
               <label><span>Resolution note</span><textarea rows={4} value={review.resolutionNote} onChange={(event) => setReview((current) => current ? { ...current, resolutionNote: event.target.value } : current)} placeholder="What was fixed, merged, or why this was closed" /></label>
               <button disabled={busy} type="submit">{busy ? "Saving…" : "Save review"}</button>
+              <div className={styles.dangerZone}>
+                <strong>Moderation</strong>
+                <p>Deletion is a soft delete. The content disappears immediately while the audit reason is retained.</p>
+                <label><span>Deletion reason</span><textarea rows={3} maxLength={500} value={moderationReason} onChange={(event) => setModerationReason(event.target.value)} placeholder="Why is this content being removed?" /></label>
+                <button className={styles.dangerButton} disabled={busy || !moderationReason.trim()} type="button" onClick={() => void deleteTopic()}>Delete topic</button>
+              </div>
             </form>
           )}
         </div>

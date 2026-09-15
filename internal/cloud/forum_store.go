@@ -302,3 +302,65 @@ UPDATE codelocal_forum_topics SET status=$1,severity=$2,github_issue_url=$3,gith
 	}
 	return s.ForumTopicByID(ctx, topicID)
 }
+
+func (s *Store) AdminDeleteForumTopic(ctx context.Context, topicID, adminUserID, reason string) error {
+	topicID = strings.TrimSpace(topicID)
+	adminUserID = strings.TrimSpace(adminUserID)
+	reason, err := normalizeForumDeleteReason(reason)
+	if topicID == "" || adminUserID == "" || err != nil {
+		return ErrForumInvalid
+	}
+	now := time.Now().UnixMilli()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	command, err := tx.Exec(ctx, `UPDATE codelocal_forum_topics
+SET deleted_at=$1,deleted_by_user_id=$2,deleted_reason=$3,updated_at=$1
+WHERE topic_id=$4 AND deleted_at=0`, now, adminUserID, reason, topicID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrForumNotFound
+	}
+	if _, err := tx.Exec(ctx, `UPDATE codelocal_forum_comments
+SET deleted_at=$1,deleted_by_user_id=$2,deleted_reason=$3,updated_at=$1
+WHERE topic_id=$4 AND deleted_at=0`, now, adminUserID, "Topic deleted: "+reason, topicID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) AdminDeleteForumComment(ctx context.Context, topicID, commentID, adminUserID, reason string) error {
+	topicID = strings.TrimSpace(topicID)
+	commentID = strings.TrimSpace(commentID)
+	adminUserID = strings.TrimSpace(adminUserID)
+	reason, err := normalizeForumDeleteReason(reason)
+	if topicID == "" || commentID == "" || adminUserID == "" || err != nil {
+		return ErrForumInvalid
+	}
+	if _, err := s.ForumTopicByID(ctx, topicID); err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	command, err := tx.Exec(ctx, `UPDATE codelocal_forum_comments
+SET deleted_at=$1,deleted_by_user_id=$2,deleted_reason=$3,updated_at=$1
+WHERE comment_id=$4 AND topic_id=$5 AND deleted_at=0`, now, adminUserID, reason, commentID, topicID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return ErrForumNotFound
+	}
+	if _, err := tx.Exec(ctx, `UPDATE codelocal_forum_topics SET updated_at=$1 WHERE topic_id=$2 AND deleted_at=0`, now, topicID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

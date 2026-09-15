@@ -253,6 +253,14 @@
 .adminPanel > p { margin-top: 5px; color: rgba(158,178,202,.7); font-size: 11px; line-height: 1.55; }
 .adminPanel button { width: 100%; min-height: 40px; margin-top: 14px; border-radius: 8px; background: rgba(74,137,228,.92); color: white; font-weight: 700; }
 .adminPanel button:disabled { opacity: .55; cursor: not-allowed; }
+.replyHeaderActions { display: flex; align-items: center; gap: 10px; }
+.deleteInlineButton { border: 0; background: transparent; color: rgba(255,128,128,.8); font-size: 10px; font-weight: 700; cursor: pointer; }
+.deleteInlineButton:disabled { opacity: .35; cursor: not-allowed; }
+.dangerZone { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,103,103,.18); }
+.dangerZone > strong { color: rgba(255,170,170,.92); font-size: 12px; }
+.dangerZone > p { margin: 5px 0 10px; color: rgba(207,164,164,.72); font-size: 10px; line-height: 1.5; }
+.adminPanel .dangerButton { background: rgba(181,59,59,.9); color: #fff; }
+.adminPanel .dangerButton:hover:not(:disabled) { background: rgba(203,68,68,.96); }
 .resolution { margin-top: 14px; padding: 12px; border-left: 2px solid rgba(54,195,128,.55); border-radius: 0 8px 8px 0; background: rgba(40,159,103,.055); color: rgba(177,215,197,.82); font-size: 12px; line-height: 1.6; }
 
 @media (max-width: 900px) {

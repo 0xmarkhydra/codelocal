@@ -18,4 +18,6 @@ func (s *Server) registerForumRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/forums/topics/{topicID}/comments", webutil.RateLimit(s.Store, webutil.RateLimitOptions{Scope: "forum-comment-create-ip", Limit: 60, Window: 10 * time.Minute}, comment))
 	mux.Handle("POST /api/v1/forums/topics/{topicID}/vote", dashboardJSONCSRF(http.HandlerFunc(s.forumVoteAPI)))
 	mux.Handle("PATCH /api/v1/admin/forums/topics/{topicID}", dashboardJSONCSRF(http.HandlerFunc(s.adminForumTopicAPI)))
+	mux.Handle("DELETE /api/v1/admin/forums/topics/{topicID}", dashboardJSONCSRF(http.HandlerFunc(s.adminForumTopicDeleteAPI)))
+	mux.Handle("DELETE /api/v1/admin/forums/topics/{topicID}/comments/{commentID}", dashboardJSONCSRF(http.HandlerFunc(s.adminForumCommentDeleteAPI)))
 }
