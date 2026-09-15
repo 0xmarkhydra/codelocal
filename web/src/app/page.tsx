@@ -30,7 +30,7 @@ export default async function Home() {
       <header className={styles.nav}>
         <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
           <Image src="/codelocal-icon.png" alt="" width={32} height={32} />
-          CodeLocal<span className={styles.brandDot}>.</span>
+          CodeLocal<span className={styles.brandDot}>.</span><AppIcon name="cloud" size={17} className={styles.brandCloud} />
         </Link>
         <nav className={styles.navLinks} aria-label={t("Primary navigation")}>
           <a href="#product">{t("Product")}</a>
@@ -41,9 +41,6 @@ export default async function Home() {
         </nav>
         <div className={styles.navActions}>
           <LanguageSelect />
-          <a className={styles.navButton} href="/codelocal-icon.png" download="codelocal-icon.png">
-            {t("Download icon")} <AppIcon name="download" size={15} />
-          </a>
           <Link className={styles.navButton} href="/dashboard">
             {t("Open dashboard")} <AppIcon name="external" size={15} />
           </Link>

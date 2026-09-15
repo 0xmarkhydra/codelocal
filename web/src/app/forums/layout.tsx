@@ -10,7 +10,7 @@ export default function ForumsLayout({ children }: { children: ReactNode }) {
       <header className={styles.navbar}>
         <Link className={styles.brand} href="/" aria-label="CodeLocal home">
           <Image src="/codelocal-icon.png" alt="" width={32} height={32} />
-          CodeLocal<span className={styles.brandDot}>.</span>
+          CodeLocal<span className={styles.brandDot}>.</span><AppIcon name="cloud" size={17} className={styles.brandCloud} />
         </Link>
         <nav className={styles.navLinks} aria-label="Primary navigation">
           <Link href="/">Product</Link>
@@ -26,7 +26,7 @@ export default function ForumsLayout({ children }: { children: ReactNode }) {
       <footer className={styles.footer}>
         <Link className={styles.brand} href="/">
           <Image src="/codelocal-icon.png" alt="" width={28} height={28} />
-          CodeLocal<span className={styles.brandDot}>.</span>
+          CodeLocal<span className={styles.brandDot}>.</span><AppIcon name="cloud" size={16} className={styles.brandCloud} />
         </Link>
         <nav aria-label="Footer navigation">
           <Link href="/forums">Forums</Link><Link href="/blogs">Journal</Link><Link href="/security">Security</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/support">Contact</Link><Link href="/login">Sign in</Link>
