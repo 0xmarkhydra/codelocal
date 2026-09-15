@@ -32,7 +32,7 @@ async function responseMessage(response: Response): Promise<NonNullable<Mutation
     const payload = await response.json() as { message?: unknown; error?: unknown };
     switch (payload.error) {
       case "invalid_csrf": return { key: "Security token expired. Reload the page and try again." };
-      case "workspace_runtime_offline": return { key: "Start CodeLocal.Cloud on that machine before removing workspace access." };
+      case "workspace_runtime_offline": return { key: "Start CodeLocal on that machine before removing workspace access." };
       case "device_not_found": return { key: "This device is no longer available to revoke." };
       case "workspace_not_found": return { key: "This workspace is no longer authorized." };
       case "device_already_revoked": return { key: "This device has already been revoked." };
@@ -41,7 +41,7 @@ async function responseMessage(response: Response): Promise<NonNullable<Mutation
   } catch {
     // Non-JSON responses still carry an HTTP status.
   }
-  return { key: "CodeLocal.Cloud rejected this change ({status}).", values: { status: String(response.status) } };
+  return { key: "CodeLocal rejected this change ({status}).", values: { status: String(response.status) } };
 }
 
 export function ResourceMutationButton({ endpoint, csrf, label, confirmMessage, disabled, onSuccess }: ResourceMutationButtonProps) {
@@ -74,7 +74,7 @@ export function ResourceMutationButton({ endpoint, csrf, label, confirmMessage, 
       setState({ kind: "success" });
       onSuccess();
     } catch {
-      setState({ kind: "error", message: { key: "CodeLocal.Cloud could not be reached." } });
+      setState({ kind: "error", message: { key: "CodeLocal could not be reached." } });
     }
   }
 

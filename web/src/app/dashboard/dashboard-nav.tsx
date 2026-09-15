@@ -132,7 +132,7 @@ export function DashboardNav({
           <small>{t("Coming soon")}</small>
         </span>
         <strong>
-          CodeLocal.Cloud Desktop <span aria-hidden="true">↗</span>
+          CodeLocal Desktop <span aria-hidden="true">↗</span>
         </strong>
         <p>{t("A new home for AI chat.")}</p>
       </Link>

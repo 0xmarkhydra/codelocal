@@ -76,7 +76,7 @@ export function DashboardSidebar() {
       <div className={styles.mobileBar}>
         <Link className={styles.brand} href="/">
           <Image src="/codelocal-icon.png" alt="" width={27} height={27} />
-          <span>CodeLocal<span className={styles.brandDot}>.</span>Cloud</span>
+          <span>CodeLocal</span>
         </Link>
         <button
           ref={trigger}
@@ -105,7 +105,7 @@ export function DashboardSidebar() {
         aria-label={t("Dashboard navigation")}
       >
         <div className={styles.brandRow}>
-          <Link className={styles.brand} href="/" aria-label={t("CodeLocal.Cloud home")}>
+          <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
             <Image
               src="/codelocal-icon.png"
               alt=""
@@ -113,7 +113,7 @@ export function DashboardSidebar() {
               height={32}
               priority
             />
-            <span>CodeLocal<span className={styles.brandDot}>.</span>Cloud</span>
+            <span>CodeLocal</span>
           </Link>
           <button
             className={styles.closeButton}

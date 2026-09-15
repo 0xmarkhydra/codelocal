@@ -132,7 +132,7 @@ function SkillCard({
           <span className={styles.autoBadge}>{message(stateLabel(skill.state))}</span>
         </div>
         <p className={styles.description}>
-          {tags.length ? tags.join(" · ") : t("Reusable CodeLocal.Cloud expertise selected automatically when it materially improves the task.")}
+          {tags.length ? tags.join(" · ") : t("Reusable CodeLocal expertise selected automatically when it materially improves the task.")}
         </p>
         {tags.length > 0 && (
           <div className={styles.tags} aria-label={t("{name} tags", { name: skill.name })}>
@@ -397,7 +397,7 @@ export function SkillsHub() {
     ? { title: "No Community Skills yet", copy: "Published candidates and promoted Community Skills will appear here. Candidates are never auto-routed before evaluation and promotion." }
     : view === "mine"
       ? { title: "No Personal Skills yet", copy: "Import a private .skill.json package. It stays scoped to your account and can be reused across projects." }
-      : { title: "No Skills available yet", copy: "CodeLocal.Cloud will surface reusable expertise here when the authoritative catalog contains a match." };
+      : { title: "No Skills available yet", copy: "CodeLocal will surface reusable expertise here when the authoritative catalog contains a match." };
 
   return (
     <section className={styles.page}>
@@ -431,7 +431,7 @@ export function SkillsHub() {
           <h2>{t(view === "for-you" ? "Ready when relevant" : view === "built-in" ? "Built-in intelligence" : view === "explore" ? "Community market" : "Your reusable skills")}</h2>
           <p>{t(view === "for-you" ? "No install step. Eligible Skills are selected directly from chat." : "Manage visibility and preference without mixing project-specific knowledge into Project Brain.")}</p>
         </div>
-        {loading && <EmptyView title="Loading Skills" copy="Reading your current CodeLocal.Cloud Skill catalog…" />}
+        {loading && <EmptyView title="Loading Skills" copy="Reading your current CodeLocal Skill catalog…" />}
         {!loading && loadFailed && <EmptyView title="Skills unavailable" copy="The Skill API could not be loaded. Chat continues with safe built-in fallback knowledge." />}
         {!loading && !loadFailed && visibleSkills.map((skill) => <SkillCard busy={busy} key={`${skill.scope}:${skill.id}@${skill.version}`} mutateState={mutateState} rate={rate} skill={skill} />)}
         {!loading && !loadFailed && visibleSkills.length === 0 && <EmptyView title={emptyCopy.title} copy={emptyCopy.copy} />}

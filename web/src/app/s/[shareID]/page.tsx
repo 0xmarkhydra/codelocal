@@ -20,8 +20,8 @@ export async function generateMetadata({ params }: SharePageProps): Promise<Meta
   const { shareID } = await params;
   const share = await getScreenshotShareForRender(shareID);
   if (!share) return { title: t("Shot not found"), robots: { index: false, follow: false } };
-  const description = t("{width} × {height} screenshot shared with CodeLocal.Cloud.", { width: share.width, height: share.height });
-  const title = `${t("Shared screenshot")} · CodeLocal.Cloud`;
+  const description = t("{width} × {height} screenshot shared with CodeLocal.", { width: share.width, height: share.height });
+  const title = `${t("Shared screenshot")} · CodeLocal`;
   return {
     title: t("Shared screenshot"),
     description,
@@ -42,9 +42,9 @@ export default async function SharePage({ params }: SharePageProps) {
   return (
     <main className={styles.page}>
       <header className={styles.header}>
-        <Link className={styles.brand} href="/" aria-label={t("CodeLocal.Cloud home")}>
+        <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
           <span><Image src="/codelocal-icon.png" alt="" width={26} height={26} priority /></span>
-          <strong>CodeLocal.Cloud</strong>
+          <strong>CodeLocal</strong>
         </Link>
         <div className={styles.headerMeta}><span>{t("Shared shot")}</span><code>{share.id}</code></div>
         <div className={styles.headerActions}><LanguageSelect /><Link className={styles.openApp} href="/dashboard">{t("Open app")}</Link></div>
@@ -62,7 +62,7 @@ export default async function SharePage({ params }: SharePageProps) {
 
         <figure className={styles.stage}>
           <Image
-            alt={t("Screenshot shared with CodeLocal.Cloud")}
+            alt={t("Screenshot shared with CodeLocal")}
             height={share.height}
             priority
             sizes="(max-width: 1500px) calc(100vw - 48px), 1440px"
@@ -75,7 +75,7 @@ export default async function SharePage({ params }: SharePageProps) {
         <footer className={styles.footer}>
           <span>{t("Anyone with the link can view")}</span>
           <p>{t("This page is excluded from search engines. The owner can revoke access at any time.")}</p>
-          <Link href="/dashboard/shots">{t("Share a screenshot with CodeLocal.Cloud")} <span aria-hidden="true">↗</span></Link>
+          <Link href="/dashboard/shots">{t("Share a screenshot with CodeLocal")} <span aria-hidden="true">↗</span></Link>
         </footer>
       </section>
     </main>

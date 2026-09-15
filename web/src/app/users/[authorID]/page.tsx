@@ -14,8 +14,8 @@ export async function generateMetadata({ params }: AuthorPageProps): Promise<Met
   const author = posts[0]?.author;
   if (!author) return { title: t("Author not found"), robots: { index: false, follow: false } };
   return {
-    title: `${author.name} · ${t("CodeLocal.Cloud Blog")}`,
-    description: t("Public CodeLocal.Cloud Blog posts by {author}.", { author: author.name }),
+    title: `${author.name} · ${t("CodeLocal Blog")}`,
+    description: t("Public CodeLocal Blog posts by {author}.", { author: author.name }),
     alternates: { canonical: `/users/${encodeURIComponent(authorID)}` },
   };
 }

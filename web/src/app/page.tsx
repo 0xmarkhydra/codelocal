@@ -28,9 +28,9 @@ export default async function Home() {
     <main className={styles.page}>
       <a className={styles.skipLink} href="#main-content">{t("Skip to content")}</a>
       <header className={styles.nav}>
-        <Link className={styles.brand} href="/" aria-label={t("CodeLocal.Cloud home")}>
+        <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
           <Image src="/codelocal-icon.png" alt="" width={32} height={32} />
-          <span className={styles.brandWordmark}>CodeLocal<span className={styles.brandDot}>.</span><span className={styles.brandCloudWord}>Cloud</span></span>
+          <span className={styles.brandWordmark}>CodeLocal</span>
         </Link>
         <nav className={styles.navLinks} aria-label={t("Primary navigation")}>
           <a href="#product">{t("Product")}</a>
@@ -51,11 +51,11 @@ export default async function Home() {
         <Image className={styles.heroImage} src="/codelocal-sculpture.webp" alt="" fill sizes="100vw" preload />
         <div className={styles.heroCopy}>
           <span className={styles.eyebrow}>{t("Project intelligence. Local control.")}</span>
-          <h1>CodeLocal.Cloud</h1>
+          <h1>CodeLocal</h1>
           <h2>{t("A shared intelligence layer for the way you build with AI.")}</h2>
           <p>{t("Connect your AI to one Project Brain. Keep execution on your machine.")}</p>
           <div className={styles.actions}>
-            <Link className={styles.primaryButton} href="/dashboard">{t("Explore CodeLocal.Cloud")} <AppIcon name="external" size={17} /></Link>
+            <Link className={styles.primaryButton} href="/dashboard">{t("Explore CodeLocal")} <AppIcon name="external" size={17} /></Link>
             <a className={styles.secondaryButton} href="#system">{t("See how it works")} <AppIcon name="chevron-down" size={17} /></a>
           </div>
         </div>
@@ -132,7 +132,7 @@ export default async function Home() {
         </ol>
         <section className={styles.desktop} id="desktop" aria-labelledby="desktop-title">
           <AppIcon name="device" size={35} />
-          <div><span className={styles.eyebrow}>{t("On the roadmap")}</span><h3 id="desktop-title">CodeLocal.Cloud Desktop</h3><p>macOS · Windows · Linux</p></div>
+          <div><span className={styles.eyebrow}>{t("On the roadmap")}</span><h3 id="desktop-title">CodeLocal Desktop</h3><p>macOS · Windows · Linux</p></div>
           <span className={styles.roadmapStatus}>{t("In development")}</span>
         </section>
       </section>
@@ -148,7 +148,7 @@ export default async function Home() {
         </div>
       </section>
       <footer className={`${styles.container} ${styles.footer}`}>
-        <Link className={styles.brand} href="/"><Image src="/codelocal-icon.png" alt="" width={28} height={28} />CodeLocal.Cloud</Link>
+        <Link className={styles.brand} href="/"><Image src="/codelocal-icon.png" alt="" width={28} height={28} />CodeLocal</Link>
         <nav aria-label={t("Footer navigation")}><Link href="/forums">Forums</Link><Link href="/blogs">{t("Journal")}</Link><Link href="/security">{t("Security")}</Link><Link href="/privacy">{t("Privacy")}</Link><Link href="/terms">{t("Terms")}</Link><Link href="/support">{t("Contact")}</Link><Link href="/login">{t("Sign in")}</Link></nav>
       </footer>
     </main>

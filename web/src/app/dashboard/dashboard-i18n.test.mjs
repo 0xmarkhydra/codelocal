@@ -181,7 +181,7 @@ for (locale of ["en", "vi", "zh-Hans", "hi"]) {
   visible(healthHTML, t("Degraded"));
   visible(healthHTML, t("Stale"));
   visible(healthHTML, t("Unavailable"));
-  visible(healthHTML, t("Private opt-in. You can disable contribution at any time; CodeLocal.Cloud removes your contribution aggregates when you opt out."));
+  visible(healthHTML, t("Private opt-in. You can disable contribution at any time; CodeLocal removes your contribution aggregates when you opt out."));
   visible(healthHTML, t("Rollout: {status}. A cohort requires at least {count} independent contributors.", { status: t("Available"), count: 10 }));
   visible(healthHTML, t("Raw code shared: {value}", { value: t("No") }));
   visible(healthHTML, "go test ./...");

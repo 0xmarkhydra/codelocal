@@ -273,7 +273,7 @@ export function CustomMCPPanel({ onCountChange }: { onCountChange?: (count: numb
                 <span className={styles.status} data-state={item.state}><i />{t(statusLabel(item.state))}</span>
               </div>
               <div className={styles.connectionMeta}>
-                <span>{item.target === "online" ? t("CodeLocal.Cloud") : deviceLabel(devices, item.deviceId)}</span>
+                <span>{item.target === "online" ? t("CodeLocal") : deviceLabel(devices, item.deviceId)}</span>
                 <span>{t("{count} tools", { count: item.toolCount })}</span>
               </div>
               {item.lastError && <p className={styles.errorText}>{item.lastError}</p>}
@@ -298,7 +298,7 @@ export function CustomMCPPanel({ onCountChange }: { onCountChange?: (count: numb
                 <AppIcon name="connection" size={19} /><strong>{t("Online")}</strong><span>{t("Works even when your computer is off")}</span>
               </button>
               <button type="button" data-active={target === "local" || undefined} className={styles.targetCard} onClick={() => selectTarget("local")}>
-                <AppIcon name="device" size={19} /><strong>{t("On my device")}</strong><span>{t("Runs through the CodeLocal.Cloud client")}</span>
+                <AppIcon name="device" size={19} /><strong>{t("On my device")}</strong><span>{t("Runs through the CodeLocal client")}</span>
               </button>
             </div>
 
@@ -346,7 +346,7 @@ export function CustomMCPPanel({ onCountChange }: { onCountChange?: (count: numb
 
             <div className={styles.reviewRow}>
               <AppIcon name="shield" size={16} />
-              <span>{target === "online" ? t("CodeLocal.Cloud tests the MCP before marking it Ready.") : t("CodeLocal.Cloud saves it to the selected device and probes it before marking it Ready.")}</span>
+              <span>{target === "online" ? t("CodeLocal tests the MCP before marking it Ready.") : t("CodeLocal saves it to the selected device and probes it before marking it Ready.")}</span>
             </div>
 
             <footer className={styles.modalFooter}>

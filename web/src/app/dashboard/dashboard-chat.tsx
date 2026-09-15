@@ -237,7 +237,7 @@ function waitForChatRetry(delayMs: number, signal: AbortSignal) {
 
 function friendlyChatFailure(message: string) {
   if (/model vision|chưa có model vision/i.test(message)) {
-    return "CodeLocal.Cloud chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY với model vision như gpt-* rồi gửi lại ảnh.";
+    return "CodeLocal chưa có model vision khả dụng cho ảnh này. Bạn gắn CODELOCAL_SHOPAIKEY_API_KEY với model vision như gpt-* rồi gửi lại ảnh.";
   }
   if (/chưa bật upload ảnh|media_upload_incomplete|media_not_configured/i.test(message)) {
     return "Hệ thống chưa bật upload ảnh (S3); ảnh vẫn gửi trực tiếp được nhưng chỉ lưu gọn trong lịch sử. Hãy gửi lại ảnh nếu backend báo media_upload_incomplete.";
@@ -245,7 +245,7 @@ function friendlyChatFailure(message: string) {
   if (/Model community miễn phí|không nhận.*ảnh|workspace/i.test(message)) {
     return message;
   }  if (/508|tool loop|loop exceeded/i.test(message)) {
-    return "Luồng xử lý vừa quá dài. CodeLocal.Cloud đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
+    return "Luồng xử lý vừa quá dài. CodeLocal đã giữ lại phần đã làm; gửi “tiếp tục” để nối tiếp ngay.";
   }
   if (/load failed|chat_stream_incomplete|timeout|429|502|503|504|network|fetch/i.test(message)) {
     return "Kết nối vừa gián đoạn sau nhiều lần tự nối lại. Phần đã hoàn thành vẫn được giữ nguyên; gửi “tiếp tục” để nối tiếp.";
@@ -599,7 +599,7 @@ export function DashboardChat() {
           body: file,
         });
         const fallbackData = (await fallback.json().catch(() => ({}))) as { error?: string; message?: string };
-        if (!fallback.ok) throw new Error(fallbackData.message || "Không tải được ảnh lên CodeLocal.Cloud");
+        if (!fallback.ok) throw new Error(fallbackData.message || "Không tải được ảnh lên CodeLocal");
       }
     }
 
@@ -1135,9 +1135,9 @@ export function DashboardChat() {
   }
 
   return (
-    <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện CodeLocal.Cloud">
+    <section className={styles.chatWorkspace} aria-label="Không gian trò chuyện CodeLocal">
       <button className={`${styles.threadDrawerBackdrop} ${threadDrawerOpen ? styles.threadDrawerBackdropOpen : ""}`} type="button" onClick={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} aria-label="Đóng menu" />
-      <aside className={`${styles.threadSidebar} ${treeStyles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Tác vụ và điều hướng CodeLocal.Cloud" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
+      <aside className={`${styles.threadSidebar} ${treeStyles.threadSidebar} ${threadDrawerOpen ? styles.threadSidebarOpen : ""}`} aria-label="Tác vụ và điều hướng CodeLocal" aria-modal={threadDrawerOpen || undefined} role={threadDrawerOpen ? "dialog" : undefined}>
         <ChatSidebarBrand closeRef={threadDrawerCloseRef} onClose={() => { setThreadDrawerOpen(false); mobileDrawerTriggerRef.current?.focus(); }} />
         <button className={`${styles.newThreadButton} ${treeStyles.newThreadButton}`} type="button" onClick={() => { setThreadDrawerOpen(false); void newThread(); }} disabled={loading || threadActionLoading}>
           <AppIcon name="plus" size={17} />
@@ -1205,7 +1205,7 @@ export function DashboardChat() {
         <ChatSidebarFooter onNavigate={() => setThreadDrawerOpen(false)} />
       </aside>
 
-      <section ref={chatFrameRef} className={styles.chatShell} aria-label="Chat với CodeLocal.Cloud" aria-hidden={contextSheetOpen || threadDrawerOpen || undefined}>
+      <section ref={chatFrameRef} className={styles.chatShell} aria-label="Chat với CodeLocal" aria-hidden={contextSheetOpen || threadDrawerOpen || undefined}>
         <ChatTopBar
           drawerOpen={threadDrawerOpen}
           title={activeThread?.title || "Tác vụ mới"}
@@ -1217,7 +1217,7 @@ export function DashboardChat() {
         />
         <div className={styles.chatHead}>
           <div className={headerStyles.threadHeadContext}>
-            <button ref={threadDrawerTriggerRef} className={styles.threadDrawerToggle} type="button" onClick={() => setThreadDrawerOpen(true)} aria-label="Mở menu CodeLocal.Cloud" aria-expanded={threadDrawerOpen}>
+            <button ref={threadDrawerTriggerRef} className={styles.threadDrawerToggle} type="button" onClick={() => setThreadDrawerOpen(true)} aria-label="Mở menu CodeLocal" aria-expanded={threadDrawerOpen}>
               <AppIcon name="menu" size={19} />
             </button>
             <div>
@@ -1299,7 +1299,7 @@ export function DashboardChat() {
             <div className={styles.emptyState}>
               <span className={styles.emptyOrb} aria-hidden="true"><AppIcon name="codelocal" size={27} /></span>
               <strong>Bắt đầu một tác vụ</strong>
-              <p>Mô tả việc cần làm, CodeLocal.Cloud sẽ đọc dự án, thực hiện và kiểm tra kết quả.</p>
+              <p>Mô tả việc cần làm, CodeLocal sẽ đọc dự án, thực hiện và kiểm tra kết quả.</p>
               <div className={styles.suggestions}>
                 {suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setInput(suggestion)}>{suggestion}</button>)}
               </div>
@@ -1308,9 +1308,9 @@ export function DashboardChat() {
             <div key={`${message.role}-${index}`} className={`${styles.msgBlock} ${message.role === "user" ? styles.userBlock : styles.assistantBlock}`}>
               <div className={styles.messageBody}>
                 {message.skills?.length ? (
-                  <div className={skillStyles.list} aria-label="Skills đang được CodeLocal.Cloud sử dụng">
+                  <div className={skillStyles.list} aria-label="Skills đang được CodeLocal sử dụng">
                     {message.skills.map((skill) => (
-                      <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal.Cloud tự chọn ${skill.name}@${skill.version} cho task này`}>
+                      <span className={skillStyles.pill} key={`${skill.id}@${skill.version}`} title={`CodeLocal tự chọn ${skill.name}@${skill.version} cho task này`}>
                         <AppIcon name="skill" size={13} />
                         {skill.name}
                       </span>
@@ -1325,10 +1325,10 @@ export function DashboardChat() {
                   <div className={`${styles.msg} ${message.role === "user" ? styles.msgUser : styles.msgAssistant} ${loading && message.role === "assistant" && index === messages.length - 1 ? styles.msgStreaming : ""}`}>
                     {message.role === "assistant" ? <ChatRichMessage content={message.content} /> : message.content}
                     {loading && message.role === "assistant" && index === messages.length - 1 ? (
-                      <span className={styles.streamingDots} aria-label="CodeLocal.Cloud vẫn đang trả lời"><i /><i /><i /></span>
+                      <span className={styles.streamingDots} aria-label="CodeLocal vẫn đang trả lời"><i /><i /><i /></span>
                     ) : null}
                   </div>
-                ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="CodeLocal.Cloud đang trả lời"><i /><i /><i /></div> : null}
+                ) : loading && index === messages.length - 1 ? <div className={styles.thinking} aria-label="CodeLocal đang trả lời"><i /><i /><i /></div> : null}
               </div>
             </div>
           ))}
@@ -1340,7 +1340,7 @@ export function DashboardChat() {
         <form ref={formRef} className={styles.chatForm} onSubmit={send} onPaste={onPaste}>
           <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className={styles.fileInput} />
           {image ? <div className={styles.imagePreview}><img src={image.previewUrl} alt="Ảnh chuẩn bị gửi" /><button type="button" onClick={discardImage} aria-label="Bỏ ảnh"><AppIcon name="close" size={14} /></button></div> : null}
-          <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Giao tác vụ cho CodeLocal.Cloud…" aria-label="Mô tả tác vụ" enterKeyHint="enter" rows={1} />
+          <textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onComposerKeyDown} onPaste={onPaste} placeholder="Giao tác vụ cho CodeLocal…" aria-label="Mô tả tác vụ" enterKeyHint="enter" rows={1} />
           <div className={styles.composerToolbar}>
             <div className={styles.composerOptions}>
               <button ref={contextTriggerRef} type="button" className={mobileStyles.contextTrigger} onClick={() => setContextSheetOpen(true)} aria-label="Thêm ảnh hoặc chỉnh ngữ cảnh" aria-haspopup="dialog" aria-expanded={contextSheetOpen} disabled={loading || imageUploading}>

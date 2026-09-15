@@ -170,7 +170,7 @@ export function RuntimeSettingsLive() {
             </label>
           )}
         </div>
-        {feedback && <span className={styles.feedback} role="status" data-kind={feedback.kind}>{feedback.kind === "success" ? t("Saved") : feedback.status ? t("CodeLocal.Cloud rejected this change ({status}).", { status: String(feedback.status) }) : t("CodeLocal.Cloud could not be reached.")}</span>}
+        {feedback && <span className={styles.feedback} role="status" data-kind={feedback.kind}>{feedback.kind === "success" ? t("Saved") : feedback.status ? t("CodeLocal rejected this change ({status}).", { status: String(feedback.status) }) : t("CodeLocal could not be reached.")}</span>}
       </section>
 
       {!targetReady ? (
@@ -329,7 +329,7 @@ export function RuntimeSettingsLive() {
                   <span className={styles.capabilityIcon}><AppIcon name="runtime" size={18} /></span>
                   <span className={styles.capabilityCopy}>
                     <strong>{project.id === "openmontage" ? "Video Studio" : project.name}</strong>
-                    <small>{project.id === "openmontage" ? "OpenMontage" : t(project.managed ? "Managed by CodeLocal.Cloud" : "Workspace managed")}</small>
+                    <small>{project.id === "openmontage" ? "OpenMontage" : t(project.managed ? "Managed by CodeLocal" : "Workspace managed")}</small>
                   </span>
                   <span className={styles.statusPill} data-enabled={project.enabled}>{t(project.enabled ? "Enabled" : "Disabled")}</span>
                 </div>

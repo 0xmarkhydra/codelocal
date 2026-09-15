@@ -12,7 +12,7 @@ export default async function SignupVerifyPage({ searchParams }: Props) {
     <AuthShell
       eyebrow="Email verification"
       title="One final check before the account exists."
-      description="CodeLocal.Cloud creates the account only after the six-digit email code is verified, keeping invite-only signup and account ownership tied together."
+      description="CodeLocal creates the account only after the six-digit email code is verified, keeping invite-only signup and account ownership tied together."
       panelTitle={t("Check your email")}
       panelSubtitle={t("Enter the six-digit verification code.")}
     >

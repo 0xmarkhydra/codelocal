@@ -152,7 +152,7 @@ export function ForumsHub() {
     <div className={styles.page}>
       <header className={styles.header}>
         <div>
-          <span className={styles.eyebrow}>CodeLocal.Cloud Community</span>
+          <span className={styles.eyebrow}>CodeLocal Community</span>
           <h1>Forums</h1>
           <p>Ask for help, report bugs, and propose ideas. Verified bugs can move directly into the admin review and GitHub issue workflow.</p>
         </div>
@@ -201,7 +201,7 @@ export function ForumsHub() {
             <summary><span>{draft.kind === "bug" ? "Technical details" : "More options"}</span><small>Optional</small></summary>
             <div className={styles.advancedBody}>
               {draft.kind === "bug" && <div className={styles.bugFields}>
-                <label><span>CodeLocal.Cloud version</span><input value={draft.version} onChange={(event) => setDraft((current) => ({ ...current, version: event.target.value }))} placeholder="If you know it" /></label>
+                <label><span>CodeLocal version</span><input value={draft.version} onChange={(event) => setDraft((current) => ({ ...current, version: event.target.value }))} placeholder="If you know it" /></label>
                 <label className={styles.wide}><span>Steps to reproduce</span><textarea rows={3} value={draft.reproductionSteps} onChange={(event) => setDraft((current) => ({ ...current, reproductionSteps: event.target.value }))} placeholder="Only if the bug is easy to reproduce" /></label>
                 <label><span>Expected</span><textarea rows={2} value={draft.expectedBehavior} onChange={(event) => setDraft((current) => ({ ...current, expectedBehavior: event.target.value }))} /></label>
                 <label><span>Actual</span><textarea rows={2} value={draft.actualBehavior} onChange={(event) => setDraft((current) => ({ ...current, actualBehavior: event.target.value }))} /></label>

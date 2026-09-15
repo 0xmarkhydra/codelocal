@@ -80,17 +80,17 @@ function responseError(response: Response) {
         case "reauthentication_required": return "Sign in again before changing Plugin access.";
         case "plugin_not_found": return "This Plugin is no longer available.";
         case "plugin_not_installed": return "Install this Plugin before configuring a connection.";
-        case "plugin_install_failed": return "CodeLocal.Cloud could not save the Plugin installation.";
-        case "plugin_uninstall_failed": return "CodeLocal.Cloud could not remove the Plugin installation.";
+        case "plugin_install_failed": return "CodeLocal could not save the Plugin installation.";
+        case "plugin_uninstall_failed": return "CodeLocal could not remove the Plugin installation.";
         case "plugin_disconnect_required": return "Disconnect this Plugin from every device before removing it.";
-        case "system_plugin_required": return "System Plugins are managed by CodeLocal.Cloud and cannot be removed.";
-        case "plugin_credential_store_failed": return "CodeLocal.Cloud could not store this credential securely.";
-        case "plugin_credential_materialization_failed": return "CodeLocal.Cloud could not materialize the encrypted credential for this device.";
+        case "system_plugin_required": return "System Plugins are managed by CodeLocal and cannot be removed.";
+        case "plugin_credential_store_failed": return "CodeLocal could not store this credential securely.";
+        case "plugin_credential_materialization_failed": return "CodeLocal could not materialize the encrypted credential for this device.";
         case "plugin_connection_not_found": return "This Plugin connection no longer exists.";
-        case "plugin_workspace_unavailable": return "That CodeLocal.Cloud workspace is offline or unavailable.";
-        case "client_upgrade_required": return "Update the CodeLocal.Cloud client on that device before configuring Plugins.";
-        case "plugin_connect_failed": return "The local CodeLocal.Cloud runtime could not connect this Plugin.";
-        case "plugin_disconnect_failed": return "The local CodeLocal.Cloud runtime could not disconnect this Plugin.";
+        case "plugin_workspace_unavailable": return "That CodeLocal workspace is offline or unavailable.";
+        case "client_upgrade_required": return "Update the CodeLocal client on that device before configuring Plugins.";
+        case "plugin_connect_failed": return "The local CodeLocal runtime could not connect this Plugin.";
+        case "plugin_disconnect_failed": return "The local CodeLocal runtime could not disconnect this Plugin.";
         default: return `Request failed (${response.status}).`;
       }
     })
@@ -134,9 +134,9 @@ function PluginCard({
 
   const readyConnection = cloudReady ?? deviceReady;
   const status = cloudReady
-    ? t("CodeLocal.Cloud")
+    ? t("CodeLocal")
     : deviceReady
-      ? connectionDeviceLabel(deviceReady, workspaces, t("CodeLocal.Cloud"))
+      ? connectionDeviceLabel(deviceReady, workspaces, t("CodeLocal"))
       : hasConnectionError
         ? t("Connection needs attention")
         : configuredConnection
@@ -163,7 +163,7 @@ function PluginCard({
           </div>
         </div>
 
-        <p className={styles.description}>{plugin.description || t("Extend CodeLocal.Cloud with reusable tools and external data.")}</p>
+        <p className={styles.description}>{plugin.description || t("Extend CodeLocal with reusable tools and external data.")}</p>
 
         {!plugin.installed && (
           <div className={styles.permissionsSummary}>
@@ -190,7 +190,7 @@ function PluginCard({
               {plugin.updateAvailable && <span className={styles.statusHint}>{t("New version available")}</span>}
             </div>
           ) : (
-            <span className={styles.statusHint}>{t("Install to make this Plugin available to CodeLocal.Cloud.")}</span>
+            <span className={styles.statusHint}>{t("Install to make this Plugin available to CodeLocal.")}</span>
           )}
           <button className={styles.primaryButton} disabled={busy} onClick={openDialog} type="button">
             {t(!plugin.installed ? "Install" : connections.length > 0 ? "Manage" : "Configure")}
@@ -313,7 +313,7 @@ export function PluginsHub() {
   }, [mutateInstall, refresh]);
 
   const uninstall = useCallback(async (plugin: PluginItem) => {
-    if (!window.confirm(t("Remove {name} from CodeLocal.Cloud?", { name: plugin.name }))) return;
+    if (!window.confirm(t("Remove {name} from CodeLocal?", { name: plugin.name }))) return;
     setBusyPlugin(plugin.id);
     setNotice(null);
     try {

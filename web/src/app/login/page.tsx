@@ -22,7 +22,7 @@ export default async function LoginPage({ searchParams }: Props) {
       title="Your AI tools, one trusted local runtime."
       description="Sign in once to manage the machines, workspaces and Project Brain context you explicitly authorize for MCP-compatible AI clients."
       panelTitle={t("Welcome back")}
-      panelSubtitle={t("Sign in to your CodeLocal.Cloud account.")}
+      panelSubtitle={t("Sign in to your CodeLocal account.")}
     >
       {error ? <div className={styles.alert}>{t.message(error)}</div> : null}
       <form className={styles.form} method="post" action="/login">
@@ -40,7 +40,7 @@ export default async function LoginPage({ searchParams }: Props) {
         <button className={styles.button} type="submit">{t("Sign in")}</button>
       </form>
       <div className={styles.switcher}>
-        {t("New to CodeLocal.Cloud?")} <Link href={`/signup?next=${encodeURIComponent(next)}`}>{t("Create an account")}</Link> · <Link href="/forgot-password">{t("Forgot password?")}</Link>
+        {t("New to CodeLocal?")} <Link href={`/signup?next=${encodeURIComponent(next)}`}>{t("Create an account")}</Link> · <Link href="/forgot-password">{t("Forgot password?")}</Link>
       </div>
     </AuthShell>
   );

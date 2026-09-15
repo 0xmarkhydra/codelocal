@@ -133,7 +133,7 @@ export function ShotsHub() {
 
   async function revokeShare(share: ScreenshotShare) {
     if (accountState.kind !== "ready" || revokingID) return;
-    if (!window.confirm(t("Revoke this public link? The underlying image stays in your CodeLocal.Cloud media library."))) return;
+    if (!window.confirm(t("Revoke this public link? The underlying image stays in your CodeLocal media library."))) return;
     setRevokingID(share.id);
     setError("");
     try {

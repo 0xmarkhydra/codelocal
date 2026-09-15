@@ -220,7 +220,7 @@ export function PluginConnectDialog({
               <AppIcon name="shield" size={18} />
               <div>
                 <strong>{t("Permissions requested")}</strong>
-                <span>{t("Installing this Plugin makes it available to CodeLocal.Cloud. It does not connect an account or approve tool calls.")}</span>
+                <span>{t("Installing this Plugin makes it available to CodeLocal. It does not connect an account or approve tool calls.")}</span>
               </div>
             </div>
             {capabilities.length > 0 ? (
@@ -299,7 +299,7 @@ export function PluginConnectDialog({
             <div className={styles.configHeader}>
               <div>
                 <strong>{t("Configure connection")}</strong>
-                <span>{t("CodeLocal.Cloud connects to this MCP endpoint directly.")}</span>
+                <span>{t("CodeLocal connects to this MCP endpoint directly.")}</span>
               </div>
             </div>
             <label className={styles.field}>
@@ -328,7 +328,7 @@ export function PluginConnectDialog({
                 autoCapitalize="none"
                 autoComplete="new-password"
                 onChange={(event) => setBearerToken(event.target.value)}
-                placeholder={t("Stored encrypted by CodeLocal.Cloud")}
+                placeholder={t("Stored encrypted by CodeLocal")}
                 spellCheck={false}
                 type="password"
                 value={bearerToken}
@@ -337,8 +337,8 @@ export function PluginConnectDialog({
             <p className={styles.credentialNote}>
               <AppIcon name="shield" size={13} />
               {t(isPenpot
-                ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal.Cloud stores it encrypted and never writes it into your repository."
-                : "Tool calls require your approval in chat. Cloud credentials stay on CodeLocal.Cloud.")}
+                ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal stores it encrypted and never writes it into your repository."
+                : "Tool calls require your approval in chat. Cloud credentials stay on CodeLocal.")}
             </p>
             {isPenpot && <p className={styles.configWarning}>{t("Penpot editing requires an active editor bridge. A hosted MCP endpoint alone does not prove background editing works.")}</p>}
           </div>
@@ -348,7 +348,7 @@ export function PluginConnectDialog({
               <div>
                 <strong>{t("Configure connection")}</strong>
                 <span>{t(isPenpot
-                  ? "Connect this device to CodeLocal.Cloud's hosted Penpot MCP."
+                  ? "Connect this device to CodeLocal's hosted Penpot MCP."
                   : "Your device connects to this endpoint and must stay online.")}</span>
               </div>
             </div>
@@ -382,7 +382,7 @@ export function PluginConnectDialog({
                 autoComplete="new-password"
                 disabled={Boolean(bearerEnv)}
                 onChange={(event) => setBearerToken(event.target.value)}
-                placeholder={t("Stored encrypted by CodeLocal.Cloud")}
+                placeholder={t("Stored encrypted by CodeLocal")}
                 spellCheck={false}
                 type="password"
                 value={bearerToken}
@@ -405,11 +405,11 @@ export function PluginConnectDialog({
             <p className={styles.credentialNote}>
               <AppIcon name="shield" size={13} />
               {t(isPenpot
-                ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal.Cloud stores it encrypted and never writes it into your repository."
+                ? "Generate the key in Penpot under Account → Integrations → MCP Server. CodeLocal stores it encrypted and never writes it into your repository."
                 : "Token values are encrypted server-side and materialized only for the selected runtime connection. Environment references remain local to your device.")}
             </p>
             {onlineWorkspaces.length === 0 && (
-              <p className={styles.configWarning}>{t("No running CodeLocal.Cloud device found. Start {command} on a paired device first.", { command: "codelocal" })}</p>
+              <p className={styles.configWarning}>{t("No running CodeLocal device found. Start {command} on a paired device first.", { command: "codelocal" })}</p>
             )}
           </div>
         )}
@@ -419,7 +419,7 @@ export function PluginConnectDialog({
             <AppIcon name="shield" size={18} />
             <div>
               <strong>{t("Before connecting")}</strong>
-              <span>{t("Review the endpoint and permissions before CodeLocal.Cloud connects this Plugin.")}</span>
+              <span>{t("Review the endpoint and permissions before CodeLocal connects this Plugin.")}</span>
             </div>
           </div>
           {capabilities.length > 0 ? (
@@ -446,7 +446,7 @@ export function PluginConnectDialog({
             {connections.map((connection) => (
               <div className={styles.connectionRow} key={`${connection.connection}-${connection.serverName}`}>
                 <div className={styles.connectionCopy}>
-                  <strong>{connectionDeviceLabel(connection, workspaces, t("CodeLocal.Cloud"))}</strong>
+                  <strong>{connectionDeviceLabel(connection, workspaces, t("CodeLocal"))}</strong>
                   <span>
                     {connection.state === "ready"
                       ? t("{count} tools last discovered", { count: connection.toolCount })

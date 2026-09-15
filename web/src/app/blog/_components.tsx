@@ -10,9 +10,9 @@ export async function BlogHeader() {
   const t = await getTranslations();
   return (
     <header className={styles.siteHeader}>
-      <Link className={styles.brand} href="/" aria-label={t("CodeLocal.Cloud home")}>
+      <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
         <Image src="/codelocal-icon.png" alt="" width={28} height={28} priority />
-        <span>CodeLocal.Cloud</span>
+        <span>CodeLocal</span>
         <em>{t("Journal")}</em>
       </Link>
       <nav className={styles.headerNav} aria-label={t("Blog navigation")}>
@@ -31,7 +31,7 @@ export async function BlogFooter() {
   return (
     <footer className={styles.siteFooter}>
       <div>
-        <strong>{t("CodeLocal.Cloud Blog")}</strong>
+        <strong>{t("CodeLocal Blog")}</strong>
         <p>{t("Practical notes on local-first AI infrastructure, agents and project intelligence.")}</p>
       </div>
       <nav aria-label={t("Footer navigation")}>
@@ -79,8 +79,8 @@ export async function ArticleAbout({ post, seriesTitle }: { post: BlogPost; seri
   const description = post.series && seriesTitle
     ? t("Part {count} in {series}.", { count: post.series.part, series: seriesTitle })
     : post.official
-      ? t("An original article from the CodeLocal.Cloud team.")
-      : t("An article from the CodeLocal.Cloud community.");
+      ? t("An original article from the CodeLocal team.")
+      : t("An article from the CodeLocal community.");
 
   return (
     <div className={`${styles.asideCard} ${styles.aboutCard}`}>

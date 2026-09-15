@@ -11,11 +11,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: {
       default: t("Journal"),
-      template: `%s · ${t("CodeLocal.Cloud Blog")}`,
+      template: `%s · ${t("CodeLocal Blog")}`,
     },
     description: t("Practical notes on local-first AI infrastructure, agents and project intelligence."),
     openGraph: {
-      title: t("CodeLocal.Cloud Blog"),
+      title: t("CodeLocal Blog"),
       description: t("Practical notes on local-first AI infrastructure, agents and project intelligence."),
       type: "website",
     },

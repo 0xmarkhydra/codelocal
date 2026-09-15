@@ -112,8 +112,8 @@ function readingMinutes(blocks: BlogBlock[], fallbackText = "") {
 function durableAuthor(userID: string, official: boolean): BlogAuthor {
   return {
     slug: userID,
-    name: official ? "CodeLocal.Cloud Team" : "CodeLocal.Cloud Creator",
-    role: official ? "Engineering & Product" : "CodeLocal.Cloud Community",
+    name: official ? "CodeLocal Team" : "CodeLocal Creator",
+    role: official ? "Engineering & Product" : "CodeLocal Community",
   };
 }
 

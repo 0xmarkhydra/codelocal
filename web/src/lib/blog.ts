@@ -43,7 +43,7 @@ export type BlogPost = {
 export const blogAuthors = {
   codelocal: {
     slug: "codelocal",
-    name: "CodeLocal.Cloud Team",
+    name: "CodeLocal Team",
     role: "Engineering & Product",
   },
 } satisfies Record<string, BlogAuthor>;
