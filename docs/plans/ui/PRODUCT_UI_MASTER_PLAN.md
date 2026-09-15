@@ -859,7 +859,7 @@ Security status should never use a fake numeric score unless the formula is dete
 
 ---
 
-# 15. Invite / Leaderboard / Admin
+# 15. Invite / Admin
 
 These remain secondary product surfaces and should inherit the system without competing with the core product.
 
@@ -868,12 +868,6 @@ These remain secondary product surfaces and should inherit the system without co
 - one focal invite code/link;
 - simple network visualization only when useful;
 - privacy-safe referral list.
-
-## Leaderboard
-
-- reduce podium gimmicks;
-- focus on understandable activity metrics;
-- clearly label estimated MCP payload vs model billing.
 
 ## Admin
 
@@ -1233,7 +1227,6 @@ Migrate:
 - Account;
 - Security;
 - Invite;
-- Leaderboard;
 - Admin.
 
 Acceptance:
@@ -1329,7 +1322,7 @@ Ship in safe slices:
 6. Projects / Skills / Experiences / Runtime
 7. Devices / Workspaces / Connect / Account
 8. Auth / pairing / security
-9. Invite / leaderboard / admin
+9. Invite / admin
 10. Privacy / Terms / Support
 11. CLI consistency
 -------------------------- full product consistency milestone

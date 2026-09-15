@@ -482,33 +482,6 @@ func (s *Store) MCPUsageSummary(ctx context.Context, userID string, since int64)
 	return out, nil
 }
 
-type UsageLeaderboardUser struct {
-	ID    string
-	Email string
-}
-
-func (s *Store) ListUsageLeaderboardUsers(ctx context.Context, since int64) ([]UsageLeaderboardUser, error) {
-	rows, err := s.DB.Query(ctx, `
-SELECT u.id,u.email
-FROM codelocal_users u
-JOIN codelocal_mcp_usage m ON m.user_id=u.id
-WHERE m.last_used_at >= $1
-ORDER BY m.last_used_at DESC,u.id ASC`, since)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []UsageLeaderboardUser{}
-	for rows.Next() {
-		var item UsageLeaderboardUser
-		if err := rows.Scan(&item.ID, &item.Email); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
-}
-
 func (s *Store) ListAdminUsers(ctx context.Context) ([]AdminUser, error) {
 	rows, err := s.DB.Query(ctx, `
 SELECT

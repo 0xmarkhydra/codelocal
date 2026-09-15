@@ -40,7 +40,6 @@ These are the primary operational journey and should remain visible without open
 **More**
 - Usage
 - Invite
-- Leaderboard
 - User network (admin only)
 
 The active secondary group opens automatically. Inactive groups remain collapsed to reduce cognitive load.

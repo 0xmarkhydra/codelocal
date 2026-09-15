@@ -56,7 +56,6 @@ Authenticated dashboard presentation:
 - `/dashboard/devices`
 - `/dashboard/usage`
 - `/dashboard/invite`
-- `/dashboard/leaderboard`
 - `/dashboard/security`
 - `/dashboard/account`
 - `/dashboard/admin` (admin identity required)
@@ -142,7 +141,7 @@ Authenticated checks with a test account:
 7. Workspaces/Devices preserve search, 12-item paging and mutation semantics;
 8. Workspace → Code Graph opens the matching public device/workspace context;
 9. Knowledge Graph, Code Graph and Project Brain controls fail closed when backend/runtime is unavailable;
-10. Invite, Leaderboard and Admin render the Go-backed client-neutral DTOs;
+10. Invite and Admin render the Go-backed client-neutral DTOs;
 11. `/dashboard/admin` is forbidden for non-admin users;
 12. mobile navigation and reduced-motion layouts remain usable.
 

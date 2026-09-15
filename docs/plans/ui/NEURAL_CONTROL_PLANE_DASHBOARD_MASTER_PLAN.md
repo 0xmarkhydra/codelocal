@@ -87,7 +87,6 @@ Current dashboard routes already include:
 /dashboard/devices
 /dashboard/connect
 /dashboard/invite
-/dashboard/leaderboard
 /dashboard/admin
 ```
 
@@ -365,7 +364,6 @@ SYSTEM
 
 COMMUNITY
   Invite
-  Leaderboard
 
 ADMIN
   Administration

@@ -32,7 +32,7 @@ Next owns browser-facing **GET/HEAD presentation**:
 - landing and public docs;
 - login, signup, email verification and password recovery;
 - OAuth consent and device pairing approval;
-- the complete dashboard: Overview, MCP Connections, Workspaces, Knowledge Graph, Code Graph, Devices, Usage, Invite, Leaderboard, Security, Account and Admin.
+- the complete dashboard: Overview, MCP Connections, Workspaces, Knowledge Graph, Code Graph, Devices, Usage, Invite, Security, Account and Admin.
 
 Go owns all trust-bearing behavior:
 
@@ -57,7 +57,6 @@ Client-neutral read contracts include:
 - `GET /api/v1/code/graph`
 - `GET /api/v1/account`
 - `GET /api/v1/invite`
-- `GET /api/v1/leaderboard`
 - `GET /api/v1/admin`
 - `GET /api/v1/pair/approve`
 - `GET /api/v1/auth/csrf`
@@ -65,7 +64,7 @@ Client-neutral read contracts include:
 - `GET /api/v1/auth/password-reset`
 - `GET /api/v1/oauth/authorize-context`
 
-The DTOs intentionally exclude private credential IDs, password hashes/salts, security versions, browser session IDs, project roots, routing keys, raw graph IDs, source-memory IDs and other server-only/runtime-only details. Invite and leaderboard email addresses are masked outside the admin-only contract.
+The DTOs intentionally exclude private credential IDs, password hashes/salts, security versions, browser session IDs, project roots, routing keys, raw graph IDs, source-memory IDs and other server-only/runtime-only details. Invite email addresses are masked outside the admin-only contract.
 
 Sensitive mutations continue through Go. Device revoke uses public `deviceId` in the browser and resolves the private credential ID server-side. Workspace removal uses the existing local-runtime revocation handshake. Password changes/reset preserve CSRF, fresh-security checks, security-version/session rotation, rate limiting and audit.
 
@@ -111,7 +110,7 @@ The Next presentation includes:
 - Workspace → Code Graph deep links by public IDs;
 - Knowledge Graph and Project Brain health/controls;
 - Code Graph checkout/repository/view/depth/symbol controls;
-- invite/referral network and 30-day usage leaderboard;
+- invite/referral network;
 - admin user/referral/runtime overview;
 - Account/Security and logout;
 - public Privacy, Terms, Support and Security pages;

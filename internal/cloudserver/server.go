@@ -307,7 +307,6 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/account", s.accountResourceAPI)
 	mux.HandleFunc("GET /api/v1/auth/csrf", s.authCSRFResourceAPI)
 	mux.HandleFunc("GET /api/v1/invite", s.inviteResourceAPI)
-	mux.HandleFunc("GET /api/v1/leaderboard", s.leaderboardResourceAPI)
 	mux.HandleFunc("GET /api/v1/admin", s.adminResourceAPI)
 	mux.HandleFunc("GET /api/v1/pair/approve", s.pairApproveResourceAPI)
 	mux.HandleFunc("POST /api/v1/devices/{deviceID}/revoke", s.revokeDeviceResourceAPI)
