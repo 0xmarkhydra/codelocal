@@ -2,6 +2,30 @@
 
 CodeLocal is a universal MCP connection layer for AI coding. It connects ChatGPT, Codex, Claude and other MCP-compatible AI clients and agents to one durable Project Brain plus controlled access to project folders you explicitly authorize on your own machine.
 
+> [!IMPORTANT]
+> **Public repository status:** This public repository is currently being separated from CodeLocal's private Enterprise codebase. The CodeLocal team is progressively extracting, reviewing, cleaning up and publishing components that can safely live in the open-source edition.
+>
+> As a result, the public source code is still a work in progress and does not yet represent the complete Enterprise codebase or the final public repository structure. We will continue updating this repository as additional modules are decoupled from private Enterprise infrastructure and made ready for public release.
+
+## What we are building
+
+We are **not** trying to rebuild DeepSeek Harness, Codex, Claude Desktop, or another AI coding client.
+
+The public edition of CodeLocal is intentionally optimized for **one person**. It gives an individual a durable personal Project Brain, reusable skills, project context and controlled execution across compatible AI clients without forcing that person to rebuild their working context in every new chat or tool.
+
+Our broader Enterprise vision goes further: an **intelligent company** in which multiple people and AI agents can contribute specialized skills, experience and verified knowledge to a shared organizational intelligence.
+
+That multi-user model — including team collaboration, collective learning from many people, shared organizational intelligence and company-wide skill coordination — belongs to the private Enterprise codebase and is **not part of the current public edition**.
+
+For the public edition:
+
+- **One person owns the intelligence.** Knowledge, experience and project context are optimized around an individual user.
+- **Skills are reusable.** The user can teach the system workflows and capabilities that can be applied again across their own projects.
+- **Work can become durable personal knowledge.** Verified decisions, project context and useful experience do not need to disappear when a chat ends.
+- **AI clients are interfaces, not the product itself.** ChatGPT, Codex, Claude and other compatible agents can connect to the same personal intelligence and authorized projects.
+
+The long-term Enterprise direction is to let people become specialized workers who can teach, package and sell skills to an organization's intelligence — but the public repository today focuses on making that model powerful and practical for **a single user first**.
+
 Website: [https://codelocal.cloud](https://codelocal.cloud/)
 
 User documentation:
