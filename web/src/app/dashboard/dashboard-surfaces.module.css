@@ -55,6 +55,34 @@
   border-radius: 10px;
 }
 
+.endpointActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconDownload {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  color: rgba(230,237,248,.86);
+  background: rgba(255,255,255,.04);
+  font-size: 12px;
+  font-weight: 620;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.iconDownload:hover {
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.075);
+  color: #fff;
+}
+
 .title {
   margin: 0;
   font-size: 17px;
