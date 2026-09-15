@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { isWorkspacesResource, type WorkspacesResource } from "@/lib/contracts/resources";
 import { AppIcon } from "../app-icon";
 import { PluginConnectDialog } from "./plugin-connect-dialog";
+import { CustomMCPPanel } from "./custom-mcp-panel";
 import styles from "./plugins.module.css";
 
 type PluginView = "explore" | "installed";
@@ -229,6 +230,7 @@ export function PluginsHub() {
   const number = new Intl.NumberFormat(locale);
   const [view, setView] = useState<PluginView>("installed");
   const [resource, setResource] = useState<PluginsResource>({ items: [], installedCount: 0 });
+  const [customMCPCount, setCustomMCPCount] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [account, setAccount] = useState<AccountResource | null>(null);
   const [search, setSearch] = useState("");
@@ -407,7 +409,7 @@ export function PluginsHub() {
       <div className={styles.toolbar}>
         <nav className={styles.tabs} aria-label={t("Plugin views")}>
           <button aria-pressed={view === "installed"} className={view === "installed" ? styles.activeTab : undefined} onClick={() => setView("installed")} type="button">
-            {t("Installed")} <span>{number.format(resource.installedCount)}</span>
+            {t("Installed")} <span>{number.format(resource.installedCount + customMCPCount)}</span>
           </button>
           <button aria-pressed={view === "explore"} className={view === "explore" ? styles.activeTab : undefined} onClick={() => setView("explore")} type="button">
             {t("Explore")}
@@ -422,8 +424,10 @@ export function PluginsHub() {
       {account?.requiresReauthentication && <div className={styles.notice}>{t("Your session is old. Installing or connecting a new Plugin will ask you to sign in again.")}</div>}
       {notice && <div role="status" className={notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}>{message(notice.text, notice.values)}</div>}
 
+      {view === "installed" && <CustomMCPPanel onCountChange={setCustomMCPCount} />}
+
       <div className={styles.sectionIntro}>
-        <h2>{t(view === "explore" ? "Plugin Directory" : "Installed Plugins")}</h2>
+        <h2>{t(view === "explore" ? "Plugin Directory" : "From Explore")}</h2>
         <span>{t("{count} plugins", { count: visible.length })}</span>
       </div>
 

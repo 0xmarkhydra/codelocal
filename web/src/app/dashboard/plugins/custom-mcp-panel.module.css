@@ -1,0 +1,448 @@
+.panel {
+  width: min(100%, var(--dashboard-content));
+  margin: 18px auto 0;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panelHeader h2,
+.panelHeader p,
+.modalHeader h2,
+.modalHeader p,
+.secretPanel p,
+.errorText {
+  margin: 0;
+}
+
+.panelHeader h2,
+.modalHeader h2 {
+  color: rgba(250, 252, 255, 0.95);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.panelHeader p,
+.modalHeader p,
+.secretPanel p {
+  margin-top: 3px;
+  color: rgba(205, 217, 234, 0.72);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.primaryButton,
+.secondaryButton,
+.iconButton,
+.targetCard,
+.modeTabs button,
+.emptyAction,
+.connectionActions button {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primaryButton,
+.secondaryButton {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.primaryButton {
+  color: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.secondaryButton {
+  color: rgba(220, 229, 242, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.primaryButton:hover:not(:disabled),
+.secondaryButton:hover:not(:disabled),
+.connectionActions button:hover:not(:disabled),
+.iconButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.075);
+  color: white;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.connectionActions button:disabled,
+.iconButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.notice {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.noticeSuccess {
+  color: rgba(158, 232, 190, 0.95);
+  border: 1px solid rgba(105, 216, 149, 0.16);
+  background: rgba(27, 62, 42, 0.2);
+}
+
+.noticeError {
+  color: rgba(242, 160, 170, 0.95);
+  border: 1px solid rgba(226, 107, 119, 0.18);
+  background: rgba(66, 25, 31, 0.24);
+}
+
+.emptyAction {
+  width: 100%;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.012);
+  color: rgba(211, 222, 238, 0.82);
+  text-align: left;
+}
+
+.emptyAction:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.emptyAction span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.emptyAction strong {
+  color: rgba(245, 248, 253, 0.92);
+  font-size: 13px;
+}
+
+.emptyAction small {
+  color: rgba(205, 217, 234, 0.7);
+  font-size: 12px;
+}
+
+.connectionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connectionCard {
+  min-width: 0;
+  display: grid;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: var(--surface, rgba(10, 15, 26, 0.54));
+}
+
+.connectionTop {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.connectionIcon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.028);
+  color: rgba(168, 195, 235, 0.9);
+}
+
+.connectionCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.connectionCopy strong {
+  overflow: hidden;
+  color: rgba(248, 250, 254, 0.94);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectionCopy span {
+  overflow: hidden;
+  color: rgba(188, 203, 223, 0.7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(229, 182, 105, 0.9);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status[data-state="ready"] { color: rgba(105, 216, 149, 0.95); }
+.status[data-state="error"] { color: rgba(226, 107, 119, 0.95); }
+
+.connectionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.connectionMeta span {
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.028);
+  color: rgba(195, 209, 229, 0.72);
+  font-size: 11px;
+}
+
+.errorText {
+  color: rgba(239, 154, 163, 0.95);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.connectionActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.connectionActions button {
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(203, 216, 234, 0.78);
+  font-size: 12px;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(2, 5, 10, 0.76);
+  backdrop-filter: blur(7px);
+}
+
+.modal {
+  width: min(660px, 100%);
+  max-height: min(860px, calc(100vh - 44px));
+  overflow: auto;
+  display: grid;
+  gap: 15px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  background: #0b101b;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.48);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.iconButton {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(203, 216, 234, 0.78);
+}
+
+.targetGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.targetCard {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.018);
+  color: rgba(224, 233, 246, 0.9);
+  text-align: left;
+}
+
+.targetCard strong { font-size: 13px; }
+.targetCard span { color: rgba(195, 209, 229, 0.68); font-size: 11px; }
+.targetCard[data-active="true"] { border-color: rgba(120, 160, 255, 0.32); background: rgba(83, 128, 239, 0.08); }
+
+.modeTabs {
+  display: inline-flex;
+  width: fit-content;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.modeTabs button {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(205, 217, 234, 0.76);
+  font-size: 12px;
+}
+
+.modeTabs button[data-active="true"] {
+  background: rgba(255, 255, 255, 0.075);
+  color: white;
+}
+
+.formStack,
+.secretPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+}
+
+.field > span {
+  color: rgba(215, 226, 240, 0.85);
+  font-size: 12px;
+  font-weight: 570;
+}
+
+.field em {
+  color: rgba(203, 215, 232, 0.62);
+  font-style: normal;
+  font-weight: 450;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  outline: 0;
+  background: #090e17;
+  color: rgba(240, 245, 251, 0.92);
+  font: inherit;
+  font-size: 13px;
+}
+
+.field textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: rgba(120, 160, 255, 0.34);
+  box-shadow: 0 0 0 2px rgba(83, 128, 239, 0.07);
+}
+
+.codeInput {
+  min-height: 190px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 12px !important;
+  line-height: 1.55;
+}
+
+.secretPanel {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.secretPanel strong {
+  color: rgba(238, 243, 250, 0.9);
+  font-size: 12px;
+}
+
+.reviewRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  color: rgba(195, 209, 229, 0.72);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.reviewRow svg { flex: 0 0 auto; margin-top: 1px; }
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+@media (max-width: 760px) {
+  .panelHeader { align-items: stretch; flex-direction: column; }
+  .panelHeader .primaryButton { width: 100%; }
+  .connectionGrid, .targetGrid { grid-template-columns: 1fr; }
+  .backdrop { align-items: end; padding: 10px; }
+  .modal { max-height: calc(100vh - 20px); border-radius: 14px 14px 8px 8px; }
+}

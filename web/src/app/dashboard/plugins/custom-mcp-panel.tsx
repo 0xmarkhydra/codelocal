@@ -1,0 +1,361 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "@/lib/i18n/provider";
+import { AppIcon } from "../app-icon";
+import styles from "./custom-mcp-panel.module.css";
+
+type Device = {
+  deviceId: string;
+  deviceName: string;
+  status: "online" | "offline" | "revoked";
+};
+
+type MCPServer = {
+  name: string;
+  enabled: boolean;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  url?: string;
+};
+
+type MCPConnection = {
+  target: "online" | "local";
+  deviceId?: string;
+  server: MCPServer;
+  state: "pending" | "configured" | "ready" | "error";
+  toolCount: number;
+  lastError?: string;
+  connectedAt?: number;
+  updatedAt: number;
+};
+
+type Account = { csrf: string };
+type Notice = { kind: "success" | "error"; text: string } | null;
+type SetupMode = "quick" | "json";
+
+const ONLINE_SAMPLE = `{
+  "mcpServers": {
+    "github": {
+      "url": "https://example.com/mcp"
+    }
+  }
+}`;
+
+const LOCAL_SAMPLE = `{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    }
+  }
+}`;
+
+function secretReferences(raw: string) {
+  const found = new Set<string>();
+  for (const match of raw.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) found.add(match[1]);
+  return [...found];
+}
+
+function serverSummary(server: MCPServer) {
+  if (server.transport === "stdio") return [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
+  return server.url || "Remote MCP";
+}
+
+function statusLabel(state: MCPConnection["state"]) {
+  if (state === "ready") return "Ready";
+  if (state === "error") return "Failed";
+  return "Pending";
+}
+
+function deviceLabel(devices: Device[], id?: string) {
+  return devices.find((device) => device.deviceId === id)?.deviceName || id || "Unknown device";
+}
+
+function normalizedName(value: string) {
+  return value.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+}
+
+export function CustomMCPPanel({ onCountChange }: { onCountChange?: (count: number) => void }) {
+  const { t } = useTranslations();
+  const [connections, setConnections] = useState<MCPConnection[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [target, setTarget] = useState<"online" | "local">("online");
+  const [setupMode, setSetupMode] = useState<SetupMode>("quick");
+  const [deviceId, setDeviceId] = useState("");
+  const [name, setName] = useState("");
+  const [url, setURL] = useState("");
+  const [command, setCommand] = useState("");
+  const [argsText, setArgsText] = useState("");
+  const [bearerToken, setBearerToken] = useState("");
+  const [config, setConfig] = useState(ONLINE_SAMPLE);
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const refresh = useCallback(async () => {
+    const [connectionsResponse, devicesResponse, accountResponse] = await Promise.all([
+      fetch("/api/v1/mcp/connections", { credentials: "same-origin", cache: "no-store" }),
+      fetch("/api/v1/devices", { credentials: "same-origin", cache: "no-store" }),
+      fetch("/api/v1/account", { credentials: "same-origin", cache: "no-store" }),
+    ]);
+    if (!connectionsResponse.ok || !devicesResponse.ok || !accountResponse.ok) {
+      throw new Error(t("MCP connections are temporarily unavailable."));
+    }
+    const connectionPayload = await connectionsResponse.json() as { items?: MCPConnection[] };
+    const devicePayload = await devicesResponse.json() as { items?: Device[] };
+    const accountPayload = await accountResponse.json() as Account;
+    const nextDevices = Array.isArray(devicePayload.items) ? devicePayload.items.filter((item) => item.status !== "revoked") : [];
+    const nextConnections = Array.isArray(connectionPayload.items) ? connectionPayload.items : [];
+    setConnections(nextConnections);
+    onCountChange?.(nextConnections.length);
+    setDevices(nextDevices);
+    setAccount(accountPayload);
+    setDeviceId((current) => current || nextDevices.find((item) => item.status === "online")?.deviceId || nextDevices[0]?.deviceId || "");
+  }, [onCountChange, t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void refresh()
+        .catch((error) => {
+          if (!cancelled) setNotice({ kind: "error", text: error instanceof Error ? error.message : t("MCP connections are temporarily unavailable.") });
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [refresh, t]);
+
+  const refs = useMemo(() => secretReferences(config), [config]);
+
+  function resetForm(nextTarget: "online" | "local" = target) {
+    setTarget(nextTarget);
+    setSetupMode("quick");
+    setName("");
+    setURL("");
+    setCommand("");
+    setArgsText("");
+    setBearerToken("");
+    setConfig(nextTarget === "online" ? ONLINE_SAMPLE : LOCAL_SAMPLE);
+    setSecrets({});
+  }
+
+  function openAddDialog() {
+    resetForm("online");
+    setNotice(null);
+    setDialogOpen(true);
+  }
+
+  function selectTarget(next: "online" | "local") {
+    resetForm(next);
+  }
+
+  function buildQuickConfig() {
+    const serverName = normalizedName(name);
+    if (!serverName) throw new Error(t("Enter a name for this MCP."));
+    if (target === "online") {
+      const endpoint = url.trim();
+      if (!endpoint) throw new Error(t("Enter the MCP URL."));
+      const server: Record<string, unknown> = { url: endpoint };
+      const quickSecrets: Record<string, string> = {};
+      if (bearerToken.trim()) {
+        server.headers = { Authorization: "Bearer ${MCP_TOKEN}" };
+        quickSecrets.MCP_TOKEN = bearerToken.trim();
+      }
+      return { config: JSON.stringify({ mcpServers: { [serverName]: server } }, null, 2), secrets: quickSecrets };
+    }
+    const executable = command.trim();
+    if (!executable) throw new Error(t("Enter the command used to start this MCP."));
+    const args = argsText.split("\n").map((value) => value.trim()).filter(Boolean);
+    return {
+      config: JSON.stringify({ mcpServers: { [serverName]: { command: executable, ...(args.length > 0 ? { args } : {}) } } }, null, 2),
+      secrets: {},
+    };
+  }
+
+  async function addConnection() {
+    if (!account?.csrf || (target === "local" && !deviceId)) return;
+    setSaving(true);
+    setNotice(null);
+    try {
+      const prepared = setupMode === "quick" ? buildQuickConfig() : { config: config.trim(), secrets };
+      if (!prepared.config) throw new Error(t("Paste an MCP configuration first."));
+      const response = await fetch("/api/v1/mcp/connections", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": account.csrf },
+        body: JSON.stringify({
+          target,
+          deviceId: target === "local" ? deviceId : undefined,
+          config: prepared.config,
+          secrets: prepared.secrets,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { detail?: string; error?: string; items?: MCPConnection[] };
+      if (!response.ok) throw new Error(payload.detail || payload.error || t("Could not add this MCP."));
+      await refresh();
+      setDialogOpen(false);
+      const hasError = payload.items?.some((item) => item.state === "error");
+      const hasPending = payload.items?.some((item) => item.state === "pending" || item.state === "configured");
+      setNotice({
+        kind: hasError ? "error" : "success",
+        text: hasError
+          ? t("MCP saved, but its connection needs attention.")
+          : hasPending
+            ? t("MCP saved. It will finish setup when the selected device is available.")
+            : t("MCP added and ready."),
+      });
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : t("Could not add this MCP.") });
+    } finally {
+      setSaving(false);
+      setBearerToken("");
+    }
+  }
+
+  async function removeConnection(item: MCPConnection) {
+    if (!account?.csrf || !window.confirm(t("Remove {name}?", { name: item.server.name }))) return;
+    const query = item.target === "local" && item.deviceId ? `?deviceId=${encodeURIComponent(item.deviceId)}` : "";
+    const response = await fetch(`/api/v1/mcp/connections/${encodeURIComponent(item.target)}/${encodeURIComponent(item.server.name)}${query}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { "X-CSRF-Token": account.csrf },
+    });
+    if (!response.ok) {
+      setNotice({ kind: "error", text: t("Could not remove this MCP.") });
+      return;
+    }
+    await refresh();
+    setNotice({ kind: "success", text: t("MCP removed.") });
+  }
+
+  return (
+    <section className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <div>
+          <h2>{t("Custom MCP")}</h2>
+          <p>{t("Add any MCP by URL, command, or JSON configuration.")}</p>
+        </div>
+        <button className={styles.primaryButton} type="button" onClick={openAddDialog}>
+          <AppIcon name="plus" size={15} /> {t("Add MCP")}
+        </button>
+      </div>
+
+      {notice && <div role="status" className={`${styles.notice} ${notice.kind === "error" ? styles.noticeError : styles.noticeSuccess}`}>{notice.text}</div>}
+
+      {!loading && connections.length === 0 && (
+        <button className={styles.emptyAction} type="button" onClick={openAddDialog}>
+          <AppIcon name="connection" size={19} />
+          <span><strong>{t("No custom MCPs yet")}</strong><small>{t("Add an MCP server to use it alongside installed Plugins.")}</small></span>
+          <AppIcon name="plus" size={15} />
+        </button>
+      )}
+
+      {connections.length > 0 && (
+        <div className={styles.connectionGrid}>
+          {connections.map((item) => (
+            <article className={styles.connectionCard} key={`${item.target}-${item.deviceId || "cloud"}-${item.server.name}`}>
+              <div className={styles.connectionTop}>
+                <span className={styles.connectionIcon}><AppIcon name={item.target === "online" ? "connection" : "terminal"} size={17} /></span>
+                <div className={styles.connectionCopy}>
+                  <strong>{item.server.name}</strong>
+                  <span>{serverSummary(item.server)}</span>
+                </div>
+                <span className={styles.status} data-state={item.state}><i />{t(statusLabel(item.state))}</span>
+              </div>
+              <div className={styles.connectionMeta}>
+                <span>{item.target === "online" ? t("CodeLocal Cloud") : deviceLabel(devices, item.deviceId)}</span>
+                <span>{t("{count} tools", { count: item.toolCount })}</span>
+              </div>
+              {item.lastError && <p className={styles.errorText}>{item.lastError}</p>}
+              <div className={styles.connectionActions}>
+                <button type="button" disabled={saving} onClick={() => void removeConnection(item)}>{t("Remove")}</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {dialogOpen && (
+        <div className={styles.backdrop} role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setDialogOpen(false); }}>
+          <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="add-mcp-title">
+            <header className={styles.modalHeader}>
+              <div><h2 id="add-mcp-title">{t("Add MCP")}</h2><p>{t("Choose where it runs, then add a URL, command, or paste JSON.")}</p></div>
+              <button className={styles.iconButton} type="button" disabled={saving} onClick={() => setDialogOpen(false)} aria-label={t("Close")}><AppIcon name="close" size={17} /></button>
+            </header>
+
+            <div className={styles.targetGrid} role="group" aria-label={t("Where should this MCP run?")}>
+              <button type="button" data-active={target === "online" || undefined} className={styles.targetCard} onClick={() => selectTarget("online")}>
+                <AppIcon name="connection" size={19} /><strong>{t("Online")}</strong><span>{t("Works even when your computer is off")}</span>
+              </button>
+              <button type="button" data-active={target === "local" || undefined} className={styles.targetCard} onClick={() => selectTarget("local")}>
+                <AppIcon name="device" size={19} /><strong>{t("On my device")}</strong><span>{t("Runs through the CodeLocal client")}</span>
+              </button>
+            </div>
+
+            {target === "local" && (
+              <label className={styles.field}>
+                <span>{t("Device")}</span>
+                <select value={deviceId} onChange={(event) => setDeviceId(event.target.value)}>
+                  {devices.length === 0 && <option value="">{t("No paired devices")}</option>}
+                  {devices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.deviceName} · {t(device.status === "online" ? "Online" : "Offline")}</option>)}
+                </select>
+              </label>
+            )}
+
+            <div className={styles.modeTabs} role="tablist" aria-label={t("MCP setup method")}>
+              <button type="button" role="tab" aria-selected={setupMode === "quick"} data-active={setupMode === "quick" || undefined} onClick={() => setSetupMode("quick")}>{t("Quick setup")}</button>
+              <button type="button" role="tab" aria-selected={setupMode === "json"} data-active={setupMode === "json" || undefined} onClick={() => setSetupMode("json")}>{t("Paste JSON")}</button>
+            </div>
+
+            {setupMode === "quick" ? (
+              <div className={styles.formStack}>
+                <label className={styles.field}><span>{t("Name")}</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="github" autoComplete="off" /></label>
+                {target === "online" ? (
+                  <>
+                    <label className={styles.field}><span>{t("MCP URL")}</span><input value={url} onChange={(event) => setURL(event.target.value)} placeholder="https://example.com/mcp" inputMode="url" autoComplete="off" /></label>
+                    <label className={styles.field}><span>{t("Bearer token")} <em>{t("Optional")}</em></span><input type="password" value={bearerToken} onChange={(event) => setBearerToken(event.target.value)} placeholder={t("Leave blank if this MCP does not need a token")} autoComplete="new-password" /></label>
+                  </>
+                ) : (
+                  <>
+                    <label className={styles.field}><span>{t("Command")}</span><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="npx" autoComplete="off" /></label>
+                    <label className={styles.field}><span>{t("Arguments")} <em>{t("One per line")}</em></span><textarea value={argsText} onChange={(event) => setArgsText(event.target.value)} placeholder={"-y\n@playwright/mcp@latest"} spellCheck={false} /></label>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className={styles.formStack}>
+                <label className={styles.field}><span>{t("MCP JSON")}</span><textarea className={styles.codeInput} value={config} onChange={(event) => setConfig(event.target.value)} spellCheck={false} /></label>
+                {refs.length > 0 && (
+                  <div className={styles.secretPanel}>
+                    <div><strong>{t("Secrets referenced by this config")}</strong><p>{target === "local" ? t("Leave blank to use the environment variable already configured on this device.") : t("Values are encrypted and never written into the MCP JSON.")}</p></div>
+                    {refs.map((ref) => <label className={styles.field} key={ref}><span>{ref}</span><input type="password" autoComplete="new-password" value={secrets[ref] ?? ""} onChange={(event) => setSecrets((current) => ({ ...current, [ref]: event.target.value }))} /></label>)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className={styles.reviewRow}>
+              <AppIcon name="shield" size={16} />
+              <span>{target === "online" ? t("CodeLocal tests the MCP before marking it Ready.") : t("CodeLocal saves it to the selected device and probes it before marking it Ready.")}</span>
+            </div>
+
+            <footer className={styles.modalFooter}>
+              <button className={styles.secondaryButton} type="button" disabled={saving} onClick={() => setDialogOpen(false)}>{t("Cancel")}</button>
+              <button className={styles.primaryButton} type="button" disabled={saving || (target === "local" && !deviceId)} onClick={() => void addConnection()}>{saving ? t("Testing…") : t("Test & add MCP")}</button>
+            </footer>
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
