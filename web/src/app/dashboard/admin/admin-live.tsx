@@ -55,8 +55,8 @@ export function AdminLive() {
   const visible = filtered.slice((safePage - 1) * 12, safePage * 12);
 
   if (error === "forbidden") return <section className={surface.empty} role="status"><h2>{t("Access denied")}</h2><p>{t("This account does not have administrator access.")}</p></section>;
-  if (error) return <DashboardResourceFeedback kind="error" label="Admin" message="Admin dashboard tạm thời không khả dụng" onRetry={() => window.location.reload()} />;
-  if (!data) return <DashboardResourceFeedback kind="loading" label="Admin" />;
+  if (error) return <DashboardResourceFeedback kind="error" label={t("Admin")} message={t("Admin dashboard is temporarily unavailable")} onRetry={() => window.location.reload()} />;
+  if (!data) return <DashboardResourceFeedback kind="loading" label={t("Admin")} />;
 
   return (
     <div className={surface.adminLayout}>

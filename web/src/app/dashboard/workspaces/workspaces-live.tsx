@@ -77,13 +77,13 @@ function ProjectCard({ workspace, csrf, retry }: { workspace: WorkspaceItem; csr
           <span>{workspace.deviceName} · {t(statusLabel(workspace.status))}</span>
           <small>{t("Updated {time}", { time: formatDashboardTime(workspace.lastSeenAt, locale) })}</small>
         </span>
-        <span className={styles.workspaceChatAction}>Code Graph <AppIcon name="chevron-right" size={14} /></span>
+        <span className={styles.workspaceChatAction}>{t("Code Graph")} <AppIcon name="chevron-right" size={14} /></span>
       </Link>
       <div className={styles.workspaceCardActions}>
         <details className={styles.workspaceOverflow}>
           <summary aria-label={t("More actions for {name}", { name: workspace.workspaceName })}><span aria-hidden="true">•••</span></summary>
           <div>
-            <Link className={styles.secondaryCardAction} href="/dashboard/knowledge">Project Brain</Link>
+            <Link className={styles.secondaryCardAction} href="/dashboard/knowledge">{t("Project Brain")}</Link>
             <ResourceMutationButton
               endpoint={`/api/v1/workspaces/${encodeURIComponent(workspace.deviceId)}/${encodeURIComponent(workspace.workspaceId)}/remove`}
               csrf={csrf}
@@ -113,7 +113,7 @@ function InstalledSystemAppCard({ workspace }: { workspace: WorkspaceItem }) {
           <i />
         </span>
         <span className={styles.workspaceCardBody}>
-          <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>CodeLocal App</b></span>
+          <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>{t("CodeLocal App")}</b></span>
           <span>{workspace.deviceName} · {t(statusLabel(workspace.status))}</span>
           <small>{t("Managed by CodeLocal")}</small>
         </span>
@@ -207,7 +207,7 @@ export function LiveWorkspaces() {
                   <i />
                 </span>
                 <span className={styles.workspaceCardBody}>
-                  <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>CodeLocal App</b></span>
+                  <span className={styles.systemAppTitleLine}><h2>Video Studio</h2><b>{t("CodeLocal App")}</b></span>
                   <span>{device.deviceName} · {device.status === "online" ? t("Ready") : t("Offline")}</span>
                   <small>{t("Create, edit and render videos")}</small>
                 </span>

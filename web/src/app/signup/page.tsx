@@ -15,12 +15,12 @@ export default async function SignupPage({ searchParams }: Props) {
   const error = get(params, "error");
   return (
     <AuthShell
-      eyebrow="Invite-only access"
-      title="Give your AI client a controlled way into your real projects."
-      description="Create one CodeLocal identity, pair the machines you trust, and authorize project folders independently. Local source stays local."
+      eyebrow={t("Invite-only access")}
+      title={t("Give your AI client a controlled way into your real projects.")}
+      description={t("Create one CodeLocal identity, pair the machines you trust, and authorize project folders independently. Local source stays local.")}
       panelTitle={t("Create your account")}
       panelSubtitle={t("A valid member invite code is required.")}
-      highlights={["Email verification before account creation", "Per-device and per-workspace authorization", "OAuth-ready for compatible MCP clients"]}
+      highlights={[t("Email verification before account creation"), t("Per-device and per-workspace authorization"), t("OAuth-ready for compatible MCP clients")]}
     >
       {error ? <div className={styles.alert}>{t.message(error)}</div> : null}
       <form className={styles.form} method="post" action="/signup">

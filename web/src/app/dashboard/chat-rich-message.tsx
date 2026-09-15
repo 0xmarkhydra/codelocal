@@ -4,6 +4,7 @@ import { isValidElement, useState, type ComponentPropsWithoutRef, type ReactNode
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AppIcon } from "./app-icon";
+import { useTranslations } from "@/lib/i18n/provider";
 import styles from "./dashboard-chat.module.css";
 
 function SafeLink({ href = "", children, ...props }: ComponentPropsWithoutRef<"a">) {
@@ -51,6 +52,7 @@ function nodeText(node: ReactNode): string {
 }
 
 function CodeBlock({ children }: { children?: ReactNode }) {
+  const { t } = useTranslations();
   const [copied, setCopied] = useState(false);
   const codeElement = isValidElement(children) ? children : null;
   const codeProps = (codeElement?.props ?? {}) as { className?: string; children?: ReactNode };
@@ -78,13 +80,22 @@ function CodeBlock({ children }: { children?: ReactNode }) {
           type="button"
           onClick={copy}
           data-copied={copied || undefined}
-          aria-label={copied ? "Đã copy code" : "Copy code"}
+          aria-label={copied ? t("Code copied") : t("Copy code")}
         >
           <AppIcon name={copied ? "check" : "copy"} size={12} />
-          {copied ? "Đã copy" : "Copy"}
+          {copied ? t("Copied") : t("Copy")}
         </button>
       </div>
       <pre className={styles.richCodeBlock}>{children}</pre>
+    </div>
+  );
+}
+
+function RichTable({ children }: { children?: ReactNode }) {
+  const { t } = useTranslations();
+  return (
+    <div className={styles.richTableWrap} tabIndex={0} role="region" aria-label={t("Data table")}>
+      <table>{children}</table>
     </div>
   );
 }
@@ -95,11 +106,7 @@ const components: Components = {
   code: ({ className, children, ...props }) => (
     <code className={className} {...props}>{children}</code>
   ),
-  table: ({ children }) => (
-    <div className={styles.richTableWrap} tabIndex={0} role="region" aria-label="Bảng dữ liệu">
-      <table>{children}</table>
-    </div>
-  ),
+  table: RichTable,
 };
 
 export function ChatRichMessage({ content }: { content: string }) {

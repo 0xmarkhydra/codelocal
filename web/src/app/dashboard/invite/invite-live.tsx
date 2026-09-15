@@ -49,8 +49,8 @@ export function InviteLive() {
     return data.members;
   }, [data, filter]);
 
-  if (error) return <DashboardResourceFeedback kind="error" label="Invite" message="Invite tạm thời không khả dụng" onRetry={() => window.location.reload()} />;
-  if (!data) return <DashboardResourceFeedback kind="loading" label="Invite" />;
+  if (error) return <DashboardResourceFeedback kind="error" label={t("Invite")} message={t("Invite is temporarily unavailable")} onRetry={() => window.location.reload()} />;
+  if (!data) return <DashboardResourceFeedback kind="loading" label={t("Invite")} />;
 
   return (
     <div className={surface.inviteLayout}>

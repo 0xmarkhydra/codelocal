@@ -68,4 +68,65 @@ assert.equal(translate("zh-Hans", "New value for {key}", { key: "FFMPEG_PATH" })
 const savedNotice = { text: "Rated {name} {rating}/5.", values: { name: "CodeLocal", rating: 4 } };
 assert.equal(translateKnownMessage("en", savedNotice.text, savedNotice.values), "Rated CodeLocal 4/5.");
 assert.equal(translateKnownMessage("vi", savedNotice.text, savedNotice.values), "Đã đánh giá CodeLocal 4/5.");
+
+
+// Recent product surfaces must stay wired to the shared translation layer.
+const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+const publicForumsSource = source("../../app/forums/page.tsx");
+const publicForumTopicSource = source("../../app/forums/[topicID]/page.tsx");
+const forumLayoutSource = source("../../app/forums/layout.tsx");
+const dashboardForumsSource = source("../../app/dashboard/forums/forums-hub.tsx");
+const dashboardForumTopicSource = source("../../app/dashboard/forums/forum-topic-live.tsx");
+const chatActionSource = source("../../app/dashboard/chat-action-summary.tsx");
+const connectSource = source("../../app/dashboard/connect/page.tsx");
+const navSource = source("../../app/dashboard/dashboard-nav.tsx");
+for (const text of [publicForumsSource, publicForumTopicSource, forumLayoutSource]) {
+  assert.match(text, /getTranslations/);
+}
+for (const text of [dashboardForumsSource, dashboardForumTopicSource, chatActionSource]) {
+  assert.match(text, /useTranslations/);
+}
+assert.ok(!publicForumsSource.includes('<h1>Build together.'));
+assert.ok(!publicForumTopicSource.includes('Intl.DateTimeFormat("en"'));
+assert.ok(!dashboardForumsSource.includes('<h1>Forums</h1>'));
+assert.ok(!dashboardForumTopicSource.includes('>Back to Forums</Link>'));
+assert.ok(!chatActionSource.includes('Cần quyền để tiếp tục'));
+assert.ok(connectSource.includes('t("Endpoint")'));
+assert.ok(connectSource.includes('t("MCP server")'));
+assert.ok(navSource.includes('<span>{t(item.label)}</span>'));
+assert.ok(navSource.includes('<span className={styles.navLabel}>{t(group.label)}</span>'));
+
+const dashboardChatSource = source("../../app/dashboard/dashboard-chat.tsx");
+const chatContextSource = source("../../app/dashboard/chat-context-sheet.tsx");
+const chatRichSource = source("../../app/dashboard/chat-rich-message.tsx");
+const chatSidebarSource = source("../../app/dashboard/chat-sidebar-footer.tsx");
+const chatTopBarSource = source("../../app/dashboard/chat-top-bar.tsx");
+for (const text of [dashboardChatSource, chatContextSource, chatRichSource, chatSidebarSource, chatTopBarSource]) {
+  assert.match(text, /useTranslations/);
+}
+for (const [name, text] of [
+  ["context sheet", chatContextSource],
+  ["rich message", chatRichSource],
+  ["sidebar", chatSidebarSource],
+  ["top bar", chatTopBarSource],
+]) {
+  assert.ok(!/[À-ỹ]/.test(text), `${name} must not hard-code Vietnamese UI text`);
+}
+for (const raw of [
+  "Tác vụ mới",
+  "Tìm dự án và tác vụ",
+  "Không tìm thấy dự án hoặc tác vụ.",
+  "Không thuộc dự án",
+  "Tạo tác vụ đầu tiên",
+  "Bắt đầu một tác vụ",
+  "Đang tải cuộc trò chuyện…",
+  "Giao tác vụ cho CodeLocal…",
+  "Dừng trả lời",
+]) {
+  assert.ok(!dashboardChatSource.includes(`>${raw}<`) && !dashboardChatSource.includes(`\"${raw}\"`), `dashboard chat must translate: ${raw}`);
+}
+assert.ok(dashboardChatSource.includes('useState<ChatNotice>(null)'));
+assert.ok(!dashboardChatSource.includes('function noticeIsError'));
+
+
 console.log(`i18n checks passed: negotiation, cookie validation, ${Object.keys(messages).length} messages in four languages.`);

@@ -58,9 +58,9 @@ function secretReferences(raw: string) {
   return [...found];
 }
 
-function serverSummary(server: MCPServer) {
+function serverSummary(server: MCPServer, remoteLabel: string) {
   if (server.transport === "stdio") return [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
-  return server.url || "Remote MCP";
+  return server.url || remoteLabel;
 }
 
 function statusLabel(state: MCPConnection["state"]) {
@@ -69,8 +69,8 @@ function statusLabel(state: MCPConnection["state"]) {
   return "Pending";
 }
 
-function deviceLabel(devices: Device[], id?: string) {
-  return devices.find((device) => device.deviceId === id)?.deviceName || id || "Unknown device";
+function deviceLabel(devices: Device[], unknownLabel: string, id?: string) {
+  return devices.find((device) => device.deviceId === id)?.deviceName || id || unknownLabel;
 }
 
 function normalizedName(value: string) {
@@ -268,12 +268,12 @@ export function CustomMCPPanel({ onCountChange }: { onCountChange?: (count: numb
                 <span className={styles.connectionIcon}><AppIcon name={item.target === "online" ? "connection" : "terminal"} size={17} /></span>
                 <div className={styles.connectionCopy}>
                   <strong>{item.server.name}</strong>
-                  <span>{serverSummary(item.server)}</span>
+                  <span>{serverSummary(item.server, t("Remote MCP"))}</span>
                 </div>
                 <span className={styles.status} data-state={item.state}><i />{t(statusLabel(item.state))}</span>
               </div>
               <div className={styles.connectionMeta}>
-                <span>{item.target === "online" ? t("CodeLocal") : deviceLabel(devices, item.deviceId)}</span>
+                <span>{item.target === "online" ? t("CodeLocal") : deviceLabel(devices, t("Unknown device"), item.deviceId)}</span>
                 <span>{t("{count} tools", { count: item.toolCount })}</span>
               </div>
               {item.lastError && <p className={styles.errorText}>{item.lastError}</p>}

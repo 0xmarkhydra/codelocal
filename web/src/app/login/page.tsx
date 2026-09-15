@@ -18,9 +18,9 @@ export default async function LoginPage({ searchParams }: Props) {
   const error = value(params, "error");
   return (
     <AuthShell
-      eyebrow="Private control plane"
-      title="Your AI tools, one trusted local runtime."
-      description="Sign in once to manage the machines, workspaces and Project Brain context you explicitly authorize for MCP-compatible AI clients."
+      eyebrow={t("Private control plane")}
+      title={t("Your AI tools, one trusted local runtime.")}
+      description={t("Sign in once to manage the machines, workspaces and Project Brain context you explicitly authorize for MCP-compatible AI clients.")}
       panelTitle={t("Welcome back")}
       panelSubtitle={t("Sign in to your CodeLocal account.")}
     >

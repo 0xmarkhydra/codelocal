@@ -14,9 +14,9 @@ export default async function ForgotPasswordPage({ searchParams }: Props) {
   const error = get(params, "error");
   return (
     <AuthShell
-      eyebrow="Account recovery"
-      title="Recover access without weakening the trust boundary."
-      description="Password reset codes expire quickly and completion revokes existing signed-in sessions. CodeLocal never exposes recovery state to advertisers or third parties."
+      eyebrow={t("Account recovery")}
+      title={t("Recover access without weakening the trust boundary.")}
+      description={t("Password reset codes expire quickly and completion revokes existing signed-in sessions. CodeLocal never exposes recovery state to advertisers or third parties.")}
       panelTitle={t(sent ? "Check your email" : "Forgot your password?")}
       panelSubtitle={t(sent ? "If the account exists, reset instructions have been sent." : "Enter the email used for your CodeLocal account.")}
     >

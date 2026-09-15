@@ -10,9 +10,9 @@ export default async function SignupVerifyPage({ searchParams }: Props) {
   const params = await searchParams;
   return (
     <AuthShell
-      eyebrow="Email verification"
-      title="One final check before the account exists."
-      description="CodeLocal creates the account only after the six-digit email code is verified, keeping invite-only signup and account ownership tied together."
+      eyebrow={t("Email verification")}
+      title={t("One final check before the account exists.")}
+      description={t("CodeLocal creates the account only after the six-digit email code is verified, keeping invite-only signup and account ownership tied together.")}
       panelTitle={t("Check your email")}
       panelSubtitle={t("Enter the six-digit verification code.")}
     >

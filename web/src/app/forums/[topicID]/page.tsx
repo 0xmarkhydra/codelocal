@@ -4,11 +4,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppIcon } from "@/app/dashboard/app-icon";
 import { forumExcerpt, getPublicForumTopic, publicForumImageURL } from "@/lib/forum-server";
+import { getLocale, getTranslations } from "@/lib/i18n/server";
+import type { MessageKey } from "@/lib/i18n/messages";
 import styles from "../forums.module.css";
 
 type TopicPageProps = { params: Promise<{ topicID: string }> };
 
-const statusLabels: Record<string, string> = {
+const statusLabels: Record<string, MessageKey> = {
   open: "Open",
   under_review: "Under review",
   planned: "Planned",
@@ -17,20 +19,21 @@ const statusLabels: Record<string, string> = {
   closed: "Closed",
 };
 
-const kindLabels: Record<string, string> = {
+const kindLabels: Record<string, MessageKey> = {
   question: "Question / Problem",
   bug: "Bug Report",
   idea: "Idea / Feedback",
 };
 
-function dateTime(value: number) {
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+function dateTime(value: number, locale: string) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 export async function generateMetadata({ params }: TopicPageProps): Promise<Metadata> {
+  const t = await getTranslations();
   const { topicID } = await params;
   const resource = await getPublicForumTopic(topicID);
-  if (!resource) return { title: "Forum topic not found", robots: { index: false, follow: false } };
+  if (!resource) return { title: t("Forum topic not found"), robots: { index: false, follow: false } };
   const { topic } = resource;
   const description = forumExcerpt(topic.body, 180);
   return {
@@ -51,6 +54,7 @@ export async function generateMetadata({ params }: TopicPageProps): Promise<Meta
 }
 
 export default async function ForumTopicPage({ params }: TopicPageProps) {
+  const [t, locale] = await Promise.all([getTranslations(), getLocale()]);
   const { topicID } = await params;
   const resource = await getPublicForumTopic(topicID);
   if (!resource) notFound();
@@ -86,18 +90,18 @@ export default async function ForumTopicPage({ params }: TopicPageProps) {
 
       <section className={styles.topicHero}>
         <div className={styles.container}>
-          <Link className={styles.backLink} href="/forums"><AppIcon name="chevron-left" size={15} /> All discussions</Link>
+          <Link className={styles.backLink} href="/forums"><AppIcon name="chevron-left" size={15} /> {t("All discussions")}</Link>
           <div className={styles.badges}>
-            <span data-kind={topic.kind}>{kindLabels[topic.kind]}</span>
-            <span data-status={topic.status}>{statusLabels[topic.status]}</span>
+            <span data-kind={topic.kind}>{t(kindLabels[topic.kind])}</span>
+            <span data-status={topic.status}>{t(statusLabels[topic.status])}</span>
             {topic.kind === "bug" && topic.severity && <span>{topic.severity}</span>}
           </div>
           <h1>{topic.title}</h1>
           <div className={styles.detailMeta}>
             <span>{topic.author}</span>
-            <time dateTime={new Date(topic.createdAt).toISOString()}>{dateTime(topic.createdAt)}</time>
-            <span>{topic.voteCount} votes</span>
-            <span>{topic.commentCount} replies</span>
+            <time dateTime={new Date(topic.createdAt).toISOString()}>{dateTime(topic.createdAt, locale)}</time>
+            <span>{t("{count} votes", { count: topic.voteCount })}</span>
+            <span>{t("{count} replies", { count: topic.commentCount })}</span>
           </div>
         </div>
       </section>
@@ -105,13 +109,13 @@ export default async function ForumTopicPage({ params }: TopicPageProps) {
       <section className={styles.articleBand}>
         <div className={`${styles.container} ${styles.articleLayout}`}>
           <article className={styles.articleBody}>
-            <span className={styles.articleLabel}>Discussion</span>
+            <span className={styles.articleLabel}>{t("Discussion")}</span>
             <p className={styles.bodyCopy}>{topic.body}</p>
             {topic.assetIds.length > 0 && (
               <div className={styles.gallery}>
                 {topic.assetIds.map((assetID, index) => (
                   <a href={publicForumImageURL(assetID)} target="_blank" rel="noreferrer" key={assetID}>
-                    <Image src={publicForumImageURL(assetID)} alt={`Attachment ${index + 1} for ${topic.title}`} width={1200} height={800} unoptimized />
+                    <Image src={publicForumImageURL(assetID)} alt={t("Attachment {count} for {name}", { count: index + 1, name: topic.title })} width={1200} height={800} unoptimized />
                   </a>
                 ))}
               </div>
@@ -120,14 +124,14 @@ export default async function ForumTopicPage({ params }: TopicPageProps) {
           </article>
 
           <aside className={styles.topicAside}>
-            <span className={styles.articleLabel}>Thread</span>
+            <span className={styles.articleLabel}>{t("Thread")}</span>
             <dl>
-              <div><dt>Status</dt><dd>{statusLabels[topic.status]}</dd></div>
-              <div><dt>Type</dt><dd>{kindLabels[topic.kind]}</dd></div>
-              <div><dt>Replies</dt><dd>{topic.commentCount}</dd></div>
-              <div><dt>Votes</dt><dd>{topic.voteCount}</dd></div>
+              <div><dt>{t("Status")}</dt><dd>{t(statusLabels[topic.status])}</dd></div>
+              <div><dt>{t("Type")}</dt><dd>{t(kindLabels[topic.kind])}</dd></div>
+              <div><dt>{t("Replies")}</dt><dd>{topic.commentCount}</dd></div>
+              <div><dt>{t("Votes")}</dt><dd>{topic.voteCount}</dd></div>
             </dl>
-            <Link className={styles.darkButton} href={`/dashboard/forums/${topic.id}`}>Join the discussion <AppIcon name="external" size={15} /></Link>
+            <Link className={styles.darkButton} href={`/dashboard/forums/${topic.id}`}>{t("Join the discussion")} <AppIcon name="external" size={15} /></Link>
           </aside>
         </div>
       </section>
@@ -136,23 +140,23 @@ export default async function ForumTopicPage({ params }: TopicPageProps) {
         <section className={styles.engineering}>
           <div className={styles.container}>
             <div className={styles.sectionHeading}>
-              <div><span className={styles.eyebrow}>Engineering context</span><h2>From report to resolution.</h2></div>
-              <p>Technical details stay secondary to the report itself, but remain available when they help reproduce and fix the issue.</p>
+              <div><span className={styles.eyebrow}>{t("Engineering context")}</span><h2>{t("From report to resolution.")}</h2></div>
+              <p>{t("Technical details stay secondary to the report itself, but remain available when they help reproduce and fix the issue.")}</p>
             </div>
             <div className={styles.bugGrid}>
-              <div><strong>Version</strong><p>{topic.version || "Not provided"}</p></div>
-              <div><strong>Environment</strong><p>{topic.environment || "Captured automatically or not provided"}</p></div>
-              <div><strong>Steps to reproduce</strong><p>{topic.reproductionSteps || "Not provided"}</p></div>
-              <div><strong>Expected behavior</strong><p>{topic.expectedBehavior || "Not provided"}</p></div>
-              <div><strong>Actual behavior</strong><p>{topic.actualBehavior || "Not provided"}</p></div>
+              <div><strong>{t("Version")}</strong><p>{topic.version || t("Not provided")}</p></div>
+              <div><strong>{t("Environment")}</strong><p>{topic.environment || t("Captured automatically or not provided")}</p></div>
+              <div><strong>{t("Steps to reproduce")}</strong><p>{topic.reproductionSteps || t("Not provided")}</p></div>
+              <div><strong>{t("Expected behavior")}</strong><p>{topic.expectedBehavior || t("Not provided")}</p></div>
+              <div><strong>{t("Actual behavior")}</strong><p>{topic.actualBehavior || t("Not provided")}</p></div>
             </div>
 
             {(topic.githubIssueUrl || topic.githubPrUrl || topic.resolutionNote) && (
               <div className={styles.deliveryStrip}>
-                <div><span>ENGINEERING HANDOFF</span><strong>{topic.resolutionNote ? "Resolution recorded" : topic.githubPrUrl ? "Fix in progress" : "Issue linked"}</strong></div>
+                <div><span>{t("ENGINEERING HANDOFF")}</span><strong>{t(topic.resolutionNote ? "Resolution recorded" : topic.githubPrUrl ? "Fix in progress" : "Issue linked")}</strong></div>
                 <div className={styles.githubLinks}>
-                  {topic.githubIssueUrl && <a href={topic.githubIssueUrl} target="_blank" rel="noreferrer">GitHub Issue{topic.githubIssueNumber ? ` #${topic.githubIssueNumber}` : ""} <AppIcon name="external" size={14} /></a>}
-                  {topic.githubPrUrl && <a href={topic.githubPrUrl} target="_blank" rel="noreferrer">Pull Request / Fix <AppIcon name="external" size={14} /></a>}
+                  {topic.githubIssueUrl && <a href={topic.githubIssueUrl} target="_blank" rel="noreferrer">{t("GitHub Issue")}{topic.githubIssueNumber ? ` #${topic.githubIssueNumber}` : ""} <AppIcon name="external" size={14} /></a>}
+                  {topic.githubPrUrl && <a href={topic.githubPrUrl} target="_blank" rel="noreferrer">{t("Pull Request / Fix")} <AppIcon name="external" size={14} /></a>}
                 </div>
                 {topic.resolutionNote && <p>{topic.resolutionNote}</p>}
               </div>
@@ -164,25 +168,25 @@ export default async function ForumTopicPage({ params }: TopicPageProps) {
       <section className={styles.repliesSection}>
         <div className={styles.container}>
           <div className={styles.sectionHeading}>
-            <div><span className={styles.eyebrow}>Replies / {String(comments.length).padStart(2, "0")}</span><h2>Community context.</h2></div>
-            <Link className={styles.secondaryButton} href={`/dashboard/forums/${topic.id}`}>Sign in to reply <AppIcon name="external" size={16} /></Link>
+            <div><span className={styles.eyebrow}>{t("Replies")} / {String(comments.length).padStart(2, "0")}</span><h2>{t("Community context.")}</h2></div>
+            <Link className={styles.secondaryButton} href={`/dashboard/forums/${topic.id}`}>{t("Sign in to reply")} <AppIcon name="external" size={16} /></Link>
           </div>
 
           {comments.length === 0 ? (
-            <div className={styles.empty}><span className={styles.eyebrow}>No replies yet</span><h2>Be the first to add context.</h2></div>
+            <div className={styles.empty}><span className={styles.eyebrow}>{t("No replies yet")}</span><h2>{t("Be the first to add context.")}</h2></div>
           ) : (
             <div className={styles.replyList}>
               {comments.map((comment, index) => (
                 <article className={styles.reply} key={comment.id}>
                   <span className={styles.replyIndex}>{String(index + 1).padStart(2, "0")}</span>
                   <div>
-                    <header><strong>{comment.author}</strong><time dateTime={new Date(comment.createdAt).toISOString()}>{dateTime(comment.createdAt)}</time></header>
+                    <header><strong>{comment.author}</strong><time dateTime={new Date(comment.createdAt).toISOString()}>{dateTime(comment.createdAt, locale)}</time></header>
                     <p>{comment.body}</p>
                     {comment.assetIds.length > 0 && (
                       <div className={styles.replyGallery}>
                         {comment.assetIds.map((assetID, imageIndex) => (
                           <a href={publicForumImageURL(assetID)} target="_blank" rel="noreferrer" key={assetID}>
-                            <Image src={publicForumImageURL(assetID, "medium")} alt={`Reply attachment ${imageIndex + 1}`} width={640} height={420} unoptimized />
+                            <Image src={publicForumImageURL(assetID, "medium")} alt={t("Reply attachment {count}", { count: imageIndex + 1 })} width={640} height={420} unoptimized />
                           </a>
                         ))}
                       </div>
@@ -197,11 +201,11 @@ export default async function ForumTopicPage({ params }: TopicPageProps) {
 
       <section className={styles.detailClosing}>
         <div className={styles.container}>
-          <span className={styles.eyebrow}>Keep the loop moving</span>
-          <h2>Know the answer?<br /><span>Add what you learned.</span></h2>
+          <span className={styles.eyebrow}>{t("Keep the loop moving")}</span>
+          <h2>{t("Know the answer?")}<br /><span>{t("Add what you learned.")}</span></h2>
           <div className={styles.actions}>
-            <Link className={styles.primaryButton} href={`/dashboard/forums/${topic.id}`}>Reply to this thread <AppIcon name="external" size={17} /></Link>
-            <Link className={styles.secondaryButton} href="/forums">Back to Forums <AppIcon name="chevron-right" size={17} /></Link>
+            <Link className={styles.primaryButton} href={`/dashboard/forums/${topic.id}`}>{t("Reply to this thread")} <AppIcon name="external" size={17} /></Link>
+            <Link className={styles.secondaryButton} href="/forums">{t("Back to Forums")} <AppIcon name="chevron-right" size={17} /></Link>
           </div>
         </div>
       </section>

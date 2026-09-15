@@ -11,9 +11,9 @@ export default async function ResetPasswordPage({ searchParams }: Props) {
   const done = get(params, "done") === "1";
   return (
     <AuthShell
-      eyebrow="Secure recovery"
-      title="Rotate the password. Revoke the old trust."
-      description="A completed reset updates the account security version and invalidates existing browser sessions before the account can be used again."
+      eyebrow={t("Secure recovery")}
+      title={t("Rotate the password. Revoke the old trust.")}
+      description={t("A completed reset updates the account security version and invalidates existing browser sessions before the account can be used again.")}
       panelTitle={t(done ? "Password reset" : "Choose a new password")}
       panelSubtitle={t(done ? "Your account is ready for a fresh sign-in." : "The reset code expires after 10 minutes.")}
     >

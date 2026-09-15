@@ -2,6 +2,8 @@
 
 import { AppIcon } from "./app-icon";
 import { PluginApproval } from "./plugin-approval";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { MessageKey } from "@/lib/i18n/messages";
 import styles from "./chat-action-summary.module.css";
 
 export type ChatToolCall = {
@@ -13,27 +15,25 @@ export type ChatToolCall = {
   status: "running" | "done" | "error" | "approval_required";
 };
 
-function actionLabel(name: string, status: ChatToolCall["status"]) {
-  const labels: Record<string, [string, string, string]> = {
-    list_workspaces: ["Đang xem workspaces", "Đã xem workspaces", "Xem workspaces"],
-    list_devices: ["Đang kiểm tra thiết bị", "Đã kiểm tra thiết bị", "Kiểm tra thiết bị"],
-    search_project_brain: ["Đang truy vấn Brain", "Đã truy vấn Brain", "Truy vấn Brain"],
-    get_workspace_detail: ["Đang đọc dự án", "Đã đọc dự án", "Đọc dự án"],
-    list_project_files: ["Đang xem mã nguồn", "Đã xem mã nguồn", "Xem mã nguồn"],
-    read_project_file: ["Đang đọc file", "Đã đọc file", "Đọc file"],
-    search_project_code: ["Đang tìm trong code", "Đã tìm trong code", "Tìm trong code"],
-    edit_project_file: ["Đang sửa code", "Đã sửa code", "Sửa code"],
-    write_project_file: ["Đang cập nhật file", "Đã cập nhật file", "Cập nhật file"],
-    apply_project_patch: ["Đang áp dụng thay đổi", "Đã áp dụng thay đổi", "Áp dụng thay đổi"],
-    run_project_command: ["Đang chạy lệnh", "Đã chạy lệnh", "Chạy lệnh"],
-    poll_project_command: ["Đang chờ lệnh", "Lệnh đã kết thúc", "Chờ lệnh"],
-    verify_project_changes: ["Đang kiểm tra thay đổi", "Đã kiểm tra thay đổi", "Kiểm tra thay đổi"],
-  };
-  const label = labels[name];
-  if (!label) return name.replaceAll("_", " ");
-  if (status === "running") return label[0];
-  if (status === "done") return label[1];
-  return label[2];
+const actionLabels: Partial<Record<string, MessageKey>> = {
+  list_workspaces: "View workspaces",
+  list_devices: "Check devices",
+  search_project_brain: "Search Project Brain",
+  get_workspace_detail: "Read project",
+  list_project_files: "View source code",
+  read_project_file: "Read file",
+  search_project_code: "Search code",
+  edit_project_file: "Edit code",
+  write_project_file: "Update file",
+  apply_project_patch: "Apply changes",
+  run_project_command: "Run command",
+  poll_project_command: "Wait for command",
+  verify_project_changes: "Verify changes",
+};
+
+function actionLabel(name: string, t: ReturnType<typeof useTranslations>["t"]) {
+  const key = actionLabels[name];
+  return key ? t(key) : name.replaceAll("_", " ");
 }
 
 function durationLabel(durationMs: number) {
@@ -51,22 +51,23 @@ function summaryState(actions: ChatToolCall[]) {
   return "done";
 }
 
-function summaryLabel(actions: ChatToolCall[], state: ReturnType<typeof summaryState>) {
-  if (state === "approval") return "Đang chờ cấp quyền";
-  if (state === "running") return `${actions.filter((action) => action.status === "running").length} bước đang chạy`;
+function summaryLabel(actions: ChatToolCall[], state: ReturnType<typeof summaryState>, t: ReturnType<typeof useTranslations>["t"]) {
+  if (state === "approval") return t("Waiting for approval");
+  if (state === "running") return t("{count} steps running", { count: actions.filter((action) => action.status === "running").length });
   if (state === "error") {
     const failed = actions.filter((action) => action.status === "error").length;
-    return `${actions.length - failed} hoàn tất · ${failed} lỗi`;
+    return t("{done} complete · {failed} errors", { done: actions.length - failed, failed });
   }
-  return `${actions.length} bước đã hoàn tất`;
+  return t("{count} steps completed", { count: actions.length });
 }
 
 export function ChatActionSummary({ actions, busy, onApprove }: { actions: ChatToolCall[]; busy: boolean; onApprove: () => void }) {
+  const { t } = useTranslations();
   const state = summaryState(actions);
   const durationMs = actions.reduce((total, action) => total + Math.max(0, action.durationMs || 0), 0);
   const approvals = actions.filter((action) => action.status === "approval_required");
-  const stateLabel = state === "approval" ? "Cần cấp quyền" : state === "error" ? "Hoàn tất, có lỗi" : state === "running" ? "Đang chạy" : "Hoàn tất";
-  const label = summaryLabel(actions, state);
+  const stateLabel = state === "approval" ? t("Approval required") : state === "error" ? t("Completed with errors") : state === "running" ? t("Running") : t("Completed");
+  const label = summaryLabel(actions, state, t);
 
   return (
     <div className={styles.actionGroup} data-state={state}>
@@ -84,11 +85,11 @@ export function ChatActionSummary({ actions, busy, onApprove }: { actions: ChatT
             <li key={action.id} data-state={action.status}>
               <span className={styles.timelineDot} aria-hidden="true" />
               <div className={styles.actionCopy}>
-                <strong>{actionLabel(action.name, action.status)}</strong>
-                <small>{action.status === "approval_required" ? "Cần quyền" : action.status === "error" ? "Lỗi" : action.status === "running" ? "Đang chạy" : "Hoàn tất"}{action.durationMs ? ` · ${durationLabel(action.durationMs)}` : ""}</small>
+                <strong>{actionLabel(action.name, t)}</strong>
+                <small>{action.status === "approval_required" ? t("Needs permission") : action.status === "error" ? t("Error") : action.status === "running" ? t("Running") : t("Completed")}{action.durationMs ? ` · ${durationLabel(action.durationMs)}` : ""}</small>
                 {action.arguments || action.result ? (
                   <details className={styles.actionData}>
-                    <summary>Chi tiết</summary>
+                    <summary>{t("Details")}</summary>
                     {action.arguments ? <code>{action.arguments}</code> : null}
                     {action.result ? <code>{action.result.length > 800 ? `${action.result.slice(0, 800)}…` : action.result}</code> : null}
                   </details>
@@ -106,8 +107,8 @@ export function ChatActionSummary({ actions, busy, onApprove }: { actions: ChatT
           return <PluginApproval key={`${action.id}-approval`} id={request.approvalId} busy={busy} />;
         }
         return <div className={styles.approvalRow} key={`${action.id}-approval`}>
-          <span><AppIcon name="shield" size={15} /><strong>{actionLabel(action.name, action.status)}</strong><small>Cần quyền để tiếp tục</small></span>
-          <button type="button" onClick={onApprove} disabled={busy}>Toàn quyền truy cập</button>
+          <span><AppIcon name="shield" size={15} /><strong>{actionLabel(action.name, t)}</strong><small>{t("Needs permission to continue")}</small></span>
+          <button type="button" onClick={onApprove} disabled={busy}>{t("Full access")}</button>
         </div>;
       })}
     </div>

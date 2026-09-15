@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { WorkspacesResource } from "@/lib/contracts/resources";
 import { AppIcon } from "./app-icon";
+import { useTranslations } from "@/lib/i18n/provider";
 import styles from "./chat-mobile.module.css";
 
 type WorkspaceItem = WorkspacesResource["items"][number];
@@ -50,12 +51,13 @@ export function ChatContextSheet({
   onModelChange,
   onGoalChange,
 }: ChatContextSheetProps) {
+  const { locale, t } = useTranslations();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [modelSearch, setModelSearch] = useState("");
   const visibleModels = useMemo(() => {
-    const query = modelSearch.trim().toLocaleLowerCase("vi");
-    return query ? models.filter((model) => `${modelLabel(model)} ${model}`.toLocaleLowerCase("vi").includes(query)) : models;
-  }, [modelLabel, modelSearch, models]);
+    const query = modelSearch.trim().toLocaleLowerCase(locale);
+    return query ? models.filter((model) => `${modelLabel(model)} ${model}`.toLocaleLowerCase(locale).includes(query)) : models;
+  }, [locale, modelLabel, modelSearch, models]);
 
   useEffect(() => {
     if (!open) return;
@@ -83,28 +85,28 @@ export function ChatContextSheet({
 
   return (
     <div className={styles.sheetLayer}>
-      <button className={styles.sheetBackdrop} type="button" onClick={closeAndRestore} aria-label="Đóng tùy chọn ngữ cảnh" />
+      <button className={styles.sheetBackdrop} type="button" onClick={closeAndRestore} aria-label={t("Close context options")} />
       <section className={styles.sheet} role="dialog" aria-modal="true" aria-labelledby="chat-context-title">
         <div className={styles.sheetGrabber} aria-hidden="true" />
         <header className={styles.sheetHead}>
           <div>
-            <h2 id="chat-context-title">Ngữ cảnh tác vụ</h2>
-            <p>Ảnh, dự án, chế độ và model</p>
+            <h2 id="chat-context-title">{t("Task context")}</h2>
+            <p>{t("Images, projects, mode and model")}</p>
           </div>
-          <button ref={closeRef} type="button" onClick={closeAndRestore} aria-label="Đóng tùy chọn ngữ cảnh"><AppIcon name="close" size={18} /></button>
+          <button ref={closeRef} type="button" onClick={closeAndRestore} aria-label={t("Close context options")}><AppIcon name="close" size={18} /></button>
         </header>
         <div className={styles.sheetBody}>
           <button className={styles.attachAction} type="button" onClick={onAttach} disabled={imageDisabled}>
             <span><AppIcon name="image" size={20} /></span>
-            <span><strong>Thêm ảnh</strong><small>PNG, JPG hoặc ảnh từ thư viện</small></span>
+            <span><strong>{t("Add image")}</strong><small>{t("PNG, JPG, or an image from your library")}</small></span>
             <AppIcon name="chevron-right" size={17} />
           </button>
 
           <fieldset className={styles.projectField}>
-            <legend>Dự án</legend>
+            <legend>{t("Project")}</legend>
             <label className={selectedWorkspaceKey === "auto" ? styles.selectedCard : undefined}>
               <input type="radio" name="mobile-project" value="auto" checked={selectedWorkspaceKey === "auto"} onChange={(event) => onWorkspaceChange(event.target.value)} />
-              <span><strong>Auto</strong><small>CodeLocal tự chọn dự án phù hợp</small></span>
+              <span><strong>{t("Auto")}</strong><small>{t("CodeLocal chooses the most relevant project automatically")}</small></span>
             </label>
             {workspaceItems.map((workspace) => {
               const key = workspaceKey(workspace);
@@ -114,11 +116,11 @@ export function ChatContextSheet({
                 <i data-status={workspace.status} data-online={workspace.runtimeOnline} aria-hidden="true" />
               </label>;
             })}
-            <Link className={styles.manageProjects} href="/dashboard/workspaces">Quản lý dự án <AppIcon name="chevron-right" size={16} /></Link>
+            <Link className={styles.manageProjects} href="/dashboard/workspaces">{t("Manage projects")} <AppIcon name="chevron-right" size={16} /></Link>
           </fieldset>
 
           <fieldset className={styles.modeField}>
-            <legend>Chế độ</legend>
+            <legend>{t("Mode")}</legend>
             <div>
               {(["ask", "plan", "agent"] as const).map((value) => (
                 <button key={value} type="button" className={mode === value ? styles.modeActive : ""} aria-pressed={mode === value} onClick={() => onModeChange(value)}>
@@ -129,23 +131,23 @@ export function ChatContextSheet({
           </fieldset>
 
           <fieldset className={styles.modelField}>
-            <legend>Model</legend>
-            {models.length > 10 ? <label className={styles.modelSearch}><AppIcon name="search" size={17} /><input value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder="Tìm model" aria-label="Tìm model" /></label> : null}
+            <legend>{t("Model")}</legend>
+            {models.length > 10 ? <label className={styles.modelSearch}><AppIcon name="search" size={17} /><input value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder={t("Search models")} aria-label={t("Search models")} /></label> : null}
             <div className={styles.modelList}>
               {visibleModels.map((model) => <button className={selectedModel === model ? styles.selectedModel : ""} type="button" aria-pressed={selectedModel === model} onClick={() => onModelChange(model)} key={model}>
                 <span>{modelLabel(model)}</span>{modelLabel(model) !== model ? <small>{model}</small> : null}
               </button>)}
-              {!visibleModels.length ? <p>Không tìm thấy model.</p> : null}
+              {!visibleModels.length ? <p>{t("No models found.")}</p> : null}
             </div>
           </fieldset>
 
           <label className={styles.goalField}>
-            <span>Mục tiêu <small>không bắt buộc</small></span>
-            <textarea value={goal} onChange={(event) => onGoalChange(event.target.value)} placeholder="Kết quả mong muốn của tác vụ" maxLength={240} rows={2} />
+            <span>{t("Goal")} <small>{t("optional")}</small></span>
+            <textarea value={goal} onChange={(event) => onGoalChange(event.target.value)} placeholder={t("Desired task outcome")} maxLength={240} rows={2} />
           </label>
         </div>
         <footer className={styles.sheetFooter}>
-          <button type="button" onClick={closeAndRestore}>Xong</button>
+          <button type="button" onClick={closeAndRestore}>{t("Done")}</button>
         </footer>
       </section>
     </div>

@@ -36,7 +36,7 @@ export default async function Home() {
           <a href="#product">{t("Product")}</a>
           <a href="#system">{t("Architecture")}</a>
           <Link href="/security">{t("Security")}</Link>
-          <Link href="/forums">Forums</Link>
+          <Link href="/forums">{t("Forums")}</Link>
           <Link href="/blogs">{t("Journal")}</Link>
         </nav>
         <div className={styles.navActions}>
@@ -149,7 +149,7 @@ export default async function Home() {
       </section>
       <footer className={`${styles.container} ${styles.footer}`}>
         <Link className={styles.brand} href="/"><Image src="/codelocal-icon.png" alt="" width={28} height={28} />CodeLocal</Link>
-        <nav aria-label={t("Footer navigation")}><Link href="/forums">Forums</Link><Link href="/blogs">{t("Journal")}</Link><Link href="/security">{t("Security")}</Link><Link href="/privacy">{t("Privacy")}</Link><Link href="/terms">{t("Terms")}</Link><Link href="/support">{t("Contact")}</Link><Link href="/login">{t("Sign in")}</Link></nav>
+        <nav aria-label={t("Footer navigation")}><Link href="/forums">{t("Forums")}</Link><Link href="/blogs">{t("Journal")}</Link><Link href="/security">{t("Security")}</Link><Link href="/privacy">{t("Privacy")}</Link><Link href="/terms">{t("Terms")}</Link><Link href="/support">{t("Contact")}</Link><Link href="/login">{t("Sign in")}</Link></nav>
       </footer>
     </main>
   );

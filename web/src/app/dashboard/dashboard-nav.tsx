@@ -10,8 +10,8 @@ import { useDashboardResource } from "./use-dashboard-resource";
 import { LanguageSelect, useTranslations } from "@/lib/i18n/provider";
 import type { MessageKey } from "@/lib/i18n/messages";
 
-type NavigationItem = { label: MessageKey | "Project Brain" | "Code Graph" | "Forums"; href: string; icon: AppIconName };
-const groups: { label: MessageKey | "Community"; items: NavigationItem[] }[] = [
+type NavigationItem = { label: MessageKey; href: string; icon: AppIconName };
+const groups: { label: MessageKey; items: NavigationItem[] }[] = [
   {
     label: "Workspace",
     items: [
@@ -58,7 +58,7 @@ function NavLink({
       aria-current={active ? "page" : undefined}
     >
       <AppIcon name={item.icon} size={18} />
-      <span>{item.label === "Project Brain" || item.label === "Code Graph" || item.label === "Forums" ? item.label : t(item.label)}</span>
+      <span>{t(item.label)}</span>
       {active && <i aria-hidden="true" />}
     </Link>
   );
@@ -85,7 +85,7 @@ export function DashboardNav({
       >
         {(compact ? groups.slice(0, 1) : groups).map((group) => (
           <div className={styles.navGroup} key={group.label}>
-            <span className={styles.navLabel}>{group.label === "Community" ? group.label : t(group.label)}</span>
+            <span className={styles.navLabel}>{t(group.label)}</span>
             {group.items.map((item) => (
               <NavLink item={item} pathname={pathname} key={item.href} />
             ))}

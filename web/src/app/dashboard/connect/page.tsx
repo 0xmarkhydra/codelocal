@@ -25,7 +25,7 @@ export default async function ConnectPage() {
             <div className={surface.cardHeader}>
               <div className={surface.endpointHeading}>
                 <Image className={surface.endpointLogo} src="/codelocal-icon.png" alt="" width={44} height={44} priority />
-                <div><span className={dashboard.eyebrow}>Endpoint</span><h2 className={surface.title}>MCP server</h2></div>
+                <div><span className={dashboard.eyebrow}>{t("Endpoint")}</span><h2 className={surface.title}>{t("MCP server")}</h2></div>
               </div>
               <div className={surface.endpointActions}>
                 <a className={surface.iconDownload} href="/codelocal-icon.png" download="codelocal-icon.png">
