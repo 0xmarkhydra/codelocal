@@ -32,6 +32,16 @@ For the public edition:
 
 The long-term Enterprise direction is to let people become specialized workers who can teach, package and sell skills to an organization's intelligence — but the public repository today focuses on making that model powerful and practical for **a single user first**.
 
+## Build it with us
+
+> **“Every child needs a village to grow.”**
+>
+> CodeLocal is still growing. If you find a bug, disagree with a design decision, have an idea, or can make any part of the project better, please contribute code and share feedback in the [CodeLocal Forums](https://codelocal.cloud/forums). We want the public edition to be shaped in the open by the people who actually use it.
+
+`codelocal.cloud` should be treated as the CodeLocal team's current public/reference deployment, not as the only way this project should exist. We encourage developers to **fork the repository, study it, modify it, and build their own deployment** for their own needs and environments.
+
+Please do not wait for CodeLocal to become “finished” before participating. Review the code, open issues, propose safer designs, send pull requests, challenge assumptions, and tell us what does not work. **Help us raise this project together.**
+
 Website: [https://codelocal.cloud](https://codelocal.cloud/)
 
 User documentation:
