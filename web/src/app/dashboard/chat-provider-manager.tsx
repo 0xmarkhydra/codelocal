@@ -68,15 +68,18 @@ export function ChatProviderManager({ open, onClose, onChanged }: ChatProviderMa
 
   useEffect(() => {
     if (!open) return;
-    void loadProviders();
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
+    const loadFrame = window.requestAnimationFrame(() => {
+      void loadProviders();
+      closeRef.current?.focus();
+    });
     document.body.style.overflow = "hidden";
     document.addEventListener("keydown", closeOnEscape);
-    window.requestAnimationFrame(() => closeRef.current?.focus());
     return () => {
+      window.cancelAnimationFrame(loadFrame);
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
     };

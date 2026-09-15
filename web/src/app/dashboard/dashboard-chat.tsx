@@ -274,7 +274,8 @@ export function DashboardChat() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem("codelocal.chat.contextMode");
-    if (stored === "smart" || stored === "off" || stored === "aggressive") setContextMode(stored);
+    if (stored !== "smart" && stored !== "off" && stored !== "aggressive") return;
+    queueMicrotask(() => setContextMode(stored));
   }, []);
 
   useEffect(() => {
@@ -493,8 +494,12 @@ export function DashboardChat() {
   }
 
   useEffect(() => {
-    void refreshModelCatalog(false);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void refreshModelCatalog(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!followLatestRef.current) return;
