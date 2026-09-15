@@ -9,6 +9,7 @@ import (
 
 func TestNextDashboardRoutingUsesCompletePresentationWhitelist(t *testing.T) {
 	for _, path := range []string{
+		"/chat",
 		"/dashboard",
 		"/dashboard/connect",
 		"/dashboard/devices",

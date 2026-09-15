@@ -53,6 +53,7 @@ func isNextPublicAssetPath(path string) bool {
 }
 
 var nextDashboardPaths = map[string]struct{}{
+	"/chat":                 {},
 	"/dashboard":            {},
 	"/dashboard/connect":    {},
 	"/dashboard/workspaces": {},
