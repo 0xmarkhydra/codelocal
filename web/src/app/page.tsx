@@ -30,7 +30,7 @@ export default async function Home() {
       <header className={styles.nav}>
         <Link className={styles.brand} href="/" aria-label={t("CodeLocal home")}>
           <Image src="/codelocal-icon.png" alt="" width={32} height={32} />
-          CodeLocal<span className={styles.brandDot}>.</span><AppIcon name="cloud" size={17} className={styles.brandCloud} />
+          CodeLocal<span className={styles.brandDot}>.</span>Cloud
         </Link>
         <nav className={styles.navLinks} aria-label={t("Primary navigation")}>
           <a href="#product">{t("Product")}</a>
